@@ -82,6 +82,31 @@ function loadHistoryDb() {
           version: Number(parsed.version || 1),
           games: Array.isArray(parsed.games) ? parsed.games : [],
         };
+
+        // Clean up any corrupted/phantom entries that may have been written by older builds
+        // (for example, dry-run simulations that accidentally persisted history).
+        try {
+          const before = Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : [];
+          const cleaned = [];
+          const seen = new Set();
+          for (const g of before) {
+            if (!isValidHistoryEntry(g)) continue;
+            const ids = (Array.isArray(g.players) ? g.players : [])
+              .map(p => String(p && p.id || '').trim())
+              .filter(Boolean)
+              .sort()
+              .join(',');
+            const t = Math.floor(Number(g.endedAt || 0) / 5000); // 5s bucket
+            const key = `${String(g.roomCode || '').trim()}|${t}|${String(g.winnerId || '').trim()}|${ids}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            cleaned.push(g);
+          }
+          if (cleaned.length !== before.length) {
+            HISTORY_DB.games = cleaned;
+            saveHistoryDb();
+          }
+        } catch (_) {}
       }
     }
   } catch (e) {
@@ -102,6 +127,18 @@ function saveHistoryDb() {
   } catch (e) {
     console.error('[history] Failed to save game_history.json:', e && e.message ? e.message : e);
   }
+}
+
+// Filter out corrupted/phantom history entries (e.g. created during dry-run simulations).
+function isValidHistoryEntry(g) {
+  if (!g || typeof g !== 'object') return false;
+  const rc = String(g.roomCode || '').trim();
+  // Real rooms have a code; dry-run simulations often don't.
+  if (rc.length < 3) return false;
+  if (!Array.isArray(g.players) || g.players.length < 1) return false;
+  if (!g.snapshot || typeof g.snapshot !== 'object') return false;
+  if (String(g.snapshot.phase || '').toLowerCase() !== 'game-over') return false;
+  return true;
 }
 
 function _historyPlayerSummary(p) {
@@ -152,6 +189,10 @@ function makeGameHistoryEntry(room, game, winnerId) {
 
 function persistGameHistoryFromGame(room, game, winnerId) {
   if (!room || !game) return;
+  // Prevent accidental persistence from simulation/dry-run rooms (e.g. build option previews).
+  if (room._dryRun) return;
+  // Real rooms always have a code + sockets map.
+  if (!room.code || !room.sockets) return;
   if (game._historyPersisted) return;
   if (game.phase !== 'game-over') return;
 
@@ -169,7 +210,7 @@ function persistGameHistoryFromGame(room, game, winnerId) {
 }
 
 function listGameHistory(limit = 200) {
-  const games = Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : [];
+  const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
   const lim = clamp(Math.floor(Number(limit || 200)), 1, 2000);
   const slice = games.slice(-lim).reverse(); // most recent first
   // return metadata only
@@ -189,7 +230,7 @@ function listGameHistory(limit = 200) {
 function getGameHistoryEntry(id) {
   const gid = String(id || '').trim();
   if (!gid) return null;
-  const games = Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : [];
+  const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
   for (let i = games.length - 1; i >= 0; i--) {
     const g = games[i];
     if (g && g.id === gid) return g;
@@ -198,7 +239,7 @@ function getGameHistoryEntry(id) {
 }
 
 function computeLeaderboardFromHistory() {
-  const games = Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : [];
+  const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
   const by = new Map(); // pid -> agg
 
   const sumRes = (m) => {
@@ -318,6 +359,40 @@ function computeLeaderboardFromHistory() {
   });
 
   return rows;
+}
+
+// Rebuild per-user aggregate stats from *valid* game history.
+// This repairs any inflated stats caused by older builds that accidentally persisted dry-runs.
+function rebuildUserStatsFromHistory() {
+  try {
+    if (!USERS_DB || !Array.isArray(USERS_DB.users)) return;
+
+    // Reset
+    for (const u of USERS_DB.users) {
+      if (!u || !u.id) continue;
+      u.stats = { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 };
+    }
+
+    const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
+    for (const g of games) {
+      const wid = String(g.winnerId || '').trim();
+      const endedAt = Math.max(0, Number(g.endedAt || 0));
+      for (const p of (Array.isArray(g.players) ? g.players : [])) {
+        const pid = String(p && p.id || '').trim();
+        if (!pid) continue;
+        const u = findUserById(pid);
+        if (!u) continue;
+        if (!u.stats || typeof u.stats !== 'object') u.stats = { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 };
+        u.stats.gamesPlayed += 1;
+        if (pid === wid) u.stats.wins += 1;
+        else u.stats.losses += 1;
+        u.stats.totalVP += Math.max(0, Math.floor(Number(p.vp || 0)));
+        u.stats.lastGameAt = Math.max(Number(u.stats.lastGameAt || 0), endedAt);
+      }
+    }
+
+    saveUsersDb();
+  } catch (_) {}
 }
 
 function normalizeUsername(u) {
@@ -482,6 +557,9 @@ function setUserDisplayName(user, displayName) {
 loadUsersDb();
 
 loadHistoryDb();
+
+// Repair any inflated user stats caused by older builds (stats should match *valid* history).
+rebuildUserStatsFromHistory();
 
 
 // -------------------- Geometry + Rules --------------------
@@ -1615,6 +1693,9 @@ function recomputeLongestRoad(game) {
 
 function persistUserStatsFromGame(room, game, winnerId) {
   if (!room || !game) return;
+  // Prevent accidental persistence from simulation/dry-run rooms (e.g. build option previews).
+  if (room._dryRun) return;
+  if (!room.code || !room.sockets) return;
   if (game._userStatsPersisted) return;
   game._userStatsPersisted = true;
 
@@ -4599,7 +4680,9 @@ if (msg.type === 'create_room') {
       for (const c of candidates) {
         const clonedGame = deepClone(game);
         if (!clonedGame) continue;
-        const tempRoom = { game: clonedGame };
+        // Dry-run simulation: used only to validate whether an action would be legal.
+        // MUST NOT persist history or user stats.
+        const tempRoom = { game: clonedGame, _dryRun: true };
         const r = applyAction(tempRoom, pid, c.action);
         if (r && r.ok) options.push({ kind: c.kind, label: c.label });
       }
