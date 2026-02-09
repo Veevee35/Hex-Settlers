@@ -118,6 +118,7 @@
 
   const AUTH_TOKEN_KEY = 'hexsettlers_auth_token_v1';
   const LAST_ROOM_KEY = 'hexsettlers_last_room_v1';
+  const AUTO_CREATE_ROOM_KEY = 'hexsettlers_auto_create_room_v1';
 
   let authUser = null;
   let authToken = null;
@@ -2358,6 +2359,21 @@ function syncPostgameToState() {
 
         if (pendingAutoRejoin) {
           pendingAutoRejoin = false;
+
+          // One-shot: after clicking "Main Menu" from a finished game, start a fresh lobby instead of rejoining.
+          let autoCreate = false;
+          try { autoCreate = sessionStorage.getItem(AUTO_CREATE_ROOM_KEY) === '1'; } catch (_) { autoCreate = false; }
+          if (autoCreate) {
+            try { sessionStorage.removeItem(AUTO_CREATE_ROOM_KEY); } catch (_) {}
+            try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+            const displayName =
+              (ui.nameInput?.value || '').trim() ||
+              (authUser ? (authUser.displayName || authUser.username) : '') ||
+              'Host';
+            send({ type: 'create_room', displayName });
+            return;
+          }
+
           let code = '';
           try { code = (room && room.code) ? room.code : (localStorage.getItem(LAST_ROOM_KEY) || ''); } catch (_) { code = (room && room.code) ? room.code : ''; }
           code = String(code || '').trim().toUpperCase();
@@ -3343,7 +3359,9 @@ if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.addEventListener('click', () => {
     closePostgameSnapshot();
     return;
   }
-  // back to lobby state
+  // Back to lobby, but default to a NEW lobby so we don't auto-rejoin a finished game.
+  try { sessionStorage.setItem(AUTO_CREATE_ROOM_KEY, '1'); } catch (_) {}
+  try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
   location.reload();
 });
 
