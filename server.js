@@ -13,13 +13,7 @@ const crypto = require('crypto');
 const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 3000;
-// Serve static files from the repository root rather than the non-existent `public` folder.
-// In this repository, all client assets (HTML, JS, CSS, images, etc.) are located at
-// the top level rather than within a `public` subdirectory.  If we keep the old
-// `PUBLIC_DIR` pointing to a `public` folder, the server will always return 404s when
-// looking for files that do not exist.  By setting `PUBLIC_DIR` to `__dirname`, we
-// instruct the static file server to look relative to the root of the repository.
-const PUBLIC_DIR = __dirname;
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -4037,13 +4031,7 @@ function cleanupRooms() {
 // -------------------- HTTP static server --------------------
 
 function safePath(p) {
-  // Sanitize the request path by removing null bytes and any attempts to traverse upward.
-  // If the resulting path starts with a slash, remove it so that path.join does not
-  // treat it as an absolute path and ignore the PUBLIC_DIR prefix.  This ensures
-  // static files are served relative to the public directory, even when the
-  // browser requests a path beginning with '/'.
-  let rel = p.replace(/\0/g, '').replace(/\.\./g, '');
-  if (rel.startsWith('/')) rel = rel.slice(1);
+  const rel = p.replace(/\0/g, '').replace(/\.\./g, '');
   return path.join(PUBLIC_DIR, rel);
 }
 
