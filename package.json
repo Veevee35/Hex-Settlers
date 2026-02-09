@@ -1,0 +1,16 @@
+{
+  "name": "hex-settlers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "4-player Catan-style online web game (WebSocket).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

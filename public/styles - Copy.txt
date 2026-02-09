@@ -1,0 +1,909 @@
+/* Minimal, readable styling */
+:root{
+  --bg:#0f141a;
+  --panel:#141b22;
+  --card:#18212b;
+  --text:#e8eef6;
+  --muted:#93a4b8;
+  --line:#2a3644;
+  --btn:#273546;
+  --btn2:#1f2a36;
+  --accent:#4aa3ff;
+  --danger:#ff5b5b;
+  --ok:#38d27a;
+  --shadow: 0 10px 30px rgba(0,0,0,.35);
+  --radius: 16px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+}
+*{box-sizing:border-box}
+html,body{height:100%; overflow:hidden}
+body{
+  margin:0;
+  font-family:var(--sans);
+  background: radial-gradient(1200px 900px at 20% 10%, rgba(74,163,255,.12), transparent 55%),
+              radial-gradient(900px 700px at 90% 40%, rgba(56,210,122,.10), transparent 55%),
+              var(--bg);
+  color:var(--text);
+  overflow:hidden;
+}
+#app{height:100vh; display:flex; flex-direction:column}
+.topbar{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:18px 22px;
+  border-bottom:1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,.03), transparent);
+}
+.brand .title{font-size:20px; font-weight:700; letter-spacing:.3px}
+.brand .subtitle{font-size:12px; color:var(--muted); margin-top:2px}
+.status{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px}
+.connInline{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; margin-top:6px}
+.connInline .dot{width:9px; height:9px}
+.connText{color:var(--muted)}
+.dot{width:10px; height:10px; border-radius:999px; background:#4b5563; box-shadow:0 0 0 4px rgba(255,255,255,.04) inset}
+.dot.ok{background:var(--ok)}
+.dot.bad{background:var(--danger)}
+.layout{
+  flex:1;
+  display:grid;
+  grid-template-columns: 360px 1fr;
+  gap:16px;
+  padding:16px;
+  height:100%;
+  overflow:hidden;
+}
+
+/* During gameplay, the HUD overlays move onto the board. */
+body.in-game .layout{grid-template-columns: 1fr; padding:0; gap:0; height:100vh;}
+body.in-game .panel{display:none;}
+.panel{display:flex; flex-direction:column; gap:16px; height:100%; overflow-y:auto; padding-right:6px; padding-bottom:88px}
+.card{
+  background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:14px;
+  box-shadow:var(--shadow);
+}
+.card h2{margin:0 0 12px 0; font-size:14px; letter-spacing:.3px; color:var(--text)}
+
+/* Card headers with inline status */
+.cardTitleRow{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px}
+.cardTitleRow h2{margin:0; font-size:14px; letter-spacing:.3px; color:var(--text)}
+.connInline.connTight{margin-top:0; gap:8px; font-size:12px}
+.connInline.connTight .dot{width:9px; height:9px}
+.label{font-size:12px; color:var(--muted); margin:8px 0 6px}
+.labelTiny{font-size:11px; color:var(--muted); margin:8px 0 6px}
+.input{
+  width:100%;
+  padding:10px 10px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.25);
+  color:var(--text);
+  outline:none;
+}
+.input:focus{border-color:rgba(74,163,255,.55); box-shadow:0 0 0 4px rgba(74,163,255,.12)}
+.input.code{font-family:var(--mono); text-transform:uppercase; letter-spacing:1.5px}
+.row{display:flex; gap:10px; margin-top:10px}
+.btn{
+  appearance:none;
+  border:1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  color:var(--text);
+  padding:10px 12px;
+  border-radius:12px;
+  cursor:pointer;
+  font-weight:600;
+}
+.btn:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+.btn.primary{
+  border-color:rgba(74,163,255,.45);
+  background: linear-gradient(180deg, rgba(74,163,255,.25), rgba(74,163,255,.08));
+}
+.divider{height:1px; background:var(--line); margin:12px 0}
+.error{
+  margin-top:10px;
+  padding:10px;
+  border-radius:12px;
+  border:1px solid rgba(255,91,91,.45);
+  background: rgba(255,91,91,.10);
+  color:#ffd4d4;
+  font-size:13px;
+}
+.hidden{display:none !important}
+.roomBox{
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  background: rgba(0,0,0,.22);
+}
+.roomTop{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.roomCode{
+  font-family:var(--mono);
+  font-size:18px;
+  letter-spacing:2px;
+}
+.playersList{display:flex; flex-direction:column; gap:8px; margin-top:10px}
+.playerRow{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.playerTag{display:flex; align-items:center; gap:10px}
+.badge{width:10px; height:10px; border-radius:999px}
+.turnInfo{font-size:13px; color:var(--text); line-height:1.35}
+.actions{display:flex; gap:10px; flex-wrap:wrap; margin-top:10px}
+.hint{margin-top:10px; color:var(--muted); font-size:12px; line-height:1.3}
+.resourcesBox{display:flex; flex-direction:column; gap:10px; font-size:13px}
+.pRes{border:1px solid var(--line); border-radius:12px; padding:10px; background: rgba(0,0,0,.18)}
+.pRes.turnActive{border-color:rgba(74,163,255,.55); box-shadow:0 0 0 3px rgba(74,163,255,.12) inset}
+.pResHead{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px}
+.pResName{display:flex; align-items:center; gap:10px; font-weight:700}
+.pResGrid{display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; font-family:var(--mono); font-size:12px}
+.resCell{display:flex; align-items:center; justify-content:flex-start; gap:6px; padding:2px 0}
+.resIcon{width:18px; height:18px; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
+.resVal{font-family:var(--mono); font-size:12px; color:rgba(232,238,246,.96)}
+.pPieceGrid{display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; font-family:var(--mono); font-size:12px; margin-top:8px; color:rgba(232,238,246,.92)}
+.bankRes{border:1px solid var(--line); border-radius:12px; padding:10px; background: rgba(0,0,0,.18)}
+.bankResHead{font-weight:800; color:var(--text); margin-bottom:8px; font-size:12px; letter-spacing:.3px}
+.smallNote{margin-top:10px; font-size:11px; color:var(--muted)}
+.boardWrap{
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  overflow:hidden;
+  background: linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+  box-shadow:var(--shadow);
+  display:flex; flex-direction:column;
+  position:relative;
+  height:100%;
+}
+body.in-game .boardWrap{border:none; border-radius:0; box-shadow:none; height:100vh;}
+body.in-game .boardFooter{display:none;}
+#board{
+  width:100%;
+  flex:1;
+  height:auto;
+  display:block;
+  background: #96c9e7; /* ocean backdrop */
+}
+.boardFooter{
+  display:flex; justify-content:space-between;
+  padding:10px 12px;
+  border-top:1px solid var(--line);
+  color:var(--muted);
+  font-size:12px;
+}
+
+/* Resources panel overlay */
+.resourcesOverlay{
+  position:absolute;
+  left:6px;
+  top:56px;
+  right:auto;
+  bottom:auto;
+  z-index:13;
+  width:min(380px, 46vw);
+  max-width:460px;
+  padding:12px;
+  background: rgba(14,19,28,.78);
+  backdrop-filter: blur(6px);
+}
+.resourcesOverlay h2{margin:0 0 10px 0}
+.resourcesOverlay .resourcesBox{gap:8px; font-size:12px}
+.resourcesOverlay .pResGrid,
+.resourcesOverlay .pPieceGrid{font-size:11px}
+
+/* Board HUD overlays */
+.hudBar{
+  position:absolute;
+  z-index:26;
+  padding:10px 12px;
+  background: rgba(14,19,28,.78);
+  backdrop-filter: blur(6px);
+  border:1px solid var(--line);
+  border-radius:18px;
+  box-shadow:0 18px 60px rgba(0,0,0,.35);
+  max-width:calc(100% - 24px);
+}
+.hudTopLeft{left:6px; top:6px;}
+.hudBottomLeft{left:6px; right:6px; bottom:6px;}
+.dragGrip{
+  width:22px;
+  height:26px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background: rgba(255,255,255,.03);
+  color:var(--muted);
+  font-family:var(--mono);
+  font-size:12px;
+  line-height:1;
+  cursor:grab;
+  user-select:none;
+}
+.hudBarRow{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:nowrap;
+  white-space:nowrap;
+  overflow-x:auto;
+}
+.hudBarRow::-webkit-scrollbar{height:8px}
+.hudBarRow::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10); border-radius:999px}
+.hudConn{display:flex; align-items:center; gap:8px}
+.hudTurnInfo{display:flex; align-items:center; gap:10px; min-width:0}
+.hudTurnInfo .timerInfo{margin-top:0}
+.hudBtns{display:flex; align-items:center; gap:8px; flex-wrap:nowrap}
+.btnTiny{padding:8px 10px; border-radius:12px; font-size:12px}
+.hudDev{display:flex; align-items:center; gap:8px; margin-left:auto}
+#devRemaining{font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap}
+
+.hudDevOverlay{
+  position:absolute;
+  left:6px;
+  top:344px;
+  bottom:auto;
+  z-index:25;
+  width:min(480px, 56vw);
+  max-height:45vh;
+  overflow:auto;
+  padding:12px;
+  background: rgba(14,19,28,.78);
+  backdrop-filter: blur(6px);
+  border:1px solid var(--line);
+  border-radius:18px;
+  box-shadow:0 18px 60px rgba(0,0,0,.35);
+}
+.hudDevOverlay h2{margin:0 0 10px 0}
+body.in-game .hudDevOverlay .actions{display:none;}
+
+.pieceCell{display:flex; align-items:center; justify-content:flex-start; gap:6px; padding:2px 0}
+.pieceLeft{display:flex; align-items:center; gap:8px; min-width:0}
+.pieceIcon{
+  width:22px;
+  height:22px;
+  border-radius:8px;
+  background-repeat:no-repeat;
+  background-size:200% 200%;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));
+}
+.pieceVal{font-family:var(--mono); font-size:12px; color:rgba(232,238,246,.96)}
+
+/* The bottom dock is redundant with the HUD bar; keep it hidden in-game. */
+body.in-game .hudRollDock{display:none;}
+
+/* Sticky bottom roll dock (shows at start of your turn) */
+.rollDock{
+  position:sticky;
+  bottom:10px;
+  z-index:30;
+}
+.rollDockInner{
+  display:flex;
+  gap:10px;
+  padding:10px;
+  border-radius:18px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.28);
+  box-shadow:0 18px 60px rgba(0,0,0,.45);
+  backdrop-filter: blur(6px);
+}
+
+.pill{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.18);
+  color:var(--text);
+  font-family:var(--mono);
+  font-size:11px;
+}
+
+/* Development cards */
+.devHand{display:flex; flex-direction:column; gap:10px; font-size:13px}
+.devRow{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border:1px solid var(--line); border-radius:14px; background: rgba(0,0,0,.12)}
+.devLeft{display:flex; align-items:center; gap:10px; min-width:0}
+.devThumb{width:44px; height:58px; border-radius:8px; border:1px solid var(--line); object-fit:cover; background: rgba(255,255,255,.03)}
+.devName{font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.devMeta{color:var(--muted); font-size:12px}
+.devRight{display:flex; align-items:center; gap:8px}
+.tag{display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--line); background: rgba(255,255,255,.02); color:var(--muted); font-family:var(--mono); font-size:11px}
+
+/* Modal */
+.modal{position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center}
+.modal.hidden{display:none}
+.modalBackdrop{position:absolute; inset:0; background: rgba(0,0,0,.55)}
+.modalBox{position:relative; width:min(659px, calc(100% - 24px)); border:1px solid var(--line); border-radius:18px; background: linear-gradient(180deg, rgba(14,19,28,.98), rgba(10,14,20,.96)); box-shadow:0 18px 60px rgba(0,0,0,.45); padding:14px}
+.modalTitle{font-size:16px; font-weight:800; color:var(--text); margin-bottom:10px}
+.modalBody{color:var(--text); font-size:13px; line-height:1.4}
+.modalActions{display:flex; justify-content:flex-end; gap:10px; margin-top:12px}
+.modalImg{width:100%; max-height:70vh; object-fit:contain; border-radius:14px; border:1px solid var(--line); background: rgba(255,255,255,.02)}
+.choiceRow{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+.choiceBtn{border:1px solid var(--line); background: rgba(0,0,0,.18); color:var(--text); border-radius:999px; padding:6px 10px; font-size:12px; cursor:pointer}
+.choiceBtn:hover{filter:brightness(1.1)}
+
+/* Click-to-build context menu */
+.buildPopup{position:fixed; z-index:60; border:1px solid var(--line); border-radius:16px; background: linear-gradient(180deg, rgba(14,19,28,.98), rgba(10,14,20,.96)); box-shadow:0 18px 60px rgba(0,0,0,.45); padding:10px; min-width:160px}
+.buildPopup.hidden{display:none}
+.buildPopupTitle{font-size:12px; font-weight:800; color:var(--text); margin-bottom:8px}
+.buildPopupBtns{display:flex; flex-wrap:wrap; gap:8px}
+
+/* Trading */
+.tradeWrap{display:flex; flex-direction:column; gap:12px}
+.tradeBox{border:1px solid var(--line); border-radius:14px; padding:10px; background: rgba(0,0,0,.14)}
+.tradeTitle{font-size:12px; font-weight:800; color:var(--text); letter-spacing:.3px; margin-bottom:8px}
+.tradeRow{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.tradeGrids{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px}
+.tradeGrid{border:1px dashed rgba(255,255,255,.12); border-radius:12px; padding:8px; background: rgba(255,255,255,.02)}
+.tradeGridInner{display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; margin-top:6px}
+.tradeCell{display:flex; align-items:center; justify-content:space-between; gap:8px}
+.tradeCellLab{font-size:11px; color:var(--muted); font-family:var(--mono)}
+.tradeDetail{margin-top:10px}
+/* Global player trade */
+.gTradeRows{display:flex; flex-direction:column; gap:10px; margin-top:6px}
+.gTradeRow{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.gTradeChips{display:flex; gap:10px; flex-wrap:wrap}
+.resChipBtn{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background: rgba(0,0,0,.18); border:1px solid rgba(255,255,255,.12); border-radius:14px; min-width:92px; color:var(--text); cursor:pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.04)}
+.resChipBtn:hover{border-color: rgba(255,255,255,.22)}
+.resChipBtn img{width:32px; height:32px}
+.resChipBtn .delta{font-family:var(--mono); font-size:14px; min-width:32px; text-align:right; color:var(--muted)}
+.resChipBtn.pos .delta{color: var(--ok)}
+.resChipBtn.neg .delta{color: var(--danger)}
+.gTradeArrow{font-size:44px; font-weight:900; line-height:1; padding-right:4px; user-select:none}
+.gTradeArrow.ok{color: var(--ok)}
+.gTradeArrow.bad{color: var(--danger)}
+
+/* Proposed trade */
+.ptHead{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px}
+.ptProposer{display:flex; align-items:center; gap:10px}
+.ptName{font-weight:700}
+.ptChips{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
+.resChip{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-radius:12px; background: rgba(0,0,0,.18); border:1px solid rgba(255,255,255,.10); min-width:74px}
+.resChip img{width:26px; height:26px}
+.resChip .delta{font-family:var(--mono); font-size:13px; min-width:28px; text-align:right; color:var(--muted)}
+.resChip.pos .delta{color: var(--ok)}
+.resChip.neg .delta{color: var(--danger)}
+
+.ptGrid{display:grid; grid-template-columns: 1fr 110px 110px; gap:8px; align-items:center; margin-top:8px}
+.ptCell{min-height:44px; display:flex; align-items:center; justify-content:center}
+.ptHeader{color:var(--muted); font-size:12px; font-weight:800; letter-spacing:.3px}
+.ptNameCell{justify-content:flex-start; gap:10px; padding-left:6px}
+.ptRowName{font-weight:650}
+
+.voteBtn{width:74px; height:44px; border-radius:12px; border:1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.16); color:var(--text); cursor:pointer; font-size:28px; line-height:1; display:flex; align-items:center; justify-content:center}
+.voteBtn:hover{border-color: rgba(255,255,255,.22)}
+.voteBtn:disabled{opacity:.6; cursor:default}
+.voteBtn.on.ok{background: rgba(56,210,122,.12); border-color: rgba(56,210,122,.25); color: var(--ok)}
+.voteBtn.on.bad{background: rgba(255,91,91,.10); border-color: rgba(255,91,91,.25); color: var(--danger)}
+
+
+/* Turn timer */
+.timerInfo{
+  margin-top:8px;
+  font-family:var(--mono);
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.timerPill{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.18);
+  color:var(--text);
+}
+
+/* Discard selector */
+.discardGrid{
+  margin-top:10px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.discardRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:8px 10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background: rgba(0,0,0,.12);
+}
+.discardLabel{
+  font-family:var(--mono);
+  font-size:12px;
+  color:var(--text);
+}
+.discardControls{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.stepBtn{
+  width:34px;
+  height:30px;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  color:var(--text);
+  font-weight:800;
+  cursor:pointer;
+}
+.stepBtn:disabled{opacity:.45; cursor:not-allowed}
+.countPill{
+  min-width:56px;
+  text-align:center;
+  font-family:var(--mono);
+  font-size:12px;
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.18);
+}
+
+/* Right-side HUD (countdown + pause) */
+.rightHud{
+  position:absolute;
+  top:6px;
+  right:6px;
+  z-index:12;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:10px;
+  pointer-events:auto;
+}
+.countdownClock{
+  min-width:170px;
+  text-align:right;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.28);
+  box-shadow:0 10px 30px rgba(0,0,0,.35);
+}
+.clockTime{
+  font-family:var(--mono);
+  font-size:22px;
+  font-weight:900;
+  color:var(--text);
+  letter-spacing:1px;
+}
+.clockMeta{
+  margin-top:4px;
+  font-size:11px;
+  color:var(--muted);
+  line-height:1.2;
+}
+.pausedOverlay{
+  position:absolute;
+  inset:0;
+  z-index:11;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(0,0,0,.28);
+  color: rgba(232,238,246,.92);
+  font-size:36px;
+  font-weight:900;
+  letter-spacing:6px;
+  text-shadow:0 18px 60px rgba(0,0,0,.65);
+  pointer-events:none;
+}
+
+
+/* --- Setup / Tools --- */
+.label{
+  display:block;
+  margin-top:10px;
+  margin-bottom:4px;
+  font-size:12px;
+  color: var(--muted);
+}
+select.input{
+  background:#0b0c10;
+  color: var(--text);
+}
+
+/* --- Modal Tools --- */
+.toolWrap{ display:flex; flex-direction:column; gap:10px; }
+.logList, .chatList{
+  max-height:360px;
+  overflow:auto;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  background:#0b0c10;
+}
+.logRow{
+  font-size:12px;
+  padding:6px 4px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  color: var(--text);
+}
+.logRow:last-child{ border-bottom:none; }
+
+.diceTable{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+}
+.diceTable th, .diceTable td{
+  padding:6px 8px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.diceTable th{
+  color: var(--muted);
+  font-weight:600;
+}
+.chatRow{ padding:6px 4px; border-bottom:1px solid rgba(255,255,255,.08); }
+.chatRow:last-child{ border-bottom:none; }
+.chatMeta{ font-size:11px; color: var(--muted); margin-bottom:2px; }
+.chatBody{ font-size:13px; color: var(--text); }
+.chatInputRow{ display:flex; gap:8px; align-items:center; }
+.chatInputRow .input{ flex:1; }
+
+
+
+/* Post-game overlay (victory splash + stats) */
+.postgameOverlay{
+  position:fixed;
+  inset:0;
+  z-index: 5000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
+}
+.postgameSplash{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  text-align:center;
+  padding:24px 26px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.10);
+  background: radial-gradient(1200px 900px at 20% 10%, rgba(74,163,255,.16), transparent 60%),
+              radial-gradient(900px 700px at 90% 40%, rgba(56,210,122,.12), transparent 60%),
+              rgba(10,12,15,.78);
+  box-shadow: 0 30px 90px rgba(0,0,0,.55);
+  min-width: min(680px, calc(100vw - 36px));
+  max-width: min(920px, calc(100vw - 36px));
+}
+.postgameSplashTitle{
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: .5px;
+  text-shadow: 0 10px 24px rgba(0,0,0,.55);
+}
+.postgameSplashSub{
+  font-size: 14px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.postgamePanel{
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border:0;
+  background: rgba(10,12,15,.92);
+  box-shadow: none;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.postgameTop{
+  display:grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items:center;
+  gap:12px;
+  padding:14px 14px 10px 14px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.postgameTopLeft{display:flex; gap:10px; justify-content:flex-start}
+.postgameTopCenter{display:flex; flex-direction:column; align-items:center; gap:2px; min-width:0}
+.postgameTopRight{display:flex; gap:10px; justify-content:flex-end}
+.postgameWinnerLine{
+  font-size: 34px;
+  font-weight: 900;
+  text-shadow: 0 10px 24px rgba(0,0,0,.55);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width: 520px;
+}
+.postgameMetaLine{
+  font-size: 13px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.postgameTabs{
+  display:flex;
+  gap:8px;
+  padding:10px 14px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.02);
+  flex-wrap:wrap;
+  justify-content:center;
+}
+.pgTab{
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.18);
+  color: var(--text);
+  padding:9px 12px;
+  border-radius: 12px;
+  cursor:pointer;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: .2px;
+}
+.pgTab.active{
+  border-color: rgba(74,163,255,.55);
+  background: rgba(74,163,255,.14);
+}
+.postgameBody{
+  flex:1;
+  overflow:auto;
+  padding:14px;
+}
+
+.pgTable{
+  width:100%;
+  border-collapse:collapse;
+  font-size: 13px;
+}
+.pgTable th, .pgTable td{
+  padding:10px 10px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  text-align:left;
+  vertical-align:middle;
+}
+.pgTable th{
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .3px;
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.pgName{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.pgBadge{
+  width:12px;
+  height:12px;
+  border-radius:999px;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.06) inset;
+  flex:0 0 auto;
+}
+.pgMono{font-family: var(--mono)}
+.pgNote{
+  margin-top:10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* keep the Show Stats button accessible over the board */
+.rightHud #pgShowBtn{
+  padding:8px 10px;
+  font-size: 12px;
+  border-radius: 12px;
+  align-self:flex-end;
+}
+
+/* Postgame stats helpers */
+.pgSection{
+  margin-bottom: 16px;
+}
+.pgSectionHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+}
+.pgSectionTitle{
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: .2px;
+}
+.pgControls{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.pgControl{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.pgControlLabel{
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.pgSelect{
+  background: rgba(0,0,0,.25);
+  border:1px solid rgba(255,255,255,.14);
+  color: var(--text);
+  padding:8px 10px;
+  border-radius: 12px;
+  font-weight: 900;
+  font-size: 12px;
+  cursor:pointer;
+}
+.pgSelect:focus{
+  outline: none;
+  border-color: rgba(74,163,255,.55);
+}
+.pgSubTabs{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+.pgSubTab{
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.18);
+  color: var(--text);
+  padding:8px 10px;
+  border-radius: 12px;
+  cursor:pointer;
+  font-weight: 900;
+  font-size: 11px;
+  letter-spacing: .2px;
+}
+.pgSubTab.active{
+  border-color: rgba(74,163,255,.55);
+  background: rgba(74,163,255,.14);
+}
+
+/* Table bar-cells */
+.pgBarCell{
+  position:relative;
+  height:22px;
+  min-width: 84px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.04);
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.06);
+}
+.pgBarFill{
+  position:absolute;
+  inset:0;
+  width:0;
+  border-radius: 10px;
+}
+.pgBarLabel{
+  position:relative;
+  z-index:1;
+  display:flex;
+  align-items:center;
+  height:100%;
+  padding:0 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgba(255,255,255,.92);
+  text-shadow: 0 2px 10px rgba(0,0,0,.55);
+}
+.pgBarCell.right .pgBarLabel{
+  justify-content:flex-end;
+}
+.pgBarStack{
+  position:absolute;
+  inset:0;
+  display:flex;
+}
+.pgBarStackSeg{
+  height:100%;
+}
+.pgBarCell.pgStack .pgBarFill{ display:none; }
+
+/* Legend */
+.pgLegend{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-bottom: 10px;
+}
+.pgLegendItem{
+  display:flex;
+  gap:6px;
+  align-items:center;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.pgLegendDot{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.06) inset;
+}
+
+/* Postgame: Resources per-turn layout */
+.pgThPlayer{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width: 0;
+}
+
+.pgResTurnTable{
+  border-collapse: separate;
+  border-spacing: 0 10px;
+}
+.pgResTurnTable th, .pgResTurnTable td{
+  border-bottom: none;
+  vertical-align: top;
+  padding: 8px 10px;
+}
+
+.pgTurnCell, .pgRollCell{
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgba(255,255,255,.92);
+  white-space: nowrap;
+}
+.pgRollCell{ color: rgba(255,255,255,.82); }
+
+.pgResTurnCard{
+  display:flex;
+  gap:14px;
+  align-items:flex-end;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(0,0,0,.22);
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow:
+    0 12px 30px rgba(0,0,0,.35),
+    inset 0 1px 0 rgba(255,255,255,.06);
+  min-width: 280px;
+}
+
+.pgResSlot{
+  display:flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+}
+
+.pgResIcon{
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 14px rgba(0,0,0,.45));
+}
+
+.pgResNums{
+  margin-top: 6px;
+  display:flex;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pgResTotal{ color: rgba(255,255,255,.92); }
+.pgResDelta{ font-weight: 800; }
+.pgResDelta.pos{ color: #57ff9a; }
+.pgResDelta.neg{ color: #ff6a6a; }
+.pgResDelta.zero{ color: rgba(255,255,255,.58); }

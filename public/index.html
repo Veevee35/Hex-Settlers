@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hex Settlers</title>
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <main class="layout">
+      <section class="panel">
+        <div class="card" id="lobbyCard">
+          <h2>Lobby</h2>
+
+          <label class="label">Name</label>
+          <input id="nameInput" class="input" maxlength="20" placeholder="Your name" />
+
+          <div class="divider"></div>
+
+          <div class="labelTiny">Account</div>
+          <div id="authStatus" class="hint" style="margin-top:4px;">Not logged in.</div>
+
+          <label class="label">Username</label>
+          <input id="usernameInput" class="input" maxlength="24" placeholder="username" />
+
+          <label class="label">Password</label>
+          <input id="passwordInput" class="input" type="password" placeholder="password" />
+
+          <div class="row">
+            <button id="registerBtn" class="btn">Create Account</button>
+            <button id="loginBtn" class="btn primary">Log In</button>
+            <button id="logoutBtn" class="btn hidden">Log Out</button>
+          </div>
+
+          <div id="authStats" class="hint" style="margin-top:6px;"></div>
+          <div class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap;">
+            <button id="historyBtn" class="btn">Game History</button>
+            <button id="leaderboardBtn" class="btn">Player Stats</button>
+          </div>
+
+
+          <div class="divider"></div>
+
+          <div class="row">
+            <button id="createBtn" class="btn primary">Create Lobby</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <label class="label">Room code</label>
+          <input id="codeInput" class="input code" maxlength="8" placeholder="ABCD" />
+
+          <div class="row">
+            <button id="joinBtn" class="btn">Join Lobby</button>
+          </div>
+
+          <div class="row">
+            <button id="rejoinLastBtn" class="btn">Rejoin Last Room</button>
+          </div>
+          <div id="lastRoomHint" class="hint" style="margin-top:6px;"></div>
+<div id="roomBox" class="roomBox hidden">
+            <div class="roomTop">
+              <div>
+                <div class="labelTiny">Room</div>
+                <div id="roomCode" class="roomCode">----</div>
+              </div>
+              <button id="startBtn" class="btn primary hidden">Start Game</button>
+            </div>
+
+            <div class="row" style="margin-top:10px; align-items:center;">
+              <div style="flex:1; min-width:0;">
+                <div class="labelTiny">Account</div>
+                <div id="myAccountLabel" style="font-family:var(--mono); font-size:11px; color:var(--muted); word-break:break-all;">—</div>
+              </div>
+            </div>
+
+            <div class="labelTiny">Players</div>
+            <div id="playersList" class="playersList"></div>
+          </div>
+
+          <div id="errBox" class="error hidden"></div>
+        </div>
+
+
+        <div class="card" id="setupCard">
+          <h2>Game Setup</h2>
+          <div class="smallNote">Host can adjust these before starting. They lock once the game begins.</div>
+
+          <label class="label">Discard limit</label>
+          <input id="discardLimitInput" class="input" type="number" min="3" max="30" value="7" />
+
+          <label class="label">Timer speed</label>
+          <select id="timerSpeedSelect" class="input">
+            <option value="fast">Fast (½ time)</option>
+            <option value="normal" selected>Normal</option>
+            <option value="slow">Slow (2× time)</option>
+          </select>
+
+          <label class="label">Map</label>
+          <select id="mapModeSelect" class="input">
+            <option value="classic" selected>Classic</option>
+            <option value="seafarers">Seafarers</option>
+          </select>
+
+          <div id="scenarioRow" class="hidden">
+            <label class="label">Seafarers scenario</label>
+            <select id="mapScenarioSelect" class="input">
+              <option value="four_islands" selected>Four Islands</option>
+              <option value="through_the_desert">Through the Desert</option>
+              <option value="test_builder">Test Builder (Solo)</option>
+            </select>
+          </div>
+
+          <div id="testBuilderRow" class="hidden">
+            <label class="label">Test builder</label>
+            <div class="row" style="gap:8px; flex-wrap:wrap;">
+              <select id="testBrushSelect" class="input" style="flex:1; min-width:180px;">
+                <option value="forest" selected>Forest (lumber)</option>
+                <option value="hills">Hills (brick)</option>
+                <option value="pasture">Pasture (wool)</option>
+                <option value="field">Field (grain)</option>
+                <option value="mountains">Mountains (ore)</option>
+                <option value="gold">Gold</option>
+                <option value="desert">Desert</option>
+                <option value="sea">Sea</option>
+              </select>
+              <select id="testNumberSelect" class="input" style="width:110px;">
+                <option value="" selected>No #</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12">12</option>
+              </select>
+              <button id="testResetBtn" class="btn" type="button">Reset blank</button>
+            </div>
+            <div class="muted" style="font-size:12px; margin-top:6px;">Host: pick a tile type + number, then click tiles on the preview to paint. Numbers are ignored on Sea/Desert.</div>
+          </div>
+
+          <label class="label">Victory points to win</label>
+          <select id="victoryPointsSelect" class="input">
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10" selected>10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+            <option value="13">13</option>
+            <option value="14">14</option>
+            <option value="15">15</option>
+            <option value="16">16</option>
+            <option value="17">17</option>
+            <option value="18">18</option>
+            <option value="19">19</option>
+            <option value="20">20</option>
+            <option value="21">21</option>
+            <option value="22">22</option>
+            <option value="23">23</option>
+            <option value="24">24</option>
+            <option value="25">25</option>
+            <option value="26">26</option>
+            <option value="27">27</option>
+            <option value="28">28</option>
+            <option value="29">29</option>
+            <option value="30">30</option>
+          </select>
+
+          <label class="label">Map preview</label>
+          <div class="row">
+            <button id="regenMapBtn" class="btn">Generate New Map</button>
+          </div>
+          <div id="mapGenNote" class="smallNote"></div>
+
+          <div class="row">
+            <button id="saveRulesBtn" class="btn primary">Save Settings</button>
+          </div>
+
+          <div id="rulesPreview" class="smallNote"></div>
+        </div>
+
+        <div class="card" id="toolsCard">
+          <div class="cardTitleRow">
+            <h2>Game Tools</h2>
+            <div class="connInline connTight">
+              <div id="connDot" class="dot"></div>
+              <div id="connText" class="connText">Disconnected</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="logBtn" class="btn">Game Log</button>
+            <button id="diceBtn" class="btn">Dice Stats</button>
+            <button id="chatBtn" class="btn">Chat</button>
+            <button id="idsBtn" class="btn hidden">Room IDs</button>
+          </div>
+        </div>
+
+        <div class="card hidden" id="turnCard">
+          <h2>Turn</h2>
+          <div id="turnInfo" class="turnInfo">Create or join a lobby.</div>
+          <div id="timerInfo" class="timerInfo hidden">—</div>
+
+          <div class="actions">
+            <button id="rollBtn" class="btn primary" disabled>Roll Dice</button>
+            <button id="endBtn" class="btn" disabled>End Turn</button>
+          </div>
+
+          <div class="actions">
+            <button id="buildRoadBtn" class="btn" disabled>Build Road</button>
+            <button id="buildShipBtn" class="btn" disabled>Build Ship</button>
+            <button id="moveShipBtn" class="btn hidden" disabled>Move Ship</button>
+            <button id="buildSettlementBtn" class="btn" disabled>Build Settlement</button>
+            <button id="buildCityBtn" class="btn" disabled>Upgrade City</button>
+          </div>
+
+          <div class="actions">
+            <button id="bankTradeBtn" class="btn" disabled>Bank Trade</button>
+            <button id="playerTradeBtn" class="btn" disabled>Player Trade</button>
+          </div>
+
+          <div class="hint" id="hintBox">
+            Tip: Click nodes (corners) to place settlements/cities, and click edges to place roads (and ships in Seafarers).
+          </div>
+        </div>
+
+
+        <div class="card hidden" id="devCard">
+          <h2>Development Cards</h2>
+          <div id="devRemaining" class="smallNote" style="margin-top:0;">Remaining in deck: —</div>
+          <div class="actions">
+            <button id="buyDevBtn" class="btn" disabled>Buy Dev Card</button>
+          </div>
+          <div class="smallNote">
+            Cost: wool + grain + ore. Play 1 dev card per turn (Victory Point can be played any time).
+          </div>
+          <div id="devHand" class="devHand">—</div>
+        </div>
+
+        <div id="rollDock" class="rollDock hidden">
+          <div class="rollDockInner">
+            <button id="rollDockBtn" class="btn primary" disabled>Roll Dice</button>
+            <button id="endDockBtn" class="btn" disabled>End Turn</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="boardWrap">
+        <canvas id="board" width="1200" height="900"></canvas>
+
+        <div class="rightHud">
+          <div id="countdownClock" class="countdownClock hidden">
+            <div class="clockTime">--:--</div>
+            <div class="clockMeta">—</div>
+          </div>
+          <button id="pauseBtn" class="btn hidden">Pause</button>
+          <button id="pgShowBtn" class="btn hidden">Show Stats</button>
+        </div>
+        <div id="pausedOverlay" class="pausedOverlay hidden">PAUSED</div>
+
+        <div class="card resourcesOverlay hidden" id="resourcesCard">
+          <h2>Resources</h2>
+          <div id="resourcesBox" class="resourcesBox">—</div>
+          <div class="smallNote">
+            Costs: Road (brick+lumber), Ship (lumber+wool), Settlement (brick+lumber+wool+grain), City (2 grain + 3 ore).
+          </div>
+        </div>
+
+	        <div class="card logOverlay hidden" id="logCard">
+	          <div class="cardTitleRow">
+	            <h2>Game Log</h2>
+	            <button id="logHideBtn" class="btn">Hide</button>
+	          </div>
+	          <div id="logList" class="logList"></div>
+	        </div>
+
+        <div class="boardFooter">
+          <div class="kbd">
+            <span class="pill">Scroll</span> zoom • <span class="pill">Drag</span> pan
+          </div>
+          <div class="kbd">
+            <span class="pill">6/8</span> are “hot” rolls
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+
+  <div id="postgameOverlay" class="postgameOverlay hidden">
+    <div id="postgameSplash" class="postgameSplash">
+      <div class="postgameSplashTitle" id="postgameSplashTitle">Victory!</div>
+      <div class="postgameSplashSub" id="postgameSplashSub">—</div>
+    </div>
+
+    <div id="postgamePanel" class="postgamePanel hidden">
+      <div class="postgameTop">
+        <div class="postgameTopLeft">
+          <button id="pgMainMenuBtn" class="btn">Main Menu</button>
+        </div>
+
+        <div class="postgameTopCenter">
+          <div id="pgWinnerLine" class="postgameWinnerLine">—</div>
+          <div id="pgMetaLine" class="postgameMetaLine">—</div>
+        </div>
+
+        <div class="postgameTopRight">
+          <button id="pgHideBtn" class="btn">Hide Stats</button>
+        </div>
+      </div>
+
+      <div class="postgameTabs" id="postgameTabs">
+        <button class="pgTab active" data-tab="summary">Summary</button>
+        <button class="pgTab" data-tab="dice">Dice</button>
+        <button class="pgTab" data-tab="resources">Resources</button>
+        <button class="pgTab" data-tab="activity">Activity</button>
+        <button class="pgTab" data-tab="devcards">Dev Cards</button>
+      </div>
+
+      <div class="postgameBody">
+        <div id="pgTabBody" class="pgTabBody"></div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <div id="historyOverlay" class="historyOverlay hidden">
+    <div class="historyPanel">
+      <div class="historyTop">
+        <div class="historyTopLeft">
+          <button id="historyCloseBtn" class="btn">Close</button>
+        </div>
+        <div class="historyTopCenter">
+          <div class="historyTitle">Stats &amp; History</div>
+          <div id="historySub" class="historySub">—</div>
+        </div>
+        <div class="historyTopRight">
+          <button id="historyRefreshBtn" class="btn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="historyTabs" id="historyTabs">
+        <button class="hTab active" data-tab="games">Games</button>
+        <button class="hTab" data-tab="players">Player Stats</button>
+      </div>
+
+      <div id="historyBody" class="historyBody"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div id="modalBackdrop" class="modalBackdrop"></div>
+    <div class="modalBox">
+      <div id="modalTitle" class="modalTitle">—</div>
+      <div id="modalBody" class="modalBody"></div>
+      <div id="modalActions" class="modalActions"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
