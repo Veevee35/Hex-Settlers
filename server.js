@@ -657,6 +657,62 @@ const FOG_ISLAND_START_ISLAND_B_KEYS = new Set([
   '-3,3','-2,3',
 ]);
 
+// Heading for New Shores: Main Island setup restriction (from the provided template).
+const HFNS_MAIN_ISLAND_KEYS = new Set([
+  '-1,-1',
+  '0,-1',
+  '1,-1',
+  '-2,0',
+  '-1,0',
+  '0,0',
+  '1,0',
+  '-3,1',
+  '-2,1',
+  '-1,1',
+  '0,1',
+  '1,1',
+  '-3,2',
+  '-2,2',
+  '-1,2',
+  '0,2',
+  '-3,3',
+  '-2,3',
+  '-1,3',
+]);
+
+// Heading for New Shores: all land tiles (main + small islands).
+const HFNS_LAND_KEYS = new Set([
+  '0,-3',
+  '1,-3',
+  '3,-3',
+  '3,-2',
+  '4,-2',
+  '-1,-1',
+  '0,-1',
+  '1,-1',
+  '3,-1',
+  '-2,0',
+  '-1,0',
+  '0,0',
+  '1,0',
+  '3,0',
+  '-3,1',
+  '-2,1',
+  '-1,1',
+  '0,1',
+  '1,1',
+  '-3,2',
+  '-2,2',
+  '-1,2',
+  '0,2',
+  '2,2',
+  '-3,3',
+  '-2,3',
+  '-1,3',
+  '1,3',
+]);
+
+
 
 // Through the Desert: "across the desert" bonus locations (3 red tiles in the template).
 // When a player places their first settlement touching any of these tiles (during main-actions),
@@ -705,6 +761,21 @@ function nodeIsOnFogStartIslands(game, nodeId) {
     sawLand = true;
     const key = `${t.q},${t.r}`;
     if (!FOG_ISLAND_START_LAND_KEYS.has(key)) return false;
+  }
+  return sawLand;
+}
+
+
+function nodeIsOnHFNSMainIsland(game, nodeId) {
+  const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
+  let sawLand = false;
+  for (const tid of adj) {
+    const t = game?.geom?.tiles?.[tid];
+    if (!t) continue;
+    if (t.type === 'sea') continue;
+    sawLand = true;
+    const key = `${t.q},${t.r}`;
+    if (!HFNS_MAIN_ISLAND_KEYS.has(key)) return false;
   }
   return sawLand;
 }
@@ -1481,6 +1552,7 @@ function defaultVictoryPointsToWin(rules) {
   const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
   if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert') return 14;
+  if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
   return 13; // four islands
 }
 
@@ -2619,6 +2691,90 @@ function generateBoardSeafarersFogIsland(geom) {
   return tiles;
 }
 
+
+function generateBoardSeafarersHeadingForNewShores(geom) {
+  // Seafarers scenario: "Heading for New Shores"
+  // Resources and number discs are randomized but must respect the official counts for this scenario.
+  // Board geometry for this scenario is a custom 70-tile shape (see generateThroughTheDesertAxials).
+  const allTiles = seafarersBaseAllSea(geom);
+
+  // Land mask from the provided template.
+  const landKeys = HFNS_LAND_KEYS;
+  const desertKeys = new Set(['-1,1']); // fixed desert location from template
+
+  const landTileIds = pickLandTileIds(allTiles, landKeys);
+
+  // Apply deserts first (desert has no number).
+  const desertIds = [];
+  for (const t of allTiles) {
+    const key = `${t.q},${t.r}`;
+    if (!landKeys.has(key)) continue;
+    if (desertKeys.has(key)) {
+      t.type = 'desert';
+      t.number = null;
+      desertIds.push(t.id);
+    }
+  }
+
+  // Non-desert land tiles: 27 total (numbers list below has 27 entries).
+  const nonDesertLandIds = landTileIds.filter(id => (allTiles[id]?.type || '') !== 'desert');
+
+  // Official resource counts: 5 each of the 5 standard resources, 2 Gold Fields, 1 Desert.
+  const resourceTypes = [
+    ...Array(5).fill('hills'),
+    ...Array(5).fill('forest'),
+    ...Array(5).fill('pasture'),
+    ...Array(5).fill('field'),
+    ...Array(5).fill('mountains'),
+    'gold','gold',
+  ];
+
+  // Official number disc counts (27 total; desert has none):
+  // 2×2, 3×3, 4×3, 5×3, 6×3, 8×3, 9×3, 10×3, 11×3, 12×1
+  const numbers = [
+    2,2,
+    3,3,3,
+    4,4,4,
+    5,5,5,
+    6,6,6,
+    8,8,8,
+    9,9,9,
+    10,10,10,
+    11,11,11,
+    12,
+  ];
+
+  // Place types/numbers with the standard constraint: 6 and 8 may not be adjacent.
+  let placed = null;
+  for (let attempt = 0; attempt < 420; attempt++) {
+    const tt = shuffle(resourceTypes.slice());
+    const nn = shuffle(numbers.slice());
+
+    const local = [];
+    for (let i = 0; i < nonDesertLandIds.length; i++) {
+      local.push({ id: nonDesertLandIds[i], type: tt[i], number: nn[i] });
+    }
+    if (!hasAdjacentSixEightForPlacement(geom, local)) { placed = local; break; }
+  }
+  if (!placed) {
+    // Fallback (should be extremely rare): accept the last random assignment.
+    const tt = shuffle(resourceTypes.slice());
+    const nn = shuffle(numbers.slice());
+    placed = nonDesertLandIds.map((id, i) => ({ id, type: tt[i], number: nn[i] }));
+  }
+
+  // Commit placements.
+  for (const upd of placed) {
+    const t = allTiles[upd.id];
+    if (!t) continue;
+    t.type = upd.type;
+    t.number = upd.number;
+  }
+
+  startSeafarersRobberAndPirate(allTiles, desertIds);
+  return allTiles;
+}
+
 function generateBoardSeafarersTestBuilder(geom) {
   // Blank editable map: all sea with a center desert + robber and one sea tile with the pirate.
   const allTiles = seafarersBaseAllSea(geom);
@@ -2648,6 +2804,7 @@ function generateBoardSeafarers(geom, scenario = 'four_islands') {
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   if (s === 'through_the_desert') return generateBoardSeafarersThroughTheDesert(geom);
   if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
+  if (s === 'heading_for_new_shores') return generateBoardSeafarersHeadingForNewShores(geom);
   if (s === 'test_builder') return generateBoardSeafarersTestBuilder(geom);
   return generateBoardSeafarersFourIslands(geom);
 }
@@ -2970,7 +3127,7 @@ function startGame(room) {
     if ((game.rules?.mapMode || 'classic') === 'seafarers') {
       const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
       // The "Through the Desert" scenario uses a custom 70-tile geometry to match the provided layout.
-      if (scen === 'through_the_desert' || scen === 'fog_island') {
+      if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
         game.geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
       }
       game.geom.tiles = generateBoardSeafarers(game.geom, scen);
@@ -3260,6 +3417,13 @@ function applyAction(room, playerId, action) {
     if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'fog_island') {
       if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
         if (!nodeIsOnFogStartIslands(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting islands.' };
+      }
+    }
+
+    // Heading for New Shores: initial settlements are restricted to the main island.
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'heading_for_new_shores') {
+      if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
+        if (!nodeIsOnHFNSMainIsland(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the main island.' };
       }
     }
 
@@ -4367,7 +4531,9 @@ function mapPreviewKey(rules) {
       ? 'fog_island'
       : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
         ? 'test_builder'
-        : 'four_islands';
+        : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
+          ? 'heading_for_new_shores'
+          : 'four_islands';
   return `seafarers:${scen}`;
 }
 
@@ -4377,7 +4543,7 @@ function generatePreviewGeom(rules) {
     const key = mapPreviewKey(rules);
     const scen = key.split(':')[1] || 'four_islands';
     let geom = null;
-    if (scen === 'through_the_desert' || scen === 'fog_island') {
+    if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else {
       geom = buildGeometry(4);
@@ -5182,10 +5348,15 @@ function handleTimeout(room) {
     const pid = game.currentPlayerId;
     if (!pid) return false;
     const nodeIds = [];
-    const isTTD = ((game.rules?.mapMode || 'classic') === 'seafarers' && (game.rules?.seafarersScenario || 'four_islands') === 'through_the_desert');
+    const scen = seafarersScenarioKey(game);
+    const isTTD = ((game.rules?.mapMode || 'classic') === 'seafarers' && scen === 'through_the_desert');
+    const isFog = ((game.rules?.mapMode || 'classic') === 'seafarers' && scen === 'fog_island');
+    const isHFNS = ((game.rules?.mapMode || 'classic') === 'seafarers' && scen === 'heading_for_new_shores');
     for (let i = 0; i < game.geom.nodes.length; i++) {
       if (!settlementDistanceOk(game, i)) continue;
       if (isTTD && !nodeIsOnTTDStartIsland(game, i)) continue;
+      if (isFog && !nodeIsOnFogStartIslands(game, i)) continue;
+      if (isHFNS && !nodeIsOnHFNSMainIsland(game, i)) continue;
       nodeIds.push(i);
     }
     const shuffled = shuffle(nodeIds);

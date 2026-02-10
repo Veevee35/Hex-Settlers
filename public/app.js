@@ -1561,6 +1561,7 @@ function syncPostgameToState() {
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
     if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert') return 14;
+    if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     return 13; // four islands
   }
 
