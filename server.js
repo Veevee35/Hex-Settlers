@@ -615,18 +615,6 @@ const TTD_START_ISLAND_KEYS = new Set([
   '1,-3','0,-2','-1,-1',
 ]);
 
-// Seafarers: "Heading for New Shores" (custom template, 70-tile geometry).
-// During setup, players may only place settlements on the starting island (purple region in the template).
-// The starting island includes the fixed desert tile.
-const HNS_START_ISLAND_KEYS = new Set([
-  // Starting island (purple in the template)
-  '-1,-1','0,-1','1,-1',
-  '-2,0','-1,0','0,0','1,0',
-  '-3,1','-2,1','-1,1','0,1','1,1',
-  '-3,2','-2,2','-1,2','0,2',
-  '-3,3','-2,3','-1,3',
-]);
-
 const FOG_ISLAND_FOG_KEYS = new Set([
   '0,-3',
   '-1,-2', '0,-2',
@@ -644,6 +632,24 @@ const FOG_ISLAND_START_LAND_KEYS = new Set([
   '3,-1','4,-1',
   '3,0',
   '3,1',
+  // Lower-left island
+  '-2,0',
+  '-3,1','-2,1',
+  '-3,2','-2,2',
+  '-3,3','-2,3',
+]);
+
+// Fog Island: keep the two starting islands separated for constraints (e.g., red-number distribution).
+const FOG_ISLAND_START_ISLAND_A_KEYS = new Set([
+  // Upper-right island
+  '2,-3','3,-3','4,-3',
+  '2,-2','3,-2','4,-2',
+  '3,-1','4,-1',
+  '3,0',
+  '3,1',
+]);
+
+const FOG_ISLAND_START_ISLAND_B_KEYS = new Set([
   // Lower-left island
   '-2,0',
   '-3,1','-2,1',
@@ -687,20 +693,6 @@ function nodeIsOnTTDStartIsland(game, nodeId) {
   return sawLand;
 }
 
-function nodeIsOnHNSStartIsland(game, nodeId) {
-  const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
-  let sawLand = false;
-  for (const tid of adj) {
-    const t = game?.geom?.tiles?.[tid];
-    if (!t) continue;
-    if (t.type === 'sea') continue;
-    sawLand = true;
-    const key = `${t.q},${t.r}`;
-    if (!HNS_START_ISLAND_KEYS.has(key)) return false;
-  }
-  return sawLand;
-}
-
 function nodeIsOnFogStartIslands(game, nodeId) {
   const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
   let sawLand = false;
@@ -718,12 +710,7 @@ function nodeIsOnFogStartIslands(game, nodeId) {
 }
 
 function seafarersScenarioKey(game) {
-  const raw = String((game && game.rules && game.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
-  if (raw === 'through_the_desert' || raw === 'desert' || raw === 'throughdesert') return 'through_the_desert';
-  if (raw === 'fog_island' || raw === 'fog') return 'fog_island';
-  if (raw === 'heading_for_new_shores' || raw === 'heading_to_new_shores' || raw === 'heading_new_shores' || raw === 'new_shores' || raw === 'headingshores') return 'heading_for_new_shores';
-  if (raw === 'test_builder' || raw === 'test' || raw === 'builder') return 'test_builder';
-  return raw;
+  return String((game && game.rules && game.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
 }
 
 function isFogIslandGame(game) {
@@ -2417,163 +2404,6 @@ function generateBoardSeafarersThroughTheDesert(geom) {
   return allTiles;
 }
 
-function generateBoardSeafarersHeadingForNewShores(geom) {
-  // Seafarers scenario: "Heading for New Shores" (mask + setup island from provided templates).
-  // Board geometry for this scenario uses the same custom 70-tile shape as Through the Desert.
-  const allTiles = seafarersBaseAllSea(geom);
-
-  // Land mask (28 land tiles including 1 desert) taken from the provided template.
-  const landKeys = new Set([
-    '0,-3','1,-3','3,-3',
-    '3,-2','4,-2',
-    '-1,-1','0,-1','1,-1','3,-1',
-    '-2,0','-1,0','0,0','1,0','3,0',
-    '-3,1','-2,1','-1,1','0,1','1,1',
-    '-3,2','-2,2','-1,2','0,2','2,2',
-    '-3,3','-2,3','-1,3','1,3',
-  ]);
-
-  // Fixed desert location from the template (yellow tile).
-  const desertKeys = new Set(['-1,1']);
-
-  const landTileIds = pickLandTileIds(allTiles, landKeys);
-
-  // Outer islands/tiles are the land tiles NOT part of the setup starting island.
-  const outerLandKeys = new Set(Array.from(landKeys).filter(k => !HNS_START_ISLAND_KEYS.has(k)));
-  const outerTileIds = [];
-  for (const t of allTiles) {
-    const key = `${t.q},${t.r}`;
-    if (outerLandKeys.has(key)) outerTileIds.push(t.id);
-  }
-
-  // 27 resource tiles: 5 of each standard resource + 2 gold fields.
-  const resourceTypesNonGold = [
-    ...Array(5).fill('forest'),
-    ...Array(5).fill('pasture'),
-    ...Array(5).fill('field'),
-    ...Array(5).fill('hills'),
-    ...Array(5).fill('mountains'),
-  ];
-
-  // Number discs: 27 total (desert has none), matching the provided token-count image.
-  const numbersBase = [
-    2,2,
-    3,3,3,
-    4,4,4,
-    5,5,5,
-    6,6,6,
-    8,8,8,
-    9,9,9,
-    10,10,10,
-    11,11,11,
-    12,
-  ];
-
-  function outerComponents() {
-    const set = new Set(outerTileIds);
-    const seen = new Set();
-    const comps = [];
-    for (const id of outerTileIds) {
-      if (seen.has(id)) continue;
-      const stack = [id];
-      const comp = [];
-      seen.add(id);
-      while (stack.length) {
-        const cur = stack.pop();
-        comp.push(cur);
-        const nbs = geom.tileNeighbors?.[cur] || [];
-        for (const nb of nbs) {
-          if (!set.has(nb) || seen.has(nb)) continue;
-          seen.add(nb);
-          stack.push(nb);
-        }
-      }
-      comps.push(comp);
-    }
-    return comps;
-  }
-
-  let placed = null;
-  for (let attempt = 0; attempt < 420; attempt++) {
-    // Pick 2 distinct outer components for gold fields when possible.
-    const comps = outerComponents();
-    let goldIds = [];
-    if (comps.length >= 2) {
-      const pick = shuffle(comps.slice());
-      const a = pick[0];
-      const b = pick[1];
-      const ga = a[Math.floor(Math.random() * a.length)];
-      const gb = b[Math.floor(Math.random() * b.length)];
-      if (ga !== gb) goldIds = [ga, gb];
-    }
-    if (goldIds.length !== 2) {
-      const shuffledOuter = shuffle(outerTileIds.slice());
-      goldIds = shuffledOuter.slice(0, 2);
-    }
-
-    const types = shuffle(resourceTypesNonGold.slice());
-    const nums = shuffle(numbersBase.slice());
-
-    const local = [];
-    let ti = 0;
-    let ni = 0;
-    for (const id of landTileIds) {
-      const t = allTiles[id];
-      const key = t ? `${t.q},${t.r}` : '';
-      if (desertKeys.has(key)) {
-        local.push({ id, type: 'desert', number: null });
-        continue;
-      }
-      let type = 'gold';
-      if (!goldIds.includes(id)) type = types[ti++];
-      const number = nums[ni++];
-      local.push({ id, type, number });
-    }
-
-    if (!hasAdjacentSixEightForPlacement(geom, local)) { placed = local; break; }
-  }
-
-  if (!placed) {
-    // Fallback without 6/8 adjacency constraint.
-    const comps = outerComponents();
-    let goldIds = [];
-    if (comps.length >= 2) {
-      const pick = shuffle(comps.slice());
-      goldIds = [pick[0][0], pick[1][0]].filter((v, i, a) => a.indexOf(v) === i);
-    }
-    if (goldIds.length !== 2) {
-      const shuffledOuter = shuffle(outerTileIds.slice());
-      goldIds = shuffledOuter.slice(0, 2);
-    }
-
-    const types = shuffle(resourceTypesNonGold.slice());
-    const nums = shuffle(numbersBase.slice());
-    placed = [];
-    let ti = 0;
-    let ni = 0;
-    for (const id of landTileIds) {
-      const t = allTiles[id];
-      const key = t ? `${t.q},${t.r}` : '';
-      if (desertKeys.has(key)) { placed.push({ id, type: 'desert', number: null }); continue; }
-      let type = 'gold';
-      if (!goldIds.includes(id)) type = types[ti++];
-      placed.push({ id, type, number: nums[ni++] });
-    }
-  }
-
-  const desertIds = [];
-  for (const upd of placed) {
-    const t = allTiles[upd.id];
-    if (!t) continue;
-    t.type = upd.type;
-    t.number = upd.number;
-    if (upd.type === 'desert') desertIds.push(upd.id);
-  }
-
-  startSeafarersRobberAndPirate(allTiles, desertIds);
-  return allTiles;
-}
-
 
 
 function generateBoardSeafarersFogIsland(geom) {
@@ -2582,6 +2412,8 @@ function generateBoardSeafarersFogIsland(geom) {
 
   // Face-up land: two starting islands (17 land tiles) with a standard 17-token distribution.
   const startLandIds = pickLandTileIds(tiles, FOG_ISLAND_START_LAND_KEYS);
+  const startIslandAIds = pickLandTileIds(tiles, FOG_ISLAND_START_ISLAND_A_KEYS);
+  const startIslandBIds = pickLandTileIds(tiles, FOG_ISLAND_START_ISLAND_B_KEYS);
 
   // Face-down fog band: 12 tiles. They begin as sea, but store hidden contents.
   const fogIds = pickLandTileIds(tiles, FOG_ISLAND_FOG_KEYS);
@@ -2612,8 +2444,9 @@ function generateBoardSeafarersFogIsland(geom) {
   // Numbers for fog *land* tiles only (10 land tiles).
   const fogLandNumbers = [3,4,5,6,8,9,10,11,11,12];
 
-  // Attempt random placements with a simple 6/8 adjacency constraint across all land tiles.
-  for (let attempt = 0; attempt < 200; attempt++) {
+  // Attempt random placements with a 6/8 adjacency constraint across all land tiles,
+  // plus "2 red tokens per starting island" distribution.
+  for (let attempt = 0; attempt < 2000; attempt++) {
     // Reset everything
     for (const t of tiles) {
       delete t.fog;
@@ -2635,6 +2468,20 @@ function generateBoardSeafarersFogIsland(geom) {
       t.type = stTypes[i];
       t.number = stNums[i];
     }
+
+    // Starting islands constraint: exactly two red numbers (6/8) per starting island.
+    // (Prevents 3+ reds on one island and 0/1 on the other.)
+    let redsA = 0;
+    for (const tid of startIslandAIds) {
+      const n = tiles[tid]?.number;
+      if (n === 6 || n === 8) redsA++;
+    }
+    let redsB = 0;
+    for (const tid of startIslandBIds) {
+      const n = tiles[tid]?.number;
+      if (n === 6 || n === 8) redsB++;
+    }
+    if (redsA !== 2 || redsB !== 2) continue;
 
     // Place fog hidden contents
     const fhTypes = fogHiddenTypes.slice();
@@ -2671,7 +2518,7 @@ function generateBoardSeafarersFogIsland(geom) {
     for (const t of temp) {
       if (!t.number) continue;
       if (t.number !== 6 && t.number !== 8) continue;
-      const adj = geom.tileAdjTiles?.[t.id] || [];
+      const adj = geom.tileNeighbors?.[t.id] || [];
       for (const aid of adj) {
         const at = temp[aid];
         if (!at || !at.number) continue;
@@ -2687,36 +2534,88 @@ function generateBoardSeafarersFogIsland(geom) {
     return tiles;
   }
 
-  // Fallback (no adjacency guarantee)
-  // Place starting land
-  const stTypes = startTypes.slice();
-  const stNums = startNumbers.slice();
-  shuffle(stTypes);
-  shuffle(stNums);
-  for (let i = 0; i < startLandIds.length; i++) {
-    const tid = startLandIds[i];
-    const t = tiles[tid];
-    t.type = stTypes[i];
-    t.number = stNums[i];
+  // Very rare: if we didn't hit a valid placement within the normal attempt budget,
+  // keep searching rather than returning an illegal board.
+  for (let attempt = 0; attempt < 20000; attempt++) {
+    // Reset everything
+    for (const t of tiles) {
+      delete t.fog;
+      delete t.revealed;
+      delete t.hiddenType;
+      delete t.hiddenNumber;
+      t.number = null;
+      t.type = 'sea';
+    }
+
+    // Place starting land
+    const stTypes = startTypes.slice();
+    const stNums = startNumbers.slice();
+    shuffle(stTypes);
+    shuffle(stNums);
+    for (let i = 0; i < startLandIds.length; i++) {
+      const tid = startLandIds[i];
+      const t = tiles[tid];
+      t.type = stTypes[i];
+      t.number = stNums[i];
+    }
+
+    // Starting islands constraint: exactly two red numbers (6/8) per starting island.
+    let redsA = 0;
+    for (const tid of startIslandAIds) {
+      const n = tiles[tid]?.number;
+      if (n === 6 || n === 8) redsA++;
+    }
+    let redsB = 0;
+    for (const tid of startIslandBIds) {
+      const n = tiles[tid]?.number;
+      if (n === 6 || n === 8) redsB++;
+    }
+    if (redsA !== 2 || redsB !== 2) continue;
+
+    // Place fog hidden contents
+    const fhTypes = fogHiddenTypes.slice();
+    shuffle(fhTypes);
+    const landNums = fogLandNumbers.slice();
+    shuffle(landNums);
+    let landNumIdx = 0;
+    for (const tid of fogIds) {
+      const t = tiles[tid];
+      t.fog = true;
+      t.revealed = false;
+      const ht = fhTypes.pop();
+      t.hiddenType = ht;
+      if (ht !== 'sea') t.hiddenNumber = landNums[landNumIdx++];
+      else t.hiddenNumber = null;
+      t.type = 'sea';
+      t.number = null;
+    }
+
+    // Validate: no adjacent 6/8 among (visible + hidden) land placements.
+    let ok = true;
+    const temp = tiles.map(t => ({
+      id: t.id,
+      type: t.fog && !t.revealed ? (t.hiddenType === 'sea' ? 'sea' : t.hiddenType) : t.type,
+      number: t.fog && !t.revealed ? (t.hiddenType === 'sea' ? null : t.hiddenNumber) : t.number,
+    }));
+    for (const tt of temp) {
+      if (!tt.number) continue;
+      if (tt.number !== 6 && tt.number !== 8) continue;
+      const adj = geom.tileNeighbors?.[tt.id] || [];
+      for (const aid of adj) {
+        const at = temp[aid];
+        if (!at || !at.number) continue;
+        if (at.number === 6 || at.number === 8) { ok = false; break; }
+      }
+      if (!ok) break;
+    }
+    if (!ok) continue;
+    if (landNumIdx !== fogLandNumbers.length) continue;
+
+    return tiles;
   }
 
-  const fhTypes = fogHiddenTypes.slice();
-  shuffle(fhTypes);
-  const landNums = fogLandNumbers.slice();
-  shuffle(landNums);
-  let landNumIdx = 0;
-  for (const tid of fogIds) {
-    const t = tiles[tid];
-    t.fog = true;
-    t.revealed = false;
-    const ht = fhTypes.pop();
-    t.hiddenType = ht;
-    if (ht !== 'sea') t.hiddenNumber = landNums[landNumIdx++];
-    else t.hiddenNumber = null;
-    t.type = 'sea';
-    t.number = null;
-  }
-
+  // Absolute last resort: return the board as-is.
+  // (This should basically never happen, but avoids a hard crash if the geometry changes.)
   return tiles;
 }
 
@@ -2748,7 +2647,6 @@ function generateBoardSeafarersTestBuilder(geom) {
 function generateBoardSeafarers(geom, scenario = 'four_islands') {
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   if (s === 'through_the_desert') return generateBoardSeafarersThroughTheDesert(geom);
-  if (s === 'heading_for_new_shores' || s === 'heading_to_new_shores' || s === 'heading_new_shores' || s === 'new_shores') return generateBoardSeafarersHeadingForNewShores(geom);
   if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
   if (s === 'test_builder') return generateBoardSeafarersTestBuilder(geom);
   return generateBoardSeafarersFourIslands(geom);
@@ -3071,8 +2969,8 @@ function startGame(room) {
   if (!usedPreview) {
     if ((game.rules?.mapMode || 'classic') === 'seafarers') {
       const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-      // Some Seafarers scenarios use a custom 70-tile geometry to match the provided layouts.
-      if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores' || scen === 'heading_to_new_shores' || scen === 'heading_new_shores' || scen === 'new_shores') {
+      // The "Through the Desert" scenario uses a custom 70-tile geometry to match the provided layout.
+      if (scen === 'through_the_desert' || scen === 'fog_island') {
         game.geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
       }
       game.geom.tiles = generateBoardSeafarers(game.geom, scen);
@@ -3350,20 +3248,6 @@ function applyAction(room, playerId, action) {
 
         // Also prevent starting settlements from being placed on (i.e., touching) Gold Fields.
         // Gold Fields for this scenario are placed only on the outer islands/strip, but this keeps the rule explicit.
-        const adjT = game.geom.nodeAdjTiles?.[nodeId] || [];
-        if (adjT.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'gold')) {
-          return { ok: false, error: 'Setup settlements may not be placed on Gold Fields.' };
-        }
-      }
-    }
-
-
-    // Heading for New Shores: initial settlements are restricted to the starting island (purple region in the template).
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'heading_for_new_shores') {
-      if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
-        if (!nodeIsOnHNSStartIsland(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting island.' };
-
-        // Also prevent starting settlements from being placed on (i.e., touching) Gold Fields.
         const adjT = game.geom.nodeAdjTiles?.[nodeId] || [];
         if (adjT.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'gold')) {
           return { ok: false, error: 'Setup settlements may not be placed on Gold Fields.' };
@@ -4481,8 +4365,6 @@ function mapPreviewKey(rules) {
     ? 'through_the_desert'
     : (rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fogisland')
       ? 'fog_island'
-      : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_to_new_shores' || rawScen === 'heading-to-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'new-shores' || rawScen === 'headingshores')
-        ? 'heading_for_new_shores'
       : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
         ? 'test_builder'
         : 'four_islands';
@@ -4495,7 +4377,7 @@ function generatePreviewGeom(rules) {
     const key = mapPreviewKey(rules);
     const scen = key.split(':')[1] || 'four_islands';
     let geom = null;
-    if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
+    if (scen === 'through_the_desert' || scen === 'fog_island') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else {
       geom = buildGeometry(4);
