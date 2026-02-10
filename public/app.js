@@ -3132,7 +3132,15 @@ function syncPostgameToState() {
       const s3 = Math.round((r.microPhaseMs || 15000) / 1000);
       const mm = (r.mapMode || 'classic');
       const scen = (r.seafarersScenario || 'four_islands');
-      const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert' : (scen === 'fog_island' ? 'Fog Island' : (scen === 'test_builder' ? 'Test Builder' : 'Four Islands'));
+      const scenLabel = (scen === 'heading_for_new_shores' || scen === 'heading_to_new_shores' || scen === 'heading_new_shores' || scen === 'new_shores')
+        ? 'Heading for New Shores'
+        : (scen === 'through_the_desert')
+          ? 'Through the Desert'
+          : (scen === 'fog_island')
+            ? 'Fog Island'
+            : (scen === 'test_builder')
+              ? 'Test Builder'
+              : 'Four Islands';
       const mapLabel = (mm === 'seafarers') ? `seafarers (${scenLabel})` : mm;
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
       ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
