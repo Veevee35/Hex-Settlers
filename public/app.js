@@ -2562,6 +2562,9 @@ function syncPostgameToState() {
     ui.modal.classList.remove('hidden');
   }
   ui.modalBackdrop.addEventListener('click', closeModal);
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeModal();
+  });
 
   function prettyCardName(type) {
     switch (type) {

@@ -4750,7 +4750,12 @@ const server = http.createServer((req, res) => {
         return;
       }
       const ext = path.extname(filePath).toLowerCase();
-      res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+      const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+      // Prevent clients/CDNs from serving stale assets after a deploy.
+      headers['Cache-Control'] = 'no-store, max-age=0';
+      headers['Pragma'] = 'no-cache';
+      headers['Expires'] = '0';
+      res.writeHead(200, headers);
       fs.createReadStream(filePath).pipe(res);
     });
   } catch (e) {
