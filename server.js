@@ -615,6 +615,31 @@ const TTD_START_ISLAND_KEYS = new Set([
   '1,-3','0,-2','-1,-1',
 ]);
 
+const FOG_ISLAND_FOG_KEYS = new Set([
+  '0,-3',
+  '-1,-2', '0,-2',
+  '0,-1',
+  '0,0', '1,0',
+  '0,1', '1,1',
+  '0,2', '1,2',
+  '0,3', '1,3',
+]);
+
+const FOG_ISLAND_START_LAND_KEYS = new Set([
+  // Upper-right island
+  '2,-3','3,-3','4,-3',
+  '2,-2','3,-2','4,-2',
+  '3,-1','4,-1',
+  '3,0',
+  '3,1',
+  // Lower-left island
+  '-2,0',
+  '-3,1','-2,1',
+  '-3,2','-2,2',
+  '-3,3','-2,3',
+]);
+
+
 // Through the Desert: "across the desert" bonus locations (3 red tiles in the template).
 // When a player places their first settlement touching any of these tiles (during main-actions),
 // they gain +2 VP once (similar to the new-island bonus).
@@ -649,6 +674,115 @@ function nodeIsOnTTDStartIsland(game, nodeId) {
   }
   return sawLand;
 }
+
+function nodeIsOnFogStartIslands(game, nodeId) {
+  const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
+  let sawLand = false;
+  for (const tid of adj) {
+    const t = game?.geom?.tiles?.[tid];
+    if (!t) continue;
+    // Treat unrevealed fog tiles as sea during setup.
+    if (t.fog && !t.revealed) continue;
+    if (t.type === 'sea') continue;
+    sawLand = true;
+    const key = `${t.q},${t.r}`;
+    if (!FOG_ISLAND_START_LAND_KEYS.has(key)) return false;
+  }
+  return sawLand;
+}
+
+function seafarersScenarioKey(game) {
+  return String((game && game.rules && game.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
+}
+
+function isFogIslandGame(game) {
+  return !!(game && (game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'fog_island');
+}
+
+// Fog Island exploration (Option B):
+// Whenever a road/ship is placed (or a ship is moved) on an edge that borders unrevealed fog,
+// reveal exactly ONE fog tile. If the edge borders multiple unrevealed fog tiles, always pick
+// the first tile in a fixed order (lowest tileId).
+function pickFirstUnrevealedFogTileOnEdge(game, edgeId) {
+  const adj = (game && game.geom && game.geom.edgeAdjTiles) ? (game.geom.edgeAdjTiles[edgeId] || []) : [];
+  if (!Array.isArray(adj) || adj.length === 0) return null;
+  const ids = adj.slice().sort((a, b) => a - b);
+  for (const tid of ids) {
+    const t = game.geom.tiles && game.geom.tiles[tid];
+    if (t && t.fog && !t.revealed) return tid;
+  }
+  return null;
+}
+
+function revealFogTile(game, tileId) {
+  const t = game && game.geom && game.geom.tiles ? game.geom.tiles[tileId] : null;
+  if (!t || !t.fog || t.revealed) return null;
+
+  t.revealed = true;
+
+  const ht = (t.hiddenType || 'sea');
+  const hn = (ht === 'sea' || ht === 'desert') ? null : (t.hiddenNumber ?? null);
+
+  t.type = ht;
+  t.number = hn;
+
+  // Hidden info should never be needed client-side once revealed.
+  try { delete t.hiddenType; } catch (_) {}
+  try { delete t.hiddenNumber; } catch (_) {}
+
+  return t;
+}
+
+function awardFogDiscovery(game, playerId, tileId) {
+  const t = game && game.geom && game.geom.tiles ? game.geom.tiles[tileId] : null;
+  if (!t || !t.revealed) return null;
+
+  if (t.type === 'sea') {
+    pushLog(game, `${playerName(game, playerId)} revealed sea.`, 'discover', { tileId, tileType: 'sea' });
+    return { kind: 'sea' };
+  }
+
+  if (t.type === 'gold') {
+    game.discoverySeq = game.discoverySeq || 1;
+    game.special = { kind: 'discovery_gold', id: game.discoverySeq++, forPlayerId: playerId, tileId };
+    game.message = `Gold Field discovered. ${playerName(game, playerId)} must choose a resource.`;
+    pushLog(game, `${playerName(game, playerId)} discovered a Gold Field.`, 'discover', { tileId, tileType: 'gold' });
+    return { kind: 'gold' };
+  }
+
+  const rk = RESOURCE_MAP[t.type];
+  if (rk) {
+    const p = playerById(game, playerId);
+    const got = p ? grantFromBankStats(game, playerId, p.resources, rk, 1, 'discover') : 0;
+    if (got > 0) {
+      pushLog(game, `${playerName(game, playerId)} discovered ${t.type} (+1 ${rk}).`, 'discover', { tileId, tileType: t.type, resourceKind: rk, amount: got });
+    } else {
+      pushLog(game, `${playerName(game, playerId)} discovered ${t.type}. (Bank out of ${rk}.)`, 'discover', { tileId, tileType: t.type, resourceKind: rk, amount: 0 });
+    }
+    return { kind: 'resource', resourceKind: rk, amount: got };
+  }
+
+  pushLog(game, `${playerName(game, playerId)} discovered ${t.type}.`, 'discover', { tileId, tileType: t.type });
+  return { kind: 'other' };
+}
+
+function maybeExploreFogFromEdge(game, playerId, edgeId) {
+  if (!isFogIslandGame(game)) return null;
+  // Exploration only applies during main gameplay, including ship move before rolling.
+  if (game.phase !== 'main-actions' && game.phase !== 'main-await-roll') return null;
+  if (game.special && game.special.kind === 'discovery_gold') return null;
+
+  const tid = pickFirstUnrevealedFogTileOnEdge(game, edgeId);
+  if (tid == null) return null;
+
+  const tile = revealFogTile(game, tid);
+  if (!tile) return null;
+
+  const award = awardFogDiscovery(game, playerId, tid);
+  return { tileId: tid, tileType: tile.type, award };
+}
+
+
 
 function axialToPixel(q, r, size = 1) {
   // Pointy-top axial -> pixel
@@ -1005,7 +1139,7 @@ function emptyDiceStats() {
 
 
 // -------------------- Game Stats (post-game breakdown) --------------------
-const STAT_RESOURCE_SOURCES_GAIN = ['setup','production','trade','steal','dev','other'];
+const STAT_RESOURCE_SOURCES_GAIN = ['setup','production','discover','trade','steal','dev','other'];
 const STAT_RESOURCE_SOURCES_LOSS = ['build','trade','steal','discard','dev','other'];
 
 function _emptyResMap() {
@@ -1327,6 +1461,7 @@ function defaultVictoryPointsToWin(rules) {
   const mm = String(rules?.mapMode || 'classic').toLowerCase();
   if (mm !== 'seafarers') return 10;
   const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
+  if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert') return 14;
   return 13; // four islands
 }
@@ -2251,6 +2386,152 @@ function generateBoardSeafarersThroughTheDesert(geom) {
   return allTiles;
 }
 
+
+
+function generateBoardSeafarersFogIsland(geom) {
+  // Build on the Through-the-Desert sized geometry (70 tiles). All sea by default.
+  const tiles = seafarersBaseAllSea(geom);
+
+  // Face-up land: two starting islands (17 land tiles) with a standard 17-token distribution.
+  const startLandIds = pickLandTileIds(tiles, FOG_ISLAND_START_LAND_KEYS);
+
+  // Face-down fog band: 12 tiles. They begin as sea, but store hidden contents.
+  const fogIds = pickLandTileIds(tiles, FOG_ISLAND_FOG_KEYS);
+
+  // Resource mix for starting islands (17 tiles).
+  const startTypes = [
+    ...Array(3).fill('hills'),
+    ...Array(4).fill('forest'),
+    ...Array(4).fill('pasture'),
+    ...Array(3).fill('field'),
+    ...Array(3).fill('mountains'),
+  ];
+
+  // Numbers for starting islands (17).
+  const startNumbers = [2,3,3,4,4,5,5,6,6,8,8,9,9,10,10,11,12];
+
+  // Resource mix for fog tiles (12 total): 2 sea, 2 gold, and 8 resource lands.
+  const fogHiddenTypes = [
+    'sea','sea',
+    'gold','gold',
+    'hills','hills',
+    'forest',
+    'pasture',
+    'field','field',
+    'mountains','mountains',
+  ];
+
+  // Numbers for fog *land* tiles only (10 land tiles).
+  const fogLandNumbers = [3,4,5,6,8,9,10,11,11,12];
+
+  // Attempt random placements with a simple 6/8 adjacency constraint across all land tiles.
+  for (let attempt = 0; attempt < 200; attempt++) {
+    // Reset everything
+    for (const t of tiles) {
+      delete t.fog;
+      delete t.revealed;
+      delete t.hiddenType;
+      delete t.hiddenNumber;
+      t.number = null;
+      t.type = 'sea';
+    }
+
+    // Place starting land
+    const stTypes = startTypes.slice();
+    const stNums = startNumbers.slice();
+    shuffle(stTypes);
+    shuffle(stNums);
+    for (let i = 0; i < startLandIds.length; i++) {
+      const tid = startLandIds[i];
+      const t = tiles[tid];
+      t.type = stTypes[i];
+      t.number = stNums[i];
+    }
+
+    // Place fog hidden contents
+    const fhTypes = fogHiddenTypes.slice();
+    shuffle(fhTypes);
+    const landNums = fogLandNumbers.slice();
+    shuffle(landNums);
+    let landNumIdx = 0;
+
+    for (const tid of fogIds) {
+      const t = tiles[tid];
+      t.fog = true;
+      t.revealed = false;
+      const ht = fhTypes.pop();
+      t.hiddenType = ht;
+      if (ht !== 'sea') {
+        t.hiddenNumber = landNums[landNumIdx++];
+      } else {
+        t.hiddenNumber = null;
+      }
+      // Visible state: sea + no number until revealed.
+      t.type = 'sea';
+      t.number = null;
+    }
+
+    // Validate: no adjacent 6/8 among (visible + hidden) land placements.
+    let ok = true;
+    // Build a temporary view of numbers for adjacency checks.
+    const temp = tiles.map(t => ({
+      id: t.id,
+      type: t.fog && !t.revealed ? (t.hiddenType === 'sea' ? 'sea' : t.hiddenType) : t.type,
+      number: t.fog && !t.revealed ? (t.hiddenType === 'sea' ? null : t.hiddenNumber) : t.number,
+    }));
+
+    for (const t of temp) {
+      if (!t.number) continue;
+      if (t.number !== 6 && t.number !== 8) continue;
+      const adj = geom.tileAdjTiles?.[t.id] || [];
+      for (const aid of adj) {
+        const at = temp[aid];
+        if (!at || !at.number) continue;
+        if (at.number === 6 || at.number === 8) { ok = false; break; }
+      }
+      if (!ok) break;
+    }
+    if (!ok) continue;
+
+    // Ensure fog land numbers pool used fully.
+    if (landNumIdx !== fogLandNumbers.length) continue;
+
+    return tiles;
+  }
+
+  // Fallback (no adjacency guarantee)
+  // Place starting land
+  const stTypes = startTypes.slice();
+  const stNums = startNumbers.slice();
+  shuffle(stTypes);
+  shuffle(stNums);
+  for (let i = 0; i < startLandIds.length; i++) {
+    const tid = startLandIds[i];
+    const t = tiles[tid];
+    t.type = stTypes[i];
+    t.number = stNums[i];
+  }
+
+  const fhTypes = fogHiddenTypes.slice();
+  shuffle(fhTypes);
+  const landNums = fogLandNumbers.slice();
+  shuffle(landNums);
+  let landNumIdx = 0;
+  for (const tid of fogIds) {
+    const t = tiles[tid];
+    t.fog = true;
+    t.revealed = false;
+    const ht = fhTypes.pop();
+    t.hiddenType = ht;
+    if (ht !== 'sea') t.hiddenNumber = landNums[landNumIdx++];
+    else t.hiddenNumber = null;
+    t.type = 'sea';
+    t.number = null;
+  }
+
+  return tiles;
+}
+
 function generateBoardSeafarersTestBuilder(geom) {
   // Blank editable map: all sea with a center desert + robber and one sea tile with the pirate.
   const allTiles = seafarersBaseAllSea(geom);
@@ -2277,12 +2558,12 @@ function generateBoardSeafarersTestBuilder(geom) {
 
 
 function generateBoardSeafarers(geom, scenario = 'four_islands') {
-  const s = String(scenario || 'four_islands');
+  const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   if (s === 'through_the_desert') return generateBoardSeafarersThroughTheDesert(geom);
+  if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
   if (s === 'test_builder') return generateBoardSeafarersTestBuilder(geom);
   return generateBoardSeafarersFourIslands(geom);
 }
-
 
 // -------------------- Ports (Harbors) --------------------
 
@@ -2517,7 +2798,8 @@ function newEmptyGame(room) {
     thiefChoiceSeq: 1,
     pirateSteal: null,
     pirateStealSeq: 1,
-    shipMoveUsed: {},
+        shipMoveUsed: {},
+    discoverySeq: 1,
   };
 }
 
@@ -2599,9 +2881,9 @@ function startGame(room) {
 
   if (!usedPreview) {
     if ((game.rules?.mapMode || 'classic') === 'seafarers') {
-      const scen = (game?.rules?.seafarersScenario || 'four_islands');
+      const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
       // The "Through the Desert" scenario uses a custom 70-tile geometry to match the provided layout.
-      if (scen === 'through_the_desert') {
+      if (scen === 'through_the_desert' || scen === 'fog_island') {
         game.geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
       }
       game.geom.tiles = generateBoardSeafarers(game.geom, scen);
@@ -2849,6 +3131,12 @@ function applyAction(room, playerId, action) {
     (kind === 'discard_cards' && game.phase === 'discard' && game.discard && game.discard.required && game.discard.required[playerId] && !(game.discard.done && game.discard.done[playerId]));
   if (!isPlayersTurn(game, playerId) && !outOfTurnOk) return { ok: false, error: "Not your turn." };
 
+
+  // Fog Island: if a Gold Field discovery choice is pending for this player, it must be resolved first.
+  if (game.special && game.special.kind === 'discovery_gold' && game.special.forPlayerId === playerId && kind !== 'choose_discovery') {
+    return { ok: false, error: 'Choose a resource for the discovered Gold Field first.' };
+  }
+
   // --- Setup placements
   if (kind === 'place_settlement') {
     const nodeId = action.nodeId;
@@ -2867,7 +3155,7 @@ function applyAction(room, playerId, action) {
     }
 
     // Through the Desert: initial settlements are restricted to the starting island (pink region in the template).
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && (game.rules?.seafarersScenario || 'four_islands') === 'through_the_desert') {
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'through_the_desert') {
       if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
         if (!nodeIsOnTTDStartIsland(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting island.' };
 
@@ -2877,6 +3165,14 @@ function applyAction(room, playerId, action) {
         if (adjT.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'gold')) {
           return { ok: false, error: 'Setup settlements may not be placed on Gold Fields.' };
         }
+      }
+    }
+
+
+    // Fog Island: initial settlements are restricted to the two starting islands (unrevealed fog counts as sea during setup).
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'fog_island') {
+      if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
+        if (!nodeIsOnFogStartIslands(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting islands.' };
       }
     }
 
@@ -2903,7 +3199,7 @@ function applyAction(room, playerId, action) {
     // Seafarers: when you build a settlement on an island where you have no buildings yet,
     // you immediately gain +2 VP. (Not awarded during setup.)
     let newIslandBonus = false;
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions') {
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions' && String((game.rules?.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g,'_') !== 'fog_island') {
       const tileToIsland = computeLandIslands(game.geom);
       const islandId = islandIdForNode(game.geom, nodeId, tileToIsland);
       if (islandId != null) {
@@ -3022,6 +3318,9 @@ function applyAction(room, playerId, action) {
     recordBuild(game, playerId, 'road');
     broadcastSfx(room, 'structure');
 
+    // Fog Island exploration (Option B)
+    maybeExploreFogFromEdge(game, playerId, edgeId);
+
     // Consume free roads if active
     if (game.phase === 'main-actions' && game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === playerId) {
       game.special.remaining = Math.max(0, (game.special.remaining || 0) - 1);
@@ -3082,6 +3381,10 @@ function applyAction(room, playerId, action) {
       e.shipOwner = playerId;
     recordBuild(game, playerId, 'ship');
     broadcastSfx(room, 'structure');
+
+    // Fog Island exploration (Option B)
+    maybeExploreFogFromEdge(game, playerId, edgeId);
+
       game.setup.awaiting = null;
       // Ships contribute to Longest Road (trade route) too.
       recomputeLongestRoad(game);
@@ -3169,7 +3472,11 @@ function applyAction(room, playerId, action) {
       return { ok: false, error: 'Moved ship must remain connected to your ships or a settlement/city.' };
     }
 
-    toE.shipOwner = playerId;
+        toE.shipOwner = playerId;
+
+    // Fog Island exploration (Option B)
+    maybeExploreFogFromEdge(game, playerId, toEdgeId);
+
 
     game.shipMoveUsed = game.shipMoveUsed || {};
     game.shipMoveUsed[playerId] = game.turnNumber;
@@ -3323,6 +3630,29 @@ function applyAction(room, playerId, action) {
     }
 
     return { ok: false, error: 'Unknown development card.' };
+  }
+
+  // Fog Island: Gold Field discovery choice
+  if (kind === 'choose_discovery') {
+    const sp = game.special;
+    if (!sp || sp.kind !== 'discovery_gold') return { ok: false, error: 'No discovery choice is pending.' };
+    if (sp.forPlayerId !== playerId) return { ok: false, error: 'This discovery choice is for another player.' };
+
+    const rk = String(action.resourceKind || '').toLowerCase();
+    if (!RESOURCE_KINDS.includes(rk)) return { ok: false, error: 'Invalid resource choice.' };
+
+    const p = playerById(game, playerId);
+    if (!p) return { ok: false, error: 'Missing player.' };
+
+    const got = grantFromBankStats(game, playerId, p.resources, rk, 1, 'discover');
+    game.special = null;
+
+    // Public event for UI feedback
+    game.lastEvent = { id: game.eventSeq++, type: 'discover_gold', playerId, resourceKind: rk, tileId: sp.tileId, amount: got };
+
+    game.message = `${playerName(game, playerId)} claimed ${rk} from a Gold Field.`;
+    pushLog(game, `${playerName(game, playerId)} claimed ${rk} from a Gold Field.`, 'discover', { tileId: sp.tileId, resourceKind: rk, amount: got });
+    return { ok: true };
   }
 
   if (kind === 'roll_dice') {
@@ -3946,9 +4276,11 @@ function mapPreviewKey(rules) {
   const rawScen = String((rules && rules.seafarersScenario) || 'four_islands').toLowerCase();
   const scen = (rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'desert' || rawScen === 'throughdesert')
     ? 'through_the_desert'
-    : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
-      ? 'test_builder'
-      : 'four_islands';
+    : (rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fogisland')
+      ? 'fog_island'
+      : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
+        ? 'test_builder'
+        : 'four_islands';
   return `seafarers:${scen}`;
 }
 
@@ -3958,7 +4290,7 @@ function generatePreviewGeom(rules) {
     const key = mapPreviewKey(rules);
     const scen = key.split(':')[1] || 'four_islands';
     let geom = null;
-    if (scen === 'through_the_desert') {
+    if (scen === 'through_the_desert' || scen === 'fog_island') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else {
       geom = buildGeometry(4);
@@ -4083,6 +4415,18 @@ function sanitizeStateFor(game, viewerId) {
       delete state.lastEvent.resourceKind;
     }
   }
+
+  // Hide Fog Island hidden tile information from clients.
+  if (state.geom && Array.isArray(state.geom.tiles)) {
+    for (const t of state.geom.tiles) {
+      if (t && t.fog && !t.revealed) {
+        try { delete t.hiddenType; } catch (_) {}
+        try { delete t.hiddenNumber; } catch (_) {}
+      }
+    }
+  }
+
+
 
 
 
@@ -4472,9 +4816,11 @@ if (msg.type === 'create_room') {
       const rawScen = String(r.seafarersScenario ?? next.seafarersScenario ?? 'four_islands').toLowerCase();
       next.seafarersScenario = (rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'desert' || rawScen === 'throughdesert')
         ? 'through_the_desert'
-        : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
-          ? 'test_builder'
-          : 'four_islands';
+        : (rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fogisland')
+          ? 'fog_island'
+          : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
+            ? 'test_builder'
+            : 'four_islands';
 
       // Victory points to win (clamped) — scenario defaults:
       // - Classic: 10

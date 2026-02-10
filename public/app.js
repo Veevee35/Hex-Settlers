@@ -1559,6 +1559,7 @@ function syncPostgameToState() {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     if (mm !== 'seafarers') return 10;
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
+    if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert') return 14;
     return 13; // four islands
   }
@@ -2053,6 +2054,7 @@ function syncPostgameToState() {
     mountains: 'assets/Mountains.png',
     pasture: 'assets/Pasture.png',
     sea: 'assets/Seas.png',
+    unexplored: 'assets/Unexplored.png',
   };
 
   const DEV_IMG = {
@@ -2448,6 +2450,7 @@ function syncPostgameToState() {
         handleRobberStealPrompt();
         handlePirateChoicePrompt();
         handlePirateStealPrompt();
+        handleDiscoveryGoldPrompt();
         refreshToolModals();
 
         // Keep the draggable Game Log overlay in sync while it's open.
@@ -3129,7 +3132,7 @@ function syncPostgameToState() {
       const s3 = Math.round((r.microPhaseMs || 15000) / 1000);
       const mm = (r.mapMode || 'classic');
       const scen = (r.seafarersScenario || 'four_islands');
-      const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert' : (scen === 'test_builder' ? 'Test Builder' : 'Four Islands');
+      const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert' : (scen === 'fog_island' ? 'Fog Island' : (scen === 'test_builder' ? 'Test Builder' : 'Four Islands'));
       const mapLabel = (mm === 'seafarers') ? `seafarers (${scenLabel})` : mm;
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
       ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
@@ -4871,6 +4874,60 @@ function handlePirateStealPrompt() {
   openModal({ title: 'Pirate Steal', bodyNode: wrap, actions: [] });
 }
 
+let lastDiscoveryGoldPromptId = 0;
+
+function handleDiscoveryGoldPrompt() {
+  if (!state || !myPlayerId) return;
+  const sp = state.special;
+  const needs = sp && sp.kind === 'discovery_gold' && sp.forPlayerId === myPlayerId;
+  if (!needs) {
+    if (modalType === 'discovery-gold') forceCloseModal();
+    return;
+  }
+
+  const sid = Number(sp.id || 0);
+  if (modalType === 'discovery-gold' && sid === lastDiscoveryGoldPromptId && !ui.modal.classList.contains('hidden')) return;
+  lastDiscoveryGoldPromptId = sid;
+
+  if (!ui.modal.classList.contains('hidden') && modalType !== 'discovery-gold') forceCloseModal();
+
+  const wrap = document.createElement('div');
+  const top = document.createElement('div');
+  top.style.marginBottom = '10px';
+  top.textContent = 'Gold Field discovered! Choose 1 resource to take from the bank:';
+  wrap.appendChild(top);
+
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.flexWrap = 'wrap';
+  row.style.gap = '8px';
+
+  const choices = [
+    ['brick', 'Brick'],
+    ['lumber', 'Lumber'],
+    ['wool', 'Wool'],
+    ['grain', 'Grain'],
+    ['ore', 'Ore'],
+  ];
+
+  for (const [k,label] of choices) {
+    const b = document.createElement('button');
+    b.className = 'btn primary';
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      sendGameAction({ kind: 'choose_discovery', resourceKind: k });
+    });
+    row.appendChild(b);
+  }
+
+  wrap.appendChild(row);
+
+  modalLocked = true;
+  modalType = 'discovery-gold';
+  openModal({ title: 'Discovery', bodyNode: wrap, actions: [] });
+}
+
+
 
   function playDevCard(card) {
     if (!card) return;
@@ -5233,7 +5290,9 @@ function handlePirateStealPrompt() {
       ctx.closePath();
       ctx.clip();
 
-      const img = images[t.type] || null;
+      const fogHidden = !!(t.fog && !t.revealed);
+      const imgKey = fogHidden ? 'unexplored' : t.type;
+      const img = images[imgKey] || null;
       // world hex bbox for size=1: width sqrt(3), height 2. add slight padding
       const imgW = Math.sqrt(3) * view.scale * 1.06;
       const imgH = 2 * view.scale * 1.06;
@@ -5257,7 +5316,7 @@ function handlePirateStealPrompt() {
       ctx.restore();
 
       // Number token
-      if (t.number) {
+      if (t.number && !(t.fog && !t.revealed)) {
         const numImg = images[`num_${t.number}`] || null;
         // Keep the center number readable at any zoom: never smaller than 1/3 of the hex height.
         const hexH = 2 * view.scale;
