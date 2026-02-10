@@ -5071,6 +5071,8 @@ if (msg.type === 'create_room') {
         ? 'through_the_desert'
         : (rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fogisland')
           ? 'fog_island'
+          : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
+            ? 'heading_for_new_shores'
           : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
             ? 'test_builder'
             : 'four_islands';
@@ -5079,6 +5081,7 @@ if (msg.type === 'create_room') {
       // - Classic: 10
       // - Seafarers Four Islands: 13
       // - Seafarers Through the Desert: 14
+      // - Seafarers Heading for New Shores: 14
       const rawVp = (r.victoryPointsToWin ?? r.victoryTarget ?? r.vpToWin);
       const vp = Math.floor(Number(rawVp));
       if (Number.isFinite(vp)) {
