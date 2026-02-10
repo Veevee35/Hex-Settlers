@@ -1657,7 +1657,9 @@ function syncPostgameToState() {
 
     const btns = document.createElement('div');
     btns.className = 'hudBtns';
-    for (const b of [ui.logBtn, ui.diceBtn, ui.chatBtn, ui.idsBtn]) {
+    // In-game: keep the same tools as the lobby, but in a compact HUD bar.
+    // The user expects Rules to be available in-game next to Game Log.
+    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.idsBtn]) {
       if (!b) continue;
       b.classList.add('btnTiny');
       btns.appendChild(b);
