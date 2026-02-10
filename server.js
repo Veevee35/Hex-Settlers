@@ -3278,7 +3278,7 @@ function startThiefChoice(game, source, playerId) {
   game.phase = 'pirate-or-robber';
   const who = playerName(game, playerId);
   const verb = (source === 'knight') ? 'played a Knight' : 'rolled 7';
-  game.message = `${who} ${verb}. Choose to move the robber or the pirate, then steal 1 random resource.`;
+  game.message = `${who} ${verb}. Click a land tile to move the robber, or a sea tile to move the pirate. Then steal 1 random resource.`;
 }
 
 function edgeTouchesPirate(game, edgeId) {
@@ -4024,7 +4024,13 @@ function applyAction(room, playerId, action) {
   }
 
   if (kind === 'move_robber') {
-    if (game.phase !== 'robber-move') return { ok: false, error: 'Not moving robber now.' };
+    if (game.phase !== 'robber-move' && game.phase !== 'pirate-or-robber') return { ok: false, error: 'Not moving robber now.' };
+    if (game.phase === 'pirate-or-robber') {
+      if ((game.rules?.mapMode || 'classic') !== 'seafarers') return { ok: false, error: 'Pirate/robber choice is only available in Seafarers mode.' };
+      // Implicit choice (no separate choose step)
+      game.thiefChoice = null;
+      pushLog(game, `${playerName(game, playerId)} chose to move the robber.`, 'info');
+    }
     const tileId = action.tileId;
     if ((game.rules?.mapMode || 'classic') === 'seafarers') {
       const tt = game.geom.tiles?.[tileId];
@@ -4132,7 +4138,12 @@ if (kind === 'choose_thief') {
 
 if (kind === 'move_pirate') {
   if ((game.rules?.mapMode || 'classic') !== 'seafarers') return { ok: false, error: 'Pirate is only available in Seafarers mode.' };
-  if (game.phase !== 'pirate-move') return { ok: false, error: 'Not moving pirate now.' };
+  if (game.phase !== 'pirate-move' && game.phase !== 'pirate-or-robber') return { ok: false, error: 'Not moving pirate now.' };
+  if (game.phase === 'pirate-or-robber') {
+    // Implicit choice (no separate choose step)
+    game.thiefChoice = null;
+    pushLog(game, `${playerName(game, playerId)} chose to move the pirate.`, 'info');
+  }
   const tileId = action.tileId;
   const tt = game.geom.tiles?.[tileId];
   if (!tt) return { ok: false, error: 'Bad tile.' };

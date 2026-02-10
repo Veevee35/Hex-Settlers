@@ -44,6 +44,7 @@
     toolsCard: $('toolsCard'),
     devCard: $('devCard'),
     logBtn: $('logBtn'),
+    rulesBtn: $('rulesBtn'),
     diceBtn: $('diceBtn'),
     chatBtn: $('chatBtn'),
     idsBtn: $('idsBtn'),
@@ -2519,6 +2520,18 @@ function syncPostgameToState() {
   // Modal helpers
   function closeModal() {
     if (modalLocked) return;
+
+    // If a player dismisses the proposed-trade popup, treat it as a reject.
+    try {
+      if (modalType === 'pendingTrade' && state && state.pendingTrade && myPlayerId) {
+        const t = state.pendingTrade;
+        if (t && t.id && myPlayerId !== t.fromId) {
+          // Always reject on close (even if previously accepted).
+          send({ type: 'game_action', action: { kind: 'respond_trade', tradeId: t.id, accept: false } });
+        }
+      }
+    } catch (_) {}
+
     ui.modal.classList.add('hidden');
     ui.modalTitle.textContent = '';
     ui.modalBody.innerHTML = '';
@@ -2880,6 +2893,76 @@ function syncPostgameToState() {
     list.scrollTop = list.scrollHeight;
   }
 
+  function openRulesModal() {
+    activeToolModal = 'rules';
+
+    const r = (state && state.rules) ? state.rules : (room && room.rules) ? room.rules : null;
+    const rules = r || {};
+
+    const discardLimit = Math.max(0, Math.floor(Number(rules.discardLimit ?? 7)));
+    const setupMs = Math.max(0, Math.floor(Number(rules.setupTurnMs ?? 60000)));
+    const playMs = Math.max(0, Math.floor(Number(rules.playTurnMs ?? 30000)));
+    const microMs = Math.max(0, Math.floor(Number(rules.microPhaseMs ?? rules.microMs ?? 15000)));
+
+    function msToS(ms) { return `${Math.round(ms / 1000)}s`; }
+
+    function timerSpeedName() {
+      const ratio = playMs / 30000;
+      if (Math.abs(ratio - 0.5) < 0.12) return 'Fast';
+      if (Math.abs(ratio - 1.0) < 0.12) return 'Normal';
+      if (Math.abs(ratio - 2.0) < 0.25) return 'Slow';
+      return 'Custom';
+    }
+
+    const mapMode = String(rules.mapMode || 'classic').toLowerCase() === 'seafarers' ? 'Seafarers' : 'Classic';
+    const scenRaw = String(rules.seafarersScenario || '').toLowerCase();
+    const scenario = (mapMode === 'Seafarers')
+      ? (scenRaw === 'through_the_desert' || scenRaw === 'through-the-desert' || scenRaw === 'desert' || scenRaw === 'throughdesert')
+        ? 'Through the Desert'
+        : (scenRaw === 'fog_island' || scenRaw === 'fog-island' || scenRaw === 'fog' || scenRaw === 'fogisland')
+          ? 'Fog Island'
+          : (scenRaw === 'heading_for_new_shores' || scenRaw === 'heading-for-new-shores' || scenRaw === 'new_shores' || scenRaw === 'newshores' || scenRaw === 'heading')
+            ? 'Heading for New Shores'
+            : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
+              ? 'Test Builder'
+              : 'Four Islands'
+      : '—';
+
+    const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
+
+    const wrap = document.createElement('div');
+    wrap.className = 'toolWrap';
+
+    const table = document.createElement('table');
+    table.className = 'diceTable';
+    const tbody = document.createElement('tbody');
+    function addRow(k, v) {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td');
+      td1.textContent = k;
+      const td2 = document.createElement('td');
+      td2.textContent = v;
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      tbody.appendChild(tr);
+    }
+
+    addRow('Map', mapMode);
+    addRow('Scenario', scenario);
+    addRow('Victory Condition', `${vpToWin} VP`);
+    addRow('Discard Limit', `${discardLimit}`);
+    addRow('Timer Speed', `${timerSpeedName()} (setup ${msToS(setupMs)} / turn ${msToS(playMs)} / micro ${msToS(microMs)})`);
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+
+    openModal({
+      title: 'Game Rules',
+      bodyNode: wrap,
+      actions: [{ label: 'Close', primary: true, onClick: closeModal }],
+    });
+  }
+
   function openDiceModal() {
     activeToolModal = 'dice';
 
@@ -2938,6 +3021,11 @@ function syncPostgameToState() {
       ui.modalBody.innerHTML = '';
       ui.modalBody.appendChild(wrap);
       list.scrollTop = list.scrollHeight;
+      return;
+    }
+    if (activeToolModal === 'rules') {
+      // Rules rarely change, but if they do, rebuild.
+      openRulesModal();
       return;
     }
     if (activeToolModal === 'dice') {
@@ -3280,6 +3368,7 @@ if (ui.copyMyIdBtn) {
 
   // Tools
   ui.logBtn.addEventListener('click', () => toggleLogPanel());
+  if (ui.rulesBtn) ui.rulesBtn.addEventListener('click', () => openRulesModal());
   ui.diceBtn.addEventListener('click', () => openDiceModal());
   ui.chatBtn.addEventListener('click', () => openChatModal());
   if (ui.idsBtn) ui.idsBtn.addEventListener('click', () => openRoomIdsModal());
@@ -3304,8 +3393,12 @@ if (ui.copyMyIdBtn) {
       msg = inputMode.moveShipFrom == null
         ? 'Click one of your end ships to select it, then click an empty sea edge to move it.'
         : 'Now click an empty sea edge to move the selected ship.';
+    } else if (kind === 'move_thief') {
+      msg = 'Click a land tile to move the robber, or a sea tile to move the pirate.';
     } else if (kind === 'move_pirate') {
       msg = 'Click a sea tile to move the pirate.';
+    } else if (kind === 'move_robber') {
+      msg = 'Click a land tile to move the robber.';
     } else {
       msg = `Click on the board to ${kind.replaceAll('_', ' ')}.`;
     }
@@ -3576,6 +3669,7 @@ function ensureTimerUiInterval() {
 
     const setupSettlement = myTurn && (state.phase === 'setup1-settlement' || state.phase === 'setup2-settlement');
     const setupRoad = myTurn && (state.phase === 'setup1-road' || state.phase === 'setup2-road');
+	    const thiefPick = myTurn && state.phase === 'pirate-or-robber';
     const robber = myTurn && state.phase === 'robber-move';
     const pirateMove = myTurn && state.phase === 'pirate-move';
     const seafarers = ((state && state.rules && state.rules.mapMode) || (room && room.rules && room.rules.mapMode) || 'classic') === 'seafarers';
@@ -3619,7 +3713,9 @@ if (ui.moveShipBtn) {
       // default to road, but allow the player to pick ship (Seafarers) during setup if coastal
       const k = inputMode && inputMode.kind;
       if (!(k === 'place_road' || k === 'place_ship')) setMode('place_road');
-    } else if (robber) {
+	    } else if (thiefPick) {
+	      setMode('move_thief');
+	    } else if (robber) {
       setMode('move_robber');
     } else if (pirateMove) {
       setMode('move_pirate');
@@ -3717,16 +3813,50 @@ if (ui.moveShipBtn) {
       left.appendChild(badge);
       left.appendChild(name);
 
-      const vp = document.createElement('div');
-      vp.style.fontFamily = 'ui-monospace, monospace';
-      vp.style.color = '#e8eef6';
-      const tags = [];
-      if (state && state.largestArmy && state.largestArmy.playerId === p.id) tags.push('LA');
-      if (state && state.longestRoad && state.longestRoad.playerId === p.id) tags.push('LR');
-      vp.textContent = `VP ${p.vp}${tags.length ? ` • ${tags.join(' • ')}` : ''}`;
 
-      head.appendChild(left);
-      head.appendChild(vp);
+	      const right = document.createElement('div');
+	      right.style.display = 'flex';
+	      right.style.flexDirection = 'column';
+	      right.style.alignItems = 'flex-end';
+	      right.style.gap = '2px';
+
+	      const vp = document.createElement('div');
+	      vp.style.fontFamily = 'ui-monospace, monospace';
+	      vp.style.color = '#e8eef6';
+	      const tags = [];
+	      if (state && state.largestArmy && state.largestArmy.playerId === p.id) tags.push('LA');
+	      if (state && state.longestRoad && state.longestRoad.playerId === p.id) tags.push('LR');
+	      vp.textContent = `VP ${p.vp}${tags.length ? ` • ${tags.join(' • ')}` : ''}`;
+	      right.appendChild(vp);
+
+	      // Longest road length (per player)
+	      const lrLine = document.createElement('div');
+	      lrLine.style.display = 'flex';
+	      lrLine.style.alignItems = 'center';
+	      lrLine.style.gap = '6px';
+	      lrLine.style.fontFamily = 'ui-monospace, monospace';
+	      lrLine.style.color = '#e8eef6';
+
+	      const lrIcon = document.createElement('div');
+	      lrIcon.style.width = '16px';
+	      lrIcon.style.height = '16px';
+	      lrIcon.style.borderRadius = '6px';
+	      const colIdx2 = playerColorIndex(p.color);
+	      const src = STRUCT_IMG_SRC[colIdx2] || STRUCT_IMG_SRC[0];
+	      lrIcon.style.backgroundImage = `url('${src}')`;
+	      lrIcon.style.backgroundSize = '200% 200%';
+	      const pos = tokenBgPosPct('road');
+	      lrIcon.style.backgroundPosition = `${pos.x}% ${pos.y}%`;
+	      lrIcon.title = 'Longest road length';
+
+	      const lrVal = document.createElement('span');
+	      lrVal.textContent = String(Math.max(0, p.longestRoadLen || 0));
+	      lrLine.appendChild(lrIcon);
+	      lrLine.appendChild(lrVal);
+	      right.appendChild(lrLine);
+
+	      head.appendChild(left);
+	      head.appendChild(right);
 
       const grid = document.createElement('div');
       grid.className = 'pResGrid';
@@ -4774,59 +4904,19 @@ function handleRobberStealPrompt() {
 function handlePirateChoicePrompt() {
   if (!state || !myPlayerId) return;
 
+  // No popup: during this phase, the active player chooses by clicking a land tile (robber)
+  // or a sea tile (pirate).
   const isMyChoice = state.phase === 'pirate-or-robber' && state.currentPlayerId === myPlayerId;
   const ctx = state.thiefChoice;
   if (!isMyChoice || !ctx || ctx.playerId !== myPlayerId) {
     if (modalType === 'thief-choice') forceCloseModal();
+    lastPirateChoicePromptId = null;
     return;
   }
 
-  const cid = Number(ctx.id || 0);
-  if (modalType === 'thief-choice' && cid === lastPirateChoicePromptId && !ui.modal.classList.contains('hidden')) return;
-  lastPirateChoicePromptId = cid;
-
-  if (!ui.modal.classList.contains('hidden') && modalType !== 'thief-choice') forceCloseModal();
-
-  const wrap = document.createElement('div');
-  const top = document.createElement('div');
-  top.style.marginBottom = '10px';
-  top.textContent = 'Choose what to move:';
-  wrap.appendChild(top);
-
-  const row = document.createElement('div');
-  row.style.display = 'flex';
-  row.style.gap = '10px';
-  row.style.flexWrap = 'wrap';
-
-  const bRob = document.createElement('button');
-  bRob.className = 'btn';
-  bRob.textContent = 'Move Robber (land)';
-  bRob.addEventListener('click', () => {
-    forceCloseModal();
-    sendGameAction({ kind: 'choose_thief', target: 'robber' });
-  });
-
-  const bPir = document.createElement('button');
-  bPir.className = 'btn primary';
-  bPir.textContent = 'Move Pirate (sea)';
-  bPir.addEventListener('click', () => {
-    forceCloseModal();
-    sendGameAction({ kind: 'choose_thief', target: 'pirate' });
-  });
-
-  row.appendChild(bRob);
-  row.appendChild(bPir);
-  wrap.appendChild(row);
-
-  const note = document.createElement('div');
-  note.className = 'smallNote';
-  note.style.marginTop = '10px';
-  note.textContent = 'Robber blocks production on land. Pirate blocks ship movement on adjacent sea edges.';
-  wrap.appendChild(note);
-
-  modalLocked = true;
-  modalType = 'thief-choice';
-  openModal({ title: 'Robber or Pirate', bodyNode: wrap, actions: [] });
+  // If an old modal is still open from a previous version/client, close it.
+  if (modalType === 'thief-choice') forceCloseModal();
+  lastPirateChoicePromptId = Number(ctx.id || 0);
 }
 
 function handlePirateStealPrompt() {
@@ -5057,6 +5147,28 @@ function handleDiscoveryGoldPrompt() {
     if (phase === 'setup1-road' || phase === 'setup2-road') {
       const hit = pickEdge(x, y);
       if (hit != null) queryBuildOptions('edge', hit, e.clientX, e.clientY);
+      return;
+    }
+    if (phase === 'pirate-or-robber') {
+      const tid = pickTile(x, y);
+      if (tid != null) {
+        const tile = state.geom?.tiles?.[tid];
+        const isSea = (tile && tile.type === 'sea');
+
+        if (isSea) {
+          if (tile?.pirate) {
+            setError('Pirate must move to a different tile.');
+            return;
+          }
+          sendGameAction({ kind: 'move_pirate', tileId: tid });
+        } else {
+          if (tile?.robber) {
+            setError('Robber must move to a different tile.');
+            return;
+          }
+          sendGameAction({ kind: 'move_robber', tileId: tid });
+        }
+      }
       return;
     }
     if (phase === 'robber-move') {
