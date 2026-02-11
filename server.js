@@ -792,22 +792,46 @@ function isFogIslandGame(game) {
 // Whenever a road/ship is placed (or a ship is moved) on an edge that borders unrevealed fog,
 // reveal exactly ONE fog tile. If the edge borders multiple unrevealed fog tiles, pick one at random.
 function pickRandomUnrevealedFogTileOnEdge(game, edgeId) {
-  const adj = (game && game.geom && game.geom.edgeAdjTiles) ? (game.geom.edgeAdjTiles[edgeId] || []) : [];
-  if (!Array.isArray(adj) || adj.length === 0) return null;
+  // A placement on an edge can "touch" nearby fog in two ways:
+  // 1) the edge directly borders the fog tile (shared edge)
+  // 2) the edge meets the fog tile at either endpoint node (shared corner)
+  // The user expectation for Fog Island in this project is to reveal if the placed road/ship is adjacent in either way.
+  const geom = game && game.geom;
+  if (!geom) return null;
+
+  const edgeTiles = Array.isArray(geom.edgeAdjTiles?.[edgeId]) ? geom.edgeAdjTiles[edgeId] : [];
+  const e = geom.edges?.[edgeId];
+  const nodeTiles = [];
+  if (e && Array.isArray(geom.nodeAdjTiles?.[e.a])) nodeTiles.push(...geom.nodeAdjTiles[e.a]);
+  if (e && Array.isArray(geom.nodeAdjTiles?.[e.b])) nodeTiles.push(...geom.nodeAdjTiles[e.b]);
+
+  // Union all potentially-adjacent tiles.
+  const all = [];
+  for (const tid of edgeTiles) all.push(tid);
+  for (const tid of nodeTiles) all.push(tid);
+  if (all.length === 0) return null;
+
+  const seen = new Set();
   const candidates = [];
   let hasKnownNeighbor = false;
-  for (const tid of adj) {
-    const t = game.geom.tiles && game.geom.tiles[tid];
+
+  for (const tid of all) {
+    if (seen.has(tid)) continue;
+    seen.add(tid);
+    const t = geom.tiles && geom.tiles[tid];
     if (!t) continue;
     const hiddenFog = !!(t.fog && !t.revealed);
     if (hiddenFog) candidates.push(tid);
     else hasKnownNeighbor = true;
   }
+
   if (candidates.length === 0) return null;
-  // If this edge is only adjacent to unrevealed fog (e.g., between two fog tiles,
-  // or a boundary edge around fog), do NOT reveal. Discovery should be triggered
-  // from an adjacent known tile.
+
+  // Keep the "must explore from something known" safeguard:
+  // If the placement is only touching unrevealed fog (no revealed/known neighbor tiles at all),
+  // do not reveal.
   if (!hasKnownNeighbor) return null;
+
   const idx = Math.floor(Math.random() * candidates.length);
   return candidates[idx];
 }
