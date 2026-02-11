@@ -1,4 +1,4 @@
-# Hex Settlers (4‑Player Online)
+ # Hex Settlers (4‑Player Online)
 
 A lightweight, Catan‑style browser game with lobby codes + online multiplayer (WebSocket).
 Uses the provided hex tile art in `public/assets/`.
