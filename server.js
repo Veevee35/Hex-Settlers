@@ -865,8 +865,15 @@ function awardFogDiscovery(game, playerId, tileId) {
 
 function maybeExploreFogFromEdge(game, playerId, edgeId) {
   if (!isFogIslandGame(game)) return null;
-  // Exploration only applies during main gameplay, including ship move before rolling.
-  if (game.phase !== 'main-actions' && game.phase !== 'main-await-roll') return null;
+  // Exploration applies when placing roads/ships during setup as well as during main gameplay
+  // (including ship movement before rolling).
+  const okPhase = (
+    game.phase === 'setup1-road' ||
+    game.phase === 'setup2-road' ||
+    game.phase === 'main-actions' ||
+    game.phase === 'main-await-roll'
+  );
+  if (!okPhase) return null;
   if (game.special && game.special.kind === 'discovery_gold') return null;
 
   const tid = pickRandomUnrevealedFogTileOnEdge(game, edgeId);
@@ -3594,7 +3601,12 @@ function applyAction(room, playerId, action) {
     // phase advance for setup
     if (game.phase === 'setup1-road' || game.phase === 'setup2-road') {
       game.setup.awaiting = null;
-      advanceSetup(game);
+      // If a Gold Field was discovered, pause setup until the player chooses a resource.
+      if (exploredFog && exploredFog.award && exploredFog.award.kind === 'gold') {
+        game.setupAdvanceAfterDiscovery = true;
+      } else {
+        advanceSetup(game);
+      }
     } else {
       // If a Gold Field was discovered, the discovery prompt/message is already set.
       if (!(exploredFog && exploredFog.award && exploredFog.award.kind === 'gold')) {
@@ -3654,14 +3666,19 @@ function applyAction(room, playerId, action) {
       broadcastSfx(room, 'structure');
 
       // Fog Island exploration (Option B)
-      maybeExploreFogFromEdge(game, playerId, edgeId);
+      const exploredFog = maybeExploreFogFromEdge(game, playerId, edgeId);
 
       game.setup.awaiting = null;
       // Ships contribute to Longest Road (trade route) too.
       recomputeLongestRoad(game);
       computeVP(game);
       pushLog(game, `${playerName(game, playerId)} placed a setup ship.`, 'build', { kind: 'ship', setup: true });
-      advanceSetup(game);
+      // If a Gold Field was discovered, pause setup until the player chooses a resource.
+      if (exploredFog && exploredFog.award && exploredFog.award.kind === 'gold') {
+        game.setupAdvanceAfterDiscovery = true;
+      } else {
+        advanceSetup(game);
+      }
       return { ok: true };
     }
 
@@ -3934,8 +3951,17 @@ function applyAction(room, playerId, action) {
     // Public event for UI feedback
     game.lastEvent = { id: game.eventSeq++, type: 'discover_gold', playerId, resourceKind: rk, tileId: sp.tileId, amount: got };
 
-    game.message = `${playerName(game, playerId)} claimed ${rk} from a Gold Field.`;
+    // Log + UI event
     pushLog(game, `${playerName(game, playerId)} claimed ${rk} from a Gold Field.`, 'discover', { tileId: sp.tileId, resourceKind: rk, amount: got });
+
+    // If this gold choice happened during setup exploration, continue setup now.
+    const pendingSetupAdvance = !!game.setupAdvanceAfterDiscovery && (game.phase === 'setup1-road' || game.phase === 'setup2-road');
+    if (pendingSetupAdvance) {
+      try { delete game.setupAdvanceAfterDiscovery; } catch (_) {}
+      advanceSetup(game);
+    } else {
+      game.message = `${playerName(game, playerId)} claimed ${rk} from a Gold Field.`;
+    }
     return { ok: true };
   }
 
