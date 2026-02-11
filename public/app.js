@@ -47,6 +47,7 @@
     rulesBtn: $('rulesBtn'),
     diceBtn: $('diceBtn'),
     chatBtn: $('chatBtn'),
+    endGameVoteBtn: $('endGameVoteBtn'),
     idsBtn: $('idsBtn'),
     resourcesCard: $('resourcesCard'),
     logCard: $('logCard'),
@@ -1659,7 +1660,7 @@ function syncPostgameToState() {
     btns.className = 'hudBtns';
     // In-game: keep the same tools as the lobby, but in a compact HUD bar.
     // The user expects Rules to be available in-game next to Game Log.
-    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.idsBtn]) {
+    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.endGameVoteBtn, ui.idsBtn]) {
       if (!b) continue;
       b.classList.add('btnTiny');
       btns.appendChild(b);
@@ -2450,6 +2451,7 @@ function syncPostgameToState() {
         scheduleEndTurnWarn();
         handleLastEvent();
         handlePendingTradePrompt();
+        handleEndGameVotePrompt();
         handleDiscardPrompt();
         handleRobberStealPrompt();
         handlePirateChoicePrompt();
@@ -2530,6 +2532,16 @@ function syncPostgameToState() {
         if (t && t.id && myPlayerId !== t.fromId) {
           // Always reject on close (even if previously accepted).
           send({ type: 'game_action', action: { kind: 'respond_trade', tradeId: t.id, accept: false } });
+        }
+      }
+    } catch (_) {}
+
+    // If a player dismisses the end-game vote popup, treat it as a reject.
+    try {
+      if (modalType === 'endVote' && state && state.endVote && myPlayerId) {
+        const v = state.endVote;
+        if (v && v.id) {
+          send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: v.id, accept: false } });
         }
       }
     } catch (_) {}
@@ -3376,6 +3388,17 @@ if (ui.copyMyIdBtn) {
   if (ui.rulesBtn) ui.rulesBtn.addEventListener('click', () => openRulesModal());
   ui.diceBtn.addEventListener('click', () => openDiceModal());
   ui.chatBtn.addEventListener('click', () => openChatModal());
+  if (ui.endGameVoteBtn) ui.endGameVoteBtn.addEventListener('click', () => {
+    const inGame = !!(state && state.phase && state.phase !== 'lobby');
+    const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
+    if (!inGame || !isHostNow) return;
+    // If a vote is already open, just re-open the panel.
+    if (state && state.endVote && state.endVote.id) {
+      openEndGameVoteModal(true);
+      return;
+    }
+    sendGameAction({ kind: 'propose_endgame' });
+  });
   if (ui.idsBtn) ui.idsBtn.addEventListener('click', () => openRoomIdsModal());
 
   if (ui.logHideBtn) {
@@ -3624,6 +3647,12 @@ function ensureTimerUiInterval() {
     if (ui.idsBtn) {
       ui.idsBtn.classList.toggle('hidden', !isHostNow);
       ui.idsBtn.disabled = !isHostNow;
+    }
+
+    // Host-only end-game vote
+    if (ui.endGameVoteBtn) {
+      ui.endGameVoteBtn.classList.toggle('hidden', !(inGame && isHostNow));
+      ui.endGameVoteBtn.disabled = !(inGame && isHostNow) || !!(state && state.endVote && state.endVote.id);
     }
 
     const paused = inGame && !!(state && state.paused);
@@ -4027,6 +4056,7 @@ if (ui.moveShipBtn) {
   // -------------------- Trading UI --------------------
 
   let lastTradePromptIdSeen = 0;
+  let lastEndVotePromptIdSeen = 0;
   // When the trade proposer hits "Revise Trade" from the proposed-trade popup,
   // we keep track of which trade is being replaced so the server can atomically
   // close the old offer and broadcast the updated one.
@@ -4342,6 +4372,115 @@ if (ui.moveShipBtn) {
       actions: modalActions
     });
   }
+
+
+  function openEndGameVoteModal(forceOpen = false) {
+    if (!state || !state.endVote || !myPlayerId) return;
+    const v = state.endVote;
+
+    // Don't interrupt other locked flows
+    if (!forceOpen && !ui.modal.classList.contains('hidden') && modalType !== 'endVote') return;
+
+    const proposer = (state.players || []).find(p => p.id === v.fromId) || null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'tradeWrap';
+
+    const box = document.createElement('div');
+    box.className = 'tradeBox';
+    box.innerHTML = `<div class="tradeTitle">End Game Vote</div>`;
+    wrap.appendChild(box);
+
+    const info = document.createElement('div');
+    info.className = 'smallNote';
+    info.textContent = (proposer ? `${proposer.name} (host)` : 'Host') + ' wants to end the game early. Everyone must approve.';
+    box.appendChild(info);
+
+    const grid = document.createElement('div');
+    grid.className = 'ptGrid';
+
+    const h1 = document.createElement('div');
+    h1.className = 'ptCell ptHeader';
+    h1.textContent = '';
+    const h2 = document.createElement('div');
+    h2.className = 'ptCell ptHeader';
+    h2.textContent = 'Approve';
+    const h3 = document.createElement('div');
+    h3.className = 'ptCell ptHeader';
+    h3.textContent = 'Reject';
+    grid.appendChild(h1); grid.appendChild(h2); grid.appendChild(h3);
+
+    const responses = (v.responses || {});
+    for (const p of (state.players || [])) {
+      const nameCell = document.createElement('div');
+      nameCell.className = 'ptCell ptNameCell';
+      const rowBadge = document.createElement('div');
+      rowBadge.className = 'badge';
+      rowBadge.style.background = p.color;
+      const rowName = document.createElement('div');
+      rowName.className = 'ptRowName';
+      rowName.textContent = p.name + (p.id === v.fromId ? ' (host)' : '');
+      nameCell.appendChild(rowBadge);
+      nameCell.appendChild(rowName);
+
+      const approveCell = document.createElement('div');
+      approveCell.className = 'ptCell ptVoteCell';
+      const rejectCell = document.createElement('div');
+      rejectCell.className = 'ptCell ptVoteCell';
+
+      const status = responses[p.id] || null;
+
+      const approveBtn = document.createElement('button');
+      approveBtn.className = 'voteBtn' + (status === 'accept' ? ' on ok' : '');
+      approveBtn.type = 'button';
+      approveBtn.innerHTML = status === 'accept' ? '✔' : '';
+      approveBtn.title = status === 'accept' ? 'Approved' : 'Approve';
+
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'voteBtn' + (status === 'reject' ? ' on bad' : '');
+      rejectBtn.type = 'button';
+      rejectBtn.innerHTML = status === 'reject' ? '✖' : '';
+      rejectBtn.title = status === 'reject' ? 'Rejected' : 'Reject';
+
+      const isMeRow = (p.id === myPlayerId);
+      if (isMeRow) {
+        approveBtn.disabled = false;
+        rejectBtn.disabled = false;
+
+        approveBtn.addEventListener('click', () => {
+          sendGameAction({ kind: 'respond_endgame', voteId: v.id, accept: true });
+        });
+        rejectBtn.addEventListener('click', () => {
+          sendGameAction({ kind: 'respond_endgame', voteId: v.id, accept: false });
+        });
+      } else {
+        approveBtn.disabled = true;
+        rejectBtn.disabled = true;
+      }
+
+      approveCell.appendChild(approveBtn);
+      rejectCell.appendChild(rejectBtn);
+
+      grid.appendChild(nameCell);
+      grid.appendChild(approveCell);
+      grid.appendChild(rejectCell);
+    }
+
+    box.appendChild(grid);
+
+    modalType = 'endVote';
+    modalLocked = false;
+    activeToolModal = null;
+
+    openModal({
+      title: 'End Game Vote',
+      bodyNode: wrap,
+      actions: [
+        { label: 'Close', onClick: closeModal }
+      ]
+    });
+  }
+
 
   function openPlayerTradeModal(opts = null) {
     if (!state || !myPlayerId) return;
@@ -4730,6 +4869,34 @@ if (ui.moveShipBtn) {
     lastTradePromptIdSeen = t.id;
 
     openPendingTradeModal(true);
+  }
+
+
+
+  function handleEndGameVotePrompt() {
+    if (!state || !myPlayerId) return;
+
+    const v = state.endVote;
+
+    // If vote cleared, close any open end-vote modal
+    if (!v || !v.id) {
+      if (modalType === 'endVote') forceCloseModal();
+      return;
+    }
+
+    // Keep the end-vote modal live-updated while it's open
+    if (modalType === 'endVote' && !ui.modal.classList.contains('hidden')) {
+      openEndGameVoteModal(true);
+      return;
+    }
+
+    // Don't interrupt other modals
+    if (!ui.modal.classList.contains('hidden')) return;
+
+    if (v.id <= lastEndVotePromptIdSeen) return;
+    lastEndVotePromptIdSeen = v.id;
+
+    openEndGameVoteModal(true);
   }
 
 

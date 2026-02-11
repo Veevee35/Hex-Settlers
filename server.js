@@ -3053,6 +3053,11 @@ function newEmptyGame(room) {
     tradeSeq: 1,
     pendingTrade: null, // {id, fromId, offer:{}, request:{}, responses:{pid:'accept'|'reject'|null}, createdAt}
 
+
+    // End-game vote (host initiated)
+    endVoteSeq: 1,
+    endVote: null, // {id, fromId, responses:{pid:'accept'|'reject'|null}, createdAt}
+
     // Special action contexts
     largestArmy: { playerId: null, size: 0 },
     longestRoad: { playerId: null, length: 0 },
@@ -3204,6 +3209,69 @@ function playerName(game, pid) {
   const p = playerById(game, pid);
   return p ? p.name : 'Unknown';
 }
+
+function countBuildingsForPlayer(game, pid) {
+  const nodes = (game && game.geom && Array.isArray(game.geom.nodes)) ? game.geom.nodes : [];
+  let cities = 0;
+  let settlements = 0;
+  for (const n of nodes) {
+    const b = n && n.building;
+    if (!b || b.owner !== pid) continue;
+    if (b.type === 'city') cities++;
+    else if (b.type === 'settlement') settlements++;
+  }
+  return { cities, settlements };
+}
+
+function totalTurnMsForPlayer(game, pid) {
+  try {
+    ensureGameStats(game);
+    const tt = game.stats && game.stats.turnTimes && game.stats.turnTimes.byPlayer && game.stats.turnTimes.byPlayer[pid];
+    return tt ? (Number(tt.totalMs) || 0) : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function pickWinnerByTiebreak(game) {
+  if (!game || !Array.isArray(game.players) || game.players.length === 0) return null;
+
+  // Keep derived metrics current
+  recomputeLongestRoad(game);
+  computeVP(game);
+
+  let best = null;
+  for (const p of game.players) {
+    if (!p || !p.id) continue;
+
+    const b = countBuildingsForPlayer(game, p.id);
+    const turnMs = totalTurnMsForPlayer(game, p.id);
+
+    const cand = {
+      id: p.id,
+      vp: Number(p.vp || 0),
+      longestRoadLen: Number(p.longestRoadLen || 0),
+      cities: Number(b.cities || 0),
+      settlements: Number(b.settlements || 0),
+      turnMs: Number(turnMs || 0),
+    };
+
+    if (!best) { best = cand; continue; }
+
+    // Higher is better for vp, road, cities, settlements; lower is better for turnMs.
+    if (cand.vp !== best.vp) { if (cand.vp > best.vp) best = cand; continue; }
+    if (cand.longestRoadLen !== best.longestRoadLen) { if (cand.longestRoadLen > best.longestRoadLen) best = cand; continue; }
+    if (cand.cities !== best.cities) { if (cand.cities > best.cities) best = cand; continue; }
+    if (cand.settlements !== best.settlements) { if (cand.settlements > best.settlements) best = cand; continue; }
+    if (cand.turnMs !== best.turnMs) { if (cand.turnMs < best.turnMs) best = cand; continue; }
+
+    // Final stable tie-break: deterministic on player id
+    if (String(cand.id) < String(best.id)) best = cand;
+  }
+
+  return best ? best.id : null;
+}
+
 function isPlayersTurn(game, pid) { return game.currentPlayerId === pid; }
 
 function advanceSetup(game) {
@@ -3419,6 +3487,8 @@ function applyAction(room, playerId, action) {
   // Only current player may act (except trade responses and simultaneous discard selections)
   const outOfTurnOk =
     (kind === 'respond_trade') ||
+    (kind === 'propose_endgame') ||
+    (kind === 'respond_endgame') ||
     (kind === 'discard_cards' && game.phase === 'discard' && game.discard && game.discard.required && game.discard.required[playerId] && !(game.discard.done && game.discard.done[playerId]));
   if (!isPlayersTurn(game, playerId) && !outOfTurnOk) return { ok: false, error: "Not your turn." };
 
@@ -4544,6 +4614,92 @@ if (kind === 'pirate_steal') {
     pushLog(game, `${playerName(game, t.fromId)} traded with ${playerName(game, withPlayerId)}.`, 'trade', { kind: 'accept', tradeId, withPlayerId });
     return { ok: true };
   }
+
+
+
+  if (kind === 'propose_endgame') {
+    if (playerId !== game.hostId) return { ok: false, error: 'Only the host can start an end-game vote.' };
+    if (game.endVote && game.endVote.id) return { ok: false, error: 'An end-game vote is already in progress.' };
+
+    const responses = {};
+    for (const p of (game.players || [])) {
+      if (!p || !p.id) continue;
+      responses[p.id] = (p.id === playerId) ? 'accept' : null;
+    }
+
+    const voteId = game.endVoteSeq || 1;
+    game.endVoteSeq = (game.endVoteSeq || 1) + 1;
+    game.endVote = { id: voteId, fromId: playerId, responses, createdAt: now() };
+
+    game.message = `${playerName(game, playerId)} started an end-game vote.`;
+    pushLog(game, `${playerName(game, playerId)} started an end-game vote.`, 'info', { kind: 'end_vote', voteId });
+    return { ok: true };
+  }
+
+  if (kind === 'respond_endgame') {
+    const voteId = Number(action.voteId || 0);
+    const accept = !!action.accept;
+
+    const v = game.endVote;
+    if (!v || !v.id || v.id !== voteId) return { ok: false, error: 'No such end-game vote.' };
+    if (!v.responses || !(playerId in v.responses)) return { ok: false, error: 'You cannot vote on this.' };
+
+    v.responses[playerId] = accept ? 'accept' : 'reject';
+
+    if (!accept) {
+      game.endVote = null;
+      game.message = `${playerName(game, playerId)} rejected the end-game vote.`;
+      pushLog(game, `${playerName(game, playerId)} rejected the end-game vote.`, 'info', { kind: 'end_vote_reject', voteId, byId: playerId });
+      return { ok: true };
+    }
+
+    game.message = `${playerName(game, playerId)} approved the end-game vote.`;
+    pushLog(game, `${playerName(game, playerId)} approved the end-game vote.`, 'info', { kind: 'end_vote_accept', voteId, byId: playerId });
+
+    const vals = Object.values(v.responses || {});
+    const allAccept = vals.length > 0 && vals.every(x => x === 'accept');
+    if (!allAccept) return { ok: true };
+
+    // Unanimous: end the game immediately and go to stats screen.
+    const wasOver = (game.phase === 'game-over');
+
+    // Stop any pending interactions so the post-game UI is clean.
+    game.pendingTrade = null;
+    game.discard = null;
+    game.robberContext = null;
+    game.robberSteal = null;
+    game.thiefChoice = null;
+    game.pirateSteal = null;
+    game.special = null;
+
+    // Close the vote before broadcasting the game-over state.
+    game.endVote = null;
+
+    // Finalize current turn time so the tie-breaker is fair.
+    try { if (game.currentPlayerId) recordTurnEnd(game, game.currentPlayerId); } catch (_) {}
+
+    // Pick winner using requested tie-break order.
+    const winnerId = pickWinnerByTiebreak(game) || (game.players[0] && game.players[0].id) || null;
+
+    game.phase = 'game-over';
+    game.message = `${playerName(game, winnerId)} wins!`;
+
+    try {
+      ensureGameStats(game);
+      if (game.stats && !game.stats.endedAt) game.stats.endedAt = now();
+      if (game.stats) game.stats.endedReason = 'vote';
+    } catch (_) {}
+
+    pushLog(game, `Game ended early by unanimous vote. Winner: ${playerName(game, winnerId)}.`, 'info', { kind: 'end_vote_pass', voteId, winnerId });
+
+    if (!wasOver) {
+      try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
+      try { persistGameHistoryFromGame(room, game, winnerId); } catch (_) {}
+    }
+
+    return { ok: true };
+  }
+
 
 
 
