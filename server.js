@@ -2766,15 +2766,24 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
   // Non-desert land tiles: 27 total (numbers list below has 27 entries).
   const nonDesertLandIds = landTileIds.filter(id => (allTiles[id]?.type || '') !== 'desert');
 
+  // Heading for New Shores: Gold Fields should only spawn on the three outer islands
+  // (i.e., not on the main starting island).
+  const outerNonDesertLandIds = nonDesertLandIds.filter(id => {
+    const t = allTiles[id];
+    if (!t) return false;
+    const key = `${t.q},${t.r}`;
+    return !HFNS_MAIN_ISLAND_KEYS.has(key);
+  });
+
   // Official resource counts: 5 each of the 5 standard resources, 2 Gold Fields, 1 Desert.
-  const resourceTypes = [
+  const baseResourceTypes = [
     ...Array(5).fill('hills'),
     ...Array(5).fill('forest'),
     ...Array(5).fill('pasture'),
     ...Array(5).fill('field'),
     ...Array(5).fill('mountains'),
-    'gold','gold',
   ];
+  const GOLD_COUNT = 2;
 
   // Official number disc counts (27 total; desert has none):
   // 2×2, 3×3, 4×3, 5×3, 6×3, 8×3, 9×3, 10×3, 11×3, 12×1
@@ -2794,20 +2803,41 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
   // Place types/numbers with the standard constraint: 6 and 8 may not be adjacent.
   let placed = null;
   for (let attempt = 0; attempt < 420; attempt++) {
-    const tt = shuffle(resourceTypes.slice());
+    // Pick gold locations only from the outer islands.
+    const goldPool = outerNonDesertLandIds.length >= GOLD_COUNT
+      ? outerNonDesertLandIds.slice()
+      : nonDesertLandIds.slice();
+    shuffle(goldPool);
+    const goldIds = new Set(goldPool.slice(0, GOLD_COUNT));
+
+    const tt = shuffle(baseResourceTypes.slice());
     const nn = shuffle(numbers.slice());
 
     const local = [];
+    let typeIdx = 0;
     for (let i = 0; i < nonDesertLandIds.length; i++) {
-      local.push({ id: nonDesertLandIds[i], type: tt[i], number: nn[i] });
+      const id = nonDesertLandIds[i];
+      const type = goldIds.has(id) ? 'gold' : tt[typeIdx++];
+      local.push({ id, type, number: nn[i] });
     }
     if (!hasAdjacentSixEightForPlacement(geom, local)) { placed = local; break; }
   }
   if (!placed) {
     // Fallback (should be extremely rare): accept the last random assignment.
-    const tt = shuffle(resourceTypes.slice());
+    const goldPool = outerNonDesertLandIds.length >= GOLD_COUNT
+      ? outerNonDesertLandIds.slice()
+      : nonDesertLandIds.slice();
+    shuffle(goldPool);
+    const goldIds = new Set(goldPool.slice(0, GOLD_COUNT));
+
+    const tt = shuffle(baseResourceTypes.slice());
     const nn = shuffle(numbers.slice());
-    placed = nonDesertLandIds.map((id, i) => ({ id, type: tt[i], number: nn[i] }));
+    let typeIdx = 0;
+    placed = nonDesertLandIds.map((id, i) => ({
+      id,
+      type: goldIds.has(id) ? 'gold' : tt[typeIdx++],
+      number: nn[i]
+    }));
   }
 
   // Commit placements.
