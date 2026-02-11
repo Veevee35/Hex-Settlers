@@ -795,11 +795,19 @@ function pickRandomUnrevealedFogTileOnEdge(game, edgeId) {
   const adj = (game && game.geom && game.geom.edgeAdjTiles) ? (game.geom.edgeAdjTiles[edgeId] || []) : [];
   if (!Array.isArray(adj) || adj.length === 0) return null;
   const candidates = [];
+  let hasKnownNeighbor = false;
   for (const tid of adj) {
     const t = game.geom.tiles && game.geom.tiles[tid];
-    if (t && t.fog && !t.revealed) candidates.push(tid);
+    if (!t) continue;
+    const hiddenFog = !!(t.fog && !t.revealed);
+    if (hiddenFog) candidates.push(tid);
+    else hasKnownNeighbor = true;
   }
   if (candidates.length === 0) return null;
+  // If this edge is only adjacent to unrevealed fog (e.g., between two fog tiles,
+  // or a boundary edge around fog), do NOT reveal. Discovery should be triggered
+  // from an adjacent known tile.
+  if (!hasKnownNeighbor) return null;
   const idx = Math.floor(Math.random() * candidates.length);
   return candidates[idx];
 }
@@ -3646,6 +3654,22 @@ function applyAction(room, playerId, action) {
     const touchesSea = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea') || adj.length === 1; // boundary edges are sea perimeter
     if (!touchesSea) return { ok: false, error: 'Ships must be placed on sea edges.' };
 
+    // Fog Island: you cannot place a ship "inside" unrevealed fog (i.e., on an edge adjacent only to unrevealed fog).
+    // Exploration is triggered from an adjacent known tile.
+    if (isFogIslandGame(game)) {
+      let hasHiddenFog = false;
+      let hasKnownNeighbor = false;
+      for (const tid of adj) {
+        const t = game.geom.tiles?.[tid];
+        if (!t) continue;
+        if (t.fog && !t.revealed) hasHiddenFog = true;
+        else hasKnownNeighbor = true;
+      }
+      if (hasHiddenFog && !hasKnownNeighbor) {
+        return { ok: false, error: 'You must explore from an adjacent revealed tile.' };
+      }
+    }
+
     if (edgeTouchesPirate(game, edgeId)) return { ok: false, error: 'The pirate blocks building ships adjacent to it.' };
 
     const p = playerById(game, playerId);
@@ -3758,6 +3782,24 @@ function applyAction(room, playerId, action) {
     const adj = game.geom.edgeAdjTiles?.[toEdgeId] || [];
     const touchesSea = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea') || adj.length === 1;
     if (!touchesSea) return { ok: false, error: 'Ships must be moved to sea edges.' };
+
+    // Fog Island: you cannot move a ship "inside" unrevealed fog (i.e., to an edge adjacent only to unrevealed fog).
+    // Exploration is triggered from an adjacent known tile.
+    if (isFogIslandGame(game)) {
+      let hasHiddenFog = false;
+      let hasKnownNeighbor = false;
+      for (const tid of adj) {
+        const t = game.geom.tiles?.[tid];
+        if (!t) continue;
+        if (t.fog && !t.revealed) hasHiddenFog = true;
+        else hasKnownNeighbor = true;
+      }
+      if (hasHiddenFog && !hasKnownNeighbor) {
+        // Restore ship if we already removed it.
+        fromE.shipOwner = playerId;
+        return { ok: false, error: 'You must explore from an adjacent revealed tile.' };
+      }
+    }
     if (edgeTouchesPirate(game, toEdgeId)) return { ok: false, error: 'The pirate blocks that destination.' };
 
     // Temporarily remove the ship, then require that the destination connects to your ship/building network.
