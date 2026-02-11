@@ -790,18 +790,20 @@ function isFogIslandGame(game) {
 
 // Fog Island exploration (Option B):
 // Whenever a road/ship is placed (or a ship is moved) on an edge that borders unrevealed fog,
-// reveal exactly ONE fog tile. If the edge borders multiple unrevealed fog tiles, always pick
-// the first tile in a fixed order (lowest tileId).
-function pickFirstUnrevealedFogTileOnEdge(game, edgeId) {
+// reveal exactly ONE fog tile. If the edge borders multiple unrevealed fog tiles, pick one at random.
+function pickRandomUnrevealedFogTileOnEdge(game, edgeId) {
   const adj = (game && game.geom && game.geom.edgeAdjTiles) ? (game.geom.edgeAdjTiles[edgeId] || []) : [];
   if (!Array.isArray(adj) || adj.length === 0) return null;
-  const ids = adj.slice().sort((a, b) => a - b);
-  for (const tid of ids) {
+  const candidates = [];
+  for (const tid of adj) {
     const t = game.geom.tiles && game.geom.tiles[tid];
-    if (t && t.fog && !t.revealed) return tid;
+    if (t && t.fog && !t.revealed) candidates.push(tid);
   }
-  return null;
+  if (candidates.length === 0) return null;
+  const idx = Math.floor(Math.random() * candidates.length);
+  return candidates[idx];
 }
+
 
 function revealFogTile(game, tileId) {
   const t = game && game.geom && game.geom.tiles ? game.geom.tiles[tileId] : null;
@@ -833,6 +835,12 @@ function awardFogDiscovery(game, playerId, tileId) {
 
   if (t.type === 'gold') {
     game.discoverySeq = game.discoverySeq || 1;
+
+    // Suspend any existing special (e.g., Road Building free roads) so it can resume after the gold choice.
+    if (!game.specialSuspended && game.special && game.special.kind !== 'discovery_gold') {
+      game.specialSuspended = game.special;
+    }
+
     game.special = { kind: 'discovery_gold', id: game.discoverySeq++, forPlayerId: playerId, tileId };
     game.message = `Gold Field discovered. ${playerName(game, playerId)} must choose a resource.`;
     pushLog(game, `${playerName(game, playerId)} discovered a Gold Field.`, 'discover', { tileId, tileType: 'gold' });
@@ -861,7 +869,7 @@ function maybeExploreFogFromEdge(game, playerId, edgeId) {
   if (game.phase !== 'main-actions' && game.phase !== 'main-await-roll') return null;
   if (game.special && game.special.kind === 'discovery_gold') return null;
 
-  const tid = pickFirstUnrevealedFogTileOnEdge(game, edgeId);
+  const tid = pickRandomUnrevealedFogTileOnEdge(game, edgeId);
   if (tid == null) return null;
 
   const tile = revealFogTile(game, tid);
@@ -3536,6 +3544,8 @@ function applyAction(room, playerId, action) {
 
     const p = playerById(game, playerId);
     if (!p) return { ok: false, error: 'Missing player.' };
+    let usedFreeRoad = false;
+
 
     // If the board has sea tiles, roads can only be placed on edges that touch at least one non-sea tile.
     const boardHasSea = (game.geom.tiles || []).some(t => t.type === 'sea');
@@ -3558,6 +3568,7 @@ function applyAction(room, playerId, action) {
     } else {
       // main roads require cost + connection (unless a Road Building dev card is active)
       const freeRoad = !!(game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === playerId && game.special.remaining > 0);
+      usedFreeRoad = freeRoad;
       if (!edgeConnectsToPlayer(game, edgeId, playerId)) return { ok: false, error: 'Road must connect to your network.' };
       if (!freeRoad) {
         if (!canAfford(p.resources, BUILD_COSTS.road)) return { ok: false, error: 'Not enough resources.' };
@@ -3569,24 +3580,33 @@ function applyAction(room, playerId, action) {
     recordBuild(game, playerId, 'road');
     broadcastSfx(room, 'structure');
 
-    // Fog Island exploration (Option B)
-    maybeExploreFogFromEdge(game, playerId, edgeId);
-
-    // Consume free roads if active
+    // Consume free roads if active (do this before any discovery prompt can temporarily replace game.special)
+    let freeRoadsRemainingAfter = null;
     if (game.phase === 'main-actions' && game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === playerId) {
       game.special.remaining = Math.max(0, (game.special.remaining || 0) - 1);
+      freeRoadsRemainingAfter = game.special.remaining;
       if (game.special.remaining <= 0) game.special = null;
     }
+
+    // Fog Island exploration (Option B)
+    const exploredFog = maybeExploreFogFromEdge(game, playerId, edgeId);
 
     // phase advance for setup
     if (game.phase === 'setup1-road' || game.phase === 'setup2-road') {
       game.setup.awaiting = null;
       advanceSetup(game);
     } else {
-      if (game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === playerId) {
-        game.message = `${playerName(game, playerId)} built a free road (${game.special.remaining} remaining).`;
-      } else {
-        game.message = `${playerName(game, playerId)} built a road.`;
+      // If a Gold Field was discovered, the discovery prompt/message is already set.
+      if (!(exploredFog && exploredFog.award && exploredFog.award.kind === 'gold')) {
+        if (usedFreeRoad) {
+          if (freeRoadsRemainingAfter != null) {
+            game.message = `${playerName(game, playerId)} built a free road (${freeRoadsRemainingAfter} remaining).`;
+          } else {
+            game.message = `${playerName(game, playerId)} built a free road.`;
+          }
+        } else {
+          game.message = `${playerName(game, playerId)} built a road.`;
+        }
       }
     }
 
@@ -3630,11 +3650,11 @@ function applyAction(room, playerId, action) {
       if (!ok) return { ok: false, error: 'Setup ship must touch the settlement you just placed.' };
 
       e.shipOwner = playerId;
-    recordBuild(game, playerId, 'ship');
-    broadcastSfx(room, 'structure');
+      recordBuild(game, playerId, 'ship');
+      broadcastSfx(room, 'structure');
 
-    // Fog Island exploration (Option B)
-    maybeExploreFogFromEdge(game, playerId, edgeId);
+      // Fog Island exploration (Option B)
+      maybeExploreFogFromEdge(game, playerId, edgeId);
 
       game.setup.awaiting = null;
       // Ships contribute to Longest Road (trade route) too.
@@ -3669,6 +3689,12 @@ function applyAction(room, playerId, action) {
     payCostStats(game, playerId, p.resources, BUILD_COSTS.ship, 'build');
     e.shipOwner = playerId;
 
+    recordBuild(game, playerId, 'ship');
+    broadcastSfx(room, 'structure');
+
+    // Fog Island exploration (Option B)
+    const exploredFog = maybeExploreFogFromEdge(game, playerId, edgeId);
+
     recomputeLongestRoad(game);
     computeVP(game);
     // Building a ship can change Longest Road / win state.
@@ -3679,7 +3705,9 @@ function applyAction(room, playerId, action) {
     // Ships can change Longest Road holder.
     checkWin(room, game, playerId);
 
-    game.message = `${playerName(game, playerId)} built a ship.`;
+    if (!(exploredFog && exploredFog.award && exploredFog.award.kind === 'gold')) {
+      game.message = `${playerName(game, playerId)} built a ship.`;
+    }
     pushLog(game, `${playerName(game, playerId)} placed a ship.`, 'build', { kind: 'ship' });
 
     return { ok: true };
@@ -3726,7 +3754,7 @@ function applyAction(room, playerId, action) {
         toE.shipOwner = playerId;
 
     // Fog Island exploration (Option B)
-    maybeExploreFogFromEdge(game, playerId, toEdgeId);
+    const exploredFog = maybeExploreFogFromEdge(game, playerId, toEdgeId);
 
 
     game.shipMoveUsed = game.shipMoveUsed || {};
@@ -3738,7 +3766,9 @@ function applyAction(room, playerId, action) {
     computeVP(game);
     checkWin(room, game, playerId);
 
-    game.message = `${playerName(game, playerId)} moved a ship.`;
+    if (!(exploredFog && exploredFog.award && exploredFog.award.kind === 'gold')) {
+      game.message = `${playerName(game, playerId)} moved a ship.`;
+    }
     pushLog(game, `${playerName(game, playerId)} moved a ship.`, 'build', { kind: 'ship_move', fromEdgeId, toEdgeId });
     return { ok: true };
   }
@@ -3896,7 +3926,10 @@ function applyAction(room, playerId, action) {
     if (!p) return { ok: false, error: 'Missing player.' };
 
     const got = grantFromBankStats(game, playerId, p.resources, rk, 1, 'discover');
-    game.special = null;
+
+    const suspended = game.specialSuspended || null;
+    try { delete game.specialSuspended; } catch (_) {}
+    game.special = suspended;
 
     // Public event for UI feedback
     game.lastEvent = { id: game.eventSeq++, type: 'discover_gold', playerId, resourceKind: rk, tileId: sp.tileId, amount: got };
