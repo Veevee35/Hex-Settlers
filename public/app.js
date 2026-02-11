@@ -2326,6 +2326,13 @@ function syncPostgameToState() {
       if (msg.type === 'error') {
         const e = msg.error || 'Error';
         setError(e);
+        // If a rematch attempt failed, re-enable the postgame Main Menu button.
+        try {
+          if (ui.pgMainMenuBtn) {
+            ui.pgMainMenuBtn.disabled = false;
+            ui.pgMainMenuBtn.textContent = postgameState.historyMode ? 'Back' : 'Main Menu';
+          }
+        } catch (_) {}
         try {
           if (/room (not found|expired)/i.test(e)) localStorage.removeItem(LAST_ROOM_KEY);
         } catch (_) {}
@@ -3570,7 +3577,19 @@ if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.addEventListener('click', () => {
     closePostgameSnapshot();
     return;
   }
-  // Back to lobby, but default to a NEW lobby so we don't auto-rejoin a finished game.
+  // After a victory, "Main Menu" acts as a rematch button:
+  // it creates a new lobby with the same players and host, and moves everyone into it.
+  try {
+    if (ws && ws.readyState === 1) {
+      ui.pgMainMenuBtn.disabled = true;
+      ui.pgMainMenuBtn.textContent = 'Starting...';
+      send({ type: 'rematch_room' });
+      // If something goes wrong, the server will send an error and UI will re-enable below.
+      return;
+    }
+  } catch (_) {}
+
+  // Fallback: Back to lobby, but default to a NEW lobby so we don't auto-rejoin a finished game.
   try { sessionStorage.setItem(AUTO_CREATE_ROOM_KEY, '1'); } catch (_) {}
   try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
   location.reload();

@@ -4805,6 +4805,49 @@ function createRoom(hostUserId, hostName) {
   return room;
 }
 
+// Create a new lobby room that carries over the previous room's players/rules,
+// keeping the same host. Used for "rematch" from the postgame screen.
+function createRematchRoomFrom(prevRoom) {
+  let code = randCode(4);
+  while (rooms.has(code)) code = randCode(4);
+
+  const hostId = (prevRoom && prevRoom.hostId) ? String(prevRoom.hostId) : '';
+  const safeHostId = hostId || crypto.randomUUID();
+
+  const prevPlayers = (prevRoom && Array.isArray(prevRoom.players)) ? prevRoom.players : [];
+  const players = prevPlayers.map(p => ({
+    id: String(p && p.id || '').trim(),
+    name: String(p && p.name || 'Player').slice(0, 20),
+    color: String(p && p.color || COLORS[0]),
+    joinedAt: now(),
+  })).filter(p => p.id);
+
+  // Ensure host exists in the player list (fallback: first player or a fresh id)
+  let finalHostId = safeHostId;
+  if (players.length) {
+    if (!players.some(p => p.id === finalHostId)) {
+      finalHostId = players[0].id;
+    }
+  } else {
+    players.push({ id: finalHostId, name: 'Host', color: COLORS[0], joinedAt: now() });
+  }
+
+  const room = {
+    code,
+    hostId: finalHostId,
+    createdAt: now(),
+    players,
+    sockets: new Map(),
+    game: null,
+    preview: null,
+    rules: { ...(prevRoom && prevRoom.rules ? prevRoom.rules : DEFAULT_RULES) },
+    chat: [],
+    chatSeq: 1,
+  };
+  rooms.set(code, room);
+  return room;
+}
+
 
 function joinRoom(code, userId, name) {
   const room = rooms.get(code);
@@ -5369,6 +5412,41 @@ if (msg.type === 'create_room') {
     const room = rooms.get(code);
     if (!room) {
       sendJson(ws, { type: 'error', error: 'Room expired.' });
+      return;
+    }
+
+    // Rematch: after a finished game, create a brand-new lobby with the same players and host,
+    // and move all currently-connected players into it.
+    if (msg.type === 'rematch_room') {
+      if (!room.game || room.game.phase !== 'game-over') {
+        sendJson(ws, { type: 'error', error: 'Rematch is only available after the game ends.' });
+        return;
+      }
+
+      const newRoom = createRematchRoomFrom(room);
+      ensurePreview(newRoom, true);
+
+      // Move any connected sockets to the new room and notify them.
+      for (const p of newRoom.players) {
+        const pid2 = p.id;
+        const sock = room.sockets.get(pid2);
+        if (!sock || sock.readyState !== WebSocket.OPEN) continue;
+
+        // Detach from old room
+        room.sockets.delete(pid2);
+
+        // Attach to new room
+        newRoom.sockets.set(pid2, sock);
+        sock._roomCode = newRoom.code;
+        sock._playerId = pid2;
+
+        sendJson(sock, { type: 'joined', playerId: pid2, room: roomSnapshot(newRoom), isHost: pid2 === newRoom.hostId });
+      }
+
+      // Inform any remaining clients in the old room (if any)
+      try { broadcastRoom(room); } catch (_) {}
+      try { broadcastRoom(newRoom); } catch (_) {}
+      try { broadcastPreviewState(newRoom); } catch (_) {}
       return;
     }
 
