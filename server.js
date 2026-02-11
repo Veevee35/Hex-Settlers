@@ -2775,6 +2775,17 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
     return !HFNS_MAIN_ISLAND_KEYS.has(key);
   });
 
+  // Heading for New Shores: The three outer islands have their own number-disc pool.
+  // The outer islands contain 9 land tiles. They should use unique numbers from:
+  // 2,3,4,5,6,8,9,10,11,12 — but since there are 9 tiles, we include either 2 or 12 (50/50).
+  // The remaining number discs are used for the main island.
+  const mainNonDesertLandIds = nonDesertLandIds.filter(id => {
+    const t = allTiles[id];
+    if (!t) return false;
+    const key = `${t.q},${t.r}`;
+    return HFNS_MAIN_ISLAND_KEYS.has(key);
+  });
+
   // Official resource counts: 5 each of the 5 standard resources, 2 Gold Fields, 1 Desert.
   const baseResourceTypes = [
     ...Array(5).fill('hills'),
@@ -2800,9 +2811,33 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
     12,
   ];
 
+  function buildHfnsOuterIslandNumberPool() {
+    // Always include these 8 numbers, plus either 2 or 12.
+    const base = [3,4,5,6,8,9,10,11];
+    const pick = (Math.random() < 0.5) ? 2 : 12;
+    return base.concat([pick]); // length 9
+  }
+
+  function buildMainIslandNumberPool(globalNumbers, islandNumbers) {
+    // Remove one copy of each island number from the global pool.
+    const pool = globalNumbers.slice();
+    for (const n of islandNumbers) {
+      const idx = pool.indexOf(n);
+      if (idx >= 0) pool.splice(idx, 1);
+    }
+    return pool;
+  }
+
   // Place types/numbers with the standard constraint: 6 and 8 may not be adjacent.
   let placed = null;
   for (let attempt = 0; attempt < 420; attempt++) {
+    // Build number pools (outer islands vs main island) for this attempt.
+    const islandNumbers = buildHfnsOuterIslandNumberPool();
+    const mainNumbers = buildMainIslandNumberPool(numbers, islandNumbers);
+
+    // Safety: if geometry changes and counts mismatch, fall back to the classic shuffle.
+    const useSplitPools = (outerNonDesertLandIds.length === 9 && mainNonDesertLandIds.length === 18 && islandNumbers.length === 9 && mainNumbers.length === 18);
+
     // Pick gold locations only from the outer islands.
     const goldPool = outerNonDesertLandIds.length >= GOLD_COUNT
       ? outerNonDesertLandIds.slice()
@@ -2811,19 +2846,44 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
     const goldIds = new Set(goldPool.slice(0, GOLD_COUNT));
 
     const tt = shuffle(baseResourceTypes.slice());
-    const nn = shuffle(numbers.slice());
 
     const local = [];
     let typeIdx = 0;
-    for (let i = 0; i < nonDesertLandIds.length; i++) {
-      const id = nonDesertLandIds[i];
-      const type = goldIds.has(id) ? 'gold' : tt[typeIdx++];
-      local.push({ id, type, number: nn[i] });
+
+    if (useSplitPools) {
+      const islandNums = shuffle(islandNumbers.slice());
+      const mainNums = shuffle(mainNumbers.slice());
+      let iIdx = 0;
+      let mIdx = 0;
+
+      // Assign outer island tiles first.
+      for (const id of outerNonDesertLandIds) {
+        const type = goldIds.has(id) ? 'gold' : tt[typeIdx++];
+        local.push({ id, type, number: islandNums[iIdx++] });
+      }
+      // Assign main island tiles with the remaining number discs.
+      for (const id of mainNonDesertLandIds) {
+        const type = goldIds.has(id) ? 'gold' : tt[typeIdx++];
+        local.push({ id, type, number: mainNums[mIdx++] });
+      }
+    } else {
+      // Fallback to classic shuffle for robustness.
+      const nn = shuffle(numbers.slice());
+      for (let i = 0; i < nonDesertLandIds.length; i++) {
+        const id = nonDesertLandIds[i];
+        const type = goldIds.has(id) ? 'gold' : tt[typeIdx++];
+        local.push({ id, type, number: nn[i] });
+      }
     }
+
     if (!hasAdjacentSixEightForPlacement(geom, local)) { placed = local; break; }
   }
   if (!placed) {
     // Fallback (should be extremely rare): accept the last random assignment.
+    const islandNumbers = buildHfnsOuterIslandNumberPool();
+    const mainNumbers = buildMainIslandNumberPool(numbers, islandNumbers);
+    const useSplitPools = (outerNonDesertLandIds.length === 9 && mainNonDesertLandIds.length === 18 && islandNumbers.length === 9 && mainNumbers.length === 18);
+
     const goldPool = outerNonDesertLandIds.length >= GOLD_COUNT
       ? outerNonDesertLandIds.slice()
       : nonDesertLandIds.slice();
@@ -2831,13 +2891,36 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
     const goldIds = new Set(goldPool.slice(0, GOLD_COUNT));
 
     const tt = shuffle(baseResourceTypes.slice());
-    const nn = shuffle(numbers.slice());
+
     let typeIdx = 0;
-    placed = nonDesertLandIds.map((id, i) => ({
-      id,
-      type: goldIds.has(id) ? 'gold' : tt[typeIdx++],
-      number: nn[i]
-    }));
+    if (useSplitPools) {
+      const islandNums = shuffle(islandNumbers.slice());
+      const mainNums = shuffle(mainNumbers.slice());
+      let iIdx = 0;
+      let mIdx = 0;
+      placed = [];
+      for (const id of outerNonDesertLandIds) {
+        placed.push({
+          id,
+          type: goldIds.has(id) ? 'gold' : tt[typeIdx++],
+          number: islandNums[iIdx++]
+        });
+      }
+      for (const id of mainNonDesertLandIds) {
+        placed.push({
+          id,
+          type: goldIds.has(id) ? 'gold' : tt[typeIdx++],
+          number: mainNums[mIdx++]
+        });
+      }
+    } else {
+      const nn = shuffle(numbers.slice());
+      placed = nonDesertLandIds.map((id, i) => ({
+        id,
+        type: goldIds.has(id) ? 'gold' : tt[typeIdx++],
+        number: nn[i]
+      }));
+    }
   }
 
   // Commit placements.
