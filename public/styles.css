@@ -128,6 +128,27 @@ body.in-game .panel{display:none;}
 .playerRow{display:flex; align-items:center; justify-content:space-between; gap:10px}
 .playerTag{display:flex; align-items:center; gap:10px}
 .badge{width:10px; height:10px; border-radius:999px}
+.colorPickerRow{margin-top:8px}
+.colorPicker{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px}
+.colorChip{
+  width:26px; height:26px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  cursor:pointer;
+  position:relative;
+  box-shadow:0 2px 8px rgba(0,0,0,.25);
+}
+.colorChip.selected{
+  box-shadow:0 0 0 3px rgba(255,255,255,.18), 0 2px 8px rgba(0,0,0,.25);
+}
+.colorChip.disabled{opacity:.35; cursor:not-allowed; filter:grayscale(.25)}
+.colorChip .check{
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px;
+  font-weight:900;
+  user-select:none;
+}
 .turnInfo{font-size:13px; color:var(--text); line-height:1.35}
 .actions{display:flex; gap:10px; flex-wrap:wrap; margin-top:10px}
 .hint{margin-top:10px; color:var(--muted); font-size:12px; line-height:1.3}

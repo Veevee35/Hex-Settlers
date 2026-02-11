@@ -4734,7 +4734,15 @@ if (kind === 'pirate_steal') {
 
 // -------------------- Rooms + Networking --------------------
 
-const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f'];
+const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#8000f8', '#88f8f8', '#f8f8f8', '#f86800'];
+
+function pickAvailableColor(room) {
+  const used = new Set((room && Array.isArray(room.players) ? room.players : []).map(p => String(p && p.color || '').toLowerCase()));
+  for (const c of COLORS) {
+    if (!used.has(String(c).toLowerCase())) return c;
+  }
+  return COLORS[0];
+}
 
 const rooms = new Map(); // code -> room
 
@@ -4792,7 +4800,7 @@ function joinRoom(code, userId, name) {
   if (room.players.length >= 4) return { ok: false, error: 'Room is full.' };
   if (room.game && room.game.phase !== 'lobby') return { ok: false, error: 'Game already started.' };
 
-  const color = COLORS[room.players.length % COLORS.length];
+  const color = pickAvailableColor(room);
   room.players.push({ id: pid, name: (desiredName || 'Player').slice(0, 20), color, joinedAt: now() });
   return { ok: true, room, playerId: pid };
 }
@@ -5395,6 +5403,56 @@ if (msg.type === 'create_room') {
       return;
     }
 
+
+
+    if (msg.type === 'set_player_color') {
+      if (room.game && room.game.phase !== 'lobby') {
+        sendJson(ws, { type: 'error', error: 'Cannot change color after the game starts.' });
+        return;
+      }
+      const desired = String(msg.color || '').trim().toLowerCase();
+      if (!desired || desired[0] !== '#' || desired.length !== 7) {
+        sendJson(ws, { type: 'error', error: 'Invalid color.' });
+        return;
+      }
+      const allowed = new Set(COLORS.map(c => String(c).toLowerCase()));
+      if (!allowed.has(desired)) {
+        sendJson(ws, { type: 'error', error: 'That color is not available.' });
+        return;
+      }
+      const taken = room.players.find(p => p && String(p.color || '').toLowerCase() === desired && p.id !== pid);
+      if (taken) {
+        sendJson(ws, { type: 'error', error: 'That color is already taken.' });
+        return;
+      }
+
+      const pl = room.players.find(p => p && p.id === pid);
+      if (!pl) {
+        sendJson(ws, { type: 'error', error: 'Player not found.' });
+        return;
+      }
+
+      pl.color = desired;
+
+      // Persist to account preferences (optional)
+      try {
+        const user = findUserById(pid);
+        if (user) {
+          user.color = desired;
+          saveUsersDb();
+        }
+      } catch (_) {}
+
+      // Keep any existing lobby-state in sync
+      if (room.game && Array.isArray(room.game.players)) {
+        const gp = room.game.players.find(p => p && p.id === pid);
+        if (gp) gp.color = desired;
+      }
+
+      broadcastRoom(room);
+      if (!room.game || room.game.phase === 'lobby') broadcastPreviewState(room);
+      return;
+    }
 
     if (msg.type === 'generate_map') {
       if (pid !== room.hostId) {

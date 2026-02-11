@@ -65,6 +65,8 @@
     myPlayerIdFull: $('myPlayerIdFull'),
     copyMyIdBtn: $('copyMyIdBtn'),
     playersList: $('playersList'),
+    colorPickerRow: $('colorPickerRow'),
+    colorPicker: $('colorPicker'),
     errBox: $('errBox'),
     turnInfo: $('turnInfo'),
     timerInfo: $('timerInfo'),
@@ -1570,13 +1572,13 @@ function syncPostgameToState() {
   // -------------------- Structure sprites (settlement/city/road/ship) --------------------
 
   const STRUCT = {
-    imgs: [new Image(), new Image(), new Image(), new Image()],
+    imgs: [new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image()],
     ready: false,
     tile: 512,
     loaded: 0,
   };
 
-  const STRUCT_IMG_SRC = ['tokens_red.png', 'tokens_blue.png', 'tokens_green.png', 'tokens_yellow.png'];
+  const STRUCT_IMG_SRC = ['tokens_red.png', 'tokens_blue.png', 'tokens_green.png', 'tokens_yellow.png', 'tokens_purple.png', 'tokens_teal.png', 'tokens_white.png', 'tokens_orange.png'];
 
   const STRUCT_CELL = {
     settlement: { r: 0, c: 0 },
@@ -1604,6 +1606,10 @@ function syncPostgameToState() {
     if (c === '#3498db') return 1; // blue
     if (c === '#2ecc71') return 2; // green
     if (c === '#f1c40f') return 3; // yellow
+    if (c === '#8000f8') return 4; // purple
+    if (c === '#88f8f8') return 5; // teal
+    if (c === '#f8f8f8' || c === '#ffffff') return 6; // white
+    if (c === '#f86800') return 7; // orange
     return 0;
   }
 
@@ -3163,6 +3169,86 @@ function syncPostgameToState() {
 
       ui.playersList.appendChild(row);
     }
+
+
+    // Color picker (unique per player)
+    try {
+      const myP = (myPlayerId && room && Array.isArray(room.players)) ? room.players.find(x => x && x.id === myPlayerId) : null;
+      const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
+      const canPick = !!myP && !gameStartedNow;
+
+      if (ui.colorPickerRow) ui.colorPickerRow.classList.toggle('hidden', !canPick);
+      if (ui.colorPicker) {
+        if (!canPick) {
+          ui.colorPicker.innerHTML = '';
+        } else {
+          const PLAYER_COLOR_OPTIONS = [
+            { name: 'Red', hex: '#e74c3c' },
+            { name: 'Blue', hex: '#3498db' },
+            { name: 'Green', hex: '#2ecc71' },
+            { name: 'Yellow', hex: '#f1c40f' },
+            { name: 'Purple', hex: '#8000f8' },
+            { name: 'Teal', hex: '#88f8f8' },
+            { name: 'White', hex: '#f8f8f8' },
+            { name: 'Orange', hex: '#f86800' },
+          ];
+
+          const taken = new Map();
+          for (const pl of room.players) {
+            if (!pl) continue;
+            const hc = String(pl.color || '').toLowerCase();
+            if (hc) taken.set(hc, pl.id);
+          }
+
+          const myHex = String(myP.color || '').toLowerCase();
+          const isLight = (hex) => {
+            const h = String(hex || '').replace('#','');
+            if (h.length !== 6) return false;
+            const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+            // relative luminance
+            const lum = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+            return lum > 0.62;
+          };
+
+          ui.colorPicker.innerHTML = '';
+          for (const opt of PLAYER_COLOR_OPTIONS) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'colorChip';
+            btn.style.background = opt.hex;
+
+            const usedBy = taken.get(String(opt.hex).toLowerCase());
+            const mine = (myHex && myHex === String(opt.hex).toLowerCase());
+
+            if (mine) btn.classList.add('selected');
+            if (usedBy && usedBy !== myPlayerId) {
+              btn.classList.add('disabled');
+              btn.disabled = true;
+              btn.title = `${opt.name} (taken)`;
+            } else {
+              btn.title = opt.name;
+            }
+
+            const check = document.createElement('div');
+            check.className = 'check';
+            check.textContent = mine ? '✓' : '';
+            check.style.color = isLight(opt.hex) ? 'rgba(0,0,0,.78)' : 'rgba(255,255,255,.92)';
+            btn.appendChild(check);
+
+            btn.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              if (btn.disabled) return;
+              if (mine) return;
+              setError(null);
+              send({ type: 'set_player_color', color: opt.hex });
+            });
+
+            ui.colorPicker.appendChild(btn);
+          }
+        }
+      }
+    } catch (_) {}
 
     // Setup visibility & controls
     const gameStarted = !!(state && state.phase && state.phase !== 'lobby');
