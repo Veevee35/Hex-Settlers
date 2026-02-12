@@ -29,6 +29,7 @@
     discardLimitInput: $('discardLimitInput'),
     timerSpeedSelect: $('timerSpeedSelect'),
     mapModeSelect: $('mapModeSelect'),
+    classic56Note: $('classic56Note'),
     scenarioRow: $('scenarioRow'),
     mapScenarioSelect: $('mapScenarioSelect'),
     testBuilderRow: $('testBuilderRow'),
@@ -2944,9 +2945,11 @@ function syncPostgameToState() {
       return 'Custom';
     }
 
-    const mapMode = String(rules.mapMode || 'classic').toLowerCase() === 'seafarers' ? 'Seafarers' : 'Classic';
+    const mmRaw = String(rules.mapMode || 'classic').toLowerCase();
+    const is56 = (mmRaw === 'classic56' || mmRaw === 'classic_5_6' || mmRaw === 'classic-5-6' || mmRaw === 'classic5_6' || mmRaw === 'classic5-6');
+    const mapMode = (mmRaw === 'seafarers') ? 'Seafarers' : (is56 ? 'Classic 5–6' : 'Classic');
     const scenRaw = String(rules.seafarersScenario || '').toLowerCase();
-    const scenario = (mapMode === 'Seafarers')
+    const scenario = (mmRaw === 'seafarers')
       ? (scenRaw === 'through_the_desert' || scenRaw === 'through-the-desert' || scenRaw === 'desert' || scenRaw === 'throughdesert')
         ? 'Through the Desert'
         : (scenRaw === 'fog_island' || scenRaw === 'fog-island' || scenRaw === 'fog' || scenRaw === 'fogisland')
@@ -2956,7 +2959,7 @@ function syncPostgameToState() {
             : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
               ? 'Test Builder'
               : 'Four Islands'
-      : '—';
+      : (is56 ? 'Paired players' : '—');
 
     const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
 
@@ -2985,6 +2988,14 @@ function syncPostgameToState() {
 
     table.appendChild(tbody);
     wrap.appendChild(table);
+
+    if (is56) {
+      const note = document.createElement('div');
+      note.className = 'smallNote';
+      note.style.marginTop = '10px';
+      note.textContent = 'Paired turns: Player 1 rolls + takes a full action phase. If they do not win, Player 2 takes an action phase (bank trade only). The third player to the left of Player 1 is Player 2. After Player 2 ends, pass to the next Player 1.';
+      wrap.appendChild(note);
+    }
 
     openModal({
       title: 'Game Rules',
@@ -3282,6 +3293,7 @@ function syncPostgameToState() {
     // Seafarers scenario selector
     const mmNow = (r.mapMode || 'classic');
     if (ui.scenarioRow) ui.scenarioRow.classList.toggle('hidden', mmNow !== 'seafarers');
+    if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mmNow !== 'classic56');
     if (ui.mapScenarioSelect) {
       ui.mapScenarioSelect.value = (r.seafarersScenario || 'four_islands');
       ui.mapScenarioSelect.disabled = !isHost || (mmNow !== 'seafarers');
@@ -3331,14 +3343,18 @@ function syncPostgameToState() {
       const s3 = Math.round((r.microPhaseMs || 15000) / 1000);
       const mm = (r.mapMode || 'classic');
       const scen = (r.seafarersScenario || 'four_islands');
-      const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert' : (scen === 'fog_island' ? 'Fog Island' : (scen === 'test_builder' ? 'Test Builder' : 'Four Islands'));
-      const mapLabel = (mm === 'seafarers') ? `seafarers (${scenLabel})` : mm;
+      const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert' : (scen === 'fog_island' ? 'Fog Island' : (scen === 'heading_for_new_shores' ? 'Heading for New Shores' : (scen === 'test_builder' ? 'Test Builder' : 'Four Islands')));
+      const mmL = String(mm || 'classic').toLowerCase();
+      const is56 = (mmL === 'classic56' || mmL === 'classic_5_6' || mmL === 'classic-5-6' || mmL === 'classic5_6' || mmL === 'classic5-6');
+      const mapLabel = (mmL === 'seafarers') ? `seafarers (${scenLabel})` : (is56 ? 'classic 5–6 (paired turns)' : 'classic');
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
       ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
     const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
-    const minPlayers = allowSolo ? 1 : 2;
+    const mmLow = String(mmNow || 'classic').toLowerCase();
+    const isClassic56 = (mmLow === 'classic56' || mmLow === 'classic_5_6' || mmLow === 'classic-5-6' || mmLow === 'classic5_6' || mmLow === 'classic5-6');
+    const minPlayers = isClassic56 ? 5 : (allowSolo ? 1 : 2);
     ui.startBtn.disabled = !(myPlayerId && room.hostId === myPlayerId && room.players.length >= minPlayers && (!state || state.phase === 'lobby'));
   }
 
@@ -3410,6 +3426,7 @@ if (ui.copyMyIdBtn) {
     ui.mapModeSelect.addEventListener('change', () => {
       const mm = (ui.mapModeSelect.value || 'classic');
       ui.scenarioRow.classList.toggle('hidden', mm !== 'seafarers');
+      if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mm !== 'classic56');
       if (ui.mapScenarioSelect) ui.mapScenarioSelect.disabled = (mm !== 'seafarers') || (room && room.hostId !== myPlayerId);
 
       // Test Builder UI only appears for seafarers:test_builder
@@ -3697,7 +3714,15 @@ function updateTimerInfo() {
     const metaEl = ui.countdownClock.querySelector('.clockMeta');
     if (timeEl) timeEl.textContent = formatClock(left);
     const who = (state.players || []).find(p => p.id === state.currentPlayerId)?.name || '—';
-    const meta = `${state.paused ? 'Paused' : 'Turn'}: ${who} · ${state.phase}`;
+    let pairTag = '';
+    try {
+      const mm = String((state && state.rules && state.rules.mapMode) || '').toLowerCase();
+      const is56 = (mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6');
+      if (is56 && state && state.paired && state.paired.stage) {
+        pairTag = ` · ${state.paired.stage === 'p2' ? 'P2' : 'P1'}`;
+      }
+    } catch (_) {}
+    const meta = `${state.paused ? 'Paused' : 'Turn'}: ${who}${pairTag} · ${state.phase}`;
     if (metaEl) metaEl.textContent = meta;
   }
 
@@ -3836,8 +3861,11 @@ if (ui.moveShipBtn) {
     ui.buildCityBtn.disabled = !(myTurn && state.phase === 'main-actions');
 
     // Trading
+    const mmTrade = String(((state && state.rules && state.rules.mapMode) || (room && room.rules && room.rules.mapMode) || 'classic')).toLowerCase();
+    const isClassic56Trade = (mmTrade === 'classic56' || mmTrade === 'classic_5_6' || mmTrade === 'classic-5-6' || mmTrade === 'classic5_6' || mmTrade === 'classic5-6');
+    const p2Stage = !!(isClassic56Trade && state && state.paired && state.paired.stage === 'p2');
     if (ui.bankTradeBtn) ui.bankTradeBtn.disabled = !(myTurn && state.phase === 'main-actions');
-    if (ui.playerTradeBtn) ui.playerTradeBtn.disabled = !(myTurn && state.phase === 'main-actions');
+    if (ui.playerTradeBtn) ui.playerTradeBtn.disabled = !(myTurn && state.phase === 'main-actions') || (myTurn && p2Stage);
 
     // Dev cards
     const me = myPlayer();

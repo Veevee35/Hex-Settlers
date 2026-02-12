@@ -2199,6 +2199,161 @@ function generateBoardClassicWithSea(geom) {
   return tiles;
 }
 
+function classic56LandCoords() {
+  // 30-land layout in a 3-4-5-6-5-4-3 silhouette.
+  // Uses axial (q,r) coordinates inside a radius-4 geometry.
+  const coords = [];
+
+  // r = -3..3 with counts 3,4,5,6,5,4,3
+  const rows = [
+    { r: -3, q0: 0, q1: 2 },
+    { r: -2, q0: -1, q1: 2 },
+    { r: -1, q0: -2, q1: 2 },
+    { r:  0, q0: -3, q1: 2 },
+    { r:  1, q0: -3, q1: 1 },
+    { r:  2, q0: -3, q1: 0 },
+    { r:  3, q0: -3, q1: -1 },
+  ];
+
+  for (const row of rows) {
+    for (let q = row.q0; q <= row.q1; q++) coords.push({ q, r: row.r });
+  }
+  return coords;
+}
+
+function generateBoardClassic56WithSea(geom) {
+  // Classic 5–6 player land (30 tiles) surrounded by sea.
+  // Assumes geom radius >= 4.
+  const base = geom.tiles || [];
+  const allTiles = base.map(t => ({ ...t, type: 'sea', number: null, robber: false, pirate: false }));
+
+  const idByKey = new Map();
+  for (const t of allTiles) idByKey.set(axialKey(t.q, t.r), t.id);
+
+  const landIds = [];
+  for (const c of classic56LandCoords()) {
+    const id = idByKey.get(axialKey(c.q, c.r));
+    if (id !== undefined) landIds.push(id);
+  }
+
+  // Guard: if geometry mismatch, fall back to classic-with-sea.
+  if (landIds.length !== 30) return generateBoardClassicWithSea(geom);
+
+  const types = shuffle([
+    ...Array(6).fill('forest'),
+    ...Array(6).fill('pasture'),
+    ...Array(6).fill('field'),
+    ...Array(5).fill('hills'),
+    ...Array(5).fill('mountains'),
+    ...Array(2).fill('desert'),
+  ]);
+
+  // 28 number discs (2 deserts have no number)
+  const tokens = shuffle([
+    2,2,
+    3,3,3,
+    4,4,4,
+    5,5,5,
+    6,6,6,
+    8,8,8,
+    9,9,9,
+    10,10,10,
+    11,11,11,
+    12,12,
+  ]);
+
+  const nbs = geom.tileNeighbors || [];
+  const landSet = new Set(landIds);
+
+  function attempt() {
+    const tiles = allTiles.map(t => ({ ...t, robber: false, pirate: false }));
+
+    // Assign land types
+    for (let i = 0; i < landIds.length; i++) {
+      const id = landIds[i];
+      tiles[id].type = types[i];
+    }
+
+    // Assign tokens skipping deserts
+    let k = 0;
+    let robberPlaced = false;
+    for (const id of landIds) {
+      if (tiles[id].type === 'desert') {
+        tiles[id].number = null;
+        if (!robberPlaced) { tiles[id].robber = true; robberPlaced = true; }
+      } else {
+        tiles[id].number = tokens[k++];
+      }
+    }
+
+    // Ensure robber exists
+    if (!robberPlaced) {
+      const pick = landIds[Math.floor(Math.random() * landIds.length)];
+      tiles[pick].robber = true;
+      tiles[pick].number = null;
+      tiles[pick].type = 'desert';
+    }
+
+    // 6/8 adjacency constraint on land only
+    for (const id of landIds) {
+      const num = tiles[id].number;
+      if (num !== 6 && num !== 8) continue;
+      for (const nb of (nbs[id] || [])) {
+        if (!landSet.has(nb)) continue;
+        const nn = tiles[nb].number;
+        if (nn === 6 || nn === 8) return null;
+      }
+    }
+    return tiles;
+  }
+
+  let tiles = null;
+  for (let i = 0; i < 400 && !tiles; i++) tiles = attempt();
+  if (!tiles) {
+    // Fallback without the 6/8 adjacency constraint
+    tiles = allTiles.map(t => ({ ...t, robber: false, pirate: false }));
+    const ttypes = shuffle([
+      ...Array(6).fill('forest'),
+      ...Array(6).fill('pasture'),
+      ...Array(6).fill('field'),
+      ...Array(5).fill('hills'),
+      ...Array(5).fill('mountains'),
+      ...Array(2).fill('desert'),
+    ]);
+    const ttokens = shuffle([
+      2,2,
+      3,3,3,
+      4,4,4,
+      5,5,5,
+      6,6,6,
+      8,8,8,
+      9,9,9,
+      10,10,10,
+      11,11,11,
+      12,12,
+    ]);
+    for (let i = 0; i < landIds.length; i++) tiles[landIds[i]].type = ttypes[i];
+    let k = 0;
+    let robberPlaced = false;
+    for (const id of landIds) {
+      if (tiles[id].type === 'desert') {
+        tiles[id].number = null;
+        if (!robberPlaced) { tiles[id].robber = true; robberPlaced = true; }
+      } else {
+        tiles[id].number = ttokens[k++];
+      }
+    }
+    if (!robberPlaced) {
+      const pick = landIds[Math.floor(Math.random() * landIds.length)];
+      tiles[pick].robber = true;
+      tiles[pick].number = null;
+      tiles[pick].type = 'desert';
+    }
+  }
+
+  return tiles;
+}
+
 function seafarersBaseAllSea(geom) {
   const tiles = geom.tiles || [];
   return tiles.map(t => ({ ...t, type: 'sea', number: null, robber: false, pirate: false }));
@@ -2971,10 +3126,25 @@ function generateBoardSeafarers(geom, scenario = 'four_islands') {
 
 // -------------------- Ports (Harbors) --------------------
 
+function defaultPortKinds(portCount) {
+  const n = Math.max(0, Math.floor(Number(portCount || 0)));
+  if (n === 11) {
+    // Classic 5–6 uses 11 ports: 6 generic (3:1) and 5 resource-specific (2:1).
+    return [
+      'generic','generic','generic','generic','generic','generic',
+      'brick','lumber','wool','grain','ore',
+    ];
+  }
+  // Default classic: 9 ports (4 generic + 5 specific).
+  return [
+    'generic','generic','generic','generic',
+    'brick','lumber','wool','grain','ore',
+  ];
+}
+
 // Classic-style ports: each port covers 2 adjacent coastal nodes (a single coastline edge).
-// We implement 9 ports total: 4 generic (3:1) and 5 resource-specific (2:1).
-function generatePorts(geom) {
-  // Ports (Harbors): 9 total. 4 generic (3:1) and 5 resource-specific (2:1).
+function generatePorts(geom, portCount = 9) {
+  // Ports (Harbors): default 9. Some scenarios may override (e.g., classic 5–6 uses 11).
   // If a coastline (land/sea) exists, we place ports on coastline edges; otherwise we fall back to boundary edges.
   const tiles = geom.tiles || [];
 
@@ -3006,7 +3176,7 @@ function generatePorts(geom) {
     })
     .sort((u, v) => u.ang - v.ang);
 
-  const PORT_COUNT = 9;
+  const PORT_COUNT = Math.max(1, Math.min(24, Math.floor(Number(portCount || 9))));
   const n = ordered.length;
   const step = n / PORT_COUNT;
   const minSep = Math.max(2, Math.floor(step * 0.65));
@@ -3061,10 +3231,7 @@ function generatePorts(geom) {
     usedNodes.add(e.b);
   }
 
-  const kinds = shuffle([
-    'generic', 'generic', 'generic', 'generic',
-    'brick', 'lumber', 'wool', 'grain', 'ore',
-  ]);
+  const kinds = shuffle(defaultPortKinds(PORT_COUNT).slice());
 
   return selectedIdx.slice(0, PORT_COUNT).map((idx, i) => {
     const e = ordered[idx];
@@ -3088,7 +3255,7 @@ function generatePorts(geom) {
       id: i,
       edgeId: e.eid,
       nodeIds: [e.a, e.b],
-      kind: kinds[i],
+      kind: kinds[i] || 'generic',
       mx: e.mx,
       my: e.my,
       landTileId,
@@ -3099,7 +3266,7 @@ function generatePorts(geom) {
 
 function generatePortsSeafarers(geom) {
   // Seafarers uses the same port placement logic, but the coastline edge set will be preferred.
-  return generatePorts(geom);
+  return generatePorts(geom, 9);
 }
 
 function playerHasPort(game, playerId, port) {
@@ -3126,8 +3293,12 @@ function tradeRatioFor(game, playerId, giveKind) {
 // -------------------- Room/Game State --------------------
 
 function newEmptyGame(room) {
-  const mapMode = (room && room.rules && room.rules.mapMode) ? String(room.rules.mapMode) : 'classic';
-  const geom = buildGeometry(mapMode === 'seafarers' ? 4 : 3);
+  const raw = (room && room.rules && room.rules.mapMode) ? String(room.rules.mapMode).toLowerCase() : 'classic';
+  const mapMode = (raw === 'seafarers') ? 'seafarers'
+    : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
+      ? 'classic56'
+      : 'classic';
+  const geom = buildGeometry((mapMode === 'seafarers' || mapMode === 'classic56') ? 4 : 3);
   return {
     id: crypto.randomUUID(),
     createdAt: now(),
@@ -3289,7 +3460,13 @@ function startGame(room) {
   } catch (_) { usedPreview = false; }
 
   if (!usedPreview) {
-    if ((game.rules?.mapMode || 'classic') === 'seafarers') {
+    const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
+    const mm = (rawMM === 'seafarers') ? 'seafarers'
+      : (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+        ? 'classic56'
+        : 'classic';
+
+    if (mm === 'seafarers') {
       const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
       // The "Through the Desert" scenario uses a custom 70-tile geometry to match the provided layout.
       if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
@@ -3297,9 +3474,14 @@ function startGame(room) {
       }
       game.geom.tiles = generateBoardSeafarers(game.geom, scen);
       game.geom.ports = (String(scen).toLowerCase() === 'test_builder') ? [] : generatePortsSeafarers(game.geom);
+    } else if (mm === 'classic56') {
+      // Classic 5–6 Player: larger landmass + 11 ports.
+      game.geom = buildGeometry(4);
+      game.geom.tiles = generateBoardClassic56WithSea(game.geom);
+      game.geom.ports = generatePorts(game.geom, 11);
     } else {
       game.geom.tiles = generateBoardClassicWithSea(game.geom);
-      game.geom.ports = generatePorts(game.geom);
+      game.geom.ports = generatePorts(game.geom, 9);
     }
   }
 
@@ -3421,6 +3603,18 @@ function advanceSetup(game) {
       game.currentPlayerId = order[0];
       game.phase = 'main-await-roll';
       game.message = `${playerName(game, game.currentPlayerId)}: Roll the dice.`;
+      // Initialize paired turn tracking for Classic 5–6.
+      {
+        const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
+        const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+          ? 'classic56'
+          : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
+        if (mm === 'classic56') {
+          game.paired = { enabled: true, stage: 'p1', p1Id: game.currentPlayerId, p2Id: null, p1Idx: 0 };
+        } else {
+          game.paired = null;
+        }
+      }
       recordTurnStart(game);
       return;
     } else {
@@ -4340,10 +4534,8 @@ function applyAction(room, playerId, action) {
       pushLog(game, `${playerName(game, playerId)} chose to move the robber.`, 'info');
     }
     const tileId = action.tileId;
-    if ((game.rules?.mapMode || 'classic') === 'seafarers') {
-      const tt = game.geom.tiles?.[tileId];
-      if (tt && tt.type === 'sea') return { ok: false, error: 'Robber cannot be placed on the sea.' };
-    }
+    const tt = game.geom.tiles?.[tileId];
+    if (tt && tt.type === 'sea') return { ok: false, error: 'Robber cannot be placed on the sea.' };
     const current = getRobberTileId(game);
     if (current != null && tileId === current) return { ok: false, error: 'Robber must move to a different tile.' };
     if (!setRobber(game, tileId)) return { ok: false, error: 'Bad tile.' };
@@ -4578,6 +4770,18 @@ if (kind === 'pirate_steal') {
 
   if (kind === 'propose_trade') {
     if (game.phase !== 'main-actions') return { ok: false, error: 'You can only trade after rolling.' };
+    if (!isPlayersTurn(game, playerId)) return { ok: false, error: 'Not your turn.' };
+
+    // Classic 5–6 paired player rule: Player 2 may not trade with other players.
+    {
+      const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
+      const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+        ? 'classic56'
+        : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
+      if (mm === 'classic56' && game.paired && game.paired.stage === 'p2') {
+        return { ok: false, error: 'Player 2 cannot trade with other players.' };
+      }
+    }
     // Global trade system: only one pending trade at a time.
     // However, allow the original proposer to *revise* their own current offer.
     const replaceTradeId = Math.floor(Number(action.replaceTradeId || 0));
@@ -4818,6 +5022,7 @@ if (kind === 'pirate_steal') {
 
   if (kind === 'end_turn') {
     if (game.phase !== 'main-actions') return { ok: false, error: 'Cannot end turn right now.' };
+    if (!isPlayersTurn(game, playerId)) return { ok: false, error: 'Not your turn.' };
 
     // Any unanswered trade offer expires when the turn ends (keeps the game moving)
     game.pendingTrade = null;
@@ -4830,7 +5035,54 @@ if (kind === 'pirate_steal') {
 
     recordTurnEnd(game, playerId);
 
-    // next player
+    // Classic 5–6 paired player turn system.
+    {
+      const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
+      const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+        ? 'classic56'
+        : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
+
+      if (mm === 'classic56') {
+        const n = game.turnOrder.length;
+        const stage = (game.paired && game.paired.stage) ? String(game.paired.stage) : 'p1';
+
+        // Player 1 ends -> Player 2 action (no player trades)
+        if (stage !== 'p2') {
+          const p1Id = playerId;
+          const p1Idx = game.turnOrder.indexOf(p1Id);
+          const p2Idx = (p1Idx + 2) % n;
+          const p2Id = game.turnOrder[p2Idx];
+
+          game.paired = { enabled: true, stage: 'p2', p1Id, p2Id, p1Idx };
+
+          game.currentPlayerId = p2Id;
+          // Still in main-actions; do not roll again.
+          game.message = `Paired turn: ${playerName(game, p2Id)} may act (bank trade only), or end turn.`;
+
+          recordTurnStart(game);
+          pushLog(game, `${playerName(game, p1Id)} ended their action (Player 1).`, 'turn', { kind: 'paired_p1_end', p1Id, p2Id });
+          return { ok: true };
+        }
+
+        // Player 2 ends -> advance to next Player 1 (roll dice)
+        const p1Id = (game.paired && game.paired.p1Id) ? game.paired.p1Id : playerId;
+        const p1Idx = game.turnOrder.indexOf(p1Id);
+        const nextP1 = game.turnOrder[(p1Idx + 1) % n];
+
+        game.currentPlayerId = nextP1;
+        game.turnNumber += 1;
+        game.phase = 'main-await-roll';
+        game.message = `${playerName(game, nextP1)}: Roll the dice.`;
+
+        game.paired = { enabled: true, stage: 'p1', p1Id: nextP1, p2Id: null, p1Idx: (p1Idx + 1) % n };
+
+        recordTurnStart(game);
+        pushLog(game, `${playerName(game, playerId)} ended their action (Player 2).`, 'turn', { kind: 'paired_p2_end', nextP1 });
+        return { ok: true };
+      }
+    }
+
+    // Default turn advance
     const idx = game.turnOrder.indexOf(game.currentPlayerId);
     const next = game.turnOrder[(idx + 1) % game.turnOrder.length];
     game.currentPlayerId = next;
@@ -4953,7 +5205,14 @@ function joinRoom(code, userId, name) {
   }
 
   // New join
-  if (room.players.length >= 4) return { ok: false, error: 'Room is full.' };
+  {
+    const rawMM = String(room.rules?.mapMode || 'classic').toLowerCase();
+    const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+      ? 'classic56'
+      : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
+    const maxPlayers = (mm === 'classic56') ? 6 : 4;
+    if (room.players.length >= maxPlayers) return { ok: false, error: 'Room is full.' };
+  }
   if (room.game && room.game.phase !== 'lobby') return { ok: false, error: 'Game already started.' };
 
   const color = pickAvailableColor(room);
@@ -4978,7 +5237,12 @@ function rejoinRoom(code, playerId) {
 
 
 function mapPreviewKey(rules) {
-  const mm = (rules && String(rules.mapMode || 'classic').toLowerCase() === 'seafarers') ? 'seafarers' : 'classic';
+  const raw = String(rules?.mapMode || 'classic').toLowerCase();
+  const mm = (raw === 'seafarers') ? 'seafarers'
+    : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
+      ? 'classic56'
+      : 'classic';
+  if (mm === 'classic56') return 'classic56';
   if (mm !== 'seafarers') return 'classic';
   const rawScen = String((rules && rules.seafarersScenario) || 'four_islands').toLowerCase();
   const scen = (rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'desert' || rawScen === 'throughdesert')
@@ -4994,7 +5258,11 @@ function mapPreviewKey(rules) {
 }
 
 function generatePreviewGeom(rules) {
-  const mm = (rules && String(rules.mapMode || 'classic').toLowerCase() === 'seafarers') ? 'seafarers' : 'classic';
+  const raw = String(rules?.mapMode || 'classic').toLowerCase();
+  const mm = (raw === 'seafarers') ? 'seafarers'
+    : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
+      ? 'classic56'
+      : 'classic';
   if (mm === 'seafarers') {
     const key = mapPreviewKey(rules);
     const scen = key.split(':')[1] || 'four_islands';
@@ -5008,10 +5276,16 @@ function generatePreviewGeom(rules) {
     geom.ports = (scen === 'test_builder') ? [] : generatePortsSeafarers(geom);
     return geom;
   }
+  if (mm === 'classic56') {
+    const geom = buildGeometry(4);
+    geom.tiles = generateBoardClassic56WithSea(geom);
+    geom.ports = generatePorts(geom, 11);
+    return geom;
+  }
   // classic
   const geom = buildGeometry(3);
   geom.tiles = generateBoardClassicWithSea(geom);
-  geom.ports = generatePorts(geom);
+  geom.ports = generatePorts(geom, 9);
   return geom;
 }
 
@@ -5560,7 +5834,10 @@ if (msg.type === 'create_room') {
       next.microPhaseMs = clampMs(r.microPhaseMs, next.microPhaseMs);
 
       const mm = String(r.mapMode ?? next.mapMode ?? 'classic').toLowerCase();
-      next.mapMode = (mm === 'seafarers') ? 'seafarers' : 'classic';
+      next.mapMode = (mm === 'seafarers') ? 'seafarers'
+        : (mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6')
+          ? 'classic56'
+          : 'classic';
 
       const rawScen = String(r.seafarersScenario ?? next.seafarersScenario ?? 'four_islands').toLowerCase();
       next.seafarersScenario = (rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'desert' || rawScen === 'throughdesert')
@@ -5752,9 +6029,21 @@ if (msg.type === 'create_room') {
         sendJson(ws, { type: 'error', error: 'Only host can start.' });
         return;
       }
-      const allowSolo = String((room.rules && room.rules.mapMode) || 'classic').toLowerCase() === 'seafarers' && String((room.rules && room.rules.seafarersScenario) || '').toLowerCase() === 'test_builder';
-      if (room.players.length < (allowSolo ? 1 : 2)) {
-        sendJson(ws, { type: 'error', error: allowSolo ? 'Need at least 1 player.' : 'Need at least 2 players.' });
+      const rawMM = String((room.rules && room.rules.mapMode) || 'classic').toLowerCase();
+      const mm = (rawMM === 'seafarers') ? 'seafarers'
+        : (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+          ? 'classic56'
+          : 'classic';
+
+      const allowSolo = (mm === 'seafarers') && String((room.rules && room.rules.seafarersScenario) || '').toLowerCase() === 'test_builder';
+
+      const minPlayers = (mm === 'classic56') ? 5 : (allowSolo ? 1 : 2);
+      const maxPlayers = (mm === 'classic56') ? 6 : 4;
+      if (room.players.length < minPlayers || room.players.length > maxPlayers) {
+        const msgErr = (mm === 'classic56')
+          ? 'Classic 5–6 requires 5 or 6 players.'
+          : (allowSolo ? 'Need at least 1 player.' : 'Need at least 2 players.' );
+        sendJson(ws, { type: 'error', error: msgErr });
         return;
       }
       const ok = startGame(room);
