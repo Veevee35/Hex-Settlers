@@ -68,6 +68,11 @@
     playersList: $('playersList'),
     colorPickerRow: $('colorPickerRow'),
     colorPicker: $('colorPicker'),
+    aiFillRow: $('aiFillRow'),
+    aiFillSelect: $('aiFillSelect'),
+    aiFillBtn: $('aiFillBtn'),
+    aiClearBtn: $('aiClearBtn'),
+    aiFillNote: $('aiFillNote'),
     errBox: $('errBox'),
     turnInfo: $('turnInfo'),
     timerInfo: $('timerInfo'),
@@ -3158,7 +3163,11 @@ function syncPostgameToState() {
       badge.className = 'badge';
       badge.style.background = p.color;
       const name = document.createElement('div');
-      name.textContent = p.name + (p.id === room.hostId ? ' (host)' : '') + (p.id === myPlayerId ? ' (you)' : '');
+      let label = p.name;
+      if (p.isAI) label += ' (AI)';
+      if (p.id === room.hostId) label += ' (host)';
+      if (p.id === myPlayerId) label += ' (you)';
+      name.textContent = label;
       tag.appendChild(badge);
       tag.appendChild(name);
 
@@ -3187,6 +3196,42 @@ function syncPostgameToState() {
 
       ui.playersList.appendChild(row);
     }
+
+    // AI fill controls (host-only, lobby only)
+    try {
+      const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
+      const canManageAI = !!(myPlayerId && room.hostId === myPlayerId && !gameStartedNow);
+      if (ui.aiFillRow) ui.aiFillRow.classList.toggle('hidden', !canManageAI);
+      if (canManageAI && ui.aiFillSelect) {
+        const raw = String(room?.rules?.mapMode || 'classic').toLowerCase();
+        const mm = (raw === 'seafarers') ? 'seafarers'
+          : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
+            ? 'classic56'
+            : 'classic';
+        const allowSolo = (mm === 'seafarers') && String(room?.rules?.seafarersScenario || '').toLowerCase() === 'test_builder';
+        const minPlayers = (mm === 'classic56') ? 5 : (allowSolo ? 1 : 2);
+        const maxPlayers = (mm === 'classic56') ? 6 : 4;
+        const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;
+        const current = (room.players || []).length;
+        const start = Math.max(humans, 1);
+        const prev = ui.aiFillSelect.value;
+        ui.aiFillSelect.innerHTML = '';
+        for (let target = start; target <= maxPlayers; target++) {
+          const opt = document.createElement('option');
+          const add = Math.max(0, target - current);
+          const rem = Math.max(0, current - target);
+          let suffix = '';
+          if (add > 0) suffix = `(+${add} AI)`;
+          else if (rem > 0) suffix = `(-${rem} AI)`;
+          opt.value = String(target);
+          opt.textContent = `Fill to ${target} ${suffix}`.trim();
+          ui.aiFillSelect.appendChild(opt);
+        }
+        // Keep selection if possible, otherwise default to the minimum needed to start.
+        const desired = (prev && [...ui.aiFillSelect.options].some(o => o.value === prev)) ? prev : String(Math.max(minPlayers, Math.min(maxPlayers, current)));
+        ui.aiFillSelect.value = desired;
+      }
+    } catch (_) {}
 
 
     // Color picker (unique per player)
@@ -3420,6 +3465,18 @@ if (ui.copyMyIdBtn) {
   ui.startBtn.addEventListener('click', () => {
     setError(null);
     send({ type: 'start_game' });
+  });
+
+  if (ui.aiFillBtn) ui.aiFillBtn.addEventListener('click', () => {
+    if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
+    const target = Math.floor(Number(ui.aiFillSelect?.value || 0));
+    if (!Number.isFinite(target) || target <= 0) return;
+    send({ type: 'fill_ai', targetCount: target });
+  });
+
+  if (ui.aiClearBtn) ui.aiClearBtn.addEventListener('click', () => {
+    if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
+    send({ type: 'clear_ai' });
   });
 
   if (ui.mapModeSelect && ui.scenarioRow) {

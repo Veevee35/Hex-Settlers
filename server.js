@@ -3340,6 +3340,7 @@ function newEmptyGame(room) {
       id: p.id,
       name: p.name,
       color: p.color,
+      isAI: !!(p && p.isAI),
       resources: { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 },
       vp: 0,
       newIslandVP: 0,
@@ -5139,6 +5140,68 @@ function pickAvailableColor(room) {
   return COLORS[0];
 }
 
+function maxPlayersForRules(rules) {
+  const raw = (rules && rules.mapMode) ? String(rules.mapMode).toLowerCase() : 'classic';
+  const mm = (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
+    ? 'classic56'
+    : (raw === 'seafarers' ? 'seafarers' : 'classic');
+  return (mm === 'classic56') ? 6 : 4;
+}
+
+function isAIPlayerObj(p) {
+  return !!(p && (p.isAI || p.ai));
+}
+
+function addAIPlayersToRoom(room, targetCount) {
+  if (!room || !Array.isArray(room.players)) return;
+  const maxP = maxPlayersForRules(room.rules || DEFAULT_RULES);
+  const desired = Math.max(1, Math.min(maxP, Math.floor(Number(targetCount || 0)) || 0));
+
+  const humans = room.players.filter(p => p && !isAIPlayerObj(p));
+  const aiPlayers = room.players.filter(p => p && isAIPlayerObj(p));
+
+  const minKeep = humans.length;
+  const finalCount = Math.max(minKeep, desired);
+
+  // Remove AI players if we are over target.
+  if (humans.length + aiPlayers.length > finalCount) {
+    const toRemove = (humans.length + aiPlayers.length) - finalCount;
+    let removed = 0;
+    const keep = [];
+    for (const p of room.players) {
+      if (p && isAIPlayerObj(p) && removed < toRemove) {
+        removed += 1;
+        continue;
+      }
+      keep.push(p);
+    }
+    room.players = keep;
+  }
+
+  // Add AI players if we are under target.
+  const cur = room.players.length;
+  const need = Math.max(0, finalCount - cur);
+  if (need <= 0) return;
+
+  room.aiSeq = Number.isFinite(room.aiSeq) ? room.aiSeq : 1;
+  for (let i = 0; i < need; i++) {
+    const id = `ai_${crypto.randomUUID()}`;
+    const n = room.aiSeq++;
+    room.players.push({
+      id,
+      name: `AI ${n}`,
+      color: pickAvailableColor(room),
+      joinedAt: now(),
+      isAI: true,
+    });
+  }
+}
+
+function clearAIPlayersFromRoom(room) {
+  if (!room || !Array.isArray(room.players)) return;
+  room.players = room.players.filter(p => p && !isAIPlayerObj(p));
+}
+
 const rooms = new Map(); // code -> room
 
 function createRoom(hostUserId, hostName) {
@@ -5165,6 +5228,7 @@ function createRoom(hostUserId, hostName) {
     rules: { ...DEFAULT_RULES },
     chat: [],
     chatSeq: 1,
+    aiSeq: 1,
   };
   rooms.set(code, room);
   return room;
@@ -5185,6 +5249,7 @@ function createRematchRoomFrom(prevRoom) {
     name: String(p && p.name || 'Player').slice(0, 20),
     color: String(p && p.color || COLORS[0]),
     joinedAt: now(),
+    isAI: !!(p && p.isAI),
   })).filter(p => p.id);
 
   // Ensure host exists in the player list (fallback: first player or a fresh id)
@@ -5208,6 +5273,7 @@ function createRematchRoomFrom(prevRoom) {
     rules: { ...(prevRoom && prevRoom.rules ? prevRoom.rules : DEFAULT_RULES) },
     chat: [],
     chatSeq: 1,
+    aiSeq: 1,
   };
   rooms.set(code, room);
   return room;
@@ -5356,7 +5422,7 @@ function roomSnapshot(room) {
   return {
     code: room.code,
     hostId: room.hostId,
-    players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color })),
+    players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI) })),
     gamePhase: room.game ? room.game.phase : 'lobby',
     rules: room.rules || { ...DEFAULT_RULES },
     chat: room.chat || [],
@@ -5952,6 +6018,29 @@ if (msg.type === 'create_room') {
       return;
     }
 
+    // Host-only: add/remove server-controlled AI players in the lobby.
+    if (msg.type === 'fill_ai' || msg.type === 'clear_ai') {
+      if (pid !== room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Only host can manage AI players.' });
+        return;
+      }
+      if (room.game && room.game.phase !== 'lobby') {
+        sendJson(ws, { type: 'error', error: 'Cannot change players after the game starts.' });
+        return;
+      }
+
+      if (msg.type === 'clear_ai') {
+        clearAIPlayersFromRoom(room);
+      } else {
+        const target = Math.floor(Number(msg.targetCount ?? msg.target ?? msg.count ?? 0));
+        addAIPlayersToRoom(room, target);
+      }
+
+      broadcastRoom(room);
+      if (!room.game || room.game.phase === 'lobby') broadcastPreviewState(room);
+      return;
+    }
+
     if (msg.type === 'generate_map') {
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only host can regenerate the map.' });
@@ -6352,12 +6441,250 @@ function handleTimeout(room) {
   return true;
 }
 
+// Server-controlled AI players (for faster testing).
+// The AI is intentionally simple: it auto-places during setup, auto-rolls, and
+// auto-ends turns. It also auto-responds to any blocking prompts.
+function handleAI(room) {
+  const game = room && room.game;
+  if (!game) return false;
+  if (game.paused) return false;
+  if (!Array.isArray(game.players) || !game.players.some(p => p && p.isAI)) return false;
+  if (game.phase === 'lobby' || game.phase === 'game-over') return false;
+
+  game.ai = (game.ai && typeof game.ai === 'object') ? game.ai : { nextAt: 0 };
+  const t = now();
+  if (t < (Number(game.ai.nextAt) || 0)) return false;
+
+  const aiCan = (pid, action) => {
+    try {
+      const g = deepClone(game);
+      const tmp = { game: g, _dryRun: true };
+      const r = applyAction(tmp, pid, action);
+      return !!(r && r.ok);
+    } catch (_) { return false; }
+  };
+
+  const delay = (msMin, msMax) => {
+    const a = Math.max(0, Math.floor(msMin || 0));
+    const b = Math.max(a, Math.floor(msMax || a));
+    game.ai.nextAt = now() + (a + Math.floor(Math.random() * (b - a + 1)));
+  };
+
+  // 1) Unblock global vote/trade prompts quickly.
+  if (game.endVote && game.endVote.id && game.endVote.responses) {
+    for (const [pid, v] of Object.entries(game.endVote.responses)) {
+      if (v != null) continue;
+      const p = playerById(game, pid);
+      if (!p || !p.isAI) continue;
+      const r = applyAction(room, pid, { kind: 'respond_endgame', voteId: game.endVote.id, accept: true });
+      if (r && r.ok) { delay(120, 220); return true; }
+    }
+  }
+
+  if (game.pendingTrade && game.pendingTrade.id && game.pendingTrade.responses) {
+    for (const [pid, v] of Object.entries(game.pendingTrade.responses)) {
+      if (v != null) continue;
+      const p = playerById(game, pid);
+      if (!p || !p.isAI) continue;
+      const r = applyAction(room, pid, { kind: 'respond_trade', tradeId: game.pendingTrade.id, accept: false });
+      if (r && r.ok) { delay(120, 220); return true; }
+    }
+  }
+
+  // 2) Discards: resolve any pending AI discards.
+  if (game.phase === 'discard' && game.discard && game.discard.required) {
+    const required = game.discard.required || {};
+    const done = game.discard.done || {};
+    for (const pid of Object.keys(required)) {
+      if (done[pid]) continue;
+      const p = playerById(game, pid);
+      if (!p || !p.isAI) continue;
+      const req = Math.max(0, Math.floor(Number(required[pid] || 0)));
+      const cards = randomDiscardMap(p, req);
+      const r = applyAction(room, pid, { kind: 'discard_cards', cards });
+      if (r && r.ok) { delay(140, 260); return true; }
+    }
+  }
+
+  // 3) Gold discovery choice (Fog Island / exploration).
+  if (game.special && game.special.kind === 'discovery_gold' && game.special.forPlayerId) {
+    const pid = game.special.forPlayerId;
+    const p = playerById(game, pid);
+    if (p && p.isAI) {
+      const rk = RESOURCE_KINDS[Math.floor(Math.random() * RESOURCE_KINDS.length)];
+      const r = applyAction(room, pid, { kind: 'choose_discovery', resourceKind: rk });
+      if (r && r.ok) { delay(140, 260); return true; }
+    }
+  }
+
+  // 4) If it's an AI player's turn, take a simple action.
+  const pid = game.currentPlayerId;
+  const me = pid ? playerById(game, pid) : null;
+  if (!pid || !me || !me.isAI) return false;
+
+  const phase = String(game.phase || '');
+
+  if (phase === 'setup1-settlement' || phase === 'setup2-settlement') {
+    const rawScen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase();
+    const isTTD = rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'through_the_desert_map' || rawScen === 'desert';
+    const isFog = rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog';
+    const isHFNS = rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading';
+
+    const nodeIds = [];
+    for (let i = 0; i < game.geom.nodes.length; i++) {
+      const node = game.geom.nodes[i];
+      if (!node || node.building) continue;
+      if (!settlementDistanceOk(game, i)) continue;
+      if (isTTD && !nodeIsOnTTDStartIsland(game, i)) continue;
+      if (isFog && !nodeIsOnFogStartIslands(game, i)) continue;
+      if (isHFNS && !nodeIsOnHFNSMainIsland(game, i)) continue;
+      nodeIds.push(i);
+    }
+    const shuffled = shuffle(nodeIds.slice());
+    for (const nid of shuffled) {
+      if (!aiCan(pid, { kind: 'place_settlement', nodeId: nid })) continue;
+      const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
+      if (r && r.ok) { delay(240, 420); return true; }
+    }
+    // Fallback: try any node.
+    for (let nid = 0; nid < game.geom.nodes.length; nid++) {
+      if (!aiCan(pid, { kind: 'place_settlement', nodeId: nid })) continue;
+      const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
+      if (r && r.ok) { delay(240, 420); return true; }
+    }
+    delay(300, 500);
+    return false;
+  }
+
+  if (phase === 'setup1-road' || phase === 'setup2-road') {
+    const awaiting = game.setup && game.setup.awaiting;
+    const nid = awaiting && awaiting.playerId === pid ? awaiting.nodeId : null;
+    const edges = (nid != null) ? (game.geom.nodeEdges[nid] || []) : [];
+    const edgeIds = shuffle(edges.slice());
+    for (const eid of edgeIds) {
+      // Prefer roads if legal; otherwise try ships (Seafarers).
+      if (aiCan(pid, { kind: 'place_road', edgeId: eid })) {
+        const r = applyAction(room, pid, { kind: 'place_road', edgeId: eid });
+        if (r && r.ok) { delay(240, 420); return true; }
+      }
+      if (aiCan(pid, { kind: 'place_ship', edgeId: eid })) {
+        const r = applyAction(room, pid, { kind: 'place_ship', edgeId: eid });
+        if (r && r.ok) { delay(240, 420); return true; }
+      }
+    }
+    delay(240, 420);
+    return false;
+  }
+
+  if (phase === 'main-await-roll') {
+    const r = applyAction(room, pid, { kind: 'roll_dice' });
+    if (r && r.ok) { delay(200, 340); return true; }
+    delay(200, 340);
+    return false;
+  }
+
+  if (phase === 'pirate-or-robber') {
+    // Choose a random valid tile: land => robber, sea => pirate.
+    const land = [];
+    const sea = [];
+    const curR = getRobberTileId(game);
+    const curP = getPirateTileId(game);
+    for (let i = 0; i < game.geom.tiles.length; i++) {
+      const tt = game.geom.tiles[i];
+      if (!tt) continue;
+      if (tt.type === 'sea') { if (i !== curP) sea.push(i); }
+      else { if (i !== curR) land.push(i); }
+    }
+    shuffle(land);
+    shuffle(sea);
+    // Prefer robber if there is a land option.
+    if (land.length && aiCan(pid, { kind: 'move_robber', tileId: land[0] })) {
+      const r = applyAction(room, pid, { kind: 'move_robber', tileId: land[0] });
+      if (r && r.ok) { delay(220, 360); return true; }
+    }
+    if (sea.length && aiCan(pid, { kind: 'move_pirate', tileId: sea[0] })) {
+      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] });
+      if (r && r.ok) { delay(220, 360); return true; }
+    }
+    delay(220, 360);
+    return false;
+  }
+
+  if (phase === 'robber-move') {
+    const cur = getRobberTileId(game);
+    const cands = [];
+    for (let i = 0; i < game.geom.tiles.length; i++) {
+      const tt = game.geom.tiles[i];
+      if (!tt) continue;
+      if (i === cur) continue;
+      if (tt.type === 'sea') continue;
+      cands.push(i);
+    }
+    shuffle(cands);
+    if (cands.length) {
+      const r = applyAction(room, pid, { kind: 'move_robber', tileId: cands[0] });
+      if (r && r.ok) { delay(220, 360); return true; }
+    }
+    delay(220, 360);
+    return false;
+  }
+
+  if (phase === 'robber-steal' && game.robberSteal && Array.isArray(game.robberSteal.victims)) {
+    const victims = shuffle(game.robberSteal.victims.slice());
+    const victimId = victims[0] || null;
+    const r = applyAction(room, pid, { kind: 'robber_steal', victimId });
+    if (r && r.ok) { delay(200, 340); return true; }
+    delay(200, 340);
+    return false;
+  }
+
+  if (phase === 'pirate-move') {
+    const cur = getPirateTileId(game);
+    const cands = [];
+    for (let i = 0; i < game.geom.tiles.length; i++) {
+      const tt = game.geom.tiles[i];
+      if (!tt) continue;
+      if (i === cur) continue;
+      if (tt.type !== 'sea') continue;
+      cands.push(i);
+    }
+    shuffle(cands);
+    if (cands.length) {
+      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: cands[0] });
+      if (r && r.ok) { delay(220, 360); return true; }
+    }
+    delay(220, 360);
+    return false;
+  }
+
+  if (phase === 'pirate-steal' && game.pirateSteal && Array.isArray(game.pirateSteal.victims)) {
+    const victims = shuffle(game.pirateSteal.victims.slice());
+    const victimId = victims[0] || null;
+    const r = applyAction(room, pid, { kind: 'pirate_steal', victimId });
+    if (r && r.ok) { delay(200, 340); return true; }
+    delay(200, 340);
+    return false;
+  }
+
+  // Default: just end turn in the main action phase.
+  if (phase === 'main-actions') {
+    const r = applyAction(room, pid, { kind: 'end_turn' });
+    if (r && r.ok) { delay(220, 360); return true; }
+    delay(220, 360);
+    return false;
+  }
+
+  // If we get here, don't spam actions.
+  delay(220, 360);
+  return false;
+}
+
 // Timer loop: server-authoritative timeouts (no per-tick broadcasts; clients count down locally)
 setInterval(() => {
   for (const room of rooms.values()) {
     if (!room.game) continue;
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
-    const changed = handleTimeout(room);
+    const changed = handleTimeout(room) || handleAI(room);
     if (changed) broadcastState(room);
   }
 }, 250);
