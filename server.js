@@ -2221,9 +2221,42 @@ function classic56LandCoords() {
   return coords;
 }
 
+function classic56AxialsWithSeaRing() {
+  // Build a compact geometry for Classic 5–6:
+  // land silhouette + exactly 1-ring of surrounding sea.
+  // (Removes the extra 9 sea tiles that appear when using a full radius-4 hex.)
+  const keySet = new Set();
+
+  function add(q, r) {
+    const k = axialKey(q, r);
+    if (keySet.has(k)) return;
+    keySet.add(k);
+  }
+
+  const land = classic56LandCoords();
+  for (const c of land) add(c.q, c.r);
+
+  // Add one sea ring around land.
+  for (const c of land) {
+    for (const [dq, dr] of HEX_DIRS) add(c.q + dq, c.r + dr);
+  }
+
+  // Convert to a stable axial list (sorted) for deterministic ids.
+  const axials = Array.from(keySet).map(k => {
+    const [q, r] = k.split(',').map(Number);
+    return { q, r };
+  });
+  axials.sort((a, b) => (a.r - b.r) || (a.q - b.q));
+  return axials;
+}
+
+function buildGeometryClassic56() {
+  return buildGeometryFromAxials(classic56AxialsWithSeaRing());
+}
+
 function generateBoardClassic56WithSea(geom) {
   // Classic 5–6 player land (30 tiles) surrounded by sea.
-  // Assumes geom radius >= 4.
+  // Uses a compact geometry (land + 1-ring sea) when available.
   const base = geom.tiles || [];
   const allTiles = base.map(t => ({ ...t, type: 'sea', number: null, robber: false, pirate: false }));
 
@@ -3298,7 +3331,9 @@ function newEmptyGame(room) {
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
       ? 'classic56'
       : 'classic';
-  const geom = buildGeometry((mapMode === 'seafarers' || mapMode === 'classic56') ? 4 : 3);
+  const geom = (mapMode === 'classic56')
+    ? buildGeometryClassic56()
+    : buildGeometry((mapMode === 'seafarers') ? 4 : 3);
   return {
     id: crypto.randomUUID(),
     createdAt: now(),
@@ -3476,7 +3511,7 @@ function startGame(room) {
       game.geom.ports = (String(scen).toLowerCase() === 'test_builder') ? [] : generatePortsSeafarers(game.geom);
     } else if (mm === 'classic56') {
       // Classic 5–6 Player: larger landmass + 11 ports.
-      game.geom = buildGeometry(4);
+      game.geom = buildGeometryClassic56();
       game.geom.tiles = generateBoardClassic56WithSea(game.geom);
       game.geom.ports = generatePorts(game.geom, 11);
     } else {
@@ -5277,7 +5312,7 @@ function generatePreviewGeom(rules) {
     return geom;
   }
   if (mm === 'classic56') {
-    const geom = buildGeometry(4);
+    const geom = buildGeometryClassic56();
     geom.tiles = generateBoardClassic56WithSea(geom);
     geom.ports = generatePorts(geom, 11);
     return geom;
