@@ -2271,18 +2271,17 @@ function generateBoardClassic56WithSea(geom) {
 
   // Guard: if geometry mismatch, fall back to classic-with-sea.
   if (landIds.length !== 30) return generateBoardClassicWithSea(geom);
-
-  const types = shuffle([
+  const baseTypes = [
     ...Array(6).fill('forest'),
     ...Array(6).fill('pasture'),
     ...Array(6).fill('field'),
     ...Array(5).fill('hills'),
     ...Array(5).fill('mountains'),
     ...Array(2).fill('desert'),
-  ]);
+    ];
 
   // 28 number discs (2 deserts have no number)
-  const tokens = shuffle([
+  const baseTokens = [
     2,2,
     3,3,3,
     4,4,4,
@@ -2293,7 +2292,7 @@ function generateBoardClassic56WithSea(geom) {
     10,10,10,
     11,11,11,
     12,12,
-  ]);
+  ];
 
   const nbs = geom.tileNeighbors || [];
   const landSet = new Set(landIds);
@@ -2301,21 +2300,20 @@ function generateBoardClassic56WithSea(geom) {
   function attempt() {
     const tiles = allTiles.map(t => ({ ...t, robber: false, pirate: false }));
 
+    const ttypes = shuffle(baseTypes.slice());
+
     // Assign land types
     for (let i = 0; i < landIds.length; i++) {
       const id = landIds[i];
-      tiles[id].type = types[i];
+      tiles[id].type = ttypes[i];
     }
-
-    // Assign tokens skipping deserts
-    let k = 0;
+    // Assign numbers (guarantee: no adjacent red tokens 6/8)
     let robberPlaced = false;
     for (const id of landIds) {
+      // reset land numbers
+      if (landSet.has(id)) tiles[id].number = null;
       if (tiles[id].type === 'desert') {
-        tiles[id].number = null;
         if (!robberPlaced) { tiles[id].robber = true; robberPlaced = true; }
-      } else {
-        tiles[id].number = tokens[k++];
       }
     }
 
@@ -2325,7 +2323,40 @@ function generateBoardClassic56WithSea(geom) {
       tiles[pick].robber = true;
       tiles[pick].number = null;
       tiles[pick].type = 'desert';
+      robberPlaced = true;
     }
+
+    const nonDesert = landIds.filter(id => tiles[id].type !== 'desert');
+
+    // Separate red numbers and others
+    const redNums = shuffle([6,6,6,8,8,8]);
+    const otherPool = baseTokens.filter(n => n !== 6 && n !== 8);
+    const otherNums = shuffle(otherPool.slice());
+    // Pick red positions so that no two 6/8 are adjacent.
+    // On a hex grid, tiles with the same parity of (q + r) are never adjacent.
+    const order = shuffle(nonDesert.slice());
+    const p0 = nonDesert.filter(id => (((tiles[id].q + tiles[id].r) & 1) === 0));
+    const p1 = nonDesert.filter(id => (((tiles[id].q + tiles[id].r) & 1) !== 0));
+    let candidates = [];
+    if (p0.length >= redNums.length && p1.length >= redNums.length) {
+      candidates = (Math.random() < 0.5) ? p0 : p1;
+    } else {
+      candidates = (p0.length >= redNums.length) ? p0 : p1;
+    }
+    if (candidates.length < redNums.length) return null;
+    const redPos = shuffle(candidates.slice()).slice(0, redNums.length);
+    const redSet = new Set(redPos);
+
+    // Place red numbers
+    for (let i = 0; i < redNums.length; i++) tiles[redPos[i]].number = redNums[i];
+
+    // Place remaining numbers
+    let oi = 0;
+    for (const id of order) {
+      if (redSet.has(id)) continue;
+      tiles[id].number = otherNums[oi++];
+    }
+    if (oi !== otherNums.length) return null;
 
     // 6/8 adjacency constraint on land only
     for (const id of landIds) {
@@ -2341,47 +2372,11 @@ function generateBoardClassic56WithSea(geom) {
   }
 
   let tiles = null;
-  for (let i = 0; i < 400 && !tiles; i++) tiles = attempt();
+  for (let i = 0; i < 8000 && !tiles; i++) tiles = attempt();
+
   if (!tiles) {
-    // Fallback without the 6/8 adjacency constraint
-    tiles = allTiles.map(t => ({ ...t, robber: false, pirate: false }));
-    const ttypes = shuffle([
-      ...Array(6).fill('forest'),
-      ...Array(6).fill('pasture'),
-      ...Array(6).fill('field'),
-      ...Array(5).fill('hills'),
-      ...Array(5).fill('mountains'),
-      ...Array(2).fill('desert'),
-    ]);
-    const ttokens = shuffle([
-      2,2,
-      3,3,3,
-      4,4,4,
-      5,5,5,
-      6,6,6,
-      8,8,8,
-      9,9,9,
-      10,10,10,
-      11,11,11,
-      12,12,
-    ]);
-    for (let i = 0; i < landIds.length; i++) tiles[landIds[i]].type = ttypes[i];
-    let k = 0;
-    let robberPlaced = false;
-    for (const id of landIds) {
-      if (tiles[id].type === 'desert') {
-        tiles[id].number = null;
-        if (!robberPlaced) { tiles[id].robber = true; robberPlaced = true; }
-      } else {
-        tiles[id].number = ttokens[k++];
-      }
-    }
-    if (!robberPlaced) {
-      const pick = landIds[Math.floor(Math.random() * landIds.length)];
-      tiles[pick].robber = true;
-      tiles[pick].number = null;
-      tiles[pick].type = 'desert';
-    }
+    // Extremely unlikely; keep trying with new shuffles.
+    for (let i = 0; i < 40000 && !tiles; i++) tiles = attempt();
   }
 
   return tiles;
