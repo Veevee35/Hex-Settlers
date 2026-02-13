@@ -33,6 +33,8 @@
     sixIslandsNote: $('sixIslandsNote'),
     scenarioRow: $('scenarioRow'),
     mapScenarioSelect: $('mapScenarioSelect'),
+    scenario56Row: $('scenario56Row'),
+    mapScenario56Select: $('mapScenario56Select'),
     testBuilderRow: $('testBuilderRow'),
     testBrushSelect: $('testBrushSelect'),
     testNumberSelect: $('testNumberSelect'),
@@ -1568,14 +1570,14 @@ function syncPostgameToState() {
 
   function defaultVictoryPointsFor(rules) {
     const mmRaw = String(rules?.mapMode || 'classic').toLowerCase();
-    // UI can use a synthetic mapMode 'seafarers56' to represent the 5–6 player Six Islands scenario.
+    // UI can use a synthetic mapMode 'seafarers56' to represent 5–6 player Seafarers scenarios.
     const mm = (mmRaw === 'seafarers56') ? 'seafarers' : mmRaw;
     const scen = (mmRaw === 'seafarers56')
-      ? 'six_islands'
+      ? String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'six_islands').toLowerCase()
       : String(rules?.seafarersScenario || 'four_islands').toLowerCase();
     if (mm !== 'seafarers') return 10;
     if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
-    if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert') return 14;
+    if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'through_the_desert_56') return 14;
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
     return 13; // four islands
@@ -1584,7 +1586,7 @@ function syncPostgameToState() {
   function uiMapModeFromRules(rules) {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (mm === 'seafarers' && scen === 'six_islands') return 'seafarers56';
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56')) return 'seafarers56';
     return rules?.mapMode || 'classic';
   }
 
@@ -1592,7 +1594,7 @@ function syncPostgameToState() {
     const mm = String(rulesOrSelection?.mapMode || 'classic').toLowerCase();
     if (mm === 'seafarers56') return true;
     const scen = String(rulesOrSelection?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    return (mm === 'seafarers' && scen === 'six_islands');
+    return (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56'));
   }
 
   // -------------------- Structure sprites (settlement/city/road/ship) --------------------
@@ -2975,7 +2977,7 @@ function syncPostgameToState() {
     const mapMode = (mmRaw === 'seafarers') ? 'Seafarers' : (is56 ? 'Classic 5–6' : 'Classic');
     const scenRaw = String(rules.seafarersScenario || '').toLowerCase();
     const scenario = (mmRaw === 'seafarers')
-      ? (scenRaw === 'through_the_desert' || scenRaw === 'through-the-desert' || scenRaw === 'desert' || scenRaw === 'throughdesert')
+      ? (scenRaw === 'through_the_desert' || scenRaw === 'through-the-desert' || scenRaw === 'desert' || scenRaw === 'throughdesert' || scenRaw === 'through_the_desert_56')
         ? 'Through the Desert'
         : (scenRaw === 'fog_island' || scenRaw === 'fog-island' || scenRaw === 'fog' || scenRaw === 'fogisland')
           ? 'Fog Island'
@@ -2983,7 +2985,9 @@ function syncPostgameToState() {
             ? 'Heading for New Shores'
             : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
               ? 'Test Builder'
-              : 'Four Islands'
+              : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
+                  ? 'Six Islands'
+                  : 'Four Islands')
       : (is56 ? 'Paired players' : '—');
 
     const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
@@ -3360,12 +3364,19 @@ function syncPostgameToState() {
     // Seafarers scenario selector
     const mmNow = uiMapModeFromRules(r);
     if (ui.scenarioRow) ui.scenarioRow.classList.toggle('hidden', mmNow !== 'seafarers');
+    if (ui.scenario56Row) ui.scenario56Row.classList.toggle('hidden', mmNow !== 'seafarers56');
     if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mmNow !== 'classic56');
     if (ui.sixIslandsNote) ui.sixIslandsNote.classList.toggle('hidden', mmNow !== 'seafarers56');
     if (ui.mapScenarioSelect) {
-      // Only meaningful when mapMode === 'seafarers' (the synthetic seafarers56 mode locks to Six Islands).
+      // Only meaningful when mapMode === 'seafarers'.
       ui.mapScenarioSelect.value = (mmNow === 'seafarers') ? (r.seafarersScenario || 'four_islands') : 'four_islands';
       ui.mapScenarioSelect.disabled = !isHost || (mmNow !== 'seafarers');
+    }
+    if (ui.mapScenario56Select) {
+      ui.mapScenario56Select.value = (mmNow === 'seafarers56' && r.seafarersScenario === 'through_the_desert_56')
+        ? 'through_the_desert_56'
+        : 'six_islands';
+      ui.mapScenario56Select.disabled = !isHost || (mmNow !== 'seafarers56');
     }
 
     // Test Builder (Solo) map painting UI (host-only)
@@ -3412,14 +3423,17 @@ function syncPostgameToState() {
       const s3 = Math.round((r.microPhaseMs || 15000) / 1000);
       const mmUi = uiMapModeFromRules(r);
       const mmL = String(mmUi || 'classic').toLowerCase();
-      const scen = (mmL === 'seafarers56') ? 'six_islands' : (r.seafarersScenario || 'four_islands');
+      const scen = (mmL === 'seafarers56')
+        ? ((r.seafarersScenario === 'through_the_desert_56') ? 'through_the_desert_56' : 'six_islands')
+        : (r.seafarersScenario || 'four_islands');
       const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert'
+        : (scen === 'through_the_desert_56') ? 'Through the Desert'
         : (scen === 'fog_island' ? 'Fog Island'
           : (scen === 'heading_for_new_shores' ? 'Heading for New Shores'
             : (scen === 'test_builder' ? 'Test Builder'
               : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))));
       const is56 = (mmL === 'classic56' || mmL === 'classic_5_6' || mmL === 'classic-5-6' || mmL === 'classic5_6' || mmL === 'classic5-6');
-      const mapLabel = (mmL === 'seafarers56') ? 'seafarers 5–6 (six islands, paired turns)'
+      const mapLabel = (mmL === 'seafarers56') ? `seafarers 5–6 (${scenLabel.toLowerCase()}, paired turns)`
         : (mmL === 'seafarers') ? `seafarers (${scenLabel})`
           : (is56 ? 'classic 5–6 (paired turns)' : 'classic');
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
@@ -3514,11 +3528,13 @@ if (ui.copyMyIdBtn) {
     ui.mapModeSelect.addEventListener('change', () => {
       const mm = (ui.mapModeSelect.value || 'classic');
       ui.scenarioRow.classList.toggle('hidden', mm !== 'seafarers');
+      if (ui.scenario56Row) ui.scenario56Row.classList.toggle('hidden', mm !== 'seafarers56');
       if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mm !== 'classic56');
       if (ui.sixIslandsNote) {
         ui.sixIslandsNote.classList.toggle('hidden', mm !== 'seafarers56');
       }
       if (ui.mapScenarioSelect) ui.mapScenarioSelect.disabled = (mm !== 'seafarers') || (room && room.hostId !== myPlayerId);
+      if (ui.mapScenario56Select) ui.mapScenario56Select.disabled = (mm !== 'seafarers56') || (room && room.hostId !== myPlayerId);
 
       // Test Builder UI only appears for seafarers:test_builder
       const showTest = (mm === 'seafarers' && ui.mapScenarioSelect && String(ui.mapScenarioSelect.value).toLowerCase() === 'test_builder');
@@ -3528,7 +3544,7 @@ if (ui.copyMyIdBtn) {
       if (ui.victoryPointsSelect && !vpTouched) {
         const scen = (mm === 'seafarers')
           ? (ui.mapScenarioSelect ? ui.mapScenarioSelect.value : (room?.rules?.seafarersScenario || 'four_islands'))
-          : 'six_islands';
+          : ((mm === 'seafarers56') ? (ui.mapScenario56Select?.value || 'six_islands') : 'six_islands');
         ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario: scen }));
       }
     });
@@ -3551,6 +3567,15 @@ if (ui.copyMyIdBtn) {
     });
   }
 
+  if (ui.mapScenario56Select) {
+    ui.mapScenario56Select.addEventListener('change', () => {
+      if (!ui.victoryPointsSelect) return;
+      const mm = (ui.mapModeSelect ? (ui.mapModeSelect.value || 'classic') : 'classic');
+      if (mm !== 'seafarers56') return;
+      if (!vpTouched) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario56: ui.mapScenario56Select.value }));
+    });
+  }
+
   if (ui.victoryPointsSelect) {
     ui.victoryPointsSelect.addEventListener('change', () => { vpTouched = true; });
   }
@@ -3563,10 +3588,10 @@ if (ui.copyMyIdBtn) {
     const preset = (ui.timerSpeedSelect.value || 'normal');
     const factor = preset === 'fast' ? 0.5 : (preset === 'slow' ? 2 : 1);
     const mmSel = (ui.mapModeSelect ? ui.mapModeSelect.value : 'classic');
-    // 'seafarers56' is a UI convenience. The server stores this as seafarers + scenario six_islands.
+    // 'seafarers56' is a UI convenience. The server stores this as seafarers + scenario.
     const mm = (String(mmSel).toLowerCase() === 'seafarers56') ? 'seafarers' : mmSel;
     const scenario = (String(mmSel).toLowerCase() === 'seafarers56')
-      ? 'six_islands'
+      ? (ui.mapScenario56Select?.value || 'six_islands')
       : ((ui.mapScenarioSelect && mm === 'seafarers') ? ui.mapScenarioSelect.value : (room?.rules?.seafarersScenario || 'four_islands'));
     const rules = {
       discardLimit: Number.isFinite(discardLimit) ? discardLimit : 7,
