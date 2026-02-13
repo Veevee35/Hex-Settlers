@@ -6180,6 +6180,8 @@ if (msg.type === 'create_room') {
             ? 'heading_for_new_shores'
           : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
             ? 'test_builder'
+          : (rawScen === 'six_islands' || rawScen === 'six-islands' || rawScen === 'sixislands' || rawScen === 'six')
+            ? 'six_islands'
             : 'four_islands';
 
       // Victory points to win (clamped) — scenario defaults:
