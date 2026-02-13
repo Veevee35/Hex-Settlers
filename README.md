@@ -5,7 +5,7 @@ Uses the provided hex tile art in `public/assets/`.
 
 ## What you need
 - Node.js 18+ installed on the host machine.
-- Your friends just need a modern browser.
+- Your friends just need a modern browser. 
 
 ## Run locally (same Wi‑Fi / LAN)
 1) Open a terminal in this folder
