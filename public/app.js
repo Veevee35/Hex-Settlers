@@ -30,6 +30,7 @@
     timerSpeedSelect: $('timerSpeedSelect'),
     mapModeSelect: $('mapModeSelect'),
     classic56Note: $('classic56Note'),
+    sixIslandsNote: $('sixIslandsNote'),
     scenarioRow: $('scenarioRow'),
     mapScenarioSelect: $('mapScenarioSelect'),
     testBuilderRow: $('testBuilderRow'),
@@ -1572,6 +1573,7 @@ function syncPostgameToState() {
     if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert') return 14;
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
+    if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
     return 13; // four islands
   }
 
@@ -3209,8 +3211,10 @@ function syncPostgameToState() {
             ? 'classic56'
             : 'classic';
         const allowSolo = (mm === 'seafarers') && String(room?.rules?.seafarersScenario || '').toLowerCase() === 'test_builder';
-        const minPlayers = (mm === 'classic56') ? 5 : (allowSolo ? 1 : 2);
-        const maxPlayers = (mm === 'classic56') ? 6 : 4;
+        const scen = String(room?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
+        const isSix = (mm === 'seafarers' && scen === 'six_islands');
+        const minPlayers = (mm === 'classic56') ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2));
+        const maxPlayers = (mm === 'classic56') ? 6 : (isSix ? 6 : 4);
         const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;
         const current = (room.players || []).length;
         const start = Math.max(humans, 1);
@@ -3339,6 +3343,10 @@ function syncPostgameToState() {
     const mmNow = (r.mapMode || 'classic');
     if (ui.scenarioRow) ui.scenarioRow.classList.toggle('hidden', mmNow !== 'seafarers');
     if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mmNow !== 'classic56');
+    if (ui.sixIslandsNote) {
+      const s = String(r.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
+      ui.sixIslandsNote.classList.toggle('hidden', !(mmNow === 'seafarers' && s === 'six_islands'));
+    }
     if (ui.mapScenarioSelect) {
       ui.mapScenarioSelect.value = (r.seafarersScenario || 'four_islands');
       ui.mapScenarioSelect.disabled = !isHost || (mmNow !== 'seafarers');
@@ -3484,6 +3492,10 @@ if (ui.copyMyIdBtn) {
       const mm = (ui.mapModeSelect.value || 'classic');
       ui.scenarioRow.classList.toggle('hidden', mm !== 'seafarers');
       if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mm !== 'classic56');
+      if (ui.sixIslandsNote) {
+        const s = (ui.mapScenarioSelect ? String(ui.mapScenarioSelect.value).toLowerCase().replace(/-/g,'_') : '');
+        ui.sixIslandsNote.classList.toggle('hidden', !(mm === 'seafarers' && s === 'six_islands'));
+      }
       if (ui.mapScenarioSelect) ui.mapScenarioSelect.disabled = (mm !== 'seafarers') || (room && room.hostId !== myPlayerId);
 
       // Test Builder UI only appears for seafarers:test_builder
@@ -3505,6 +3517,10 @@ if (ui.copyMyIdBtn) {
       if (ui.testBuilderRow) {
         const showTest = (mm === 'seafarers' && String(ui.mapScenarioSelect.value).toLowerCase() === 'test_builder');
         ui.testBuilderRow.classList.toggle('hidden', !showTest);
+      }
+      if (ui.sixIslandsNote) {
+        const s = String(ui.mapScenarioSelect.value || '').toLowerCase().replace(/-/g,'_');
+        ui.sixIslandsNote.classList.toggle('hidden', !(mm === 'seafarers' && s === 'six_islands'));
       }
       if (mm !== 'seafarers') return;
       if (!vpTouched) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario: ui.mapScenarioSelect.value }));
