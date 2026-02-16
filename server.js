@@ -3937,10 +3937,15 @@ function defaultPortKinds(portCount) {
 }
 
 // Classic-style ports: each port covers 2 adjacent coastal nodes (a single coastline edge).
-function generatePorts(geom, portCount = 9) {
+function generatePorts(geom, portCount = 9, opts = null) {
   // Ports (Harbors): default 9. Some scenarios may override (e.g., classic 5–6 uses 11).
   // If a coastline (land/sea) exists, we place ports on coastline edges; otherwise we fall back to boundary edges.
   const tiles = geom.tiles || [];
+
+  const forcedCandidate = (opts && Array.isArray(opts.edgeIds) && opts.edgeIds.length)
+    ? opts.edgeIds.slice()
+    : null;
+
 
   const coastlineEdgeIds = [];
   const boundaryEdgeIds = [];
@@ -3959,7 +3964,7 @@ function generatePorts(geom, portCount = 9) {
     }
   }
 
-  const candidate = (coastlineEdgeIds.length > 0) ? coastlineEdgeIds : boundaryEdgeIds;
+  const candidate = forcedCandidate || ((coastlineEdgeIds.length > 0) ? coastlineEdgeIds : boundaryEdgeIds);
   if (!candidate.length) return [];
 
   // Sort candidate edges by angle around center.
@@ -4058,10 +4063,84 @@ function generatePorts(geom, portCount = 9) {
   });
 }
 
+
+
+function largestNonSeaComponentTileIds(geom) {
+  // Returns the tile-id set for the largest connected component of NON-SEA tiles.
+  // (Includes deserts for connectivity, but ports may still exclude deserts separately.)
+  const tiles = geom?.tiles || [];
+  const neigh = geom?.tileNeighbors || {};
+  const eligible = new Set();
+  for (const t of tiles) {
+    if (!t) continue;
+    // Treat unrevealed fog as sea (even if a hidden land is stored).
+    if (t.fog && !t.revealed) continue;
+    if (t.type === 'sea') continue;
+    eligible.add(t.id);
+  }
+  const seen = new Set();
+  let best = [];
+  for (const id of eligible) {
+    if (seen.has(id)) continue;
+    const stack = [id];
+    const comp = [];
+    seen.add(id);
+    while (stack.length) {
+      const cur = stack.pop();
+      comp.push(cur);
+      const nbs = neigh[cur] || [];
+      for (const nb of nbs) {
+        if (!eligible.has(nb) || seen.has(nb)) continue;
+        seen.add(nb);
+        stack.push(nb);
+      }
+    }
+    if (comp.length > best.length) best = comp;
+  }
+  return new Set(best);
+}
+
+function candidateMainlandPortEdgeIds(geom, mainlandTileIds) {
+  const tiles = geom?.tiles || [];
+  const out = [];
+  for (const e of (geom?.edges || [])) {
+    const adj = geom?.edgeAdjTiles?.[e.id] || [];
+    let landId = null;
+    if (adj.length === 2) {
+      const t0 = tiles[adj[0]];
+      const t1 = tiles[adj[1]];
+      if (!t0 || !t1) continue;
+      const s0 = (t0.fog && !t0.revealed) ? true : (t0.type === 'sea');
+      const s1 = (t1.fog && !t1.revealed) ? true : (t1.type === 'sea');
+      if (s0 === s1) continue; // not a coastline
+      landId = s0 ? adj[1] : adj[0];
+    } else if (adj.length === 1) {
+      landId = adj[0];
+    } else {
+      continue;
+    }
+
+    const tL = tiles[landId];
+    if (!tL) continue;
+    if (!mainlandTileIds || !mainlandTileIds.has(landId)) continue;
+    if (tL.type === 'sea') continue;
+    if (tL.type === 'desert') continue; // never place ports on deserts
+    out.push(e.id);
+  }
+  return out;
+}
 function generatePortsSeafarers(geom, scenario = 'four_islands') {
-  // Seafarers uses the same port placement logic, but scenarios may override the count.
+  // Seafarers uses the same port placement logic, but scenarios may override the count and/or valid coastline.
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   const count = isSeafarers56Scenario(s) ? 11 : 9;
+
+  // Through the Desert: ports must be on the MAINLAND only (no ports on small islands or on desert tiles).
+  if (s === 'through_the_desert' || s === 'through_the_desert_56') {
+    const mainland = largestNonSeaComponentTileIds(geom);
+    const edgeIds = candidateMainlandPortEdgeIds(geom, mainland);
+    if (edgeIds && edgeIds.length) return generatePorts(geom, count, { edgeIds });
+  }
+
   return generatePorts(geom, count);
 }
 
