@@ -256,14 +256,18 @@ function computeLeaderboardFromHistory() {
     for (const p of g.players) {
       const pid = String(p.id || '');
       if (!pid) continue;
+      // Only track real (logged-in) users in the player leaderboard (exclude AI/bots)
+      if (p && (p.isAI || p.ai)) continue;
+      const u0 = findUserById(pid);
+      if (!u0) continue;
       let rec = by.get(pid);
       if (!rec) {
-        const u = findUserById(pid);
+        const u = u0;
         rec = {
           id: pid,
-          username: u ? u.username : '',
-          name: u ? (u.displayName || u.username || p.name || pid) : (p.name || pid),
-          color: p.color || (u && u.color) || '#777',
+          username: u.username || '',
+          name: (u.displayName || u.username || p.name || pid),
+          color: p.color || u.color || '#777',
           gamesPlayed: 0,
           wins: 0,
           losses: 0,

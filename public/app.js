@@ -1409,7 +1409,18 @@ function setLeaderboardSort(key) {
 }
 
 function renderLeaderboardTab() {
-  const rows = Array.isArray(historyState.leaderboard) ? historyState.leaderboard : [];
+  const rowsRaw = Array.isArray(historyState.leaderboard) ? historyState.leaderboard : [];
+  // Hide/ignore AI entries in the lobby player stats view
+  const rows = rowsRaw.filter(r => {
+    const id = String((r && r.id) || '');
+    const name = String((r && r.name) || (r && r.username) || '');
+    if (!id && !name) return false;
+    if ((r && (r.isAI || r.ai))) return false;
+    if (id.toLowerCase().startsWith('ai_')) return false;
+    if (/^ai\b/i.test(name)) return false;
+    if (/\(ai\)/i.test(name)) return false;
+    return true;
+  });
 
   if (historyState.loadingBoard) {
     const h = document.createElement('div');
