@@ -1576,7 +1576,7 @@ function syncPostgameToState() {
       ? String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'six_islands').toLowerCase()
       : String(rules?.seafarersScenario || 'four_islands').toLowerCase();
     if (mm !== 'seafarers') return 10;
-    if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
+    if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog' || scen === 'fog_island_56') return 12;
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'through_the_desert_56') return 14;
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
@@ -1586,7 +1586,7 @@ function syncPostgameToState() {
   function uiMapModeFromRules(rules) {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56')) return 'seafarers56';
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56')) return 'seafarers56';
     return rules?.mapMode || 'classic';
   }
 
@@ -1594,7 +1594,7 @@ function syncPostgameToState() {
     const mm = String(rulesOrSelection?.mapMode || 'classic').toLowerCase();
     if (mm === 'seafarers56') return true;
     const scen = String(rulesOrSelection?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    return (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56'));
+    return (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56'));
   }
 
   // -------------------- Structure sprites (settlement/city/road/ship) --------------------
@@ -2979,7 +2979,7 @@ function syncPostgameToState() {
     const scenario = (mmRaw === 'seafarers')
       ? (scenRaw === 'through_the_desert' || scenRaw === 'through-the-desert' || scenRaw === 'desert' || scenRaw === 'throughdesert' || scenRaw === 'through_the_desert_56')
         ? 'Through the Desert'
-        : (scenRaw === 'fog_island' || scenRaw === 'fog-island' || scenRaw === 'fog' || scenRaw === 'fogisland')
+        : (scenRaw === 'fog_island' || scenRaw === 'fog-island' || scenRaw === 'fog' || scenRaw === 'fogisland' || scenRaw === 'fog_island_56' || scenRaw === 'fog-island-56' || scenRaw === 'fog56')
           ? 'Fog Island'
           : (scenRaw === 'heading_for_new_shores' || scenRaw === 'heading-for-new-shores' || scenRaw === 'new_shores' || scenRaw === 'newshores' || scenRaw === 'heading')
             ? 'Heading for New Shores'
@@ -3373,9 +3373,10 @@ function syncPostgameToState() {
       ui.mapScenarioSelect.disabled = !isHost || (mmNow !== 'seafarers');
     }
     if (ui.mapScenario56Select) {
-      ui.mapScenario56Select.value = (mmNow === 'seafarers56' && r.seafarersScenario === 'through_the_desert_56')
+      const scen56 = (mmNow === 'seafarers56') ? String(r.seafarersScenario || 'six_islands').toLowerCase() : 'six_islands';
+      ui.mapScenario56Select.value = (scen56 === 'through_the_desert_56')
         ? 'through_the_desert_56'
-        : 'six_islands';
+        : ((scen56 === 'fog_island_56') ? 'fog_island_56' : 'six_islands');
       ui.mapScenario56Select.disabled = !isHost || (mmNow !== 'seafarers56');
     }
 
@@ -3424,11 +3425,11 @@ function syncPostgameToState() {
       const mmUi = uiMapModeFromRules(r);
       const mmL = String(mmUi || 'classic').toLowerCase();
       const scen = (mmL === 'seafarers56')
-        ? ((r.seafarersScenario === 'through_the_desert_56') ? 'through_the_desert_56' : 'six_islands')
+        ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56')) ? r.seafarersScenario : 'six_islands')
         : (r.seafarersScenario || 'four_islands');
       const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert'
         : (scen === 'through_the_desert_56') ? 'Through the Desert'
-        : (scen === 'fog_island' ? 'Fog Island'
+        : (scen === 'fog_island' || scen === 'fog_island_56' ? 'Fog Island'
           : (scen === 'heading_for_new_shores' ? 'Heading for New Shores'
             : (scen === 'test_builder' ? 'Test Builder'
               : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))));
