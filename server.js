@@ -4121,6 +4121,7 @@ function newEmptyGame(room) {
       name: p.name,
       color: p.color,
       isAI: !!(p && p.isAI),
+      aiDifficulty: (p && p.isAI) ? String(p.aiDifficulty || room.aiDifficulty || 'test').toLowerCase() : null,
       resources: { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 },
       vp: 0,
       newIslandVP: 0,
@@ -4165,6 +4166,7 @@ function newEmptyGame(room) {
 
     // Rules & timers
     rules: { ...(room.rules || DEFAULT_RULES) },
+    aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
     timer: null,
 
     // Pause state (host-controlled)
@@ -6012,6 +6014,7 @@ function addAIPlayersToRoom(room, targetCount) {
       color: pickAvailableColor(room),
       joinedAt: now(),
       isAI: true,
+      aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
     });
   }
 }
@@ -6048,6 +6051,7 @@ function createRoom(hostUserId, hostName) {
     chat: [],
     chatSeq: 1,
     aiSeq: 1,
+    aiDifficulty: 'test',
   };
   rooms.set(code, room);
   return room;
@@ -6093,6 +6097,7 @@ function createRematchRoomFrom(prevRoom) {
     chat: [],
     chatSeq: 1,
     aiSeq: 1,
+    aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'test',
   };
   rooms.set(code, room);
   return room;
@@ -6260,6 +6265,7 @@ function roomSnapshot(room) {
     players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI) })),
     gamePhase: room.game ? room.game.phase : 'lobby',
     rules: room.rules || { ...DEFAULT_RULES },
+    aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
     chat: room.chat || [],
   };
 }
@@ -6860,6 +6866,35 @@ if (msg.type === 'create_room') {
     }
 
     // Host-only: add/remove server-controlled AI players in the lobby.
+    if (msg.type === 'set_ai_difficulty') {
+      if (pid !== room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Only host can change AI difficulty.' });
+        return;
+      }
+
+      const raw = String(msg.difficulty || msg.mode || 'test').toLowerCase().trim();
+      const allowed = new Set(['test', 'easy', 'medium', 'hard']);
+      const diff = allowed.has(raw) ? raw : 'test';
+
+      room.aiDifficulty = diff;
+      // Apply to lobby players
+      for (const p of (room.players || [])) {
+        if (p && isAIPlayerObj(p)) p.aiDifficulty = diff;
+      }
+      // Apply to live game if it exists
+      if (room.game) {
+        room.game.aiDifficulty = diff;
+        for (const gp of (room.game.players || [])) {
+          if (gp && gp.isAI) gp.aiDifficulty = diff;
+        }
+      }
+
+      broadcastRoom(room);
+      if (room.game && room.game.phase !== 'lobby') broadcastState(room);
+      else broadcastPreviewState(room);
+      return;
+    }
+
     if (msg.type === 'fill_ai' || msg.type === 'clear_ai') {
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only host can manage AI players.' });
@@ -7314,6 +7349,224 @@ function handleAI(room) {
     game.ai.nextAt = now() + (a + Math.floor(Math.random() * (b - a + 1)));
   };
 
+  const getAIDifficulty = (pid) => {
+    const p = playerById(game, pid);
+    const raw = String((p && p.aiDifficulty) || game.aiDifficulty || room.aiDifficulty || 'test').toLowerCase();
+    if (raw === 'easy' || raw === 'medium' || raw === 'hard') return raw;
+    return 'test';
+  };
+
+  const aiBudgetFor = (diff) => (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
+
+  const pickOne = (arr) => (arr && arr.length) ? arr[Math.floor(Math.random() * arr.length)] : null;
+
+  const missingFor = (res, cost) => {
+    const miss = {};
+    let total = 0;
+    for (const k of RESOURCE_KINDS) {
+      const need = Math.max(0, Math.floor(Number(cost?.[k] || 0)) - Math.floor(Number(res?.[k] || 0)));
+      if (need > 0) { miss[k] = need; total += need; }
+    }
+    return { miss, total };
+  };
+
+  const canAffordCost = (res, cost) => missingFor(res, cost).total === 0;
+
+  const boardHasSea = (game.geom.tiles || []).some(t => t && t.type === 'sea');
+  const isSeafarers = String(game?.rules?.mapMode || 'classic').toLowerCase() === 'seafarers';
+
+  const nodeTouchesLand = (nodeId) => {
+    if (!boardHasSea) return true;
+    const adj = game.geom.nodeAdjTiles?.[nodeId] || [];
+    return adj.some(tid => (game.geom.tiles?.[tid]?.type || '') !== 'sea');
+  };
+
+  const nodeConnectedToMe = (pid, nodeId) => {
+    const edges = game.geom.nodeEdges?.[nodeId] || [];
+    for (const eid of edges) {
+      const e = game.geom.edges?.[eid];
+      if (!e) continue;
+      if (e.roadOwner === pid) return true;
+      if (isSeafarers && e.shipOwner === pid) return true;
+    }
+    return false;
+  };
+
+  const listCityUpgrades = (pid) => {
+    const out = [];
+    for (let i = 0; i < (game.geom.nodes || []).length; i++) {
+      const b = game.geom.nodes?.[i]?.building;
+      if (b && b.owner === pid && b.type === 'settlement') out.push(i);
+    }
+    return out;
+  };
+
+  const listSettlementPlacements = (pid) => {
+    const out = [];
+    for (let i = 0; i < (game.geom.nodes || []).length; i++) {
+      const node = game.geom.nodes?.[i];
+      if (!node || node.building) continue;
+      if (!settlementDistanceOk(game, i)) continue;
+      if (!nodeTouchesLand(i)) continue;
+      if (!nodeConnectedToMe(pid, i)) continue;
+      out.push(i);
+    }
+    return out;
+  };
+
+  const edgeTouchesLand = (edgeId) => {
+    if (!boardHasSea) return true;
+    const adj = game.geom.edgeAdjTiles?.[edgeId] || [];
+    return adj.some(tid => (game.geom.tiles?.[tid]?.type || '') !== 'sea');
+  };
+
+  const edgeWouldExploreFog = (edgeId) => {
+    if (!isFogIslandGame(game)) return false;
+    const adj = game.geom.edgeAdjTiles?.[edgeId] || [];
+    let hasHiddenFog = false;
+    let hasKnown = false;
+    for (const tid of adj) {
+      const t = game.geom.tiles?.[tid];
+      if (!t) continue;
+      if (t.fog && !t.revealed) hasHiddenFog = true;
+      else hasKnown = true;
+    }
+    return hasHiddenFog && hasKnown;
+  };
+
+  const listRoadEdges = (pid, preferExplore = false) => {
+    const cands = [];
+    for (let i = 0; i < (game.geom.edges || []).length; i++) {
+      const e = game.geom.edges?.[i];
+      if (!e) continue;
+      if (e.roadOwner || e.shipOwner) continue;
+      if (!edgeTouchesLand(i)) continue;
+      if (!edgeConnectsToPlayer(game, i, pid)) continue;
+      const score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      cands.push({ id: i, score });
+    }
+    cands.sort((a, b) => b.score - a.score);
+    return cands.map(x => x.id);
+  };
+
+  const listShipEdges = (pid, preferExplore = false) => {
+    if (!isSeafarers) return [];
+    const cands = [];
+    for (let i = 0; i < (game.geom.edges || []).length; i++) {
+      const e = game.geom.edges?.[i];
+      if (!e) continue;
+      if (e.shipOwner || e.roadOwner) continue;
+      if (edgeTouchesPirate(game, i)) continue;
+      const adj = game.geom.edgeAdjTiles?.[i] || [];
+      const touchesSea = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea') || adj.length === 1;
+      if (!touchesSea) continue;
+
+      // Fog Island restriction: can't go "inside" unrevealed fog.
+      if (isFogIslandGame(game)) {
+        let hasHiddenFog = false;
+        let hasKnown = false;
+        for (const tid of adj) {
+          const t = game.geom.tiles?.[tid];
+          if (!t) continue;
+          if (t.fog && !t.revealed) hasHiddenFog = true;
+          else hasKnown = true;
+        }
+        if (hasHiddenFog && !hasKnown) continue;
+      }
+
+      // Connection: coastal building or another ship.
+      let connected = false;
+      const aBuild = game.geom.nodes?.[e.a]?.building;
+      const bBuild = game.geom.nodes?.[e.b]?.building;
+      if (aBuild && aBuild.owner === pid) connected = true;
+      if (bBuild && bBuild.owner === pid) connected = true;
+      if (!connected) {
+        const aEdges = game.geom.nodeEdges?.[e.a] || [];
+        const bEdges = game.geom.nodeEdges?.[e.b] || [];
+        for (const eid of aEdges) if (game.geom.edges?.[eid]?.shipOwner === pid) { connected = true; break; }
+        if (!connected) for (const eid of bEdges) if (game.geom.edges?.[eid]?.shipOwner === pid) { connected = true; break; }
+      }
+      if (!connected) continue;
+
+      const score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      cands.push({ id: i, score });
+    }
+    cands.sort((a, b) => b.score - a.score);
+    return cands.map(x => x.id);
+  };
+
+  const chooseBankTradeToEnable = (pid, targetCost) => {
+    const p = playerById(game, pid);
+    if (!p) return null;
+    if (!targetCost) return null;
+
+    const { miss, total } = missingFor(p.resources, targetCost);
+    if (total <= 0) return null;
+
+    ensureBank(game);
+
+    // Prefer trading for a missing resource that the bank can supply.
+    const needs = Object.keys(miss).filter(k => (game.bank?.[k] || 0) > 0);
+    if (!needs.length) return null;
+
+    let best = null;
+    for (const takeKind of needs) {
+      for (const giveKind of RESOURCE_KINDS) {
+        if (giveKind === takeKind) continue;
+        const ratio = tradeRatioFor(game, pid, giveKind);
+        const cost = ratio * 1;
+        if ((p.resources[giveKind] || 0) < cost) continue;
+        const score = (10 - ratio) + Math.min(6, (p.resources[giveKind] || 0) / ratio);
+        if (!best || score > best.score) best = { score, giveKind, takeKind, takeQty: 1 };
+      }
+    }
+    if (!best) return null;
+    return { kind: 'bank_trade', giveKind: best.giveKind, takeKind: best.takeKind, takeQty: 1 };
+  };
+
+  const wouldAcceptTrade = (pid, trade, diff) => {
+    const p = playerById(game, pid);
+    if (!p || !trade) return false;
+    if (diff === 'test' || diff === 'easy') return false;
+
+    // Must be able to pay what's requested.
+    for (const [k, n] of Object.entries(trade.request || {})) {
+      if ((p.resources?.[k] || 0) < (n || 0)) return false;
+    }
+
+    // Immediate-enabler check: does this trade allow a city/settlement/dev right away?
+    const resAfter = { ...p.resources };
+    for (const [k, n] of Object.entries(trade.request || {})) resAfter[k] = (resAfter[k] || 0) - (n || 0);
+    for (const [k, n] of Object.entries(trade.offer || {})) resAfter[k] = (resAfter[k] || 0) + (n || 0);
+
+    const canCity = canAffordCost(resAfter, BUILD_COSTS.city) && listCityUpgrades(pid).length > 0;
+    const canSettle = canAffordCost(resAfter, BUILD_COSTS.settlement) && listSettlementPlacements(pid).length > 0;
+    const canDev = canAffordCost(resAfter, DEV_CARD_COST) && (game.devDeck || []).length > 0;
+    if (canCity || canSettle || canDev) return true;
+
+    // Weighted value heuristic.
+    const weights = { brick: 1, lumber: 1, wool: 1, grain: 1, ore: 1 };
+    // Emphasize grain/ore if the player has settlements to upgrade.
+    if (listCityUpgrades(pid).length > 0) { weights.grain += 0.6; weights.ore += 0.9; }
+    // Emphasize the settlement set.
+    weights.brick += 0.4; weights.lumber += 0.4; weights.wool += 0.3; weights.grain += 0.2;
+    if (isSeafarers) { weights.wool += 0.1; weights.lumber += 0.1; }
+
+    const val = (obj) => {
+      let s = 0;
+      for (const k of RESOURCE_KINDS) s += (obj?.[k] || 0) * (weights[k] || 1);
+      return s;
+    };
+
+    const got = val(trade.offer);
+    const paid = val(trade.request);
+    if (paid <= 0) return true;
+
+    // Medium: be pickier. Hard: accept slightly favorable trades.
+    if (diff === 'medium') return got >= paid * 1.2;
+    return got >= paid * 0.9;
+  };
+
   // 1) Unblock global vote/trade prompts quickly.
   if (game.endVote && game.endVote.id && game.endVote.responses) {
     for (const [pid, v] of Object.entries(game.endVote.responses)) {
@@ -7330,7 +7583,9 @@ function handleAI(room) {
       if (v != null) continue;
       const p = playerById(game, pid);
       if (!p || !p.isAI) continue;
-      const r = applyAction(room, pid, { kind: 'respond_trade', tradeId: game.pendingTrade.id, accept: false });
+      const diff = getAIDifficulty(pid);
+      const accept = wouldAcceptTrade(pid, game.pendingTrade, diff);
+      const r = applyAction(room, pid, { kind: 'respond_trade', tradeId: game.pendingTrade.id, accept });
       if (r && r.ok) { delay(120, 220); return true; }
     }
   }
@@ -7512,10 +7767,120 @@ function handleAI(room) {
 
   // Default: just end turn in the main action phase.
   if (phase === 'main-actions') {
-    const r = applyAction(room, pid, { kind: 'end_turn' });
-    if (r && r.ok) { delay(220, 360); return true; }
-    delay(220, 360);
-    return false;
+    const diff = getAIDifficulty(pid);
+    const budget = aiBudgetFor(diff);
+
+    // Per-turn AI memory (action budget + one bank trade).
+    game.ai.mem = (game.ai.mem && typeof game.ai.mem === 'object') ? game.ai.mem : {};
+    const mem = (game.ai.mem[pid] && typeof game.ai.mem[pid] === 'object') ? game.ai.mem[pid] : { turn: null, actions: 0, traded: false };
+    if (mem.turn !== game.turnNumber) {
+      mem.turn = game.turnNumber;
+      mem.actions = 0;
+      mem.traded = false;
+    }
+    game.ai.mem[pid] = mem;
+
+    // Test mode: skip everything.
+    if (budget <= 0) {
+      const r = applyAction(room, pid, { kind: 'end_turn' });
+      if (r && r.ok) { delay(220, 360); return true; }
+      delay(220, 360);
+      return false;
+    }
+
+    if (mem.actions >= budget) {
+      const r = applyAction(room, pid, { kind: 'end_turn' });
+      if (r && r.ok) { delay(220, 360); return true; }
+      delay(220, 360);
+      return false;
+    }
+
+    const p = playerById(game, pid);
+    if (!p) {
+      const r = applyAction(room, pid, { kind: 'end_turn' });
+      if (r && r.ok) { delay(220, 360); return true; }
+      delay(220, 360);
+      return false;
+    }
+
+    const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
+
+    // 1) Try immediate VP upgrades.
+    if (canAfford(p.resources, BUILD_COSTS.city)) {
+      const cityNodes = listCityUpgrades(pid);
+      if (cityNodes.length) {
+        const nodeId = pickOne(cityNodes);
+        if (nodeId != null && aiCan(pid, { kind: 'upgrade_city', nodeId })) {
+          const r = applyAction(room, pid, { kind: 'upgrade_city', nodeId });
+          if (r && r.ok) { mem.actions++; delay(220, 360); return true; }
+        }
+      }
+    }
+
+    if (canAfford(p.resources, BUILD_COSTS.settlement)) {
+      const setNodes = listSettlementPlacements(pid);
+      if (setNodes.length) {
+        // Prefer a settlement that triggers exploration bonuses (new island / desert far-side handled by rules).
+        const nodeId = pickOne(setNodes);
+        if (nodeId != null && aiCan(pid, { kind: 'place_settlement', nodeId })) {
+          const r = applyAction(room, pid, { kind: 'place_settlement', nodeId });
+          if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
+        }
+      }
+    }
+
+    // 2) Medium/Hard: one bank trade per turn to enable city/settlement if close.
+    if ((diff === 'medium' || diff === 'hard') && !mem.traded) {
+      let target = null;
+      if (listCityUpgrades(pid).length) target = BUILD_COSTS.city;
+      else target = BUILD_COSTS.settlement;
+
+      const bt = chooseBankTradeToEnable(pid, target);
+      if (bt && aiCan(pid, bt)) {
+        const r = applyAction(room, pid, bt);
+        if (r && r.ok) { mem.traded = true; mem.actions++; delay(220, 360); return true; }
+      }
+    }
+
+    // 3) Build ships/roads (explore fog when applicable).
+    if (isSeafarers && canAfford(p.resources, BUILD_COSTS.ship)) {
+      const shipEdges = listShipEdges(pid, preferExplore);
+      if (shipEdges.length) {
+        const edgeId = pickOne(shipEdges);
+        if (edgeId != null && aiCan(pid, { kind: 'place_ship', edgeId })) {
+          const r = applyAction(room, pid, { kind: 'place_ship', edgeId });
+          if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
+        }
+      }
+    }
+
+    if (canAfford(p.resources, BUILD_COSTS.road)) {
+      const roadEdges = listRoadEdges(pid, preferExplore);
+      if (roadEdges.length) {
+        const edgeId = pickOne(roadEdges);
+        if (edgeId != null && aiCan(pid, { kind: 'place_road', edgeId })) {
+          const r = applyAction(room, pid, { kind: 'place_road', edgeId });
+          if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
+        }
+      }
+    }
+
+    // 4) Buy a development card if possible.
+    if (canAfford(p.resources, DEV_CARD_COST) && (game.devDeck || []).length > 0) {
+      const act = { kind: 'buy_dev_card' };
+      if (aiCan(pid, act)) {
+        const r = applyAction(room, pid, act);
+        if (r && r.ok) { mem.actions++; delay(220, 360); return true; }
+      }
+    }
+
+    // Nothing useful: end turn.
+    {
+      const r = applyAction(room, pid, { kind: 'end_turn' });
+      if (r && r.ok) { delay(220, 360); return true; }
+      delay(220, 360);
+      return false;
+    }
   }
 
   // If we get here, don't spam actions.

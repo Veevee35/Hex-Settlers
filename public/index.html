@@ -90,11 +90,17 @@
             <div id="aiFillRow" class="hidden" style="margin-top:10px;">
               <div class="labelTiny">AI players</div>
               <div class="row" style="align-items:center; gap:8px; flex-wrap:wrap;">
+                <select id="aiDifficultySelect" class="input" style="width:220px;">
+                  <option value="test">Difficulty: Test (skip turns)</option>
+                  <option value="easy">Difficulty: Easy</option>
+                  <option value="medium">Difficulty: Medium</option>
+                  <option value="hard">Difficulty: Hard</option>
+                </select>
                 <select id="aiFillSelect" class="input" style="width:200px;"></select>
                 <button id="aiFillBtn" class="btn">Fill</button>
                 <button id="aiClearBtn" class="btn">Clear AI</button>
               </div>
-              <div id="aiFillNote" class="smallNote">AI players are server-controlled and will auto-place during setup, roll, and end turns.</div>
+              <div id="aiFillNote" class="smallNote">AI players are server-controlled and will auto-place during setup. Difficulty applies to all AI in the room.</div>
             </div>
           </div>
 

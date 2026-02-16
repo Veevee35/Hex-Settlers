@@ -72,6 +72,7 @@
     colorPickerRow: $('colorPickerRow'),
     colorPicker: $('colorPicker'),
     aiFillRow: $('aiFillRow'),
+    aiDifficultySelect: $('aiDifficultySelect'),
     aiFillSelect: $('aiFillSelect'),
     aiFillBtn: $('aiFillBtn'),
     aiClearBtn: $('aiClearBtn'),
@@ -3226,6 +3227,15 @@ function syncPostgameToState() {
       const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
       const canManageAI = !!(myPlayerId && room.hostId === myPlayerId && !gameStartedNow);
       if (ui.aiFillRow) ui.aiFillRow.classList.toggle('hidden', !canManageAI);
+
+      // AI difficulty (host-only, lobby only)
+      if (ui.aiDifficultySelect) {
+        ui.aiDifficultySelect.disabled = !canManageAI;
+        const rawDiff = String(room?.aiDifficulty || 'test').toLowerCase();
+        const diff = (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard') ? rawDiff : 'test';
+        ui.aiDifficultySelect.value = diff;
+      }
+
       if (canManageAI && ui.aiFillSelect) {
         const raw = String(room?.rules?.mapMode || 'classic').toLowerCase();
         const mm = (raw === 'seafarers') ? 'seafarers'
@@ -3511,6 +3521,12 @@ if (ui.copyMyIdBtn) {
   ui.startBtn.addEventListener('click', () => {
     setError(null);
     send({ type: 'start_game' });
+  });
+
+  if (ui.aiDifficultySelect) ui.aiDifficultySelect.addEventListener('change', () => {
+    if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
+    const difficulty = String(ui.aiDifficultySelect.value || 'test').toLowerCase();
+    send({ type: 'set_ai_difficulty', difficulty });
   });
 
   if (ui.aiFillBtn) ui.aiFillBtn.addEventListener('click', () => {
