@@ -3050,9 +3050,12 @@ function generateBoardSeafarersThroughTheDesert56(geom) {
 
   const landTileIds = pickLandTileIds(allTiles, landKeys);
 
-  // Resource counts (38): gold 3, and 7 each of the five base resource types.
-  const resourceTypesBase = [
-    ...Array(3).fill('gold'),
+  // Gold fields are only allowed in the desert-crossing region (red) and on the small islands (green),
+  // never on the main island (purple).
+  const goldAllowedKeys = new Set([...TTD56_RED_KEYS, ...TTD56_START_ISLAND_KEYS]);
+
+  // Resource counts (38 non-desert): gold 3, and 7 each of the five base resource types.
+  const nonGoldResourceTypesBase = [
     ...Array(7).fill('hills'),
     ...Array(7).fill('forest'),
     ...Array(7).fill('pasture'),
@@ -3076,8 +3079,29 @@ function generateBoardSeafarersThroughTheDesert56(geom) {
 
   let placed = null;
   for (let attempt = 0; attempt < 500; attempt++) {
-    const tt = shuffle(resourceTypesBase.slice());
+    const nonGoldTypes = shuffle(nonGoldResourceTypesBase.slice());
     const nn = shuffle(numbersBase.slice());
+
+    // Pick exactly 3 gold positions from the allowed keys (red + islands).
+    const goldCandidateIds = [];
+    const nonDesertIds = [];
+    for (const id of landTileIds) {
+      const t = allTiles[id];
+      const key = t ? `${t.q},${t.r}` : '';
+      if (!t) continue;
+      if (desertKeys.has(key)) continue;
+      nonDesertIds.push(id);
+      if (goldAllowedKeys.has(key)) goldCandidateIds.push(id);
+    }
+    shuffle(goldCandidateIds);
+    const goldIds = new Set(goldCandidateIds.slice(0, 3));
+    if (goldIds.size < 3) {
+      // Safety fallback (should not happen with the provided template):
+      // fill remaining from any non-desert tiles.
+      const fill = shuffle(nonDesertIds.slice()).slice(0, 3 - goldIds.size);
+      for (const fid of fill) goldIds.add(fid);
+    }
+
     const local = [];
     let ti = 0;
     let ni = 0;
@@ -3090,15 +3114,37 @@ function generateBoardSeafarersThroughTheDesert56(geom) {
         local.push({ id, type: 'desert', number: null });
         continue;
       }
-      local.push({ id, type: tt[ti++], number: nn[ni++] });
+      if (goldIds.has(id)) {
+        local.push({ id, type: 'gold', number: nn[ni++] });
+      } else {
+        local.push({ id, type: nonGoldTypes[ti++], number: nn[ni++] });
+      }
     }
 
     if (!hasAdjacentSixEightForPlacement(geom, local)) { placed = local; break; }
   }
 
   if (!placed) {
-    const tt = shuffle(resourceTypesBase.slice());
+    const nonGoldTypes = shuffle(nonGoldResourceTypesBase.slice());
     const nn = shuffle(numbersBase.slice());
+
+    const goldCandidateIds = [];
+    const nonDesertIds = [];
+    for (const id of landTileIds) {
+      const t = allTiles[id];
+      const key = t ? `${t.q},${t.r}` : '';
+      if (!t) continue;
+      if (desertKeys.has(key)) continue;
+      nonDesertIds.push(id);
+      if (goldAllowedKeys.has(key)) goldCandidateIds.push(id);
+    }
+    shuffle(goldCandidateIds);
+    const goldIds = new Set(goldCandidateIds.slice(0, 3));
+    if (goldIds.size < 3) {
+      const fill = shuffle(nonDesertIds.slice()).slice(0, 3 - goldIds.size);
+      for (const fid of fill) goldIds.add(fid);
+    }
+
     placed = [];
     let ti = 0;
     let ni = 0;
@@ -3107,7 +3153,11 @@ function generateBoardSeafarersThroughTheDesert56(geom) {
       const t = allTiles[id];
       const key = t ? `${t.q},${t.r}` : '';
       if (desertKeys.has(key)) { placed.push({ id, type: 'desert', number: null }); continue; }
-      placed.push({ id, type: tt[ti++], number: nn[ni++] });
+      if (goldIds.has(id)) {
+        placed.push({ id, type: 'gold', number: nn[ni++] });
+      } else {
+        placed.push({ id, type: nonGoldTypes[ti++], number: nn[ni++] });
+      }
     }
   }
 
