@@ -635,7 +635,19 @@ const TTD_START_ISLAND_KEYS = new Set([
 ]);
 
 // Through the Desert (5–6 Player / large frame) key sets extracted from the provided dot-map templates.
-const TTD56_START_ISLAND_KEYS = new Set([
+//
+// - START (pink): setup settlements may ONLY be placed on these tiles (purple/pink dots in the template).
+//   Players may NOT start on the red "across the desert" tiles or on the green outer islands.
+// - ISLANDS (green): used for gold-field placement restrictions (gold can spawn on islands, not on the main island).
+const TTD56_START_PINK_KEYS = new Set([
+  '1,-1','2,-1','3,-1','4,-1',
+  '-2,0','-1,0','0,0','1,0','2,0','3,0','4,0',
+  '-3,1','-2,1','-1,1','0,1','1,1','2,1','3,1',
+  '-3,2','-2,2',
+  '-3,3',
+]);
+
+const TTD56_ISLAND_KEYS = new Set([
   '7,-1',
   '6,1',
   '4,2',
@@ -671,7 +683,7 @@ function nodeIsOnTTD56StartIsland(game, nodeId) {
     if (t.type === 'sea') continue;
     sawLand = true;
     const k = `${t.q},${t.r}`;
-    if (!TTD56_START_ISLAND_KEYS.has(k)) return false;
+    if (!TTD56_START_PINK_KEYS.has(k)) return false;
   }
   return sawLand;
 }
@@ -3052,7 +3064,7 @@ function generateBoardSeafarersThroughTheDesert56(geom) {
 
   // Gold fields are only allowed in the desert-crossing region (red) and on the small islands (green),
   // never on the main island (purple).
-  const goldAllowedKeys = new Set([...TTD56_RED_KEYS, ...TTD56_START_ISLAND_KEYS]);
+  const goldAllowedKeys = new Set([...TTD56_RED_KEYS, ...TTD56_ISLAND_KEYS]);
 
   // Resource counts (38 non-desert): gold 3, and 7 each of the five base resource types.
   const nonGoldResourceTypesBase = [
