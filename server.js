@@ -745,6 +745,63 @@ const FOG_ISLAND_START_ISLAND_B_KEYS = new Set([
   '-3,3','-2,3',
 ]);
 
+const FOG_ISLAND_56_FOG_KEYS = new Set([
+  '0,-3', '1,-3',
+  '-1,-2', '0,-2', '1,-2',
+  '-1,-1', '0,-1', '1,-1',
+  '0,0', '1,0',
+  '-1,1', '0,1', '1,1',
+  '-1,2', '0,2', '1,2',
+  '0,3', '1,3',
+]);
+
+const FOG_ISLAND_56_START_ISLAND_A_KEYS = new Set([
+  '-2,-3',
+  '-3,-2',
+  '-4,-1', '-3,-1',
+  '-4,0', '-3,0',
+  '-4,1', '-3,1',
+  '-4,2', '-3,2',
+  '-3,3', '-2,3',
+]);
+
+const FOG_ISLAND_56_START_ISLAND_B_KEYS = new Set([
+  '3,-3',
+  '4,-2',
+  '4,-1', '5,-1',
+  '4,0', '5,0',
+  '4,1', '5,1',
+  '4,2', '5,2',
+  '3,3', '4,3',
+]);
+
+const FOG_ISLAND_56_START_LAND_KEYS = new Set([
+  ...FOG_ISLAND_56_START_ISLAND_A_KEYS,
+  ...FOG_ISLAND_56_START_ISLAND_B_KEYS,
+]);
+
+
+const FOG_ISLAND_56_SEA_KEYS = new Set([
+  '-2,-2', '-1,-3', '2,-3', '5,-2',
+  '-2,-1', '-1,0', '2,-2', '2,-1',
+  '-2,0',
+  '-2,1',
+  '-4,3', '-2,2', '3,2',
+  '-1,3',
+]);
+
+function generateFogIsland56Axials() {
+  const all = new Set([
+    ...FOG_ISLAND_56_START_LAND_KEYS,
+    ...FOG_ISLAND_56_FOG_KEYS,
+    ...FOG_ISLAND_56_SEA_KEYS,
+  ]);
+  return Array.from(all).map((k) => {
+    const [q, r] = k.split(',').map(Number);
+    return { q, r };
+  });
+}
+
 // Heading for New Shores: Main Island setup restriction (from the provided template).
 const HFNS_MAIN_ISLAND_KEYS = new Set([
   '-1,-1',
@@ -968,6 +1025,8 @@ function nodeIsOnTTDStartIsland(game, nodeId) {
 }
 
 function nodeIsOnFogStartIslands(game, nodeId) {
+  const scen = seafarersScenarioKey(game);
+  const allowedKeys = (scen === 'fog_island_56') ? FOG_ISLAND_56_START_LAND_KEYS : FOG_ISLAND_START_LAND_KEYS;
   const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
   let sawLand = false;
   for (const tid of adj) {
@@ -978,7 +1037,7 @@ function nodeIsOnFogStartIslands(game, nodeId) {
     if (t.type === 'sea') continue;
     sawLand = true;
     const key = `${t.q},${t.r}`;
-    if (!FOG_ISLAND_START_LAND_KEYS.has(key)) return false;
+    if (!allowedKeys.has(key)) return false;
   }
   return sawLand;
 }
@@ -1004,11 +1063,16 @@ function seafarersScenarioKey(game) {
 
 function isSeafarers56Scenario(s) {
   const scen = String(s || '').toLowerCase().replace(/-/g,'_');
-  return scen === 'six_islands' || scen === 'through_the_desert_56';
+  return scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56';
+}
+
+function isFogIslandScenario(s) {
+  const scen = String(s || '').toLowerCase().replace(/-/g,'_');
+  return scen === 'fog_island' || scen === 'fog_island_56';
 }
 
 function isFogIslandGame(game) {
-  return !!(game && (game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'fog_island');
+  return !!(game && (game.rules?.mapMode || 'classic') === 'seafarers' && isFogIslandScenario(seafarersScenarioKey(game)));
 }
 
 // Fog Island exploration (Option B):
@@ -1820,7 +1884,7 @@ function defaultVictoryPointsToWin(rules) {
   const mm = String(rules?.mapMode || 'classic').toLowerCase();
   if (mm !== 'seafarers') return 10;
   const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
-  if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog') return 12;
+  if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog' || scen === 'fog_island_56') return 12;
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56') return 14;
   if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
   if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
@@ -3402,6 +3466,131 @@ function generateBoardSeafarersFogIsland(geom) {
 }
 
 
+function generateBoardSeafarersFogIsland56(geom) {
+  // Seafarers 5–6 scenario: "Fog Island".
+  // Uses the Six Islands frame with paired turns, but follows Fog Island exploration/setup rules.
+  const tiles = seafarersBaseAllSea(geom);
+
+  const startLandIds = pickLandTileIds(tiles, FOG_ISLAND_56_START_LAND_KEYS);
+  const startIslandAIds = pickLandTileIds(tiles, FOG_ISLAND_56_START_ISLAND_A_KEYS);
+  const startIslandBIds = pickLandTileIds(tiles, FOG_ISLAND_56_START_ISLAND_B_KEYS);
+  const fogIds = pickLandTileIds(tiles, FOG_ISLAND_56_FOG_KEYS);
+
+  // Face-up (start islands): 24 land tiles.
+  const startTypes = [
+    ...Array(5).fill('hills'),
+    ...Array(5).fill('forest'),
+    ...Array(5).fill('pasture'),
+    ...Array(5).fill('field'),
+    ...Array(4).fill('mountains'),
+  ];
+  const startNumbers = [
+    2,
+    3, 3,
+    4, 4, 4,
+    5, 5,
+    6, 6, 6,
+    8, 8, 8,
+    9, 9, 9,
+    10, 10, 10,
+    11, 11,
+    12, 12,
+  ];
+
+  // Face-down fog: 18 tiles = 3 sea, 3 gold, 11 resources, 1 desert.
+  const fogHiddenTypes = [
+    'sea', 'sea', 'sea',
+    'gold', 'gold', 'gold',
+    'hills', 'hills',
+    'forest', 'forest',
+    'pasture', 'pasture',
+    'field', 'field',
+    'mountains', 'mountains', 'mountains',
+    'desert',
+  ];
+
+  // Number discs for hidden non-sea / non-desert tiles (14 total, including gold).
+  const fogLandNumbers = [2,2,3,3,4,5,5,6,8,9,10,11,11,12];
+
+  for (let attempt = 0; attempt < 4000; attempt++) {
+    for (const t of tiles) {
+      delete t.fog;
+      delete t.revealed;
+      delete t.hiddenType;
+      delete t.hiddenNumber;
+      t.number = null;
+      t.type = 'sea';
+    }
+
+    const stTypes = shuffle(startTypes.slice());
+    const stNums = shuffle(startNumbers.slice());
+    for (let i = 0; i < startLandIds.length; i++) {
+      const t = tiles[startLandIds[i]];
+      t.type = stTypes[i];
+      t.number = stNums[i];
+    }
+
+    // Keep starting islands balanced with red numbers.
+    let redsA = 0;
+    for (const tid of startIslandAIds) {
+      const n = tiles[tid]?.number;
+      if (n === 6 || n === 8) redsA++;
+    }
+    let redsB = 0;
+    for (const tid of startIslandBIds) {
+      const n = tiles[tid]?.number;
+      if (n === 6 || n === 8) redsB++;
+    }
+    if (redsA !== 3 || redsB !== 3) continue;
+
+    const fhTypes = shuffle(fogHiddenTypes.slice());
+    const landNums = shuffle(fogLandNumbers.slice());
+    let landNumIdx = 0;
+
+    for (const tid of fogIds) {
+      const t = tiles[tid];
+      t.fog = true;
+      t.revealed = false;
+      const ht = fhTypes.pop();
+      t.hiddenType = ht;
+      if (ht !== 'sea' && ht !== 'desert') t.hiddenNumber = landNums[landNumIdx++];
+      else t.hiddenNumber = null;
+      t.type = 'sea';
+      t.number = null;
+    }
+
+    const temp = tiles.map(t => ({
+      id: t.id,
+      type: t.fog && !t.revealed ? (t.hiddenType === 'sea' ? 'sea' : t.hiddenType) : t.type,
+      number: t.fog && !t.revealed
+        ? ((t.hiddenType === 'sea' || t.hiddenType === 'desert') ? null : t.hiddenNumber)
+        : t.number,
+    }));
+
+    let ok = true;
+    for (const tt of temp) {
+      if (tt.number !== 6 && tt.number !== 8) continue;
+      const adj = geom.tileNeighbors?.[tt.id] || [];
+      for (const aid of adj) {
+        const at = temp[aid];
+        if (!at || (at.number !== 6 && at.number !== 8)) continue;
+        ok = false;
+        break;
+      }
+      if (!ok) break;
+    }
+    if (!ok) continue;
+    if (landNumIdx !== fogLandNumbers.length) continue;
+
+    startSeafarersRobberAndPirate(tiles, []);
+    return tiles;
+  }
+
+  startSeafarersRobberAndPirate(tiles, []);
+  return tiles;
+}
+
+
 function generateBoardSeafarersHeadingForNewShores(geom) {
   // Seafarers scenario: "Heading for New Shores"
   // Resources and number discs are randomized but must respect the official counts for this scenario.
@@ -3628,6 +3817,7 @@ function generateBoardSeafarers(geom, scenario = 'four_islands') {
   if (s === 'through_the_desert') return generateBoardSeafarersThroughTheDesert(geom);
   if (s === 'through_the_desert_56') return generateBoardSeafarersThroughTheDesert56(geom);
   if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
+  if (s === 'fog_island_56') return generateBoardSeafarersFogIsland56(geom);
   if (s === 'heading_for_new_shores') return generateBoardSeafarersHeadingForNewShores(geom);
   if (s === 'six_islands') return generateBoardSeafarersSixIslands(geom);
   if (s === 'test_builder') return generateBoardSeafarersTestBuilder(geom);
@@ -3653,7 +3843,7 @@ function defaultPortKinds(portCount) {
 }
 
 // Classic-style ports: each port covers 2 adjacent coastal nodes (a single coastline edge).
-function generatePorts(geom, portCount = 9) {
+function generatePorts(geom, portCount = 9, forcedKinds = null) {
   // Ports (Harbors): default 9. Some scenarios may override (e.g., classic 5–6 uses 11).
   // If a coastline (land/sea) exists, we place ports on coastline edges; otherwise we fall back to boundary edges.
   const tiles = geom.tiles || [];
@@ -3741,7 +3931,8 @@ function generatePorts(geom, portCount = 9) {
     usedNodes.add(e.b);
   }
 
-  const kinds = shuffle(defaultPortKinds(PORT_COUNT).slice());
+  const baseKinds = (Array.isArray(forcedKinds) && forcedKinds.length) ? forcedKinds : defaultPortKinds(PORT_COUNT);
+  const kinds = shuffle(baseKinds.slice());
 
   return selectedIdx.slice(0, PORT_COUNT).map((idx, i) => {
     const e = ordered[idx];
@@ -3775,9 +3966,16 @@ function generatePorts(geom, portCount = 9) {
 }
 
 function generatePortsSeafarers(geom, scenario = 'four_islands') {
-  // Seafarers uses the same port placement logic, but scenarios may override the count.
+  // Seafarers uses the same port placement logic, but scenarios may override the count/composition.
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   const count = isSeafarers56Scenario(s) ? 11 : 9;
+  if (s === 'fog_island_56') {
+    // Scenario component list: 6x 2:1 + 5x 3:1.
+    const specificKinds = ['brick', 'lumber', 'wool', 'grain', 'ore'];
+    const extraSpecific = specificKinds[Math.floor(Math.random() * specificKinds.length)];
+    const kinds = ['generic','generic','generic','generic','generic', ...specificKinds, extraSpecific];
+    return generatePorts(geom, count, kinds);
+  }
   return generatePorts(geom, count);
 }
 
@@ -3817,6 +4015,8 @@ function newEmptyGame(room) {
     const scen = String((room && room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
     if (scen === 'through_the_desert_56') {
       geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
+    } else if (scen === 'fog_island_56') {
+      geom = buildGeometryFromAxials(generateFogIsland56Axials());
     } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else if (isSeafarers56Scenario(scen)) {
@@ -4000,6 +4200,8 @@ function startGame(room) {
       // Some Seafarers scenarios use custom geometry masks.
       if (scen === 'through_the_desert_56') {
       game.geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
+    } else if (scen === 'fog_island_56') {
+      game.geom = buildGeometryFromAxials(generateFogIsland56Axials());
     } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       game.geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else if (isSeafarers56Scenario(scen)) {
@@ -4375,7 +4577,7 @@ function applyAction(room, playerId, action) {
 
 
     // Fog Island: initial settlements are restricted to the two starting islands (unrevealed fog counts as sea during setup).
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'fog_island') {
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && isFogIslandScenario(seafarersScenarioKey(game))) {
       if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
         if (!nodeIsOnFogStartIslands(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting islands.' };
       }
@@ -4411,7 +4613,7 @@ function applyAction(room, playerId, action) {
     // Seafarers: when you build a settlement on an island where you have no buildings yet,
     // you immediately gain +2 VP. (Not awarded during setup.)
     let newIslandBonus = false;
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions' && String((game.rules?.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g,'_') !== 'fog_island') {
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions' && !isFogIslandScenario(String((game.rules?.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g,'_'))) {
       const tileToIsland = computeLandIslands(game.geom);
       const islandId = islandIdForNode(game.geom, nodeId, tileToIsland);
       if (islandId != null) {
@@ -5884,6 +6086,8 @@ function mapPreviewKey(rules) {
     ? 'through_the_desert'
     : (rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fogisland')
       ? 'fog_island'
+      : (rawScen === 'fog_island_56' || rawScen === 'fog-island-56' || rawScen === 'fog56' || rawScen === 'fog_island56')
+        ? 'fog_island_56'
       : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
         ? 'test_builder'
         : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
@@ -5908,6 +6112,8 @@ function generatePreviewGeom(rules) {
     let geom = null;
     if (scen === 'through_the_desert_56') {
       geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
+    } else if (scen === 'fog_island_56') {
+      geom = buildGeometryFromAxials(generateFogIsland56Axials());
     } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else if (isSeafarers56Scenario(scen)) {
@@ -6487,6 +6693,8 @@ if (msg.type === 'create_room') {
         ? 'through_the_desert'
         : (rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fogisland')
           ? 'fog_island'
+          : (rawScen === 'fog_island_56' || rawScen === 'fog-island-56' || rawScen === 'fog56' || rawScen === 'fog_island56')
+            ? 'fog_island_56'
           : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
             ? 'heading_for_new_shores'
           : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
@@ -6861,7 +7069,7 @@ function handleTimeout(room) {
     const nodeIds = [];
     const scen = seafarersScenarioKey(game);
     const isTTD = ((game.rules?.mapMode || 'classic') === 'seafarers' && scen === 'through_the_desert');
-    const isFog = ((game.rules?.mapMode || 'classic') === 'seafarers' && scen === 'fog_island');
+    const isFog = ((game.rules?.mapMode || 'classic') === 'seafarers' && isFogIslandScenario(scen));
     const isHFNS = ((game.rules?.mapMode || 'classic') === 'seafarers' && scen === 'heading_for_new_shores');
     for (let i = 0; i < game.geom.nodes.length; i++) {
       if (!settlementDistanceOk(game, i)) continue;
@@ -7081,7 +7289,7 @@ function handleAI(room) {
   if (phase === 'setup1-settlement' || phase === 'setup2-settlement') {
     const rawScen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase();
     const isTTD = rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'through_the_desert_map' || rawScen === 'desert';
-    const isFog = rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog';
+    const isFog = rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fog_island_56' || rawScen === 'fog-island-56' || rawScen === 'fog56';
     const isHFNS = rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading';
 
     const nodeIds = [];
