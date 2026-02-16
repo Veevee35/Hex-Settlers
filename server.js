@@ -599,6 +599,25 @@ function generateThroughTheDesertAxials() {
   return coords; // length 70
 }
 
+function generateThroughTheDesert56Axials() {
+  // Seafarers 5–6 Player Through the Desert uses the large 97-hex frame (rows: 9,10,11,12,13,12,11,10,9).
+  // Axials are laid out to match the provided dot-map template.
+  const coords = [];
+  for (let r = -4; r <= 4; r++) {
+    let qMin, qMax;
+    if (r <= 0) {
+      qMin = -4 - r;
+      qMax = 8;
+    } else {
+      qMin = -4;
+      qMax = 8 - r;
+    }
+    for (let q = qMin; q <= qMax; q++) coords.push({ q, r });
+  }
+  return coords;
+}
+
+
 // Through the Desert: starting island restriction for *initial* settlement placement.
 // During setup, players may only place settlements on the starting island (pink region in the provided template)
 // which includes those land tiles plus the three fixed desert tiles.
@@ -614,6 +633,63 @@ const TTD_START_ISLAND_KEYS = new Set([
   // Fixed deserts (yellow in the template)
   '1,-3','0,-2','-1,-1',
 ]);
+
+// Through the Desert (5–6 Player / large frame) key sets extracted from the provided dot-map templates.
+const TTD56_START_ISLAND_KEYS = new Set([
+  '7,-1',
+  '6,1',
+  '4,2',
+  '5,2',
+  '-1,3',
+  '0,3',
+  '2,3',
+  '4,3',
+]);
+
+// "Across the Desert" bonus regions (red groups). Each region grants +2 VP the first time a player settles touching it.
+const TTD56_RED_REGIONS = [
+  new Set(['0,-3','1,-3','2,-3','-1,-2','0,-2']),
+  new Set(['4,-3','5,-3','6,-3','7,-3']),
+];
+
+const TTD56_RED_TILE_TO_REGION = (() => {
+  const m = Object.create(null);
+  TTD56_RED_REGIONS.forEach((set, idx) => {
+    for (const k of set) m[k] = idx;
+  });
+  return m;
+})();
+
+const TTD56_RED_KEYS = new Set(Object.keys(TTD56_RED_TILE_TO_REGION));
+
+function nodeIsOnTTD56StartIsland(game, nodeId) {
+  const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
+  let sawLand = false;
+  for (const tid of adj) {
+    const t = game?.geom?.tiles?.[tid];
+    if (!t) continue;
+    if (t.type === 'sea') continue;
+    sawLand = true;
+    const k = `${t.q},${t.r}`;
+    if (!TTD56_START_ISLAND_KEYS.has(k)) return false;
+  }
+  return sawLand;
+}
+
+function ttd56RegionsTouchedByNode(game, nodeId) {
+  const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
+  const out = new Set();
+  for (const tid of adj) {
+    const t = game?.geom?.tiles?.[tid];
+    if (!t) continue;
+    if (t.type === 'sea') continue;
+    const k = `${t.q},${t.r}`;
+    const idx = TTD56_RED_TILE_TO_REGION[k];
+    if (idx !== undefined) out.add(idx);
+  }
+  return Array.from(out).sort((a, b) => a - b);
+}
+
 
 const FOG_ISLAND_FOG_KEYS = new Set([
   '0,-3',
@@ -2910,6 +2986,144 @@ function generateBoardSeafarersThroughTheDesert(geom) {
   return allTiles;
 }
 
+function generateBoardSeafarersThroughTheDesert56(geom) {
+  // Seafarers 5–6 scenario: "Through the Desert".
+  // Uses the same 70-hex geometry mask as the base Through-the-Desert board,
+  // but with the 5–6 component counts/layout profile from the provided reference map.
+  const allTiles = seafarersBaseAllSea(geom);
+
+  // 43 land tiles total (38 resource + 5 desert).
+  const landKeys = new Set([
+    '0,-3',
+    '1,-3',
+    '2,-3',
+    '4,-3',
+    '5,-3',
+    '6,-3',
+    '7,-3',
+    '-1,-2',
+    '0,-2',
+    '1,-2',
+    '2,-2',
+    '3,-2',
+    '4,-2',
+    '5,-2',
+    '1,-1',
+    '2,-1',
+    '3,-1',
+    '4,-1',
+    '7,-1',
+    '-2,0',
+    '-1,0',
+    '0,0',
+    '1,0',
+    '2,0',
+    '3,0',
+    '4,0',
+    '-3,1',
+    '-2,1',
+    '-1,1',
+    '0,1',
+    '1,1',
+    '2,1',
+    '3,1',
+    '6,1',
+    '-3,2',
+    '-2,2',
+    '4,2',
+    '5,2',
+    '-3,3',
+    '-1,3',
+    '0,3',
+    '2,3',
+    '4,3'
+  ]);
+
+  // 5 fixed desert tiles across the top-center strip.
+  const desertKeys = new Set([
+    '1,-2',
+    '2,-2',
+    '3,-2',
+    '4,-2',
+    '5,-2'
+  ]);
+
+  const landTileIds = pickLandTileIds(allTiles, landKeys);
+
+  // Resource counts (38): gold 3, and 7 each of the five base resource types.
+  const resourceTypesBase = [
+    ...Array(3).fill('gold'),
+    ...Array(7).fill('hills'),
+    ...Array(7).fill('forest'),
+    ...Array(7).fill('pasture'),
+    ...Array(7).fill('field'),
+    ...Array(7).fill('mountains'),
+  ];
+
+  // Number discs (38): 2/12 x3 each, 3/4/5/6/8/9/10/11 x4 each.
+  const numbersBase = [
+    2,2,2,
+    3,3,3,3,
+    4,4,4,4,
+    5,5,5,5,
+    6,6,6,6,
+    8,8,8,8,
+    9,9,9,9,
+    10,10,10,10,
+    11,11,11,11,
+    12,12,12,
+  ];
+
+  let placed = null;
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const tt = shuffle(resourceTypesBase.slice());
+    const nn = shuffle(numbersBase.slice());
+    const local = [];
+    let ti = 0;
+    let ni = 0;
+
+    for (let i = 0; i < landTileIds.length; i++) {
+      const id = landTileIds[i];
+      const t = allTiles[id];
+      const key = t ? `${t.q},${t.r}` : '';
+      if (desertKeys.has(key)) {
+        local.push({ id, type: 'desert', number: null });
+        continue;
+      }
+      local.push({ id, type: tt[ti++], number: nn[ni++] });
+    }
+
+    if (!hasAdjacentSixEightForPlacement(geom, local)) { placed = local; break; }
+  }
+
+  if (!placed) {
+    const tt = shuffle(resourceTypesBase.slice());
+    const nn = shuffle(numbersBase.slice());
+    placed = [];
+    let ti = 0;
+    let ni = 0;
+    for (let i = 0; i < landTileIds.length; i++) {
+      const id = landTileIds[i];
+      const t = allTiles[id];
+      const key = t ? `${t.q},${t.r}` : '';
+      if (desertKeys.has(key)) { placed.push({ id, type: 'desert', number: null }); continue; }
+      placed.push({ id, type: tt[ti++], number: nn[ni++] });
+    }
+  }
+
+  const desertIds = [];
+  for (const upd of placed) {
+    const t = allTiles[upd.id];
+    if (!t) continue;
+    t.type = upd.type;
+    t.number = upd.number;
+    if (upd.type === 'desert') desertIds.push(upd.id);
+  }
+
+  startSeafarersRobberAndPirate(allTiles, desertIds);
+  return allTiles;
+}
+
 
 
 function generateBoardSeafarersFogIsland(geom) {
@@ -3350,7 +3564,7 @@ function generateBoardSeafarersTestBuilder(geom) {
 function generateBoardSeafarers(geom, scenario = 'four_islands') {
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   if (s === 'through_the_desert') return generateBoardSeafarersThroughTheDesert(geom);
-  if (s === 'through_the_desert_56') return generateBoardSeafarersThroughTheDesert(geom);
+  if (s === 'through_the_desert_56') return generateBoardSeafarersThroughTheDesert56(geom);
   if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
   if (s === 'heading_for_new_shores') return generateBoardSeafarersHeadingForNewShores(geom);
   if (s === 'six_islands') return generateBoardSeafarersSixIslands(geom);
@@ -3539,7 +3753,9 @@ function newEmptyGame(room) {
     geom = buildGeometryClassic56();
   } else if (mapMode === 'seafarers') {
     const scen = String((room && room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (scen === 'through_the_desert' || scen === 'through_the_desert_56' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
+    if (scen === 'through_the_desert_56') {
+      geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
+    } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else if (isSeafarers56Scenario(scen)) {
       geom = buildGeometryFromAxials(generateSixIslandsAxials());
@@ -3720,11 +3936,13 @@ function startGame(room) {
     if (mm === 'seafarers') {
       const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
       // Some Seafarers scenarios use custom geometry masks.
-      if (scen === 'through_the_desert' || scen === 'through_the_desert_56' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
-        game.geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
-      } else if (isSeafarers56Scenario(scen)) {
-        game.geom = buildGeometryFromAxials(generateSixIslandsAxials());
-      }
+      if (scen === 'through_the_desert_56') {
+      game.geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
+    } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
+      game.geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
+    } else if (isSeafarers56Scenario(scen)) {
+      game.geom = buildGeometryFromAxials(generateSixIslandsAxials());
+    }
       game.geom.tiles = generateBoardSeafarers(game.geom, scen);
       game.geom.ports = (String(scen).toLowerCase() === 'test_builder') ? [] : generatePortsSeafarers(game.geom, scen);
     } else if ((mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) {
@@ -4080,7 +4298,9 @@ function applyAction(room, playerId, action) {
     // Through the Desert: initial settlements are restricted to the starting island (pink region in the template).
     if ((game.rules?.mapMode || 'classic') === 'seafarers' && (seafarersScenarioKey(game) === 'through_the_desert' || seafarersScenarioKey(game) === 'through_the_desert_56')) {
       if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
-        if (!nodeIsOnTTDStartIsland(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting island.' };
+        const scen = seafarersScenarioKey(game);
+        const okStart = (scen === 'through_the_desert_56') ? nodeIsOnTTD56StartIsland(game, nodeId) : nodeIsOnTTDStartIsland(game, nodeId);
+        if (!okStart) return { ok: false, error: 'Setup settlements must be placed on the starting island.' };
 
         // Also prevent starting settlements from being placed on (i.e., touching) Gold Fields.
         // Gold Fields for this scenario are placed only on the outer islands/strip, but this keeps the rule explicit.
@@ -4166,25 +4386,47 @@ function applyAction(room, playerId, action) {
       grantStartingResourcesForSecondSettlement(game, nodeId, playerId);
     }
 
-	    if ((game.rules?.mapMode || 'classic') === 'seafarers' && (seafarersScenarioKey(game) === 'through_the_desert' || seafarersScenarioKey(game) === 'through_the_desert_56') && game.phase === 'main-actions') {
-	      const p = playerById(game, playerId);
-	      if (p && (p.ttdFarSideVP || 0) === 0) {
-	        if (nodeTouchesTTDAcrossDesert(game, nodeId)) {
-	          p.ttdFarSideVP = (p.ttdFarSideVP || 0) + 2;
-	          ttdFarSideBonus = true;
-	        }
-	      }
-	    }
-    recomputeLongestRoad(game);
-    computeVP(game);
 
-    if (newIslandBonus) {
-      pushLog(game, `${playerName(game, playerId)} settled a new island (+2 VP).`, 'vp', { kind: 'new_island', amount: 2 });
+if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions') {
+  const scen = seafarersScenarioKey(game);
+  const p = playerById(game, playerId);
+  if (p) {
+    if (scen === 'through_the_desert') {
+      if ((p.ttdFarSideVP || 0) === 0 && nodeTouchesTTDAcrossDesert(game, nodeId)) {
+        p.ttdFarSideVP = (p.ttdFarSideVP || 0) + 2;
+        ttdFarSideBonus = true;
+      }
+    } else if (scen === 'through_the_desert_56') {
+      const regions = ttd56RegionsTouchedByNode(game, nodeId);
+      if (regions.length) {
+        if (!p.ttdRedRegionsClaimed) p.ttdRedRegionsClaimed = Object.create(null);
+        // Only one bonus per settlement; claim the first eligible region (stable priority).
+        for (const rid of regions) {
+          if (p.ttdRedRegionsClaimed[String(rid)]) continue;
+          p.ttdRedRegionsClaimed[String(rid)] = true;
+          p.ttdFarSideVP = (p.ttdFarSideVP || 0) + 2;
+          ttdFarSideBonus = true;
+          break;
+        }
+      }
     }
+  }
+}
 
-	    if (ttdFarSideBonus) {
-	      pushLog(game, `${playerName(game, playerId)} established beyond the desert (+2 VP).`, 'vp', { kind: 'ttd_across_desert', amount: 2 });
-	    }
+recomputeLongestRoad(game);
+computeVP(game);
+
+if (newIslandBonus) {
+  pushLog(game, `${playerName(game, playerId)} settled a new island (+2 VP).`, 'vp', { kind: 'new_island', amount: 2 });
+}
+
+if (ttdFarSideBonus) {
+  const scen = ((game.rules?.mapMode || 'classic') === 'seafarers') ? seafarersScenarioKey(game) : '';
+  const msg = (scen === 'through_the_desert_56')
+    ? `${playerName(game, playerId)} explored a desert region (+2 VP).`
+    : `${playerName(game, playerId)} established beyond the desert (+2 VP).`;
+  pushLog(game, msg, 'vp', { kind: 'ttd_across_desert', amount: 2 });
+}
 
     // phase advance
     if (game.phase === 'setup1-settlement') {
@@ -5602,7 +5844,9 @@ function generatePreviewGeom(rules) {
     const key = mapPreviewKey(rules);
     const scen = key.split(':')[1] || 'four_islands';
     let geom = null;
-    if (scen === 'through_the_desert' || scen === 'through_the_desert_56' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
+    if (scen === 'through_the_desert_56') {
+      geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
+    } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
     } else if (isSeafarers56Scenario(scen)) {
       geom = buildGeometryFromAxials(generateSixIslandsAxials());
