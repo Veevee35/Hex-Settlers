@@ -638,6 +638,11 @@ const TTD_START_ISLAND_KEYS = new Set([
   '1,-3','0,-2','-1,-1',
 ]);
 
+// For port placement, ports must NOT be anchored to desert tiles.
+// (Ports may still "touch" desert at a node, but the coastline edge must be on pink land.)
+const TTD_FIXED_DESERT_KEYS = new Set(['1,-3','0,-2','-1,-1']);
+const TTD_PINK_KEYS = new Set(Array.from(TTD_START_ISLAND_KEYS).filter(k => !TTD_FIXED_DESERT_KEYS.has(k)));
+
 // Through the Desert (5–6 Player / large frame) key sets extracted from the provided dot-map templates.
 //
 // - START (pink): setup settlements may ONLY be placed on these tiles (purple/pink dots in the template).
@@ -4100,7 +4105,7 @@ function largestNonSeaComponentTileIds(geom) {
   return new Set(best);
 }
 
-function candidateMainlandPortEdgeIds(geom, mainlandTileIds) {
+function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = null) {
   const tiles = geom?.tiles || [];
   const out = [];
   for (const e of (geom?.edges || [])) {
@@ -4125,6 +4130,10 @@ function candidateMainlandPortEdgeIds(geom, mainlandTileIds) {
     if (!mainlandTileIds || !mainlandTileIds.has(landId)) continue;
     if (tL.type === 'sea') continue;
     if (tL.type === 'desert') continue; // never place ports on deserts
+    if (allowedLandKeys) {
+      const k = `${tL.q},${tL.r}`;
+      if (!allowedLandKeys.has(k)) continue;
+    }
     out.push(e.id);
   }
   return out;
@@ -4137,7 +4146,10 @@ function generatePortsSeafarers(geom, scenario = 'four_islands') {
   // Through the Desert: ports must be on the MAINLAND only (no ports on small islands or on desert tiles).
   if (s === 'through_the_desert' || s === 'through_the_desert_56') {
     const mainland = largestNonSeaComponentTileIds(geom);
-    const edgeIds = candidateMainlandPortEdgeIds(geom, mainland);
+    // Additionally, all port locations must be on the shore of the "pink" mainland start region.
+    // (This matches the provided templates: no ports on outer islands or desert shoreline.)
+    const allowed = (s === 'through_the_desert_56') ? TTD56_START_PINK_KEYS : TTD_PINK_KEYS;
+    const edgeIds = candidateMainlandPortEdgeIds(geom, mainland, allowed);
     if (edgeIds && edgeIds.length) return generatePorts(geom, count, { edgeIds });
   }
 
