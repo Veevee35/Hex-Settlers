@@ -4153,6 +4153,13 @@ function generatePortsSeafarers(geom, scenario = 'four_islands') {
     if (edgeIds && edgeIds.length) return generatePorts(geom, count, { edgeIds });
   }
 
+  // Heading for New Shores: lock ALL ports to the main island (largest landmass), never on outer islands.
+  if (s === 'heading_for_new_shores') {
+    const mainland = largestNonSeaComponentTileIds(geom);
+    const edgeIds = candidateMainlandPortEdgeIds(geom, mainland, null);
+    if (edgeIds && edgeIds.length) return generatePorts(geom, count, { edgeIds });
+  }
+
   return generatePorts(geom, count);
 }
 
