@@ -3234,9 +3234,9 @@ function syncPostgameToState() {
             : 'classic';
         const allowSolo = (mm === 'seafarers') && String(room?.rules?.seafarersScenario || '').toLowerCase() === 'test_builder';
         const scen = String(room?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-        const isSix = (mm === 'seafarers' && scen === 'six_islands');
-        const minPlayers = (mm === 'classic56') ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2));
-        const maxPlayers = (mm === 'classic56') ? 6 : (isSix ? 6 : 4);
+        const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56'));
+        const minPlayers = (mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2));
+        const maxPlayers = (mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4);
         const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;
         const current = (room.players || []).length;
         const start = Math.max(humans, 1);
