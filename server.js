@@ -7460,7 +7460,17 @@ function handleAI(room) {
 
   const aiBudgetFor = (diff) => (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
 
-  const pickOne = (arr) => (arr && arr.length) ? arr[Math.floor(Math.random() * arr.length)] : null;
+  const DICE_PIPS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
+
+  const tileResourceKind = (type) => {
+    const t = String(type || '').toLowerCase();
+    if (t === 'hills') return 'brick';
+    if (t === 'forest') return 'lumber';
+    if (t === 'pasture') return 'wool';
+    if (t === 'field') return 'grain';
+    if (t === 'mountains') return 'ore';
+    return null;
+  };
 
   const missingFor = (res, cost) => {
     const miss = {};
@@ -7494,6 +7504,82 @@ function handleAI(room) {
     return false;
   };
 
+  const nodePortKind = (nodeId) => {
+    for (const p of game.geom?.ports || []) {
+      if ((p?.nodeIds || []).includes(nodeId)) return p.kind || 'generic';
+    }
+    return null;
+  };
+
+  const playerResourceIncome = (pid) => {
+    const out = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+    for (const n of (game.geom.nodes || [])) {
+      const b = n?.building;
+      if (!b || b.owner !== pid) continue;
+      const mult = (b.type === 'city') ? 2 : 1;
+      const adj = game.geom.nodeAdjTiles?.[n.id] || [];
+      for (const tid of adj) {
+        const t = game.geom.tiles?.[tid];
+        if (!t) continue;
+        const rk = tileResourceKind(t.type);
+        if (!rk) continue;
+        const pips = DICE_PIPS[t.number] || 0;
+        out[rk] += pips * mult;
+      }
+    }
+    return out;
+  };
+
+  const nodeStrategicScore = (pid, nodeId, opts = null) => {
+    const options = opts || {};
+    const adj = game.geom.nodeAdjTiles?.[nodeId] || [];
+    const myIncome = playerResourceIncome(pid);
+    let pipScore = 0;
+    const seen = new Set();
+    for (const tid of adj) {
+      const t = game.geom.tiles?.[tid];
+      if (!t) continue;
+      const rk = tileResourceKind(t.type);
+      if (!rk) continue;
+      const pips = DICE_PIPS[t.number] || 0;
+      const scarcityBoost = Math.max(0, 6 - Math.min(6, (myIncome[rk] || 0) / 2));
+      pipScore += pips * (1 + scarcityBoost * 0.08);
+      seen.add(rk);
+    }
+
+    let score = pipScore;
+    score += seen.size * 1.25;
+
+    const pk = nodePortKind(nodeId);
+    if (pk) {
+      const ratio = (pk === 'generic') ? 3 : 2;
+      const stocked = RESOURCE_KINDS.some(k => tradeRatioFor(game, pid, k) <= ratio);
+      if (!stocked) score += (pk === 'generic') ? 1.0 : 1.7;
+      if (pk !== 'generic' && (myIncome[pk] || 0) >= 6) score += 1.2;
+    }
+
+    if (options.setup) {
+      // During setup, avoid stacking on the same two numbers as existing starts.
+      const usedNums = new Set();
+      for (const n of (game.geom.nodes || [])) {
+        const b = n?.building;
+        if (!b || b.owner !== pid) continue;
+        for (const tid of (game.geom.nodeAdjTiles?.[n.id] || [])) {
+          const num = game.geom.tiles?.[tid]?.number;
+          if (num) usedNums.add(num);
+        }
+      }
+      let overlap = 0;
+      for (const tid of adj) {
+        const num = game.geom.tiles?.[tid]?.number;
+        if (num && usedNums.has(num)) overlap++;
+      }
+      score -= overlap * 1.0;
+    }
+
+    return score;
+  };
+
   const listCityUpgrades = (pid) => {
     const out = [];
     for (let i = 0; i < (game.geom.nodes || []).length; i++) {
@@ -7511,8 +7597,9 @@ function handleAI(room) {
       if (!settlementDistanceOk(game, i)) continue;
       if (!nodeTouchesLand(i)) continue;
       if (!nodeConnectedToMe(pid, i)) continue;
-      out.push(i);
+      out.push({ id: i, score: nodeStrategicScore(pid, i) });
     }
+    out.sort((a, b) => b.score - a.score);
     return out;
   };
 
@@ -7544,7 +7631,17 @@ function handleAI(room) {
       if (e.roadOwner || e.shipOwner) continue;
       if (!edgeTouchesLand(i)) continue;
       if (!edgeConnectsToPlayer(game, i, pid)) continue;
-      const score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      let score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      const e2 = game.geom.edges?.[i];
+      if (e2) {
+        for (const nid of [e2.a, e2.b]) {
+          const node = game.geom.nodes?.[nid];
+          if (!node || node.building) continue;
+          if (!settlementDistanceOk(game, nid)) continue;
+          if (!nodeTouchesLand(nid)) continue;
+          score += nodeStrategicScore(pid, nid) * 0.65;
+        }
+      }
       cands.push({ id: i, score });
     }
     cands.sort((a, b) => b.score - a.score);
@@ -7590,7 +7687,14 @@ function handleAI(room) {
       }
       if (!connected) continue;
 
-      const score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      let score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      for (const nid of [e.a, e.b]) {
+        const node = game.geom.nodes?.[nid];
+        if (!node || node.building) continue;
+        if (!settlementDistanceOk(game, nid)) continue;
+        if (!nodeTouchesLand(nid)) continue;
+        score += nodeStrategicScore(pid, nid) * 0.55;
+      }
       cands.push({ id: i, score });
     }
     cands.sort((a, b) => b.score - a.score);
@@ -7611,18 +7715,38 @@ function handleAI(room) {
     const needs = Object.keys(miss).filter(k => (game.bank?.[k] || 0) > 0);
     if (!needs.length) return null;
 
+    const income = playerResourceIncome(pid);
+    const utility = (res) => {
+      let s = 0;
+      const cityNow = canAffordCost(res, BUILD_COSTS.city) && listCityUpgrades(pid).length > 0;
+      const settleNow = canAffordCost(res, BUILD_COSTS.settlement) && listSettlementPlacements(pid).length > 0;
+      const devNow = canAffordCost(res, DEV_CARD_COST) && (game.devDeck || []).length > 0;
+      if (cityNow) s += 13;
+      if (settleNow) s += 12;
+      if (devNow) s += 4;
+      if (canAffordCost(res, BUILD_COSTS.road)) s += 1.3;
+      if (isSeafarers && canAffordCost(res, BUILD_COSTS.ship)) s += 1.3;
+      for (const k of RESOURCE_KINDS) {
+        const scarcity = Math.max(0, 6 - Math.min(6, (income[k] || 0) / 2));
+        s += (res[k] || 0) * (0.12 + scarcity * 0.035);
+      }
+      return s;
+    };
+
     let best = null;
+    const baseUtility = utility(p.resources || {});
     for (const takeKind of needs) {
       for (const giveKind of RESOURCE_KINDS) {
         if (giveKind === takeKind) continue;
         const ratio = tradeRatioFor(game, pid, giveKind);
         const cost = ratio * 1;
         if ((p.resources[giveKind] || 0) < cost) continue;
-        const score = (10 - ratio) + Math.min(6, (p.resources[giveKind] || 0) / ratio);
+        const next = { ...p.resources, [giveKind]: (p.resources[giveKind] || 0) - cost, [takeKind]: (p.resources[takeKind] || 0) + 1 };
+        const score = utility(next) - baseUtility + (10 - ratio) * 0.2;
         if (!best || score > best.score) best = { score, giveKind, takeKind, takeQty: 1 };
       }
     }
-    if (!best) return null;
+    if (!best || best.score <= 0.15) return null;
     return { kind: 'bank_trade', giveKind: best.giveKind, takeKind: best.takeKind, takeQty: 1 };
   };
 
@@ -7663,6 +7787,13 @@ function handleAI(room) {
     const got = val(trade.offer);
     const paid = val(trade.request);
     if (paid <= 0) return true;
+
+    // Decline if trade gives up a strongly scarce resource without immediate tactical gain.
+    const income = playerResourceIncome(pid);
+    for (const [k, n] of Object.entries(trade.request || {})) {
+      const scarce = (income[k] || 0) < 4;
+      if (scarce && (n || 0) >= 1 && !canCity && !canSettle && !canDev) return false;
+    }
 
     // Medium: be pickier. Hard: accept slightly favorable trades.
     if (diff === 'medium') return got >= paid * 1.2;
@@ -7741,8 +7872,10 @@ function handleAI(room) {
       if (isHFNS && !nodeIsOnHFNSMainIsland(game, i)) continue;
       nodeIds.push(i);
     }
-    const shuffled = shuffle(nodeIds.slice());
-    for (const nid of shuffled) {
+    const ranked = nodeIds
+      .map(nid => ({ nid, score: nodeStrategicScore(pid, nid, { setup: true }) }))
+      .sort((a, b) => b.score - a.score);
+    for (const { nid } of ranked) {
       if (!aiCan(pid, { kind: 'place_settlement', nodeId: nid })) continue;
       const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
       if (r && r.ok) { delay(240, 420); return true; }
@@ -7761,17 +7894,23 @@ function handleAI(room) {
     const awaiting = game.setup && game.setup.awaiting;
     const nid = awaiting && awaiting.playerId === pid ? awaiting.nodeId : null;
     const edges = (nid != null) ? (game.geom.nodeEdges[nid] || []) : [];
-    const edgeIds = shuffle(edges.slice());
-    for (const eid of edgeIds) {
-      // Prefer roads if legal; otherwise try ships (Seafarers).
-      if (aiCan(pid, { kind: 'place_road', edgeId: eid })) {
-        const r = applyAction(room, pid, { kind: 'place_road', edgeId: eid });
-        if (r && r.ok) { delay(240, 420); return true; }
-      }
+    const scored = [];
+    for (const eid of edges) {
+      const e = game.geom.edges?.[eid];
+      if (!e) continue;
+      const farNode = (e.a === nid) ? e.b : e.a;
+      const nodeScore = nodeStrategicScore(pid, farNode, { setup: true });
+      if (aiCan(pid, { kind: 'place_road', edgeId: eid })) scored.push({ action: { kind: 'place_road', edgeId: eid }, score: nodeScore + 0.8 });
       if (aiCan(pid, { kind: 'place_ship', edgeId: eid })) {
-        const r = applyAction(room, pid, { kind: 'place_ship', edgeId: eid });
-        if (r && r.ok) { delay(240, 420); return true; }
+        const seaAdj = (game.geom.edgeAdjTiles?.[eid] || []).filter(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea').length;
+        const bonus = edgeWouldExploreFog(eid) ? 4 : 0;
+        scored.push({ action: { kind: 'place_ship', edgeId: eid }, score: nodeScore + seaAdj * 0.7 + bonus });
       }
+    }
+    scored.sort((a, b) => b.score - a.score);
+    for (const item of scored) {
+      const r = applyAction(room, pid, item.action);
+      if (r && r.ok) { delay(240, 420); return true; }
     }
     delay(240, 420);
     return false;
@@ -7911,7 +8050,9 @@ function handleAI(room) {
     if (canAfford(p.resources, BUILD_COSTS.city)) {
       const cityNodes = listCityUpgrades(pid);
       if (cityNodes.length) {
-        const nodeId = pickOne(cityNodes);
+        const nodeId = cityNodes
+          .map(id => ({ id, score: nodeStrategicScore(pid, id) }))
+          .sort((a, b) => b.score - a.score)[0]?.id;
         if (nodeId != null && aiCan(pid, { kind: 'upgrade_city', nodeId })) {
           const r = applyAction(room, pid, { kind: 'upgrade_city', nodeId });
           if (r && r.ok) { mem.actions++; delay(220, 360); return true; }
@@ -7922,8 +8063,7 @@ function handleAI(room) {
     if (canAfford(p.resources, BUILD_COSTS.settlement)) {
       const setNodes = listSettlementPlacements(pid);
       if (setNodes.length) {
-        // Prefer a settlement that triggers exploration bonuses (new island / desert far-side handled by rules).
-        const nodeId = pickOne(setNodes);
+        const nodeId = setNodes[0]?.id;
         if (nodeId != null && aiCan(pid, { kind: 'place_settlement', nodeId })) {
           const r = applyAction(room, pid, { kind: 'place_settlement', nodeId });
           if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
@@ -7948,7 +8088,7 @@ function handleAI(room) {
     if (isSeafarers && canAfford(p.resources, BUILD_COSTS.ship)) {
       const shipEdges = listShipEdges(pid, preferExplore);
       if (shipEdges.length) {
-        const edgeId = pickOne(shipEdges);
+        const edgeId = shipEdges[0];
         if (edgeId != null && aiCan(pid, { kind: 'place_ship', edgeId })) {
           const r = applyAction(room, pid, { kind: 'place_ship', edgeId });
           if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
@@ -7959,7 +8099,7 @@ function handleAI(room) {
     if (canAfford(p.resources, BUILD_COSTS.road)) {
       const roadEdges = listRoadEdges(pid, preferExplore);
       if (roadEdges.length) {
-        const edgeId = pickOne(roadEdges);
+        const edgeId = roadEdges[0];
         if (edgeId != null && aiCan(pid, { kind: 'place_road', edgeId })) {
           const r = applyAction(room, pid, { kind: 'place_road', edgeId });
           if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
