@@ -2910,6 +2910,111 @@ function generateBoardSeafarersThroughTheDesert(geom) {
   return allTiles;
 }
 
+function generateBoardSeafarersThroughTheDesert56(geom) {
+  // Seafarers 5–6 scenario: "Through the Desert".
+  // Uses the same 70-hex geometry mask as the base Through-the-Desert board,
+  // but with the 5–6 component counts/layout profile from the provided reference map.
+  const allTiles = seafarersBaseAllSea(geom);
+
+  // 43 land tiles total (38 resource + 5 desert).
+  const landKeys = new Set([
+    // r = -3
+    '-1,-3','0,-3','1,-3','3,-3','4,-3','5,-3',
+    // r = -2
+    '-2,-2','-1,-2','0,-2','1,-2','2,-2','3,-2','4,-2',
+    // r = -1
+    '-3,-1','-2,-1','0,-1','1,-1','2,-1','5,-1',
+    // r = 0
+    '-2,0','-1,0','0,0','1,0','2,0','4,0','5,0',
+    // r = 1
+    '-4,1','-3,1','-2,1','-1,1','0,1','1,1','3,1','4,1',
+    // r = 2
+    '-4,2','-3,2','2,2','3,2',
+    // r = 3
+    '-4,3','-2,3','-1,3','1,3','2,3',
+  ]);
+
+  // 5 fixed desert tiles across the top-center strip.
+  const desertKeys = new Set([
+    '0,-2','1,-2','2,-2','3,-2','4,-2',
+  ]);
+
+  const landTileIds = pickLandTileIds(allTiles, landKeys);
+
+  // Resource counts (38): gold 3, and 7 each of the five base resource types.
+  const resourceTypesBase = [
+    ...Array(3).fill('gold'),
+    ...Array(7).fill('hills'),
+    ...Array(7).fill('forest'),
+    ...Array(7).fill('pasture'),
+    ...Array(7).fill('field'),
+    ...Array(7).fill('mountains'),
+  ];
+
+  // Number discs (38): 2/12 x3 each, 3/4/5/6/8/9/10/11 x4 each.
+  const numbersBase = [
+    2,2,2,
+    3,3,3,3,
+    4,4,4,4,
+    5,5,5,5,
+    6,6,6,6,
+    8,8,8,8,
+    9,9,9,9,
+    10,10,10,10,
+    11,11,11,11,
+    12,12,12,
+  ];
+
+  let placed = null;
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const tt = shuffle(resourceTypesBase.slice());
+    const nn = shuffle(numbersBase.slice());
+    const local = [];
+    let ti = 0;
+    let ni = 0;
+
+    for (let i = 0; i < landTileIds.length; i++) {
+      const id = landTileIds[i];
+      const t = allTiles[id];
+      const key = t ? `${t.q},${t.r}` : '';
+      if (desertKeys.has(key)) {
+        local.push({ id, type: 'desert', number: null });
+        continue;
+      }
+      local.push({ id, type: tt[ti++], number: nn[ni++] });
+    }
+
+    if (!hasAdjacentSixEightForPlacement(geom, local)) { placed = local; break; }
+  }
+
+  if (!placed) {
+    const tt = shuffle(resourceTypesBase.slice());
+    const nn = shuffle(numbersBase.slice());
+    placed = [];
+    let ti = 0;
+    let ni = 0;
+    for (let i = 0; i < landTileIds.length; i++) {
+      const id = landTileIds[i];
+      const t = allTiles[id];
+      const key = t ? `${t.q},${t.r}` : '';
+      if (desertKeys.has(key)) { placed.push({ id, type: 'desert', number: null }); continue; }
+      placed.push({ id, type: tt[ti++], number: nn[ni++] });
+    }
+  }
+
+  const desertIds = [];
+  for (const upd of placed) {
+    const t = allTiles[upd.id];
+    if (!t) continue;
+    t.type = upd.type;
+    t.number = upd.number;
+    if (upd.type === 'desert') desertIds.push(upd.id);
+  }
+
+  startSeafarersRobberAndPirate(allTiles, desertIds);
+  return allTiles;
+}
+
 
 
 function generateBoardSeafarersFogIsland(geom) {
@@ -3350,7 +3455,7 @@ function generateBoardSeafarersTestBuilder(geom) {
 function generateBoardSeafarers(geom, scenario = 'four_islands') {
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   if (s === 'through_the_desert') return generateBoardSeafarersThroughTheDesert(geom);
-  if (s === 'through_the_desert_56') return generateBoardSeafarersThroughTheDesert(geom);
+  if (s === 'through_the_desert_56') return generateBoardSeafarersThroughTheDesert56(geom);
   if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
   if (s === 'heading_for_new_shores') return generateBoardSeafarersHeadingForNewShores(geom);
   if (s === 'six_islands') return generateBoardSeafarersSixIslands(geom);
