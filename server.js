@@ -4555,7 +4555,7 @@ function advanceSetup(game) {
         const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
         const pairedOn = (mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(scen));
         if (pairedOn) {
-          game.paired = { enabled: true, stage: 'p1', p1Id: game.currentPlayerId, p2Id: null, p1Idx: 0 };
+          game.paired = { enabled: true, stage: 'p1', p1Id: game.currentPlayerId, p2Id: (order && order.length >= 5) ? order[(0 + 3) % order.length] : null, p1Idx: 0, offset: 3 };
         } else {
           game.paired = null;
         }
@@ -6075,12 +6075,14 @@ if (kind === 'pirate_steal') {
         // Player 1 ends -> Player 2 action (no player trades)
         if (stage !== 'p2') {
           const p1Id = playerId;
-          const p1Idx = game.turnOrder.indexOf(p1Id);
-          const offset = (n === 6) ? 3 : 2;
+          let p1Idx = game.turnOrder.indexOf(p1Id);
+        if (p1Idx < 0) p1Idx = (game.paired && Number.isFinite(game.paired.p1Idx)) ? game.paired.p1Idx : 0;
+          // Paired Players Turn Rule (official CATAN 5–6): Catanian 2 is always the third player to the left.
+        const offset = 3;
         const p2Idx = (p1Idx + offset) % n;
-          const p2Id = game.turnOrder[p2Idx];
+        const p2Id = game.turnOrder[p2Idx];
 
-          game.paired = { enabled: true, stage: 'p2', p1Id, p2Id, p1Idx };
+          game.paired = { enabled: true, stage: 'p2', p1Id, p2Id, p1Idx, offset };
 
           game.currentPlayerId = p2Id;
           // Still in main-actions; do not roll again.
@@ -6093,15 +6095,18 @@ if (kind === 'pirate_steal') {
 
         // Player 2 ends -> advance to next Player 1 (roll dice)
         const p1Id = (game.paired && game.paired.p1Id) ? game.paired.p1Id : playerId;
-        const p1Idx = game.turnOrder.indexOf(p1Id);
+        let p1Idx = game.turnOrder.indexOf(p1Id);
+        if (p1Idx < 0) p1Idx = (game.paired && Number.isFinite(game.paired.p1Idx)) ? game.paired.p1Idx : 0;
         const nextP1 = game.turnOrder[(p1Idx + 1) % n];
+
+        const offset = (game.paired && Number.isFinite(game.paired.offset)) ? game.paired.offset : 3;
 
         game.currentPlayerId = nextP1;
         game.turnNumber += 1;
         game.phase = 'main-await-roll';
         game.message = `${playerName(game, nextP1)}: Roll the dice.`;
 
-        game.paired = { enabled: true, stage: 'p1', p1Id: nextP1, p2Id: null, p1Idx: (p1Idx + 1) % n };
+        game.paired = { enabled: true, stage: 'p1', p1Id: nextP1, p2Id: game.turnOrder[((p1Idx + 1) + offset) % n], p1Idx: (p1Idx + 1) % n, offset };
 
         recordTurnStart(game);
         pushLog(game, `${playerName(game, playerId)} ended their action (Player 2).`, 'turn', { kind: 'paired_p2_end', nextP1 });
