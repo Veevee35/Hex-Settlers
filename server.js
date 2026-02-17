@@ -6975,8 +6975,9 @@ if (msg.type === 'create_room') {
       }
 
       const raw = String(msg.difficulty || msg.mode || 'test').toLowerCase().trim();
-      const allowed = new Set(['test', 'easy', 'medium', 'hard']);
-      const diff = allowed.has(raw) ? raw : 'test';
+      const allowed = new Set(['test', 'easy', 'medium', 'hard', 'catanatron', 'expert']);
+      let diff = allowed.has(raw) ? raw : 'test';
+      if (diff === 'expert') diff = 'catanatron';
 
       room.aiDifficulty = diff;
       // Apply to lobby players
@@ -7369,449 +7370,7 @@ function handleTimeout(room) {
 
   // Auto move robber to a random different (non-sea) tile
   if (phase === 'robber-move') {
-    const pid = game.currentPlayerId;
-    if (!pid) return false;
-    const current = getRobberTileId(game);
-    const cands = [];
-    for (let i = 0; i < game.geom.tiles.length; i++) {
-      const t = game.geom.tiles[i];
-      if (i === current) continue;
-      if (t.type === 'sea') continue;
-      cands.push(i);
-    }
-    const shuffled = shuffle(cands);
-    for (const tid of shuffled) {
-      const r = applyAction(room, pid, { kind: 'move_robber', tileId: tid });
-      if (r && r.ok) break;
-    }
-    syncTimer(game);
-    return true;
-  }
-
-  // Auto choose victim: steal from player with most resources
-  if (phase === 'robber-steal') {
-    const pid = game.currentPlayerId;
-    if (!pid) return false;
-    const victims = game.robberSteal?.victims || [];
-    const victimId = bestVictimByResources(game, victims);
-    if (victimId) applyAction(room, pid, { kind: 'robber_steal', victimId });
-    else {
-      game.robberContext = null;
-    game.thiefChoice = null;
-    game.pirateSteal = null;
-      game.robberSteal = null;
-      game.phase = 'main-actions';
-      game.message = `${playerName(game, pid)} may build or end turn.`;
-    }
-    syncTimer(game);
-    return true;
-  }
-
-  // Auto end turn on action timer
-  if (phase === 'main-actions') {
-    const pid = game.currentPlayerId;
-    if (!pid) return false;
-    applyAction(room, pid, { kind: 'end_turn' });
-    syncTimer(game);
-    return true;
-  }
-
-  // Fallback: reset timer so we don't spin
-  game.timer = null;
-  syncTimer(game);
-  return true;
-}
-
-// Server-controlled AI players (for faster testing).
-// The AI is intentionally simple: it auto-places during setup, auto-rolls, and
-// auto-ends turns. It also auto-responds to any blocking prompts.
-function handleAI(room) {
-  const game = room && room.game;
-  if (!game) return false;
-  if (game.paused) return false;
-  if (!Array.isArray(game.players) || !game.players.some(p => p && p.isAI)) return false;
-  if (game.phase === 'lobby' || game.phase === 'game-over') return false;
-
-  game.ai = (game.ai && typeof game.ai === 'object') ? game.ai : { nextAt: 0 };
-  const t = now();
-  if (t < (Number(game.ai.nextAt) || 0)) return false;
-
-  const aiCan = (pid, action) => {
-    try {
-      const g = deepClone(game);
-      const tmp = { game: g, _dryRun: true };
-      const r = applyAction(tmp, pid, action);
-      return !!(r && r.ok);
-    } catch (_) { return false; }
-  };
-
-  const delay = (msMin, msMax) => {
-    const a = Math.max(0, Math.floor(msMin || 0));
-    const b = Math.max(a, Math.floor(msMax || a));
-    game.ai.nextAt = now() + (a + Math.floor(Math.random() * (b - a + 1)));
-  };
-
-  const getAIDifficulty = (pid) => {
-    const p = playerById(game, pid);
-    const raw = String((p && p.aiDifficulty) || game.aiDifficulty || room.aiDifficulty || 'test').toLowerCase();
-    if (raw === 'easy' || raw === 'medium' || raw === 'hard') return raw;
-    return 'test';
-  };
-
-  const aiBudgetFor = (diff) => (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
-
-  const pickOne = (arr) => (arr && arr.length) ? arr[Math.floor(Math.random() * arr.length)] : null;
-
-  const missingFor = (res, cost) => {
-    const miss = {};
-    let total = 0;
-    for (const k of RESOURCE_KINDS) {
-      const need = Math.max(0, Math.floor(Number(cost?.[k] || 0)) - Math.floor(Number(res?.[k] || 0)));
-      if (need > 0) { miss[k] = need; total += need; }
-    }
-    return { miss, total };
-  };
-
-  const canAffordCost = (res, cost) => missingFor(res, cost).total === 0;
-
-  const boardHasSea = (game.geom.tiles || []).some(t => t && t.type === 'sea');
-  const isSeafarers = String(game?.rules?.mapMode || 'classic').toLowerCase() === 'seafarers';
-
-  const nodeTouchesLand = (nodeId) => {
-    if (!boardHasSea) return true;
-    const adj = game.geom.nodeAdjTiles?.[nodeId] || [];
-    return adj.some(tid => (game.geom.tiles?.[tid]?.type || '') !== 'sea');
-  };
-
-  const nodeConnectedToMe = (pid, nodeId) => {
-    const edges = game.geom.nodeEdges?.[nodeId] || [];
-    for (const eid of edges) {
-      const e = game.geom.edges?.[eid];
-      if (!e) continue;
-      if (e.roadOwner === pid) return true;
-      if (isSeafarers && e.shipOwner === pid) return true;
-    }
-    return false;
-  };
-
-  const listCityUpgrades = (pid) => {
-    const out = [];
-    for (let i = 0; i < (game.geom.nodes || []).length; i++) {
-      const b = game.geom.nodes?.[i]?.building;
-      if (b && b.owner === pid && b.type === 'settlement') out.push(i);
-    }
-    return out;
-  };
-
-  const listSettlementPlacements = (pid) => {
-    const out = [];
-    for (let i = 0; i < (game.geom.nodes || []).length; i++) {
-      const node = game.geom.nodes?.[i];
-      if (!node || node.building) continue;
-      if (!settlementDistanceOk(game, i)) continue;
-      if (!nodeTouchesLand(i)) continue;
-      if (!nodeConnectedToMe(pid, i)) continue;
-      out.push(i);
-    }
-    return out;
-  };
-
-  const edgeTouchesLand = (edgeId) => {
-    if (!boardHasSea) return true;
-    const adj = game.geom.edgeAdjTiles?.[edgeId] || [];
-    return adj.some(tid => (game.geom.tiles?.[tid]?.type || '') !== 'sea');
-  };
-
-  const edgeWouldExploreFog = (edgeId) => {
-    if (!isFogIslandGame(game)) return false;
-    const adj = game.geom.edgeAdjTiles?.[edgeId] || [];
-    let hasHiddenFog = false;
-    let hasKnown = false;
-    for (const tid of adj) {
-      const t = game.geom.tiles?.[tid];
-      if (!t) continue;
-      if (t.fog && !t.revealed) hasHiddenFog = true;
-      else hasKnown = true;
-    }
-    return hasHiddenFog && hasKnown;
-  };
-
-  const listRoadEdges = (pid, preferExplore = false) => {
-    const cands = [];
-    for (let i = 0; i < (game.geom.edges || []).length; i++) {
-      const e = game.geom.edges?.[i];
-      if (!e) continue;
-      if (e.roadOwner || e.shipOwner) continue;
-      if (!edgeTouchesLand(i)) continue;
-      if (!edgeConnectsToPlayer(game, i, pid)) continue;
-      const score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
-      cands.push({ id: i, score });
-    }
-    cands.sort((a, b) => b.score - a.score);
-    return cands.map(x => x.id);
-  };
-
-  const listShipEdges = (pid, preferExplore = false) => {
-    if (!isSeafarers) return [];
-    const cands = [];
-    for (let i = 0; i < (game.geom.edges || []).length; i++) {
-      const e = game.geom.edges?.[i];
-      if (!e) continue;
-      if (e.shipOwner || e.roadOwner) continue;
-      if (edgeTouchesPirate(game, i)) continue;
-      const adj = game.geom.edgeAdjTiles?.[i] || [];
-      const touchesSea = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea') || adj.length === 1;
-      if (!touchesSea) continue;
-
-      // Fog Island restriction: can't go "inside" unrevealed fog.
-      if (isFogIslandGame(game)) {
-        let hasHiddenFog = false;
-        let hasKnown = false;
-        for (const tid of adj) {
-          const t = game.geom.tiles?.[tid];
-          if (!t) continue;
-          if (t.fog && !t.revealed) hasHiddenFog = true;
-          else hasKnown = true;
-        }
-        if (hasHiddenFog && !hasKnown) continue;
-      }
-
-      // Connection: coastal building or another ship.
-      let connected = false;
-      const aBuild = game.geom.nodes?.[e.a]?.building;
-      const bBuild = game.geom.nodes?.[e.b]?.building;
-      if (aBuild && aBuild.owner === pid) connected = true;
-      if (bBuild && bBuild.owner === pid) connected = true;
-      if (!connected) {
-        const aEdges = game.geom.nodeEdges?.[e.a] || [];
-        const bEdges = game.geom.nodeEdges?.[e.b] || [];
-        for (const eid of aEdges) if (game.geom.edges?.[eid]?.shipOwner === pid) { connected = true; break; }
-        if (!connected) for (const eid of bEdges) if (game.geom.edges?.[eid]?.shipOwner === pid) { connected = true; break; }
-      }
-      if (!connected) continue;
-
-      const score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
-      cands.push({ id: i, score });
-    }
-    cands.sort((a, b) => b.score - a.score);
-    return cands.map(x => x.id);
-  };
-
-  const chooseBankTradeToEnable = (pid, targetCost) => {
-    const p = playerById(game, pid);
-    if (!p) return null;
-    if (!targetCost) return null;
-
-    const { miss, total } = missingFor(p.resources, targetCost);
-    if (total <= 0) return null;
-
-    ensureBank(game);
-
-    // Prefer trading for a missing resource that the bank can supply.
-    const needs = Object.keys(miss).filter(k => (game.bank?.[k] || 0) > 0);
-    if (!needs.length) return null;
-
-    let best = null;
-    for (const takeKind of needs) {
-      for (const giveKind of RESOURCE_KINDS) {
-        if (giveKind === takeKind) continue;
-        const ratio = tradeRatioFor(game, pid, giveKind);
-        const cost = ratio * 1;
-        if ((p.resources[giveKind] || 0) < cost) continue;
-        const score = (10 - ratio) + Math.min(6, (p.resources[giveKind] || 0) / ratio);
-        if (!best || score > best.score) best = { score, giveKind, takeKind, takeQty: 1 };
-      }
-    }
-    if (!best) return null;
-    return { kind: 'bank_trade', giveKind: best.giveKind, takeKind: best.takeKind, takeQty: 1 };
-  };
-
-  const wouldAcceptTrade = (pid, trade, diff) => {
-    const p = playerById(game, pid);
-    if (!p || !trade) return false;
-    if (diff === 'test' || diff === 'easy') return false;
-
-    // Must be able to pay what's requested.
-    for (const [k, n] of Object.entries(trade.request || {})) {
-      if ((p.resources?.[k] || 0) < (n || 0)) return false;
-    }
-
-    // Immediate-enabler check: does this trade allow a city/settlement/dev right away?
-    const resAfter = { ...p.resources };
-    for (const [k, n] of Object.entries(trade.request || {})) resAfter[k] = (resAfter[k] || 0) - (n || 0);
-    for (const [k, n] of Object.entries(trade.offer || {})) resAfter[k] = (resAfter[k] || 0) + (n || 0);
-
-    const canCity = canAffordCost(resAfter, BUILD_COSTS.city) && listCityUpgrades(pid).length > 0;
-    const canSettle = canAffordCost(resAfter, BUILD_COSTS.settlement) && listSettlementPlacements(pid).length > 0;
-    const canDev = canAffordCost(resAfter, DEV_CARD_COST) && (game.devDeck || []).length > 0;
-    if (canCity || canSettle || canDev) return true;
-
-    // Weighted value heuristic.
-    const weights = { brick: 1, lumber: 1, wool: 1, grain: 1, ore: 1 };
-    // Emphasize grain/ore if the player has settlements to upgrade.
-    if (listCityUpgrades(pid).length > 0) { weights.grain += 0.6; weights.ore += 0.9; }
-    // Emphasize the settlement set.
-    weights.brick += 0.4; weights.lumber += 0.4; weights.wool += 0.3; weights.grain += 0.2;
-    if (isSeafarers) { weights.wool += 0.1; weights.lumber += 0.1; }
-
-    const val = (obj) => {
-      let s = 0;
-      for (const k of RESOURCE_KINDS) s += (obj?.[k] || 0) * (weights[k] || 1);
-      return s;
-    };
-
-    const got = val(trade.offer);
-    const paid = val(trade.request);
-    if (paid <= 0) return true;
-
-    // Medium: be pickier. Hard: accept slightly favorable trades.
-    if (diff === 'medium') return got >= paid * 1.2;
-    return got >= paid * 0.9;
-  };
-
-  // 1) Unblock global vote/trade prompts quickly.
-  if (game.endVote && game.endVote.id && game.endVote.responses) {
-    for (const [pid, v] of Object.entries(game.endVote.responses)) {
-      if (v != null) continue;
-      const p = playerById(game, pid);
-      if (!p || !p.isAI) continue;
-      const r = applyAction(room, pid, { kind: 'respond_endgame', voteId: game.endVote.id, accept: true });
-      if (r && r.ok) { delay(120, 220); return true; }
-    }
-  }
-
-  if (game.pendingTrade && game.pendingTrade.id && game.pendingTrade.responses) {
-    for (const [pid, v] of Object.entries(game.pendingTrade.responses)) {
-      if (v != null) continue;
-      const p = playerById(game, pid);
-      if (!p || !p.isAI) continue;
-      const diff = getAIDifficulty(pid);
-      const accept = wouldAcceptTrade(pid, game.pendingTrade, diff);
-      const r = applyAction(room, pid, { kind: 'respond_trade', tradeId: game.pendingTrade.id, accept });
-      if (r && r.ok) { delay(120, 220); return true; }
-    }
-  }
-
-  // 2) Discards: resolve any pending AI discards.
-  if (game.phase === 'discard' && game.discard && game.discard.required) {
-    const required = game.discard.required || {};
-    const done = game.discard.done || {};
-    for (const pid of Object.keys(required)) {
-      if (done[pid]) continue;
-      const p = playerById(game, pid);
-      if (!p || !p.isAI) continue;
-      const req = Math.max(0, Math.floor(Number(required[pid] || 0)));
-      const cards = randomDiscardMap(p, req);
-      const r = applyAction(room, pid, { kind: 'discard_cards', cards });
-      if (r && r.ok) { delay(140, 260); return true; }
-    }
-  }
-
-  // 3) Gold discovery choice (Fog Island / exploration).
-  if (game.special && game.special.kind === 'discovery_gold' && game.special.forPlayerId) {
-    const pid = game.special.forPlayerId;
-    const p = playerById(game, pid);
-    if (p && p.isAI) {
-      const rk = RESOURCE_KINDS[Math.floor(Math.random() * RESOURCE_KINDS.length)];
-      const r = applyAction(room, pid, { kind: 'choose_discovery', resourceKind: rk });
-      if (r && r.ok) { delay(140, 260); return true; }
-    }
-  }
-
-  // 4) If it's an AI player's turn, take a simple action.
-  const pid = game.currentPlayerId;
-  const me = pid ? playerById(game, pid) : null;
-  if (!pid || !me || !me.isAI) return false;
-
-  const phase = String(game.phase || '');
-
-  if (phase === 'setup1-settlement' || phase === 'setup2-settlement') {
-    const rawScen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase();
-    const isTTD = rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'through_the_desert_map' || rawScen === 'desert';
-    const isFog = rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fog_island_56' || rawScen === 'fog-island-56' || rawScen === 'fog56';
-    const isHFNS = rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading';
-
-    const nodeIds = [];
-    for (let i = 0; i < game.geom.nodes.length; i++) {
-      const node = game.geom.nodes[i];
-      if (!node || node.building) continue;
-      if (!settlementDistanceOk(game, i)) continue;
-      if (isTTD && !nodeIsOnTTDStartIsland(game, i)) continue;
-      if (isFog && !nodeIsOnFogStartIslands(game, i)) continue;
-      if (isHFNS && !nodeIsOnHFNSMainIsland(game, i)) continue;
-      nodeIds.push(i);
-    }
-    const shuffled = shuffle(nodeIds.slice());
-    for (const nid of shuffled) {
-      if (!aiCan(pid, { kind: 'place_settlement', nodeId: nid })) continue;
-      const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
-      if (r && r.ok) { delay(240, 420); return true; }
-    }
-    // Fallback: try any node.
-    for (let nid = 0; nid < game.geom.nodes.length; nid++) {
-      if (!aiCan(pid, { kind: 'place_settlement', nodeId: nid })) continue;
-      const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
-      if (r && r.ok) { delay(240, 420); return true; }
-    }
-    delay(300, 500);
-    return false;
-  }
-
-  if (phase === 'setup1-road' || phase === 'setup2-road') {
-    const awaiting = game.setup && game.setup.awaiting;
-    const nid = awaiting && awaiting.playerId === pid ? awaiting.nodeId : null;
-    const edges = (nid != null) ? (game.geom.nodeEdges[nid] || []) : [];
-    const edgeIds = shuffle(edges.slice());
-    for (const eid of edgeIds) {
-      // Prefer roads if legal; otherwise try ships (Seafarers).
-      if (aiCan(pid, { kind: 'place_road', edgeId: eid })) {
-        const r = applyAction(room, pid, { kind: 'place_road', edgeId: eid });
-        if (r && r.ok) { delay(240, 420); return true; }
-      }
-      if (aiCan(pid, { kind: 'place_ship', edgeId: eid })) {
-        const r = applyAction(room, pid, { kind: 'place_ship', edgeId: eid });
-        if (r && r.ok) { delay(240, 420); return true; }
-      }
-    }
-    delay(240, 420);
-    return false;
-  }
-
-  if (phase === 'main-await-roll') {
-    const r = applyAction(room, pid, { kind: 'roll_dice' });
-    if (r && r.ok) { delay(200, 340); return true; }
-    delay(200, 340);
-    return false;
-  }
-
-  if (phase === 'pirate-or-robber') {
-    // Choose a random valid tile: land => robber, sea => pirate.
-    const land = [];
-    const sea = [];
-    const curR = getRobberTileId(game);
-    const curP = getPirateTileId(game);
-    for (let i = 0; i < game.geom.tiles.length; i++) {
-      const tt = game.geom.tiles[i];
-      if (!tt) continue;
-      if (tt.type === 'sea') { if (i !== curP) sea.push(i); }
-      else { if (i !== curR) land.push(i); }
-    }
-    shuffle(land);
-    shuffle(sea);
-    // Prefer robber if there is a land option.
-    if (land.length && aiCan(pid, { kind: 'move_robber', tileId: land[0] })) {
-      const r = applyAction(room, pid, { kind: 'move_robber', tileId: land[0] });
-      if (r && r.ok) { delay(220, 360); return true; }
-    }
-    if (sea.length && aiCan(pid, { kind: 'move_pirate', tileId: sea[0] })) {
-      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] });
-      if (r && r.ok) { delay(220, 360); return true; }
-    }
-    delay(220, 360);
-    return false;
-  }
-
-  if (phase === 'robber-move') {
+    const diff = getAIDifficulty(pid);
     const cur = getRobberTileId(game);
     const cands = [];
     for (let i = 0; i < game.geom.tiles.length; i++) {
@@ -7821,18 +7380,39 @@ function handleAI(room) {
       if (tt.type === 'sea') continue;
       cands.push(i);
     }
-    shuffle(cands);
-    if (cands.length) {
-      const r = applyAction(room, pid, { kind: 'move_robber', tileId: cands[0] });
-      if (r && r.ok) { delay(220, 360); return true; }
+    if (!cands.length) { delay(220, 360); return false; }
+
+    let pick = cands[0];
+    if (diff === 'hard' || diff === 'catanatron') {
+      let best = null;
+      for (const tid of cands) {
+        const s = _tileRobberBlockScore(game, tid, pid);
+        if (!best || s > best.s) best = { tid, s };
+      }
+      pick = best ? best.tid : pick;
+    } else {
+      shuffle(cands);
+      pick = cands[0];
     }
+
+    const r = applyAction(room, pid, { kind: 'move_robber', tileId: pick });
+    if (r && r.ok) { delay(220, 360); return true; }
     delay(220, 360);
     return false;
   }
 
   if (phase === 'robber-steal' && game.robberSteal && Array.isArray(game.robberSteal.victims)) {
-    const victims = shuffle(game.robberSteal.victims.slice());
-    const victimId = victims[0] || null;
+    const diff = getAIDifficulty(pid);
+    const victims = (game.robberSteal.victims || []).slice();
+    let victimId = null;
+
+    if (diff === 'hard' || diff === 'catanatron') {
+      victimId = _bestVictim(game, victims, pid);
+    } else {
+      shuffle(victims);
+      victimId = victims[0] || null;
+    }
+
     const r = applyAction(room, pid, { kind: 'robber_steal', victimId });
     if (r && r.ok) { delay(200, 340); return true; }
     delay(200, 340);
@@ -7840,6 +7420,7 @@ function handleAI(room) {
   }
 
   if (phase === 'pirate-move') {
+    const diff = getAIDifficulty(pid);
     const cur = getPirateTileId(game);
     const cands = [];
     for (let i = 0; i < game.geom.tiles.length; i++) {
@@ -7849,18 +7430,39 @@ function handleAI(room) {
       if (tt.type !== 'sea') continue;
       cands.push(i);
     }
-    shuffle(cands);
-    if (cands.length) {
-      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: cands[0] });
-      if (r && r.ok) { delay(220, 360); return true; }
+    if (!cands.length) { delay(220, 360); return false; }
+
+    let pick = cands[0];
+    if (diff === 'hard' || diff === 'catanatron') {
+      let best = null;
+      for (const tid of cands) {
+        const s = _tilePirateBlockScore(game, tid, pid);
+        if (!best || s > best.s) best = { tid, s };
+      }
+      pick = best ? best.tid : pick;
+    } else {
+      shuffle(cands);
+      pick = cands[0];
     }
+
+    const r = applyAction(room, pid, { kind: 'move_pirate', tileId: pick });
+    if (r && r.ok) { delay(220, 360); return true; }
     delay(220, 360);
     return false;
   }
 
   if (phase === 'pirate-steal' && game.pirateSteal && Array.isArray(game.pirateSteal.victims)) {
-    const victims = shuffle(game.pirateSteal.victims.slice());
-    const victimId = victims[0] || null;
+    const diff = getAIDifficulty(pid);
+    const victims = (game.pirateSteal.victims || []).slice();
+    let victimId = null;
+
+    if (diff === 'hard' || diff === 'catanatron') {
+      victimId = _bestVictim(game, victims, pid);
+    } else {
+      shuffle(victims);
+      victimId = victims[0] || null;
+    }
+
     const r = applyAction(room, pid, { kind: 'pirate_steal', victimId });
     if (r && r.ok) { delay(200, 340); return true; }
     delay(200, 340);
@@ -7874,11 +7476,12 @@ function handleAI(room) {
 
     // Per-turn AI memory (action budget + one bank trade).
     game.ai.mem = (game.ai.mem && typeof game.ai.mem === 'object') ? game.ai.mem : {};
-    const mem = (game.ai.mem[pid] && typeof game.ai.mem[pid] === 'object') ? game.ai.mem[pid] : { turn: null, actions: 0, traded: false };
+    const mem = (game.ai.mem[pid] && typeof game.ai.mem[pid] === 'object') ? game.ai.mem[pid] : { turn: null, actions: 0, traded: false, tradeCount: 0 };
     if (mem.turn !== game.turnNumber) {
       mem.turn = game.turnNumber;
       mem.actions = 0;
       mem.traded = false;
+      mem.tradeCount = 0;
     }
     game.ai.mem[pid] = mem;
 
@@ -7907,11 +7510,33 @@ function handleAI(room) {
 
     const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
 
+    // Catanatron (Expert): value-based one-step lookahead each AI tick.
+    if (diff === 'catanatron') {
+      const action = _chooseBestActionCatanatron(pid, preferExplore, mem, budget);
+      if (action) {
+        const r = applyAction(room, pid, action);
+        if (r && r.ok) {
+          mem.actions++;
+          if (action.kind === 'bank_trade') mem.tradeCount = (mem.tradeCount || 0) + 1;
+          delay(220, 380);
+          return true;
+        }
+      }
+      // If no action improves the position, end the turn.
+      const r = applyAction(room, pid, { kind: 'end_turn' });
+      if (r && r.ok) { delay(220, 360); return true; }
+      delay(220, 360);
+      return false;
+    }
+
+
     // 1) Try immediate VP upgrades.
     if (canAfford(p.resources, BUILD_COSTS.city)) {
       const cityNodes = listCityUpgrades(pid);
       if (cityNodes.length) {
-        const nodeId = pickOne(cityNodes);
+        const nodeId = cityNodes
+          .map(id => ({ id, score: nodeStrategicScore(pid, id) }))
+          .sort((a, b) => b.score - a.score)[0]?.id;
         if (nodeId != null && aiCan(pid, { kind: 'upgrade_city', nodeId })) {
           const r = applyAction(room, pid, { kind: 'upgrade_city', nodeId });
           if (r && r.ok) { mem.actions++; delay(220, 360); return true; }
@@ -7922,8 +7547,7 @@ function handleAI(room) {
     if (canAfford(p.resources, BUILD_COSTS.settlement)) {
       const setNodes = listSettlementPlacements(pid);
       if (setNodes.length) {
-        // Prefer a settlement that triggers exploration bonuses (new island / desert far-side handled by rules).
-        const nodeId = pickOne(setNodes);
+        const nodeId = setNodes[0]?.id;
         if (nodeId != null && aiCan(pid, { kind: 'place_settlement', nodeId })) {
           const r = applyAction(room, pid, { kind: 'place_settlement', nodeId });
           if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
@@ -7948,7 +7572,7 @@ function handleAI(room) {
     if (isSeafarers && canAfford(p.resources, BUILD_COSTS.ship)) {
       const shipEdges = listShipEdges(pid, preferExplore);
       if (shipEdges.length) {
-        const edgeId = pickOne(shipEdges);
+        const edgeId = shipEdges[0];
         if (edgeId != null && aiCan(pid, { kind: 'place_ship', edgeId })) {
           const r = applyAction(room, pid, { kind: 'place_ship', edgeId });
           if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
@@ -7959,7 +7583,7 @@ function handleAI(room) {
     if (canAfford(p.resources, BUILD_COSTS.road)) {
       const roadEdges = listRoadEdges(pid, preferExplore);
       if (roadEdges.length) {
-        const edgeId = pickOne(roadEdges);
+        const edgeId = roadEdges[0];
         if (edgeId != null && aiCan(pid, { kind: 'place_road', edgeId })) {
           const r = applyAction(room, pid, { kind: 'place_road', edgeId });
           if (r && r.ok) { mem.actions++; delay(240, 420); return true; }
