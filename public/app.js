@@ -2149,7 +2149,7 @@ function syncPostgameToState() {
   const turnBell = new Audio('assets/sfx/turn_bell.wav');
   turnBell.preload = 'auto';
   turnBell.volume = 0.85;
-  let lastBellTurnNumber = -1;
+  let lastBellKey = '';
 
 
   // --- Shared SFX (broadcast by server; played locally on all clients) ---
@@ -2198,6 +2198,23 @@ function syncPostgameToState() {
     if (sfxUnlocked) return;
     sfxUnlocked = true;
     try { Object.values(sfx).forEach(x => x.prime()); } catch (_) {}
+
+    // Prime turn bell too (avoids autoplay blocks during early setup turns)
+    try {
+      const prevVol = turnBell.volume;
+      turnBell.volume = 0;
+      try { turnBell.currentTime = 0; } catch (_) {}
+      const p = turnBell.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => {
+          try { turnBell.pause(); } catch (_) {}
+          try { turnBell.currentTime = 0; } catch (_) {}
+          turnBell.volume = prevVol;
+        }).catch(() => { turnBell.volume = prevVol; });
+      } else {
+        turnBell.volume = prevVol;
+      }
+    } catch (_) {}
   }
   window.addEventListener('pointerdown', unlockSfxOnce, { once: true, passive: true });
   window.addEventListener('keydown', unlockSfxOnce, { once: true });
@@ -2555,16 +2572,30 @@ function syncPostgameToState() {
     } catch (_) {}
   }
 
+  function shouldRingTurnBell(st) {
+    if (!st) return false;
+    const phase = String(st.phase || '');
+    if (phase.startsWith('setup')) return true;
+    if (phase === 'main-await-roll') return true;
+    // In Classic 5–6 paired system, Player 2 acts in main-actions (no roll)
+    if (phase === 'main-actions' && st.paired && st.paired.enabled && String(st.paired.stage || '') === 'p2') return true;
+    return false;
+  }
+
   function maybePlayTurnBell() {
     try {
       if (!state || !myPlayerId) return;
-      const myTurn = (state.currentPlayerId === myPlayerId);
-      if (!myTurn) return;
-      if (state.phase !== 'main-await-roll') return;
-      const tn = (state.turnNumber ?? 0);
-      if (tn === lastBellTurnNumber) return;
-      lastBellTurnNumber = tn;
-      turnBell.currentTime = 0;
+      if (state.currentPlayerId !== myPlayerId) return;
+      if (!shouldRingTurnBell(state)) return;
+
+      const paired = state.paired || null;
+      const stage = (paired && paired.enabled) ? String(paired.stage || '') : '';
+      const key = `${String(state.phase || '')}|${state.turnNumber ?? 0}|${myPlayerId}|${stage}`;
+
+      if (key === lastBellKey) return;
+      lastBellKey = key;
+
+      try { turnBell.currentTime = 0; } catch (_) {}
       const p = turnBell.play();
       if (p && typeof p.catch === 'function') p.catch(() => {});
     } catch (e) {
