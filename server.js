@@ -1600,6 +1600,28 @@ const BUILD_COSTS = {
 
 const DEV_CARD_COST = { wool: 1, grain: 1, ore: 1 };
 
+// Piece limits (standard Catan)
+const PIECE_LIMITS = { settlements: 5, cities: 4, roads: 15, ships: 15 };
+
+function countPiecesOnBoard(game, playerId) {
+  const out = { settlements: 0, cities: 0, roads: 0, ships: 0 };
+  const nodes = (game && game.geom && Array.isArray(game.geom.nodes)) ? game.geom.nodes : [];
+  for (const n of nodes) {
+    const b = n && n.building;
+    if (!b || b.owner !== playerId) continue;
+    if (b.type === 'settlement') out.settlements += 1;
+    else if (b.type === 'city') out.cities += 1;
+  }
+  const edges = (game && game.geom && Array.isArray(game.geom.edges)) ? game.geom.edges : [];
+  for (const e of edges) {
+    if (!e) continue;
+    if (e.roadOwner === playerId) out.roads += 1;
+    if (e.shipOwner === playerId) out.ships += 1;
+  }
+  return out;
+}
+
+
 const DEV_CARD_TYPES = {
   KNIGHT: 'knight',
   ROAD_BUILDING: 'road_building',
@@ -4745,6 +4767,10 @@ function applyAction(room, playerId, action) {
       return { ok: false, error: 'Not the right phase for settlement.' };
     }
 
+    // Enforce piece limits
+    const pc = countPiecesOnBoard(game, playerId);
+    if (pc.settlements >= PIECE_LIMITS.settlements) return { ok: false, error: 'You have no settlements remaining.' };
+
     // Through the Desert: initial settlements are restricted to the starting island (pink region in the template).
     if ((game.rules?.mapMode || 'classic') === 'seafarers' && (seafarersScenarioKey(game) === 'through_the_desert' || seafarersScenarioKey(game) === 'through_the_desert_56')) {
       if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
@@ -4907,6 +4933,16 @@ if (ttdFarSideBonus) {
 
     const p = playerById(game, playerId);
     if (!p) return { ok: false, error: 'Missing player.' };
+
+    // Enforce piece limits
+    {
+      const pc = countPiecesOnBoard(game, playerId);
+      if (pc.roads >= PIECE_LIMITS.roads) return { ok: false, error: 'You have no roads remaining.' };
+    }
+
+    // Enforce piece limits
+    const pc = countPiecesOnBoard(game, playerId);
+    if (pc.cities >= PIECE_LIMITS.cities) return { ok: false, error: 'You have no cities remaining.' };
     let usedFreeRoad = false;
 
 
@@ -5022,6 +5058,12 @@ if (ttdFarSideBonus) {
 
     const p = playerById(game, playerId);
     if (!p) return { ok: false, error: 'Missing player.' };
+
+    // Enforce piece limits
+    {
+      const pc = countPiecesOnBoard(game, playerId);
+      if (pc.ships >= PIECE_LIMITS.ships) return { ok: false, error: 'You have no ships remaining.' };
+    }
 
     if (inSetup) {
       // Setup ships must connect to the settlement just placed this setup step.
