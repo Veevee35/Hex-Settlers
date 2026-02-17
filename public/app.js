@@ -3243,7 +3243,10 @@ function syncPostgameToState() {
       if (ui.aiDifficultySelect) {
         ui.aiDifficultySelect.disabled = !canManageAI;
         const rawDiff = String(room?.aiDifficulty || 'test').toLowerCase();
-        const diff = (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard') ? rawDiff : 'test';
+        let diff = 'test';
+        if (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard' || rawDiff === 'catanatron' || rawDiff === 'expert') {
+          diff = (rawDiff === 'expert') ? 'catanatron' : rawDiff;
+        }
         ui.aiDifficultySelect.value = diff;
       }
 
