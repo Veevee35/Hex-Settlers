@@ -5223,16 +5223,31 @@ if (ttdFarSideBonus) {
     game.lastEvent = { id: game.eventSeq++, type: 'devcard_draw', playerId, cardType, cardId: card.id };
     game.message = `${playerName(game, playerId)} bought a development card.`;
     pushLog(game, `${playerName(game, playerId)} bought a development card.`, 'dev');
+    broadcastSfx(room, 'dev_card');
     return { ok: true };
   }
 
   if (kind === 'play_dev_card') {
-    if (game.phase !== 'main-actions') return { ok: false, error: 'You can only play a development card during your action phase.' };
+    const phaseBeforeDev = game.phase;
+    if (phaseBeforeDev !== 'main-actions' && phaseBeforeDev !== 'main-await-roll') {
+      return { ok: false, error: 'You can only play a development card on your turn.' };
+    }
     const cardId = action.cardId;
     const p = playerById(game, playerId);
     if (!p) return { ok: false, error: 'Missing player.' };
     const card = (p.devCards || []).find(c => c.id === cardId);
     if (!card) return { ok: false, error: 'Card not found.' };
+
+    // Allow certain development cards to be played before rolling (main-await-roll).
+    if (phaseBeforeDev === 'main-await-roll') {
+      const preRollOk =
+        card.type === DEV_CARD_TYPES.KNIGHT ||
+        card.type === DEV_CARD_TYPES.ROAD_BUILDING ||
+        card.type === DEV_CARD_TYPES.INVENTION ||
+        card.type === DEV_CARD_TYPES.MONOPOLY ||
+        card.type === DEV_CARD_TYPES.VICTORY_POINT;
+      if (!preRollOk) return { ok: false, error: 'Roll first.' };
+    }
     if (card.played) return { ok: false, error: 'That card has already been played.' };
 
     const isVP = card.type === DEV_CARD_TYPES.VICTORY_POINT;
@@ -5246,6 +5261,7 @@ if (ttdFarSideBonus) {
       computeVP(game);
       game.message = `${playerName(game, playerId)} played a Victory Point card.`;
       pushLog(game, `${playerName(game, playerId)} played a Victory Point card.`, 'dev', { card: 'victory_point' });
+      broadcastSfx(room, 'dev_card');
       checkWin(room, game, playerId);
       return { ok: true };
     }
@@ -5254,6 +5270,7 @@ if (ttdFarSideBonus) {
     p.devPlayedTurn = game.turnNumber;
     card.played = true;
     try { recordDevPlayed(game, playerId, card.type); } catch (_) {}
+    broadcastSfx(room, 'dev_card');
 
     if (card.type === DEV_CARD_TYPES.KNIGHT) {
       broadcastSfx(room, 'robber_pirate');
@@ -5268,7 +5285,7 @@ if (ttdFarSideBonus) {
       checkWin(room, game, playerId);
       if (game.phase === 'game-over') return { ok: true };
 
-      game.robberContext = { source: 'knight', playerId, cardId };
+      game.robberContext = { source: 'knight', playerId, cardId, preRoll: (phaseBeforeDev === 'main-await-roll') };
       if ((game.rules?.mapMode || 'classic') === 'seafarers') {
         startThiefChoice(game, 'knight', playerId);
       } else {
@@ -5507,12 +5524,18 @@ if (ttdFarSideBonus) {
       game.phase = 'robber-steal';
       game.message = `${playerName(game, playerId)} moved the robber. Choose a player to steal 1 random resource from.`;
     } else {
+      const ctx = game.robberContext;
+      const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
+
       game.robberContext = null;
-    game.thiefChoice = null;
-    game.pirateSteal = null;
+      game.thiefChoice = null;
+      game.pirateSteal = null;
       game.robberSteal = null;
-      game.phase = 'main-actions';
-      game.message = `Robber moved. ${playerName(game, playerId)} may build or end turn.`;
+
+      game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+      game.message = backToAwaitRoll
+        ? `Robber moved. ${playerName(game, playerId)}: Roll the dice.`
+        : `Robber moved. ${playerName(game, playerId)} may build or end turn.`;
     }
     return { ok: true };
   }
@@ -5545,18 +5568,21 @@ if (ttdFarSideBonus) {
       }
     }
 
+    const ctx = game.robberContext;
+    const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
+
     game.robberContext = null;
     game.thiefChoice = null;
     game.pirateSteal = null;
     game.robberSteal = null;
-    game.phase = 'main-actions';
+    game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
     if (stolenKind) {
       // Private event: only the thief sees which resource was stolen
       game.lastEvent = { id: game.eventSeq++, type: 'steal_result', playerId, victimId: victimIdUsed, resourceKind: stolenKind };
-      game.message = `${playerName(game, playerId)} stole 1 resource.`;
+      game.message = backToAwaitRoll ? `${playerName(game, playerId)} stole 1 resource. Roll the dice.` : `${playerName(game, playerId)} stole 1 resource.`;
       pushLog(game, `${playerName(game, playerId)} stole 1 resource from ${playerName(game, victimIdUsed)}.`, 'robber', { victimId: victimIdUsed });
     } else {
-      game.message = `${playerName(game, playerId)} may build or end turn.`;
+      game.message = backToAwaitRoll ? `${playerName(game, playerId)}: Roll the dice.` : `${playerName(game, playerId)} may build or end turn.`;
       pushLog(game, `${playerName(game, playerId)} attempted to steal, but no resource was taken.`, 'robber');
     }
     return { ok: true };
@@ -5611,12 +5637,17 @@ if (kind === 'move_pirate') {
     game.phase = 'pirate-steal';
     game.message = `${playerName(game, playerId)} moved the pirate. Choose a player to steal 1 random resource from.`;
   } else {
+    const ctx = game.robberContext;
+    const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
+
     game.robberContext = null;
     game.thiefChoice = null;
     game.pirateSteal = null;
-    game.pirateSteal = null;
-    game.phase = 'main-actions';
-    game.message = `Pirate moved. ${playerName(game, playerId)} may build or end turn.`;
+
+    game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+    game.message = backToAwaitRoll
+      ? `Pirate moved. ${playerName(game, playerId)}: Roll the dice.`
+      : `Pirate moved. ${playerName(game, playerId)} may build or end turn.`;
   }
   return { ok: true };
 }
@@ -5649,15 +5680,18 @@ if (kind === 'pirate_steal') {
     }
   }
 
+  const ctx = game.robberContext;
+  const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
+
   game.robberContext = null;
   game.pirateSteal = null;
-  game.phase = 'main-actions';
+  game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
   if (stolenKind) {
     game.lastEvent = { id: game.eventSeq++, type: 'steal_result', playerId, victimId: victimIdUsed, resourceKind: stolenKind };
-    game.message = `${playerName(game, playerId)} stole 1 resource.`;
+    game.message = backToAwaitRoll ? `${playerName(game, playerId)} stole 1 resource. Roll the dice.` : `${playerName(game, playerId)} stole 1 resource.`;
     pushLog(game, `${playerName(game, playerId)} stole 1 resource from ${playerName(game, victimIdUsed)}.`, 'robber', { victimId: victimIdUsed, pirate: true });
   } else {
-    game.message = `${playerName(game, playerId)} may build or end turn.`;
+    game.message = backToAwaitRoll ? `${playerName(game, playerId)}: Roll the dice.` : `${playerName(game, playerId)} may build or end turn.`;
     pushLog(game, `${playerName(game, playerId)} attempted to steal, but no resource was taken.`, 'robber', { pirate: true });
   }
   return { ok: true };
@@ -5711,6 +5745,7 @@ if (kind === 'pirate_steal') {
 
     game.message = `${playerName(game, playerId)} traded with the bank (${ratio}:1).`;
     pushLog(game, `${playerName(game, playerId)} traded ${cost} ${giveKind} for ${takeQty} ${takeKind} (bank).`, 'trade', { kind: 'bank', giveKind, takeKind, takeQty, ratio });
+    broadcastSfx(room, 'trade_success');
     return { ok: true };
   }
 
@@ -5780,6 +5815,7 @@ if (kind === 'pirate_steal') {
       game.message = `${playerName(game, playerId)} proposed a trade.`;
       pushLog(game, `${playerName(game, playerId)} proposed a trade.`, 'trade', { kind: 'player_global', tradeId });
     }
+    broadcastSfx(room, 'trade_proposed');
     return { ok: true };
   }
 
@@ -5876,6 +5912,7 @@ if (kind === 'pirate_steal') {
     game.pendingTrade = null;
     game.message = `${playerName(game, t.fromId)} traded with ${playerName(game, withPlayerId)}.`;
     pushLog(game, `${playerName(game, t.fromId)} traded with ${playerName(game, withPlayerId)}.`, 'trade', { kind: 'accept', tradeId, withPlayerId });
+    broadcastSfx(room, 'trade_success');
     return { ok: true };
   }
 

@@ -2187,6 +2187,10 @@ function syncPostgameToState() {
     robber_pirate: makeSfxPool('assets/sfx/robber_pirate.wav', 0.9, 3),
     structure: makeSfxPool('assets/sfx/structure.wav', 0.85, 4),
     end_turn: makeSfxPool('assets/sfx/end_turn.wav', 0.9, 2),
+    dev_card: makeSfxPool('assets/sfx/dev_card.wav', 0.9, 2),
+    trade_proposed: makeSfxPool('assets/sfx/trade_proposed.wav', 0.9, 1),
+    trade_success: makeSfxPool('assets/sfx/trade_success.wav', 0.9, 1),
+    paired_turn: makeSfxPool('assets/sfx/paired_turn.wav', 0.85, 1),
   };
 
   let sfxUnlocked = false;
@@ -2501,6 +2505,7 @@ function syncPostgameToState() {
           else { view.scale = 150; view.ox = 0; view.oy = 0; }
         }
         maybePlayTurnBell();
+        maybePlayPairedTurnSfx();
         scheduleEndTurnWarn();
         handleLastEvent();
         handlePendingTradePrompt();
@@ -2531,6 +2536,23 @@ function syncPostgameToState() {
   function send(obj) {
     if (!ws || ws.readyState !== 1) return;
     ws.send(JSON.stringify(obj));
+  }
+
+
+  // Paired-turn notification (Classic 5–6 & Seafarers 5–6): played only for the active paired player (Player 2).
+  let lastPairedTurnKey = null;
+  function maybePlayPairedTurnSfx() {
+    try {
+      if (!state || !myPlayerId) return;
+      const paired = state.paired;
+      if (!paired || !paired.enabled) return;
+      if (String(paired.stage || '') !== 'p2') return;
+      if (state.currentPlayerId !== myPlayerId) return;
+      const key = `${state.turnNumber ?? 0}:${myPlayerId}:${paired.p1Id || ''}:${paired.stage}`;
+      if (key === lastPairedTurnKey) return;
+      lastPairedTurnKey = key;
+      playSfx('paired_turn');
+    } catch (_) {}
   }
 
   function maybePlayTurnBell() {
@@ -4280,7 +4302,9 @@ if (ui.moveShipBtn) {
     }
 
     const myTurn = state.currentPlayerId === myPlayerId;
-    const canPlayPhase = myTurn && state.phase === 'main-actions';
+    const actionPhase = myTurn && state.phase === 'main-actions';
+    const awaitRollPhase = myTurn && state.phase === 'main-await-roll';
+    const preRollPlayable = new Set(['knight','road_building','invention','monopoly','victory_point']);
 
     for (const card of hand) {
       const row = document.createElement('div');
@@ -4307,14 +4331,16 @@ if (ui.moveShipBtn) {
       const alreadyPlayedThisTurn = (me.devPlayedTurn === state.turnNumber);
       const blockedByNew = (!isVP && isNew);
       const blockedByLimit = (!isVP && alreadyPlayedThisTurn);
-      const playable = !card.played && ((isVP && myTurn) || (!isVP && canPlayPhase && !blockedByNew && !blockedByLimit));
+      const canPlayNonVP = actionPhase || (awaitRollPhase && preRollPlayable.has(card.type));
+      const playable = !card.played && ((isVP && myTurn) || (!isVP && myTurn && canPlayNonVP && !blockedByNew && !blockedByLimit));
 
       if (card.played) meta.textContent = 'Used.';
       else if (isVP) meta.textContent = 'Playable any time on your turn.';
       else if (!myTurn) meta.textContent = 'Wait for your turn.';
-      else if (!canPlayPhase) meta.textContent = 'Roll first.';
       else if (blockedByNew) meta.textContent = 'New (can’t play this turn).';
       else if (blockedByLimit) meta.textContent = 'Already played a dev card this turn.';
+      else if (awaitRollPhase) meta.textContent = preRollPlayable.has(card.type) ? 'Playable before rolling.' : 'Roll first.';
+      else if (!actionPhase) meta.textContent = 'Not playable right now.';
       else meta.textContent = 'Ready.';
 
       text.appendChild(name);
