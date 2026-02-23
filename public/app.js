@@ -2749,10 +2749,14 @@ function syncPostgameToState() {
 
   // -------------------- Tools: Log / Dice / Chat --------------------
 
-  function formatTs(ts) {
+  function formatTs(ts, { withSeconds = false } = {}) {
     try {
       const d = new Date(ts);
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return d.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        ...(withSeconds ? { second: '2-digit' } : {}),
+      });
     } catch {
       return '';
     }
@@ -2953,7 +2957,7 @@ function syncPostgameToState() {
 
     const ts = document.createElement('span');
     ts.className = 'logTs';
-    ts.textContent = `[${formatTs(entry.ts)}]`;
+    ts.textContent = `[${formatTs(entry.ts, { withSeconds: true })}]`;
     row.appendChild(ts);
 
     // Rich production rows: show per-player gains with resource icons.
