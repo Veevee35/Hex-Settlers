@@ -137,6 +137,10 @@
   const TAB_UI_SCALE_MIN = 0.8;
   const TAB_UI_SCALE_MAX = 2.0;
   const TAB_UI_SCALE_STEP = 0.1;
+  const TOOL_UI_SCALE_PREFIX = 'hexsettlers_tool_ui_scale_v1_';
+  const TOOL_UI_SCALE_MIN = 0.8;
+  const TOOL_UI_SCALE_MAX = 2.0;
+  const TOOL_UI_SCALE_STEP = 0.1;
 
   let tabUiScale = 1;
   const tabScaleLabels = [];
@@ -293,6 +297,95 @@
     tabUiScale = clampTabUiScale(saved || 1);
     installTabScaleControls();
     applyTabUiScale();
+  }
+
+  function clampToolUiScale(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(TOOL_UI_SCALE_MIN, Math.min(TOOL_UI_SCALE_MAX, Math.round(n * 100) / 100));
+  }
+
+  function getToolUiScale(scaleId) {
+    let saved = 1;
+    try {
+      const raw = localStorage.getItem(`${TOOL_UI_SCALE_PREFIX}${String(scaleId || 'tool')}`);
+      if (raw != null && raw !== '') saved = Number(raw);
+    } catch (_) {}
+    return clampToolUiScale(saved || 1);
+  }
+
+  function setToolUiScale(scaleId, value, wrap, label) {
+    const next = clampToolUiScale(value);
+    try { localStorage.setItem(`${TOOL_UI_SCALE_PREFIX}${String(scaleId || 'tool')}`, String(next)); } catch (_) {}
+    if (wrap) wrap.style.setProperty('--tool-ui-scale', String(next));
+    if (label) {
+      const txt = `${Math.round(next * 100)}%`;
+      label.textContent = txt;
+      label.title = `Tab size ${txt}`;
+    }
+  }
+
+  function bumpToolUiScale(scaleId, delta, wrap, label) {
+    const base = getToolUiScale(scaleId);
+    const next = Math.round((base + delta) * 10) / 10;
+    setToolUiScale(scaleId, next, wrap, label);
+  }
+
+  function makeToolScaleControl(scaleId, wrap, { title = 'Scale this tab' } = {}) {
+    const ctrl = document.createElement('div');
+    ctrl.className = 'toolScaleControl';
+    ctrl.title = title;
+
+    const minus = document.createElement('button');
+    minus.type = 'button';
+    minus.className = 'tabScaleBtn';
+    minus.textContent = '−';
+    minus.setAttribute('aria-label', 'Smaller tab text');
+
+    const label = document.createElement('div');
+    label.className = 'tabScaleLabel';
+
+    const plus = document.createElement('button');
+    plus.type = 'button';
+    plus.className = 'tabScaleBtn';
+    plus.textContent = '+';
+    plus.setAttribute('aria-label', 'Larger tab text');
+
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'tabScaleBtn';
+    reset.textContent = 'A';
+    reset.setAttribute('aria-label', 'Reset tab text size');
+    reset.title = 'Reset tab size to 100%';
+
+    minus.addEventListener('click', () => bumpToolUiScale(scaleId, -TOOL_UI_SCALE_STEP, wrap, label));
+    plus.addEventListener('click', () => bumpToolUiScale(scaleId, TOOL_UI_SCALE_STEP, wrap, label));
+    reset.addEventListener('click', () => setToolUiScale(scaleId, 1, wrap, label));
+
+    ctrl.appendChild(minus);
+    ctrl.appendChild(label);
+    ctrl.appendChild(plus);
+    ctrl.appendChild(reset);
+
+    setToolUiScale(scaleId, getToolUiScale(scaleId), wrap, label);
+    return ctrl;
+  }
+
+  function makeScalableToolWrap(scaleId, controlTitle) {
+    const wrap = document.createElement('div');
+    wrap.className = 'toolWrap toolWrapScaled';
+    wrap.dataset.scaleId = String(scaleId || 'tool');
+
+    const ctrlRow = document.createElement('div');
+    ctrlRow.className = 'toolScaleRow';
+    ctrlRow.appendChild(makeToolScaleControl(scaleId, wrap, { title: controlTitle || 'Scale this tab' }));
+
+    const content = document.createElement('div');
+    content.className = 'toolScaleContent';
+
+    wrap.appendChild(ctrlRow);
+    wrap.appendChild(content);
+    return { wrap, content };
   }
 
 // -------------------- Post-game overlay (splash + stats) --------------------
@@ -2899,12 +2992,11 @@ function syncPostgameToState() {
   function openChatModal() {
     activeToolModal = 'chat';
 
-    const wrap = document.createElement('div');
-    wrap.className = 'toolWrap';
+    const { wrap, content } = makeScalableToolWrap('chat', 'Scale Chat tab');
 
     const list = document.createElement('div');
     list.className = 'chatList';
-    wrap.appendChild(list);
+    content.appendChild(list);
 
     const row = document.createElement('div');
     row.className = 'chatInputRow';
@@ -2931,7 +3023,7 @@ function syncPostgameToState() {
 
     row.appendChild(input);
     row.appendChild(sendBtn);
-    wrap.appendChild(row);
+    content.appendChild(row);
 
     chatRefs = { list, input };
 
@@ -2948,9 +3040,9 @@ function syncPostgameToState() {
 
   function openRoomIdsModal() {
     if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
+    activeToolModal = 'ids';
 
-    const wrap = document.createElement('div');
-    wrap.className = 'toolWrap';
+    const { wrap, content } = makeScalableToolWrap('ids', 'Scale Room IDs tab');
 
     const codeRow = document.createElement('div');
     codeRow.style.display = 'flex';
@@ -2976,7 +3068,7 @@ function syncPostgameToState() {
     codeRow.appendChild(codeLabel);
     codeRow.appendChild(codeVal);
     codeRow.appendChild(copyCode);
-    wrap.appendChild(codeRow);
+    content.appendChild(codeRow);
 
     const list = document.createElement('div');
     list.style.display = 'flex';
@@ -3030,7 +3122,7 @@ function syncPostgameToState() {
       list.appendChild(row);
     }
 
-    wrap.appendChild(list);
+    content.appendChild(list);
 
     openModal({
       title: 'Room IDs (host only)',
@@ -3157,15 +3249,14 @@ function syncPostgameToState() {
   function openLogModal() {
     activeToolModal = 'log';
 
-    const wrap = document.createElement('div');
-    wrap.className = 'toolWrap';
+    const { wrap, content } = makeScalableToolWrap('log', 'Scale Game Log tab');
 
     const list = document.createElement('div');
     list.className = 'logList';
 
     renderLogList(list);
 
-    wrap.appendChild(list);
+    content.appendChild(list);
     openModal({
       title: 'Game Log',
       bodyNode: wrap,
@@ -3216,8 +3307,7 @@ function syncPostgameToState() {
 
     const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
 
-    const wrap = document.createElement('div');
-    wrap.className = 'toolWrap';
+    const { wrap, content } = makeScalableToolWrap('rules', 'Scale Rules tab');
 
     const table = document.createElement('table');
     table.className = 'diceTable';
@@ -3240,14 +3330,14 @@ function syncPostgameToState() {
     addRow('Timer Speed', `${timerSpeedName()} (setup ${msToS(setupMs)} / turn ${msToS(playMs)} / micro ${msToS(microMs)})`);
 
     table.appendChild(tbody);
-    wrap.appendChild(table);
+    content.appendChild(table);
 
     if (is56) {
       const note = document.createElement('div');
       note.className = 'smallNote';
       note.style.marginTop = '10px';
       note.textContent = 'Paired turns: Player 1 rolls + takes a full action phase. If they do not win, Player 2 takes an action phase (bank trade only). The third player to the left of Player 1 is Player 2. After Player 2 ends, pass to the next Player 1.';
-      wrap.appendChild(note);
+      content.appendChild(note);
     }
 
     openModal({
@@ -3260,8 +3350,7 @@ function syncPostgameToState() {
   function openDiceModal() {
     activeToolModal = 'dice';
 
-    const wrap = document.createElement('div');
-    wrap.className = 'toolWrap';
+    const { wrap, content } = makeScalableToolWrap('dice', 'Scale Dice Stats tab');
 
     const ds = (state && state.diceStats) ? state.diceStats : null;
     const total = ds ? Object.values(ds).reduce((a, v) => a + v, 0) : 0;
@@ -3286,8 +3375,8 @@ function syncPostgameToState() {
     note.className = 'smallNote';
     note.textContent = `Total rolls: ${total}`;
 
-    wrap.appendChild(note);
-    wrap.appendChild(table);
+    content.appendChild(note);
+    content.appendChild(table);
 
     openModal({
       title: 'Dice Statistics',
@@ -3306,12 +3395,11 @@ function syncPostgameToState() {
     }
     if (activeToolModal === 'log') {
       // Rebuild log body
-      const wrap = document.createElement('div');
-      wrap.className = 'toolWrap';
+      const { wrap, content } = makeScalableToolWrap('log', 'Scale Game Log tab');
       const list = document.createElement('div');
       list.className = 'logList';
       renderLogList(list);
-      wrap.appendChild(list);
+      content.appendChild(list);
       ui.modalBody.innerHTML = '';
       ui.modalBody.appendChild(wrap);
       list.scrollTop = list.scrollHeight;
@@ -3324,8 +3412,7 @@ function syncPostgameToState() {
     }
     if (activeToolModal === 'dice') {
       // Rebuild dice body
-      const wrap = document.createElement('div');
-      wrap.className = 'toolWrap';
+      const { wrap, content } = makeScalableToolWrap('dice', 'Scale Dice Stats tab');
       const ds = (state && state.diceStats) ? state.diceStats : null;
       const total = ds ? Object.values(ds).reduce((a, v) => a + v, 0) : 0;
 
@@ -3349,8 +3436,8 @@ function syncPostgameToState() {
       note.className = 'smallNote';
       note.textContent = `Total rolls: ${total}`;
 
-      wrap.appendChild(note);
-      wrap.appendChild(table);
+      content.appendChild(note);
+      content.appendChild(table);
 
       ui.modalBody.innerHTML = '';
       ui.modalBody.appendChild(wrap);

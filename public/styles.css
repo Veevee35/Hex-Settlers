@@ -566,6 +566,24 @@ select.input{
 
 /* --- Modal Tools --- */
 .toolWrap{ display:flex; flex-direction:column; gap:10px; }
+.toolWrapScaled{ --tool-ui-scale: 1; }
+.toolScaleRow{ display:flex; justify-content:flex-end; }
+.toolScaleControl{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 6px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:12px;
+  background: rgba(255,255,255,.03);
+  align-self:flex-end;
+}
+.toolScaleContent{
+  zoom: var(--tool-ui-scale);
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
 .logList, .chatList{
   max-height:360px;
   overflow:auto;
