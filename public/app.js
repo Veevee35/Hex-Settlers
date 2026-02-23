@@ -389,6 +389,163 @@
   }
 
 
+  function ensurePanelScaleWrapper(panelEl, headerEl) {
+    if (!panelEl) return null;
+    let wrap = panelEl.querySelector(':scope > .panelScaleContent');
+    if (wrap) return wrap;
+    wrap = document.createElement('div');
+    wrap.className = 'panelScaleContent';
+    const kids = Array.from(panelEl.children);
+    for (const child of kids) {
+      if (child === headerEl) continue;
+      wrap.appendChild(child);
+    }
+    panelEl.appendChild(wrap);
+    return wrap;
+  }
+
+  function ensurePanelHeaderScaleControl(panelEl, headerEl, scaleId, title) {
+    if (!panelEl || !headerEl) return null;
+    panelEl.classList.add('panelScalable');
+    let host = headerEl.querySelector(':scope > .panelScaleHost');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'panelScaleHost';
+      headerEl.appendChild(host);
+    }
+    let ctrl = host.querySelector('.toolScaleControl');
+    if (!ctrl) {
+      ctrl = makeToolScaleControl(scaleId, panelEl, { title: title || 'Scale panel' });
+      host.appendChild(ctrl);
+    }
+    const lbl = host.querySelector('.tabScaleLabel');
+    setToolUiScale(scaleId, getToolUiScale(scaleId), panelEl, lbl || null);
+    return ctrl;
+  }
+
+  function ensureResourcesPanelControls() {
+    if (!ui.resourcesCard) return;
+    let header = ui.resourcesCard.querySelector(':scope > .resourcesHeaderRow');
+    const h2 = ui.resourcesCard.querySelector(':scope > h2');
+    if (!header) {
+      header = document.createElement('div');
+      header.className = 'resourcesHeaderRow';
+      if (h2) header.appendChild(h2);
+      ui.resourcesCard.insertBefore(header, ui.resourcesCard.firstChild || null);
+    } else if (h2 && h2.parentNode !== header) {
+      header.insertBefore(h2, header.firstChild || null);
+    }
+    ensurePanelScaleWrapper(ui.resourcesCard, header);
+    ensurePanelHeaderScaleControl(ui.resourcesCard, header, 'resources_panel', 'Scale Resources panel');
+  }
+
+  function ensureDevPanelControls() {
+    if (!ui.devCard) return;
+    let header = ui.devCard.querySelector(':scope > .devHeaderRow');
+    const h2 = ui.devCard.querySelector(':scope > h2');
+    if (!header) {
+      header = document.createElement('div');
+      header.className = 'devHeaderRow';
+      if (h2) header.appendChild(h2);
+      ui.devCard.insertBefore(header, ui.devCard.firstChild || null);
+    } else if (h2 && h2.parentNode !== header) {
+      header.insertBefore(h2, header.firstChild || null);
+    }
+
+    let right = header.querySelector(':scope > .devHeaderRight');
+    if (!right) {
+      right = document.createElement('div');
+      right.className = 'devHeaderRight';
+      header.appendChild(right);
+    }
+    if (ui.devRemaining) {
+      ui.devRemaining.classList.add('devDeckInline');
+      right.appendChild(ui.devRemaining);
+    }
+    if (ui.buyDevBtn) {
+      ui.buyDevBtn.classList.add('btnTiny');
+      right.appendChild(ui.buyDevBtn);
+    }
+
+    ensurePanelHeaderScaleControl(ui.devCard, header, 'dev_panel', 'Scale Development Cards panel');
+    ensurePanelScaleWrapper(ui.devCard, header);
+    const wrap = ui.devCard.querySelector(':scope > .panelScaleContent');
+    if (wrap) {
+      for (const row of Array.from(wrap.querySelectorAll(':scope > .actions'))) {
+        if (!row.querySelector('button:not(.hidden)')) row.classList.add('hidden');
+      }
+    }
+  }
+
+  function ensureHudBarScaleControl(panelEl, rowSelector, scaleId, title) {
+    if (!panelEl) return;
+    const row = panelEl.querySelector(rowSelector || ':scope > .hudBarRow');
+    if (!row) return;
+    let host = row.querySelector(':scope > .hudBarScaleHost');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'hudBarScaleHost';
+      row.appendChild(host);
+    }
+    let ctrl = host.querySelector('.toolScaleControl');
+    if (!ctrl) {
+      ctrl = makeToolScaleControl(scaleId, row, { title: title || 'Scale bar' });
+      host.appendChild(ctrl);
+    }
+    const lbl = host.querySelector('.tabScaleLabel');
+    setToolUiScale(scaleId, getToolUiScale(scaleId), row, lbl || null);
+  }
+
+  function ensureTimerBoxControls() {
+    if (!ui.countdownClock) return null;
+    ui.countdownClock.classList.add('panelScalable', 'clockScalable');
+    let topRow = ui.countdownClock.querySelector(':scope > .clockTopRow');
+    if (!topRow) {
+      topRow = document.createElement('div');
+      topRow.className = 'clockTopRow';
+      ui.countdownClock.insertBefore(topRow, ui.countdownClock.firstChild || null);
+    }
+    let grip = topRow.querySelector('.dragGrip');
+    if (!grip) {
+      grip = document.createElement('div');
+      grip.className = 'dragGrip clockDragGrip';
+      grip.textContent = '⋮⋮';
+      topRow.insertBefore(grip, topRow.firstChild || null);
+    }
+    let scaleHost = topRow.querySelector(':scope > .panelScaleHost');
+    if (!scaleHost) {
+      scaleHost = document.createElement('div');
+      scaleHost.className = 'panelScaleHost';
+      topRow.appendChild(scaleHost);
+    }
+    if (!scaleHost.querySelector('.toolScaleControl')) {
+      scaleHost.appendChild(makeToolScaleControl('timer_box', ui.countdownClock, { title: 'Scale turn timer box' }));
+    }
+    const lbl = scaleHost.querySelector('.tabScaleLabel');
+    setToolUiScale('timer_box', getToolUiScale('timer_box'), ui.countdownClock, lbl || null);
+
+    let wrap = ui.countdownClock.querySelector(':scope > .panelScaleContent');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.className = 'panelScaleContent';
+      const timeEl = ui.countdownClock.querySelector(':scope > .clockTime');
+      const metaEl = ui.countdownClock.querySelector(':scope > .clockMeta');
+      if (timeEl) wrap.appendChild(timeEl);
+      if (metaEl) wrap.appendChild(metaEl);
+      ui.countdownClock.appendChild(wrap);
+    }
+    return grip;
+  }
+
+  function ensureInGamePanelScaleControls() {
+    ensureResourcesPanelControls();
+    ensureDevPanelControls();
+    ensureHudBarScaleControl(ui.turnCard, ':scope > .hudBarRow', 'turn_bar', 'Scale turn actions bar');
+    ensureHudBarScaleControl(ui.toolsCard, ':scope > .hudBarRow', 'tools_bar', 'Scale game settings/tools bar');
+    ensureTimerBoxControls();
+  }
+
+
   function ensureInGameLogScaleControl() {
     if (!ui || !ui.logCard || !ui.logList) return;
     const titleRow = ui.logCard.querySelector('.cardTitleRow');
@@ -1937,6 +2094,7 @@ function syncPostgameToState() {
     row.appendChild(btns);
 
     card.appendChild(row);
+    ensureInGamePanelScaleControls();
   }
 
   function buildTurnHudOnce() {
@@ -1981,16 +2139,8 @@ function syncPostgameToState() {
     }
     row.appendChild(actions);
 
-    const dev = document.createElement('div');
-    dev.className = 'hudDev';
-    if (ui.devRemaining) dev.appendChild(ui.devRemaining);
-    if (ui.buyDevBtn) {
-      ui.buyDevBtn.classList.add('btnTiny');
-      dev.appendChild(ui.buyDevBtn);
-    }
-    row.appendChild(dev);
-
     card.appendChild(row);
+    ensureInGamePanelScaleControls();
   }
 
   function dockHudToBoard(inGame) {
@@ -2037,13 +2187,14 @@ function syncPostgameToState() {
         ui.devCard.classList.add('hudDevOverlay');
         boardWrap.appendChild(ui.devCard);
         try {
-          const handle = ui.devCard.querySelector('h2');
+          const handle = ui.devCard.querySelector('.devHeaderRow') || ui.devCard.querySelector('h2');
           if (handle && !ui.devCard.dataset.dragReady) {
             makeDraggablePanel(ui.devCard, handle, 'hexsettlers_dev_pos_v2');
             ui.devCard.dataset.dragReady = '1';
           }
         } catch (_) {}
       }
+      ensureInGamePanelScaleControls();
       if (ui.rollDock) {
         ui.rollDock.classList.add('hudRollDock');
         boardWrap.appendChild(ui.rollDock);
@@ -2231,7 +2382,8 @@ function syncPostgameToState() {
 
   // Allow the Resources panel to be moved freely.
   try {
-    const handle = ui.resourcesCard ? ui.resourcesCard.querySelector('h2') : null;
+    ensureInGamePanelScaleControls();
+    const handle = ui.resourcesCard ? (ui.resourcesCard.querySelector('.resourcesHeaderRow') || ui.resourcesCard.querySelector('h2')) : null;
     makeDraggablePanel(ui.resourcesCard, handle, 'hexsettlers_resources_pos_v2');
   } catch (_) {}
 
@@ -2241,22 +2393,13 @@ function syncPostgameToState() {
     makeDraggablePanel(ui.logCard, handle, 'hexsettlers_log_pos_v2');
   } catch (_) {}
 
-  // Allow the top-right timer/pause HUD to be moved freely.
+  // Allow the top-right timer/pause HUD to be moved freely (drag handle lives inside the timer box).
   try {
     const rh = document.querySelector('.rightHud');
-    if (rh) {
-      let grip = rh.querySelector('.dragGrip');
-      if (!grip) {
-        grip = document.createElement('div');
-        grip.className = 'dragGrip';
-        grip.textContent = '⋮⋮';
-        grip.style.marginBottom = '6px';
-        rh.insertBefore(grip, rh.firstChild);
-      }
-      if (!rh.dataset.dragReady) {
-        makeDraggablePanel(rh, grip, 'hexsettlers_rightHud_pos_v2');
-        rh.dataset.dragReady = '1';
-      }
+    const grip = ensureTimerBoxControls();
+    if (rh && grip && !rh.dataset.dragReady) {
+      makeDraggablePanel(rh, grip, 'hexsettlers_rightHud_pos_v2');
+      rh.dataset.dragReady = '1';
     }
   } catch (_) {}
 

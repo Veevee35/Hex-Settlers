@@ -249,7 +249,7 @@ body.in-game .boardFooter{display:none;}
   max-width:calc(100% - 24px);
 }
 .hudTopLeft{left:6px; top:6px;}
-.hudBottomLeft{left:6px; right:6px; bottom:6px;}
+.hudBottomLeft{left:6px; right:auto; bottom:6px; width:max-content; max-width:calc(100% - 24px);}
 .dragGrip{
   width:22px;
   height:26px;
@@ -267,13 +267,20 @@ body.in-game .boardFooter{display:none;}
   user-select:none;
 }
 .hudBarRow{
+  --tool-ui-scale: 1;
   display:flex;
   align-items:center;
   gap:10px;
   flex-wrap:nowrap;
   white-space:nowrap;
   overflow-x:auto;
+  zoom: var(--tool-ui-scale);
+  transform-origin: left center;
 }
+.hudBarScaleHost{display:flex; align-items:center; margin-left:8px; flex:0 0 auto;}
+.hudBarScaleHost .toolScaleControl{padding:3px 5px; gap:4px;}
+.hudBarScaleHost .tabScaleBtn{width:24px; height:24px; border-radius:8px;}
+.hudBarScaleHost .tabScaleLabel{min-width:52px;}
 .hudBarRow::-webkit-scrollbar{height:8px}
 .hudBarRow::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10); border-radius:999px}
 .hudConn{display:flex; align-items:center; gap:8px}
@@ -300,8 +307,37 @@ body.in-game .boardFooter{display:none;}
   border-radius:18px;
   box-shadow:0 18px 60px rgba(0,0,0,.35);
 }
-.hudDevOverlay h2{margin:0 0 10px 0}
+.hudDevOverlay h2{margin:0}
 body.in-game .hudDevOverlay .actions{display:none;}
+
+.panelScalable{ --tool-ui-scale: 1; }
+.panelScaleContent{ zoom: var(--tool-ui-scale); transform-origin: top left; }
+.panelScaleHost{ margin-left:auto; display:flex; align-items:center; }
+.panelScaleHost .toolScaleControl{ padding:3px 5px; gap:4px; }
+.panelScaleHost .tabScaleBtn{ width:24px; height:24px; border-radius:8px; }
+.panelScaleHost .tabScaleLabel{ min-width:52px; }
+
+.resourcesHeaderRow, .devHeaderRow{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:10px;
+}
+.resourcesHeaderRow h2, .devHeaderRow h2{ margin:0; }
+
+.devHeaderRight{
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:nowrap;
+}
+.devHeaderRight .btnTiny{ padding:6px 10px; }
+.devDeckInline{ margin:0 !important; white-space:nowrap; }
+
+#resourcesCard .panelScaleContent .smallNote{ margin-top:10px; }
+#devCard .panelScaleContent .smallNote{ margin-top:8px; }
+#devCard .panelScaleContent .devHand{ margin-top:8px; }
 
 .pieceCell{display:flex; align-items:center; justify-content:flex-start; gap:6px; padding:2px 0}
 .pieceLeft{display:flex; align-items:center; gap:8px; min-width:0}
@@ -518,14 +554,23 @@ body.in-game .hudRollDock{display:none;}
   pointer-events:auto;
 }
 .countdownClock{
+  --tool-ui-scale: 1;
   min-width:170px;
   text-align:right;
-  padding:10px 12px;
+  padding:8px 10px 10px;
   border-radius:14px;
   border:1px solid var(--line);
   background: rgba(0,0,0,.28);
   box-shadow:0 10px 30px rgba(0,0,0,.35);
 }
+.clockTopRow{display:flex; align-items:center; gap:8px; margin-bottom:4px;}
+.clockTopRow .panelScaleHost{margin-left:auto;}
+.clockTopRow .toolScaleControl{padding:2px 4px; gap:3px;}
+.clockTopRow .tabScaleBtn{width:22px; height:22px; border-radius:7px;}
+.clockTopRow .tabScaleLabel{min-width:48px; font-size:11px;}
+.clockDragGrip{width:20px; height:20px; border-radius:999px; font-size:10px; opacity:.95;}
+.countdownClock .panelScaleContent{text-align:right;}
+.countdownClock .panelScaleContent .clockTime,
 .clockTime{
   font-family:var(--mono);
   font-size:22px;
@@ -533,6 +578,7 @@ body.in-game .hudRollDock{display:none;}
   color:var(--text);
   letter-spacing:1px;
 }
+.countdownClock .panelScaleContent .clockMeta,
 .clockMeta{
   margin-top:4px;
   font-size:11px;
@@ -1159,3 +1205,6 @@ select.input{
   box-shadow:0 0 0 2px rgba(255,255,255,.10);
 }
 .standNameText{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.resourcesOverlay .panelScaleContent{ display:flex; flex-direction:column; gap:8px; }
+.hudDevOverlay .panelScaleContent{ display:flex; flex-direction:column; gap:8px; }
