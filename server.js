@@ -7266,6 +7266,40 @@ if (msg.type === 'create_room') {
       return;
     }
 
+    if (msg.type === 'query_ship_move_targets') {
+      if (!room.game) {
+        sendJson(ws, { type: 'ship_move_targets', fromEdgeId: msg.fromEdgeId, targets: [] });
+        return;
+      }
+      const game = room.game;
+      const fromEdgeId = Math.floor(Number(msg.fromEdgeId));
+      if (!Number.isFinite(fromEdgeId) || fromEdgeId < 0 || fromEdgeId >= (game.geom?.edges?.length || 0)) {
+        sendJson(ws, { type: 'ship_move_targets', fromEdgeId: msg.fromEdgeId, targets: [] });
+        return;
+      }
+      if (game.paused || !isPlayersTurn(game, pid)) {
+        sendJson(ws, { type: 'ship_move_targets', fromEdgeId, targets: [] });
+        return;
+      }
+      const fromE = game.geom.edges[fromEdgeId];
+      if (!fromE || fromE.shipOwner !== pid) {
+        sendJson(ws, { type: 'ship_move_targets', fromEdgeId, targets: [] });
+        return;
+      }
+
+      const targets = [];
+      for (let toEdgeId = 0; toEdgeId < (game.geom?.edges?.length || 0); toEdgeId++) {
+        if (toEdgeId === fromEdgeId) continue;
+        const clonedGame = deepClone(game);
+        if (!clonedGame) continue;
+        const tempRoom = { game: clonedGame, _dryRun: true };
+        const r = applyAction(tempRoom, pid, { kind: 'move_ship', fromEdgeId, toEdgeId });
+        if (r && r.ok) targets.push(toEdgeId);
+      }
+      sendJson(ws, { type: 'ship_move_targets', fromEdgeId, targets });
+      return;
+    }
+
     if (msg.type === 'query_build_options') {
       if (!room.game) {
         sendJson(ws, { type: 'build_options', targetKind: msg.targetKind, targetId: msg.targetId, options: [] });

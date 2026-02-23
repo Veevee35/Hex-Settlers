@@ -1959,6 +1959,7 @@ function syncPostgameToState() {
     buildPopup.style.left = '-9999px';
     buildPopup.style.top = '-9999px';
     pendingBuildClick = null;
+    // keep node-confirm separate; build popup closing should not clear hover indicator
   }
 
   function showBuildPopup(absX, absY, options, onPick) {
@@ -2063,7 +2064,15 @@ function syncPostgameToState() {
     view.lastY = e.clientY;
     view.ox += dx;
     view.oy += dy;
+    hideBoardHoverIndicator();
     render();
+  });
+
+  ui.canvas.addEventListener('mousemove', (e) => updateBoardHoverBuild(e));
+  ui.canvas.addEventListener('mouseleave', () => {
+    hoverNodeBuild.nodeId = null;
+    hoverNodeBuild.actionKind = null;
+    hideBoardHoverIndicator();
   });
 
   // Networking
@@ -2348,17 +2357,27 @@ function syncPostgameToState() {
       if (!msg || !msg.type) return;
 
       if (msg.type === 'build_options') {
-        // Response to a click-to-build query.
         const tk = msg.targetKind;
         const tid = msg.targetId;
         const opts = Array.isArray(msg.options) ? msg.options : [];
+
+        // Cache hoverable node options (current state only; cache is cleared on each state message).
+        if (tk === 'node' && Number.isFinite(Number(tid))) {
+          hoverNodeBuildCache.set(buildCacheKey('node', tid), opts);
+        }
+
+        if (hoverNodeBuildQuery && hoverNodeBuildQuery.targetKind === tk && hoverNodeBuildQuery.targetId === tid) {
+          hoverNodeBuildQuery = null;
+          if (hoverNodeBuild.nodeId === tid) {
+            const act = getNodeActionOption(opts);
+            hoverNodeBuild.actionKind = act ? act.kind : null;
+            if (act) showBoardHoverIndicator(hoverNodeBuild.absX, hoverNodeBuild.absY, act.kind);
+            else hideBoardHoverIndicator();
+          }
+        }
+
         if (!pendingBuildClick) return;
         if (pendingBuildClick.targetKind !== tk || pendingBuildClick.targetId !== tid) return;
-
-        if (!opts.length) {
-          hideBuildPopup();
-          return;
-        }
 
         const doAction = (opt) => {
           if (!opt || !opt.kind) return;
@@ -2369,6 +2388,20 @@ function syncPostgameToState() {
           }
         };
 
+        if (pendingBuildClick.mode === 'node_confirm' && tk === 'node') {
+          const clickMeta = pendingBuildClick;
+          pendingBuildClick = null;
+          const act = getNodeActionOption(opts);
+          if (!act) { hideNodeConfirmPopup(); return; }
+          showNodeConfirmPopup(clickMeta.absX, clickMeta.absY, act, () => doAction(act));
+          return;
+        }
+
+        if (!opts.length) {
+          hideBuildPopup();
+          return;
+        }
+
         if (opts.length === 1) {
           hideBuildPopup();
           doAction(opts[0]);
@@ -2376,6 +2409,17 @@ function syncPostgameToState() {
         }
 
         showBuildPopup(pendingBuildClick.absX, pendingBuildClick.absY, opts, doAction);
+        return;
+      }
+
+      if (msg.type === 'ship_move_targets') {
+        const from = Number(msg.fromEdgeId);
+        const targets = Array.isArray(msg.targets) ? msg.targets.map(n => Number(n)).filter(Number.isFinite) : [];
+        if (inputMode.kind !== 'move_ship') return;
+        if (inputMode.moveShipFrom !== from) return;
+        inputMode.moveShipTargetsLoading = false;
+        inputMode.moveShipTargets = targets;
+        render();
         return;
       }
 
@@ -2511,8 +2555,13 @@ function syncPostgameToState() {
 
       if (msg.type === 'state') {
         state = msg.state;
-        // Any state change should clear click-to-build UI.
+        // Any state change should clear click-to-build UI and transient hover/confirm state.
         hideBuildPopup();
+        hideNodeConfirmPopup();
+        hideBoardHoverIndicator();
+        hoverNodeBuildQuery = null;
+        hoverNodeBuildCache.clear();
+        if (inputMode) { inputMode.moveShipTargets = []; inputMode.moveShipTargetsLoading = false; }
         // Auto-fit view for larger boards (Seafarers)
         const tc = (state && state.geom && state.geom.tiles) ? state.geom.tiles.length : 0;
         if (tc && tc !== lastTileCountForView) {
@@ -3727,15 +3776,19 @@ if (ui.copyMyIdBtn) {
   }
 
   // Game action mode
-  const inputMode = { kind: null, moveShipFrom: null }; // 'place_settlement' | 'place_road' | 'upgrade_city' | 'move_robber'
+  const inputMode = { kind: null, moveShipFrom: null, moveShipTargets: [], moveShipTargetsLoading: false }; // 'place_settlement' | 'place_road' | 'upgrade_city' | 'move_robber'
   function setMode(kind) {
     // Clear any partial ship-move selection when leaving that mode.
-    if (kind !== 'move_ship') inputMode.moveShipFrom = null;
+    if (kind !== 'move_ship') {
+      inputMode.moveShipFrom = null;
+      inputMode.moveShipTargets = [];
+      inputMode.moveShipTargetsLoading = false;
+    }
 
     inputMode.kind = kind;
     let msg = '';
     if (!kind) {
-      msg = 'Tip: Click nodes (corners) to place settlements/cities, and click edges to place roads (and ships in Seafarers).';
+      msg = 'Tip: Hover a node to build/upgrade with confirmation. Click edges to build roads/ships; click one of your ships to move it.';
     } else if (kind === 'place_ship') {
       msg = 'Click an eligible sea edge to place a ship.';
     } else if (kind === 'move_ship') {
@@ -3763,11 +3816,205 @@ if (ui.copyMyIdBtn) {
     send({ type: 'game_action', action });
   }
 
-  function queryBuildOptions(targetKind, targetId, absX, absY) {
-    if (!ws || ws.readyState !== 1) return;
-    ensureBuildPopup();
-    pendingBuildClick = { absX, absY, targetKind, targetId };
+  let hoverNodeBuild = { nodeId: null, absX: 0, absY: 0, actionKind: null };
+  let hoverNodeBuildQuery = null; // { targetKind:'node', targetId:number }
+  let hoverNodeBuildCache = new Map(); // key => build_options[] for current state snapshot
+  let nodeConfirmPopup = null;
+  let boardHoverIndicator = null;
+
+  function buildCacheKey(targetKind, targetId) {
+    return `${targetKind}:${targetId}`;
+  }
+
+  function getNodeActionOption(options) {
+    const opts = Array.isArray(options) ? options : [];
+    const city = opts.find(o => o && o.kind === 'upgrade_city');
+    const settlement = opts.find(o => o && o.kind === 'place_settlement');
+    return city || settlement || null;
+  }
+
+  function getBuildActionIcon(kind) {
+    if (kind === 'upgrade_city') return '🏰';
+    if (kind === 'place_settlement') return '🏠';
+    if (kind === 'place_ship') return '⛵';
+    if (kind === 'place_road') return '🛣️';
+    return '•';
+  }
+
+  function hideBoardHoverIndicator() {
+    if (!boardHoverIndicator) return;
+    boardHoverIndicator.classList.add('hidden');
+  }
+
+  function showBoardHoverIndicator(absX, absY, actionKind) {
+    ensureNodeBuildUi();
+    if (!boardHoverIndicator) return;
+    const iconEl = boardHoverIndicator.querySelector('.nodeBuildHoverIcon');
+    const txtEl = boardHoverIndicator.querySelector('.nodeBuildHoverText');
+    if (iconEl) iconEl.textContent = getBuildActionIcon(actionKind);
+    if (txtEl) txtEl.textContent = (actionKind === 'upgrade_city') ? 'City' : 'Settlement';
+    boardHoverIndicator.classList.remove('hidden');
+    const pad = 10;
+    boardHoverIndicator.style.left = `${Math.round(absX + 12)}px`;
+    boardHoverIndicator.style.top = `${Math.round(absY - 12)}px`;
+    const r = boardHoverIndicator.getBoundingClientRect();
+    let nx = absX + 12;
+    let ny = absY - 12;
+    if (r.right > window.innerWidth - pad) nx = Math.max(pad, window.innerWidth - r.width - pad);
+    if (r.bottom > window.innerHeight - pad) ny = Math.max(pad, window.innerHeight - r.height - pad);
+    if (ny < pad) ny = pad;
+    boardHoverIndicator.style.left = `${Math.round(nx)}px`;
+    boardHoverIndicator.style.top = `${Math.round(ny)}px`;
+  }
+
+  function hideNodeConfirmPopup() {
+    if (!nodeConfirmPopup) return;
+    nodeConfirmPopup.classList.add('hidden');
+    nodeConfirmPopup.style.left = '-9999px';
+    nodeConfirmPopup.style.top = '-9999px';
+  }
+
+  function showNodeConfirmPopup(absX, absY, actionOpt, onConfirm) {
+    ensureNodeBuildUi();
+    if (!nodeConfirmPopup || !actionOpt) return;
+    const iconEl = nodeConfirmPopup.querySelector('.nodeBuildConfirmIcon');
+    const labelEl = nodeConfirmPopup.querySelector('.nodeBuildConfirmLabel');
+    if (iconEl) iconEl.textContent = getBuildActionIcon(actionOpt.kind);
+    if (labelEl) labelEl.textContent = (actionOpt.kind === 'upgrade_city') ? 'Upgrade to City?' : 'Build Settlement?';
+    const okBtn = nodeConfirmPopup.querySelector('.nodeBuildConfirmOk');
+    const cancelBtn = nodeConfirmPopup.querySelector('.nodeBuildConfirmCancel');
+    if (okBtn) okBtn.onclick = () => { hideNodeConfirmPopup(); onConfirm && onConfirm(); };
+    if (cancelBtn) cancelBtn.onclick = () => hideNodeConfirmPopup();
+
+    nodeConfirmPopup.classList.remove('hidden');
+    nodeConfirmPopup.style.left = `${Math.round(absX + 12)}px`;
+    nodeConfirmPopup.style.top = `${Math.round(absY + 12)}px`;
+    const r = nodeConfirmPopup.getBoundingClientRect();
+    const pad = 10;
+    let nx = absX + 12;
+    let ny = absY + 12;
+    if (r.right > window.innerWidth - pad) nx = Math.max(pad, window.innerWidth - r.width - pad);
+    if (r.bottom > window.innerHeight - pad) ny = Math.max(pad, absY - r.height - 12);
+    if (ny < pad) ny = pad;
+    nodeConfirmPopup.style.left = `${Math.round(nx)}px`;
+    nodeConfirmPopup.style.top = `${Math.round(ny)}px`;
+  }
+
+  function ensureNodeBuildUi() {
+    if (!boardHoverIndicator) {
+      boardHoverIndicator = document.createElement('div');
+      boardHoverIndicator.className = 'nodeBuildHover hidden';
+      boardHoverIndicator.innerHTML = `<div class="nodeBuildHoverIcon">🏠</div><div class="nodeBuildHoverText">Settlement</div>`;
+      document.body.appendChild(boardHoverIndicator);
+    }
+    if (!nodeConfirmPopup) {
+      nodeConfirmPopup = document.createElement('div');
+      nodeConfirmPopup.className = 'nodeBuildConfirm hidden';
+      nodeConfirmPopup.innerHTML = `
+        <div class="nodeBuildConfirmIcon">🏠</div>
+        <div class="nodeBuildConfirmLabel">Build Settlement?</div>
+        <button class="nodeBuildConfirmOk" title="Confirm" aria-label="Confirm">✓</button>
+        <button class="nodeBuildConfirmCancel" title="Cancel" aria-label="Cancel">✕</button>
+      `;
+      document.body.appendChild(nodeConfirmPopup);
+      document.addEventListener('mousedown', (ev) => {
+        if (!nodeConfirmPopup || nodeConfirmPopup.classList.contains('hidden')) return;
+        if (ev.target === nodeConfirmPopup || nodeConfirmPopup.contains(ev.target)) return;
+        hideNodeConfirmPopup();
+      });
+      window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hideNodeConfirmPopup(); });
+    }
+  }
+
+  function requestBuildOptions(targetKind, targetId) {
+    if (!ws || ws.readyState !== 1) return false;
     send({ type: 'query_build_options', targetKind, targetId });
+    return true;
+  }
+
+  function queryBuildOptions(targetKind, targetId, absX, absY) {
+    if (!requestBuildOptions(targetKind, targetId)) return;
+    ensureBuildPopup();
+    pendingBuildClick = { absX, absY, targetKind, targetId, mode: 'menu' };
+  }
+
+  function queryNodeBuildConfirm(nodeId, absX, absY) {
+    ensureNodeBuildUi();
+    const cached = hoverNodeBuildCache.get(buildCacheKey('node', nodeId));
+    const act = getNodeActionOption(cached);
+    pendingBuildClick = { absX, absY, targetKind: 'node', targetId: nodeId, mode: 'node_confirm' };
+    if (act) {
+      pendingBuildClick = null;
+      showNodeConfirmPopup(absX, absY, act, () => sendGameAction({ kind: act.kind, nodeId }));
+      return;
+    }
+    requestBuildOptions('node', nodeId);
+  }
+
+  function canShowNodeHoverBuild() {
+    if (!state || !myPlayerId || state.paused) return false;
+    if (state.currentPlayerId !== myPlayerId) return false;
+    const phase = String(state.phase || '');
+    return (phase === 'main-actions' || phase === 'setup1-settlement' || phase === 'setup2-settlement');
+  }
+
+  function updateBoardHoverBuild(e) {
+    if (!e || view.dragging || !screenCache || !canShowNodeHoverBuild()) {
+      hoverNodeBuild.nodeId = null;
+      hoverNodeBuild.actionKind = null;
+      hideBoardHoverIndicator();
+      return;
+    }
+    const rect = ui.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const nodeId = pickNode(x, y);
+    if (nodeId == null) {
+      hoverNodeBuild.nodeId = null;
+      hoverNodeBuild.actionKind = null;
+      hideBoardHoverIndicator();
+      return;
+    }
+
+    hoverNodeBuild.nodeId = nodeId;
+    hoverNodeBuild.absX = e.clientX;
+    hoverNodeBuild.absY = e.clientY;
+
+    const cached = hoverNodeBuildCache.get(buildCacheKey('node', nodeId));
+    const act = getNodeActionOption(cached);
+    if (act) {
+      hoverNodeBuild.actionKind = act.kind;
+      showBoardHoverIndicator(e.clientX, e.clientY, act.kind);
+      return;
+    }
+
+    hoverNodeBuild.actionKind = null;
+    hideBoardHoverIndicator();
+    if (!hoverNodeBuildQuery || hoverNodeBuildQuery.targetKind !== 'node' || hoverNodeBuildQuery.targetId !== nodeId) {
+      hoverNodeBuildQuery = { targetKind: 'node', targetId: nodeId };
+      requestBuildOptions('node', nodeId);
+    }
+  }
+
+  function requestShipMoveTargets(fromEdgeId) {
+    if (!ws || ws.readyState !== 1) return;
+    inputMode.moveShipTargetsLoading = true;
+    inputMode.moveShipTargets = [];
+    send({ type: 'query_ship_move_targets', fromEdgeId });
+  }
+
+  function selectShipForMove(edgeId) {
+    try {
+      const used = state && state.shipMoveUsed && state.shipMoveUsed[myPlayerId] === state.turnNumber;
+      if (used) { setError('You have already moved a ship this turn.'); return; }
+    } catch (_) {}
+    inputMode.kind = 'move_ship';
+    inputMode.moveShipFrom = edgeId;
+    inputMode.moveShipTargets = [];
+    inputMode.moveShipTargetsLoading = false;
+    setMode('move_ship');
+    requestShipMoveTargets(edgeId);
+    render();
   }
 
   ui.pauseBtn.addEventListener('click', () => {
@@ -4055,11 +4302,11 @@ function ensureTimerUiInterval() {
     // building buttons (main actions, plus initial setup road/ship selection)
     ui.buildRoadBtn.disabled = !((myTurn && state.phase === 'main-actions') || (setupRoad && awaitingMine));
     if (ui.buildShipBtn) {
-      ui.buildShipBtn.classList.toggle('hidden', !seafarers);
+      ui.buildShipBtn.classList.add('hidden');
       ui.buildShipBtn.disabled = !(seafarers && ((myTurn && state.phase === 'main-actions') || (setupRoad && awaitingMine)));
     }
 if (ui.moveShipBtn) {
-  ui.moveShipBtn.classList.toggle('hidden', !seafarers);
+  ui.moveShipBtn.classList.add('hidden');
   // Once per turn, any time during your turn (including before rolling).
   let enabled = (seafarers && myTurn && (state.phase === 'main-actions' || state.phase === 'main-await-roll'));
   if (enabled) {
@@ -5661,7 +5908,7 @@ function handleDiscoveryGoldPrompt() {
     // Setup/robber/pirate override modes
     if (phase === 'setup1-settlement' || phase === 'setup2-settlement') {
       const hit = pickNode(x, y);
-      if (hit != null) queryBuildOptions('node', hit, e.clientX, e.clientY);
+      if (hit != null) queryNodeBuildConfirm(hit, e.clientX, e.clientY);
       return;
     }
     if (phase === 'setup1-road' || phase === 'setup2-road') {
@@ -5718,6 +5965,24 @@ function handleDiscoveryGoldPrompt() {
     const inMainTurn = (phase === 'main-actions' || phase === 'main-await-roll');
     if (!inMainTurn) return;
 
+    // Clicking one of your placed ships directly enters ship-move selection and shows valid destinations.
+    const directShipHit = pickEdge(x, y);
+    if (directShipHit != null) {
+      const de = state.geom?.edges?.[directShipHit];
+      if (de && de.shipOwner === myPlayerId) {
+        if (inputMode.kind === 'move_ship' && inputMode.moveShipFrom === directShipHit) {
+          inputMode.moveShipFrom = null;
+          inputMode.moveShipTargets = [];
+          inputMode.moveShipTargetsLoading = false;
+          setMode('move_ship');
+          render();
+          return;
+        }
+        selectShipForMove(directShipHit);
+        return;
+      }
+    }
+
     // Ship movement is allowed any time during your turn (once per turn).
     if (inputMode.kind === 'move_ship') {
       const hit = pickEdge(x, y);
@@ -5731,7 +5996,10 @@ function handleDiscoveryGoldPrompt() {
           return;
         }
         inputMode.moveShipFrom = hit;
+        inputMode.moveShipTargets = [];
+        inputMode.moveShipTargetsLoading = false;
         setMode('move_ship');
+        requestShipMoveTargets(hit);
         render();
         return;
       }
@@ -5739,6 +6007,8 @@ function handleDiscoveryGoldPrompt() {
       // Second click chooses a destination edge (clicking the same edge cancels).
       if (hit === inputMode.moveShipFrom) {
         inputMode.moveShipFrom = null;
+        inputMode.moveShipTargets = [];
+        inputMode.moveShipTargetsLoading = false;
         setMode('move_ship');
         render();
         return;
@@ -5746,6 +6016,8 @@ function handleDiscoveryGoldPrompt() {
 
       const from = inputMode.moveShipFrom;
       inputMode.moveShipFrom = null;
+      inputMode.moveShipTargets = [];
+      inputMode.moveShipTargetsLoading = false;
       setMode('move_ship');
       sendGameAction({ kind: 'move_ship', fromEdgeId: from, toEdgeId: hit });
       return;
@@ -5759,7 +6031,7 @@ function handleDiscoveryGoldPrompt() {
     if (inputMode.kind === 'place_settlement' || inputMode.kind === 'upgrade_city') {
       const hit = pickNode(x, y);
       if (hit != null) {
-        queryBuildOptions('node', hit, e.clientX, e.clientY);
+        queryNodeBuildConfirm(hit, e.clientX, e.clientY);
         return;
       }
     }
@@ -5773,6 +6045,10 @@ function handleDiscoveryGoldPrompt() {
 
     const tgt = pickTarget(x, y);
     if (!tgt) return;
+    if (tgt.kind === 'node') {
+      queryNodeBuildConfirm(tgt.id, e.clientX, e.clientY);
+      return;
+    }
     queryBuildOptions(tgt.kind, tgt.id, e.clientX, e.clientY);
   });
 
@@ -6234,7 +6510,7 @@ function handleDiscoveryGoldPrompt() {
       }
     }
 
-    // Highlight selected ship when moving ships
+    // Highlight selected ship and legal destinations when moving ships
     if (inputMode.kind === 'move_ship' && inputMode.moveShipFrom != null) {
       const e = state.geom.edges?.[inputMode.moveShipFrom];
       if (e) {
@@ -6243,14 +6519,44 @@ function handleDiscoveryGoldPrompt() {
         const as = worldToScreen({ x: a.x, y: a.y });
         const bs = worldToScreen({ x: b.x, y: b.y });
         ctx.save();
-        ctx.strokeStyle = 'rgba(255,255,255,.92)';
+        ctx.strokeStyle = 'rgba(255,255,255,.95)';
         ctx.lineWidth = 12;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(as.x, as.y);
         ctx.lineTo(bs.x, bs.y);
         ctx.stroke();
+        ctx.setLineDash([10, 6]);
+        ctx.strokeStyle = 'rgba(255,255,255,.45)';
+        ctx.lineWidth = 18;
+        ctx.beginPath();
+        ctx.moveTo(as.x, as.y);
+        ctx.lineTo(bs.x, bs.y);
+        ctx.stroke();
         ctx.restore();
+      }
+
+      const targetSet = new Set(Array.isArray(inputMode.moveShipTargets) ? inputMode.moveShipTargets : []);
+      if (targetSet.size) {
+        for (const tid of targetSet) {
+          const te = state.geom.edges?.[tid];
+          if (!te) continue;
+          const a = state.geom.nodes[te.a];
+          const b = state.geom.nodes[te.b];
+          if (!a || !b) continue;
+          const as = worldToScreen({ x: a.x, y: a.y });
+          const bs = worldToScreen({ x: b.x, y: b.y });
+          ctx.save();
+          ctx.strokeStyle = 'rgba(120,255,180,.9)';
+          ctx.lineWidth = 10;
+          ctx.lineCap = 'round';
+          ctx.setLineDash([8, 6]);
+          ctx.beginPath();
+          ctx.moveTo(as.x, as.y);
+          ctx.lineTo(bs.x, bs.y);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
     }
 
