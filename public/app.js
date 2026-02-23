@@ -133,6 +133,13 @@
   const AUTH_TOKEN_KEY = 'hexsettlers_auth_token_v1';
   const LAST_ROOM_KEY = 'hexsettlers_last_room_v1';
   const AUTO_CREATE_ROOM_KEY = 'hexsettlers_auto_create_room_v1';
+  const TAB_UI_SCALE_KEY = 'hexsettlers_tab_ui_scale_v1';
+  const TAB_UI_SCALE_MIN = 0.8;
+  const TAB_UI_SCALE_MAX = 2.0;
+  const TAB_UI_SCALE_STEP = 0.1;
+
+  let tabUiScale = 1;
+  const tabScaleLabels = [];
 
   let authUser = null;
   let authToken = null;
@@ -187,6 +194,105 @@
     authToken = null;
     try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
     updateAuthUi();
+  }
+
+  function clampTabUiScale(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(TAB_UI_SCALE_MIN, Math.min(TAB_UI_SCALE_MAX, Math.round(n * 100) / 100));
+  }
+
+  function tabUiScalePctLabel() {
+    return `${Math.round(tabUiScale * 100)}%`;
+  }
+
+  function refreshTabScaleLabels() {
+    const txt = tabUiScalePctLabel();
+    for (const el of tabScaleLabels) {
+      if (!el) continue;
+      el.textContent = txt;
+      el.title = `Tab size ${txt}`;
+    }
+  }
+
+  function applyTabUiScale() {
+    try {
+      document.documentElement.style.setProperty('--tab-ui-scale', String(clampTabUiScale(tabUiScale)));
+    } catch (_) {}
+    refreshTabScaleLabels();
+  }
+
+  function setTabUiScale(v) {
+    tabUiScale = clampTabUiScale(v);
+    try { localStorage.setItem(TAB_UI_SCALE_KEY, String(tabUiScale)); } catch (_) {}
+    applyTabUiScale();
+  }
+
+  function bumpTabUiScale(delta) {
+    const next = Math.round((tabUiScale + delta) * 10) / 10;
+    setTabUiScale(next);
+  }
+
+  function makeTabScaleControl() {
+    const wrap = document.createElement('div');
+    wrap.className = 'tabScaleControl';
+    wrap.title = 'Scale tab text and tables';
+
+    const minus = document.createElement('button');
+    minus.type = 'button';
+    minus.className = 'tabScaleBtn';
+    minus.textContent = '−';
+    minus.setAttribute('aria-label', 'Smaller tab text');
+    minus.addEventListener('click', () => bumpTabUiScale(-TAB_UI_SCALE_STEP));
+
+    const label = document.createElement('div');
+    label.className = 'tabScaleLabel';
+    label.textContent = '100%';
+    tabScaleLabels.push(label);
+
+    const plus = document.createElement('button');
+    plus.type = 'button';
+    plus.className = 'tabScaleBtn';
+    plus.textContent = '+';
+    plus.setAttribute('aria-label', 'Larger tab text');
+    plus.addEventListener('click', () => bumpTabUiScale(TAB_UI_SCALE_STEP));
+
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'tabScaleBtn';
+    reset.textContent = 'A';
+    reset.setAttribute('aria-label', 'Reset tab text size');
+    reset.title = 'Reset tab size to 100%';
+    reset.addEventListener('click', () => setTabUiScale(1));
+
+    wrap.appendChild(minus);
+    wrap.appendChild(label);
+    wrap.appendChild(plus);
+    wrap.appendChild(reset);
+    return wrap;
+  }
+
+  function installTabScaleControls() {
+    const targets = [
+      document.querySelector('.postgameTopRight'),
+      document.querySelector('.historyTopRight'),
+    ];
+    for (const host of targets) {
+      if (!host) continue;
+      if (host.querySelector('.tabScaleControl')) continue;
+      host.prepend(makeTabScaleControl());
+    }
+  }
+
+  function initTabUiScale() {
+    let saved = 1;
+    try {
+      const raw = localStorage.getItem(TAB_UI_SCALE_KEY);
+      if (raw != null && raw !== '') saved = Number(raw);
+    } catch (_) {}
+    tabUiScale = clampTabUiScale(saved || 1);
+    installTabScaleControls();
+    applyTabUiScale();
   }
 
 // -------------------- Post-game overlay (splash + stats) --------------------
@@ -6709,5 +6815,6 @@ function handleDiscoveryGoldPrompt() {
     view.oy = 0;
   }
   autoCenterOnce();
+  initTabUiScale();
 
 })();

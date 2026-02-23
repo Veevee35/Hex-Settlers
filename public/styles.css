@@ -15,6 +15,7 @@
   --radius: 16px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  --tab-ui-scale: 1;
 }
 *{box-sizing:border-box}
 html,body{height:100%; overflow:hidden}
@@ -967,6 +968,49 @@ select.input{
 .pgResDelta.neg{ color: #ff6a6a; }
 .pgResDelta.zero{ color: rgba(255,255,255,.58); }
 
+
+
+
+/* User-adjustable scaling for tabbed overlays (Postgame + History) */
+.postgameTabs,
+.postgameBody,
+.historyTabs,
+.historyBody{
+  zoom: var(--tab-ui-scale);
+}
+
+.tabScaleControl{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 6px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:12px;
+  background: rgba(255,255,255,.03);
+}
+.tabScaleBtn{
+  appearance:none;
+  border:1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.18);
+  color: var(--text);
+  width:26px;
+  height:26px;
+  border-radius:10px;
+  cursor:pointer;
+  font-weight:900;
+  line-height:1;
+  padding:0;
+}
+.tabScaleBtn:hover{ filter:brightness(1.12); }
+.tabScaleBtn:disabled{ opacity:.5; cursor:not-allowed; }
+.tabScaleLabel{
+  min-width:58px;
+  text-align:center;
+  font-family: var(--mono);
+  font-size:11px;
+  color: var(--muted);
+  user-select:none;
+}
 
 /* History + Player Stats overlay */
 .historyOverlay{
