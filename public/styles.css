@@ -228,7 +228,12 @@ body.in-game .boardFooter{display:none;}
 }
 .logOverlay .cardTitleRow{margin-bottom:10px}
 .logOverlay h2{margin:0}
-.logOverlay .logList{max-height:320px}
+.logOverlay{ --tool-ui-scale: 1; }
+.logOverlay .logScaleHost{ margin-left:auto; display:flex; align-items:center; }
+.logOverlay .logScaleHost .toolScaleControl{ padding:3px 5px; gap:4px; }
+.logOverlay .logScaleHost .tabScaleBtn{ width:24px; height:24px; border-radius:8px; }
+.logOverlay .logScaleHost .tabScaleLabel{ min-width:52px; }
+.logOverlay .logList{max-height:320px; zoom: var(--tool-ui-scale)}
 .logOverlay #logHideBtn{padding:6px 10px}
 
 /* Board HUD overlays */

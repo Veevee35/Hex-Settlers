@@ -388,6 +388,30 @@
     return { wrap, content };
   }
 
+
+  function ensureInGameLogScaleControl() {
+    if (!ui || !ui.logCard || !ui.logList) return;
+    const titleRow = ui.logCard.querySelector('.cardTitleRow');
+    if (!titleRow) return;
+
+    let host = titleRow.querySelector('.logScaleHost');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'logScaleHost';
+      const hideBtn = ui.logHideBtn || titleRow.querySelector('#logHideBtn');
+      const ctrl = makeToolScaleControl('log_panel', ui.logCard, { title: 'Scale in-game Game Log tab' });
+      host.appendChild(ctrl);
+      if (hideBtn && hideBtn.parentNode === titleRow) titleRow.insertBefore(host, hideBtn);
+      else titleRow.appendChild(host);
+    }
+
+    // Re-apply saved value on refresh/reload so the draggable in-game log uses the same persisted control state.
+    const lbl = host.querySelector('.tabScaleLabel');
+    setToolUiScale('log_panel', getToolUiScale('log_panel'), ui.logCard, lbl || null);
+  }
+
+  ensureInGameLogScaleControl();
+
 // -------------------- Post-game overlay (splash + stats) --------------------
 let postgameState = {
   active: false,

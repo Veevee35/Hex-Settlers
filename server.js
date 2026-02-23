@@ -683,6 +683,16 @@ const TTD56_RED_TILE_TO_REGION = (() => {
 
 const TTD56_RED_KEYS = new Set(Object.keys(TTD56_RED_TILE_TO_REGION));
 
+// 5 fixed desert tiles in the 5–6 Through the Desert template. Setup settlements may touch these
+// as long as the rest of the adjacent land is the pink start region (pink/desert boundary nodes are legal).
+const TTD56_FIXED_DESERT_KEYS = new Set([
+  '1,-2',
+  '2,-2',
+  '3,-2',
+  '4,-2',
+  '5,-2'
+]);
+
 function nodeIsOnTTD56StartIsland(game, nodeId) {
   const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
   let sawLand = false;
@@ -692,6 +702,8 @@ function nodeIsOnTTD56StartIsland(game, nodeId) {
     if (t.type === 'sea') continue;
     sawLand = true;
     const k = `${t.q},${t.r}`;
+    // Allow the fixed desert strip to count as valid adjacency during setup.
+    if (TTD56_FIXED_DESERT_KEYS.has(k)) continue;
     if (!TTD56_START_PINK_KEYS.has(k)) return false;
   }
   return sawLand;
