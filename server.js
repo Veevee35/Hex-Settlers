@@ -2012,6 +2012,28 @@ function defaultVictoryPointsToWin(rules) {
   return 13; // four islands
 }
 
+function isPairedTurnPlayerTwoStage(game) {
+  if (!game) return false;
+  const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
+  const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+    ? 'classic56'
+    : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
+  const pairedMode = (mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(game?.rules?.seafarersScenario));
+  if (!pairedMode) return false;
+  return !!(game.paired && game.paired.enabled && String(game.paired.stage || '') === 'p2');
+}
+
+function timerSegmentKey(game) {
+  if (!game) return '';
+  // Main-actions can occur twice in a paired turn (P1 then P2) without changing phase.
+  // Include stage/current player so P2 always gets a fresh timer.
+  if (game.phase === 'main-actions') {
+    const stage = (game.paired && game.paired.enabled) ? String(game.paired.stage || '') : '';
+    return `main-actions:${game.currentPlayerId || ''}:${stage}`;
+  }
+  return String(game.phase || '');
+}
+
 function phaseDurationMs(game, phase) {
   const rules = game?.rules || DEFAULT_RULES;
   const micro = (rules.microPhaseMs ?? rules.microMs ?? DEFAULT_RULES.microMs);
@@ -2024,6 +2046,8 @@ function phaseDurationMs(game, phase) {
     case 'main-await-roll':
       return micro;
     case 'main-actions':
+      // In paired 5–6 turns, Player 2 gets their own separate 30s action timer.
+      if (isPairedTurnPlayerTwoStage(game)) return 30_000;
       return rules.playTurnMs;
     case 'discard':
       return micro;
@@ -2043,9 +2067,10 @@ function syncTimer(game) {
     game.timer = null;
     return;
   }
-  if (!game.timer || game.timer.phase !== game.phase) {
+  const segKey = timerSegmentKey(game);
+  if (!game.timer || game.timer.phase !== game.phase || String(game.timer.segmentKey || '') !== segKey) {
     const t0 = now();
-    game.timer = { phase: game.phase, startedAt: t0, endsAt: t0 + dur, durationMs: dur };
+    game.timer = { phase: game.phase, segmentKey: segKey, startedAt: t0, endsAt: t0 + dur, durationMs: dur };
   }
 }
 
@@ -2062,11 +2087,13 @@ function resumeGame(game) {
   if (!game || !game.paused) return;
   const remainingMs = Math.max(0, Math.floor(Number(game.pause?.remainingMs || 0)));
   // Rebase the current phase timer so the remaining time resumes from now.
-  if (game.timer && game.timer.phase === game.phase) {
+  const segKey = timerSegmentKey(game);
+  if (game.timer && game.timer.phase === game.phase && String(game.timer.segmentKey || '') === segKey) {
     const dur = Math.max(0, Math.floor(Number(game.timer.durationMs || phaseDurationMs(game, game.phase) || remainingMs)));
     const t0 = now();
     game.timer = {
       phase: game.phase,
+      segmentKey: segKey,
       durationMs: dur,
       startedAt: t0 - Math.max(0, dur - remainingMs),
       endsAt: t0 + remainingMs,
@@ -2075,7 +2102,7 @@ function resumeGame(game) {
     // If timer was missing for some reason, create a fresh one.
     const dur = phaseDurationMs(game, game.phase);
     const t0 = now();
-    game.timer = dur ? { phase: game.phase, startedAt: t0, endsAt: t0 + dur, durationMs: dur } : null;
+    game.timer = dur ? { phase: game.phase, segmentKey: segKey, startedAt: t0, endsAt: t0 + dur, durationMs: dur } : null;
   }
   game.paused = false;
   game.pause = null;
