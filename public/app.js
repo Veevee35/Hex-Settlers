@@ -4899,7 +4899,21 @@ if (ui.moveShipBtn) {
       };
     }
 
-    for (const p of state.players) {
+    const playersForResources = (() => {
+      const arr = Array.isArray(state.players) ? [...state.players] : [];
+      const order = Array.isArray(state.turnOrder) ? state.turnOrder : [];
+      if (!order.length) return arr;
+      const rank = new Map(order.map((pid, i) => [pid, i]));
+      arr.sort((a, b) => {
+        const ra = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
+        const rb = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
+        if (ra !== rb) return ra - rb;
+        return String(a.name || a.id || '').localeCompare(String(b.name || b.id || ''));
+      });
+      return arr;
+    })();
+
+    for (const p of playersForResources) {
       const wrap = document.createElement('div');
       wrap.className = 'pRes';
       if (p.id === state.currentPlayerId) wrap.classList.add('turnActive');
