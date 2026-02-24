@@ -2109,11 +2109,148 @@ function syncTimer(game) {
   }
 }
 
-function pauseGame(game, byId) {
-  if (!game || game.paused) return;
+function ensureTradeTimerPauseState(game) {
+  if (!game) return null;
+  if (!game.tradeTimerPause || typeof game.tradeTimerPause !== 'object') {
+    game.tradeTimerPause = {
+      pending: false,
+      compose: null,      // { playerId, segmentKey }
+      hold: null,         // { phase, segmentKey, remainingMs, at }
+    };
+  }
+  const ttp = game.tradeTimerPause;
+  if (typeof ttp.pending !== 'boolean') ttp.pending = false;
+  if (!ttp.compose || typeof ttp.compose !== 'object') ttp.compose = null;
+  if (!ttp.hold || typeof ttp.hold !== 'object') ttp.hold = null;
+  return ttp;
+}
+
+function tradeTimerHoldReason(game) {
+  const ttp = ensureTradeTimerPauseState(game);
+  if (!ttp) return '';
+  if (ttp.pending) return 'player_trade_pending';
+  if (ttp.compose) return 'player_trade_compose';
+  return '';
+}
+
+function isTradeTimerPaused(game) {
+  const ttp = ensureTradeTimerPauseState(game);
+  return !!(ttp && ttp.hold && tradeTimerHoldReason(game));
+}
+
+function enterTradeTimerHold(game) {
+  const ttp = ensureTradeTimerPauseState(game);
+  if (!ttp || ttp.hold) return;
   syncTimer(game);
   const t = game.timer;
   const remainingMs = (t && t.endsAt) ? Math.max(0, t.endsAt - now()) : 0;
+  ttp.hold = {
+    phase: String(game.phase || ''),
+    segmentKey: String(timerSegmentKey(game) || ''),
+    remainingMs: Math.max(0, Math.floor(Number(remainingMs || 0))),
+    at: now(),
+  };
+}
+
+function exitTradeTimerHold(game) {
+  const ttp = ensureTradeTimerPauseState(game);
+  if (!ttp || !ttp.hold) return;
+  const hold = ttp.hold;
+  ttp.hold = null;
+
+  // If the game phase/segment changed while the trade UI was open, do not rebase the
+  // old timer into a new segment; let syncTimer() create the correct timer.
+  const segKey = timerSegmentKey(game);
+  if (String(game.phase || '') !== String(hold.phase || '') || String(segKey || '') !== String(hold.segmentKey || '')) {
+    return;
+  }
+
+  const remainingMs = Math.max(0, Math.floor(Number(hold.remainingMs || 0)));
+  if (game.timer && game.timer.phase === game.phase && String(game.timer.segmentKey || '') === String(segKey || '')) {
+    const dur = Math.max(0, Math.floor(Number(game.timer.durationMs || phaseDurationMs(game, game.phase) || remainingMs)));
+    const t0 = now();
+    game.timer = {
+      phase: game.phase,
+      segmentKey: segKey,
+      durationMs: dur,
+      startedAt: t0 - Math.max(0, dur - remainingMs),
+      endsAt: t0 + remainingMs,
+    };
+    return;
+  }
+
+  const dur = phaseDurationMs(game, game.phase);
+  if (!dur) {
+    game.timer = null;
+    return;
+  }
+  const t0 = now();
+  game.timer = { phase: game.phase, segmentKey: segKey, startedAt: t0, endsAt: t0 + remainingMs, durationMs: dur };
+}
+
+function syncTradeTimerPause(game) {
+  if (!game) return;
+  const ttp = ensureTradeTimerPauseState(game);
+  if (!ttp) return;
+
+  // Server-authoritative pending-trade pause.
+  ttp.pending = !!(game.pendingTrade && Number(game.pendingTrade.id || 0));
+
+  // Compose pause is only valid during the current player's main-actions segment.
+  if (ttp.compose) {
+    const validSeg = String(timerSegmentKey(game) || '');
+    const composeSeg = String(ttp.compose.segmentKey || '');
+    if (
+      game.phase !== 'main-actions' ||
+      !game.currentPlayerId ||
+      ttp.compose.playerId !== game.currentPlayerId ||
+      composeSeg !== validSeg
+    ) {
+      ttp.compose = null;
+    }
+  }
+
+  const shouldHold = !!tradeTimerHoldReason(game);
+  const isHolding = !!ttp.hold;
+  if (shouldHold && !isHolding) enterTradeTimerHold(game);
+  else if (!shouldHold && isHolding) exitTradeTimerHold(game);
+}
+
+function setTradeComposeTimerPause(game, playerId, active) {
+  if (!game) return false;
+  const ttp = ensureTradeTimerPauseState(game);
+  const isActivePlayerMainActions = (game.phase === 'main-actions' && isPlayersTurn(game, playerId));
+  if (active) {
+    if (!isActivePlayerMainActions) {
+      syncTradeTimerPause(game);
+      return false;
+    }
+    ttp.compose = { playerId, segmentKey: String(timerSegmentKey(game) || '') };
+    syncTradeTimerPause(game);
+    return true;
+  }
+
+  if (ttp.compose && ttp.compose.playerId === playerId) {
+    ttp.compose = null;
+    syncTradeTimerPause(game);
+    return true;
+  }
+  syncTradeTimerPause(game);
+  return false;
+}
+
+function pauseGame(game, byId) {
+  if (!game || game.paused) return;
+  syncTradeTimerPause(game);
+  syncTimer(game);
+  const ttp = ensureTradeTimerPauseState(game);
+  const holdRemaining = (ttp && ttp.hold && Number.isFinite(Number(ttp.hold.remainingMs)))
+    ? Math.max(0, Math.floor(Number(ttp.hold.remainingMs)))
+    : null;
+  const t = game.timer;
+  const remainingMs = (holdRemaining != null)
+    ? holdRemaining
+    : ((t && t.endsAt) ? Math.max(0, t.endsAt - now()) : 0);
   game.paused = true;
   game.pause = { byId, at: now(), remainingMs };
 }
@@ -6595,14 +6732,30 @@ function sanitizeStateFor(game, viewerId) {
   }
 
 
+  // Expose timer-hold metadata (separate from full game pause) so clients can
+  // freeze the countdown while the player-trade UI is open.
+  try { delete state.tradeTimerPause; } catch (_) {}
 
-
+  try {
+    const ttp = game && game.tradeTimerPause;
+    const hold = ttp && ttp.hold;
+    const reason = tradeTimerHoldReason(game);
+    if (hold && reason) {
+      state.timerHold = {
+        reason,
+        remainingMs: Math.max(0, Math.floor(Number(hold.remainingMs || 0))),
+      };
+    } else {
+      delete state.timerHold;
+    }
+  } catch (_) {}
 
   return state;
 }
 
 function broadcastState(room) {
   if (!room.game) return;
+  syncTradeTimerPause(room.game);
   syncTimer(room.game);
 
   for (const [pid, ws] of room.sockets.entries()) {
@@ -6899,6 +7052,7 @@ if (msg.type === 'create_room') {
 
         sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId });
         if (room.game) {
+          syncTradeTimerPause(room.game);
           syncTimer(room.game);
           sendJson(ws, { type: 'state', state: sanitizeStateFor(room.game, pid) });
         } else {
@@ -6933,6 +7087,7 @@ if (msg.type === 'create_room') {
 
       sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId });
       if (room.game) {
+        syncTradeTimerPause(room.game);
         syncTimer(room.game);
         sendJson(ws, { type: 'state', state: sanitizeStateFor(room.game, pid) });
       } else {
@@ -7416,13 +7571,23 @@ if (msg.type === 'create_room') {
       }
       const result = applyAction(room, pid, msg.action);
       if (!result.ok) sendJson(ws, { type: 'error', error: result.error });
+      try { if (room.game) syncTradeTimerPause(room.game); } catch (_) {}
       broadcastState(room);
+      return;
+    }
+
+    if (msg.type === 'trade_timer_pause') {
+      if (!room.game || room.game.phase === 'lobby' || room.game.phase === 'game-over') return;
+      const active = !!msg.active;
+      const changed = setTradeComposeTimerPause(room.game, pid, active);
+      if (changed) broadcastState(room);
       return;
     }
 
     if (msg.type === 'get_state') {
       sendJson(ws, { type: 'room', room: roomSnapshot(room) });
       if (room.game) {
+        syncTradeTimerPause(room.game);
         syncTimer(room.game);
         const state = sanitizeStateFor(room.game, pid);
         sendJson(ws, { type: 'state', state });
@@ -7446,6 +7611,14 @@ if (msg.type === 'create_room') {
     if (!room) return;
     // Only remove if this socket is still the active one for the player.
     if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
+
+    // If the active player disconnected while composing a trade, release the timer hold.
+    try {
+      if (room.game && setTradeComposeTimerPause(room.game, pid, false)) {
+        broadcastState(room);
+      }
+    } catch (_) {}
+
     // keep players list (rejoin not implemented)
     broadcastRoom(room);
   });
@@ -7456,6 +7629,8 @@ function handleTimeout(room) {
   const game = room.game;
   if (!game) return false;
   if (game.paused) return false;
+  syncTradeTimerPause(game);
+  if (isTradeTimerPaused(game)) return false;
   syncTimer(game);
   if (!game.timer) return false;
   if (now() < game.timer.endsAt) return false;

@@ -66,6 +66,9 @@
     buildCityBtn: $('buildCityBtn'),
     roomBox: $('roomBox'),
     roomCode: $('roomCode'),
+    roomJoinLinkInput: $('roomJoinLinkInput'),
+    genJoinLinkBtn: $('genJoinLinkBtn'),
+    copyJoinLinkBtn: $('copyJoinLinkBtn'),
     myPlayerIdFull: $('myPlayerIdFull'),
     copyMyIdBtn: $('copyMyIdBtn'),
     playersList: $('playersList'),
@@ -148,6 +151,7 @@
   let authUser = null;
   let authToken = null;
   let pendingAutoRejoin = false;
+  let pendingDirectJoinRoomCode = null;
 
   function formatStatsLine(stats) {
     if (!stats) return '';
@@ -2485,6 +2489,7 @@ function syncPostgameToState() {
   let timerUiInterval = null;
   let modalLocked = false;
   let modalType = null;
+  let playerTradeTimerPauseRequested = false;
   let activeToolModal = null; // 'log' | 'dice' | 'chat'
   let chatRefs = null;
   let lastDiscardPromptId = 0;
@@ -2784,6 +2789,40 @@ function syncPostgameToState() {
     }
   }
 
+  function parseDirectJoinCodeFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      let code = String(params.get('room') || params.get('code') || '').trim().toUpperCase();
+      code = code.replace(/[^A-Z0-9]/g, '');
+      if (!code) return null;
+      if (ui.codeInput && !ui.codeInput.value) ui.codeInput.value = code;
+      return code;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function buildDirectJoinUrl(roomCode) {
+    const code = String(roomCode || '').trim().toUpperCase();
+    if (!code) return '';
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set('room', code);
+      return u.toString();
+    } catch (_) {
+      return `${window.location.origin || ''}${window.location.pathname || '/'}?room=${encodeURIComponent(code)}`;
+    }
+  }
+
+  function refreshLobbyJoinLinkUi() {
+    const code = String((room && room.code) || '').trim().toUpperCase();
+    const link = code ? buildDirectJoinUrl(code) : '';
+    if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = link;
+    if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = !link;
+    if (ui.genJoinLinkBtn) ui.genJoinLinkBtn.disabled = !code;
+  }
+
+
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws`;
@@ -2940,6 +2979,18 @@ function syncPostgameToState() {
           updateAuthUi();
         }
 
+        if (pendingDirectJoinRoomCode && authUser) {
+          const targetCode = String(pendingDirectJoinRoomCode || '').trim().toUpperCase();
+          const alreadyThere = !!(room && String(room.code || '').trim().toUpperCase() === targetCode);
+          if (targetCode && !alreadyThere) {
+            pendingDirectJoinRoomCode = null; // one-shot
+            const displayName = (ui.nameInput?.value || '').trim() || authUser.displayName || authUser.username || 'Player';
+            send({ type: 'join_room', code: targetCode, displayName });
+            return;
+          }
+          if (alreadyThere) pendingDirectJoinRoomCode = null;
+        }
+
         if (pendingAutoRejoin) {
           pendingAutoRejoin = false;
 
@@ -2991,6 +3042,7 @@ function syncPostgameToState() {
         if (ui.codeInput && room?.code) ui.codeInput.value = room.code;
         ui.roomBox.classList.remove('hidden');
         ui.roomCode.textContent = room.code;
+        refreshLobbyJoinLinkUi();
         try { localStorage.setItem(LAST_ROOM_KEY, room.code); } catch (_) {}
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !isHost);
@@ -3002,8 +3054,10 @@ function syncPostgameToState() {
 
       if (msg.type === 'room') {
         room = msg.room;
+        if (modalType !== 'playerTradeCompose') playerTradeTimerPauseRequested = false;
         ui.roomBox.classList.remove('hidden');
         ui.roomCode.textContent = room.code;
+        refreshLobbyJoinLinkUi();
         try { localStorage.setItem(LAST_ROOM_KEY, room.code); } catch (_) {}
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !(myPlayerId && room.hostId === myPlayerId));
@@ -3015,6 +3069,11 @@ function syncPostgameToState() {
         const prevState = state;
         state = msg.state;
         syncEndTurnWarnAudioState(prevState, state);
+        try {
+          if (modalType !== 'playerTradeCompose' && playerTradeTimerPauseRequested) {
+            playerTradeTimerPauseRequested = false;
+          }
+        } catch (_) {}
         // Any state change should clear click-to-build UI and transient hover/confirm state.
         hideBuildPopup();
         hideNodeConfirmPopup();
@@ -3064,6 +3123,13 @@ function syncPostgameToState() {
     ws.send(JSON.stringify(obj));
   }
 
+  function setPlayerTradeTimerPause(active) {
+    const want = !!active;
+    if (playerTradeTimerPauseRequested === want) return;
+    playerTradeTimerPauseRequested = want;
+    send({ type: 'trade_timer_pause', active: want });
+  }
+
 
   // Paired-turn notification (Classic 5–6 & Seafarers 5–6): played only for the active paired player (Player 2).
   let lastPairedTurnKey = null;
@@ -3111,6 +3177,7 @@ function syncPostgameToState() {
     }
   }
 
+  pendingDirectJoinRoomCode = parseDirectJoinCodeFromUrl();
   updateAuthUi();
   connect();
   // Keep the countdown clock ticking even when no state messages arrive.
@@ -3158,6 +3225,11 @@ function syncPostgameToState() {
           send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: v.id, accept: false } });
         }
       }
+    } catch (_) {}
+
+    // Closing the player-trade compose modal should resume the turn timer.
+    try {
+      if (modalType === 'playerTradeCompose') setPlayerTradeTimerPause(false);
     } catch (_) {}
 
     ui.modal.classList.add('hidden');
@@ -3752,6 +3824,7 @@ function syncPostgameToState() {
   // Lobby UI
   function renderLobby() {
     if (!room) return;
+    refreshLobbyJoinLinkUi();
 
     const showAllIds = !!(myPlayerId && room.hostId === myPlayerId);
 
@@ -4101,6 +4174,22 @@ if (ui.copyMyIdBtn) {
       copyText(myPlayerId);
     });
   }
+  if (ui.genJoinLinkBtn) {
+    ui.genJoinLinkBtn.addEventListener('click', () => {
+      refreshLobbyJoinLinkUi();
+      const link = String(ui.roomJoinLinkInput?.value || '');
+      if (!link) { setError('Join a room first.'); return; }
+      toast('Join link generated.');
+    });
+  }
+  if (ui.copyJoinLinkBtn) {
+    ui.copyJoinLinkBtn.addEventListener('click', () => {
+      refreshLobbyJoinLinkUi();
+      const link = String(ui.roomJoinLinkInput?.value || '');
+      if (!link) { setError('Join a room first.'); return; }
+      copyText(link);
+    });
+  }
   ui.startBtn.addEventListener('click', () => {
     setError(null);
     send({ type: 'start_game' });
@@ -4250,6 +4339,7 @@ if (ui.copyMyIdBtn) {
       inputMode.moveShipFrom = null;
       inputMode.moveShipTargets = [];
       inputMode.moveShipTargetsLoading = false;
+      hideShipMoveCancelPopup();
     }
 
     inputMode.kind = kind;
@@ -4288,6 +4378,7 @@ if (ui.copyMyIdBtn) {
   let hoverNodeBuildCache = new Map(); // key => build_options[] for current state snapshot
   let nodeConfirmPopup = null;
   let boardHoverIndicator = null;
+  let shipMoveCancelPopup = null;
 
   function buildCacheKey(targetKind, targetId) {
     return `${targetKind}:${targetId}`;
@@ -4463,6 +4554,121 @@ if (ui.copyMyIdBtn) {
     }
   }
 
+  function edgeTouchesPirateClient(edgeId) {
+    try {
+      if (!state || !state.geom) return false;
+      const adj = (state.geom.edgeAdjTiles && state.geom.edgeAdjTiles[edgeId]) || [];
+      if (!Array.isArray(adj) || !adj.length) return false;
+      for (const tid of adj) {
+        const t = state.geom.tiles && state.geom.tiles[tid];
+        if (t && t.pirate) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  function hideShipMoveCancelPopup() {
+    if (!shipMoveCancelPopup) return;
+    shipMoveCancelPopup.classList.add('hidden');
+    shipMoveCancelPopup.style.left = '-9999px';
+    shipMoveCancelPopup.style.top = '-9999px';
+  }
+
+  function clearShipMoveSelection(opts = {}) {
+    inputMode.moveShipFrom = null;
+    inputMode.moveShipTargets = [];
+    inputMode.moveShipTargetsLoading = false;
+    hideShipMoveCancelPopup();
+    if (opts.keepMode) setMode('move_ship');
+    else if (inputMode.kind === 'move_ship') setMode('move_ship');
+  }
+
+  function ensureShipMoveCancelPopup() {
+    if (shipMoveCancelPopup) return;
+    const el = document.createElement('div');
+    el.className = 'shipMoveCancelPopup hidden';
+    el.style.position = 'fixed';
+    el.style.zIndex = '1200';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.gap = '8px';
+    el.style.padding = '6px 8px';
+    el.style.borderRadius = '10px';
+    el.style.border = '1px solid rgba(255,255,255,.2)';
+    el.style.background = 'rgba(10,14,20,.94)';
+    el.style.boxShadow = '0 10px 24px rgba(0,0,0,.35)';
+    el.style.color = '#eef3ff';
+    el.style.font = '600 12px/1.2 system-ui, sans-serif';
+    el.style.userSelect = 'none';
+    el.innerHTML = `
+      <span class="shipMoveCancelIcon" aria-hidden="true">⛵</span>
+      <span class="shipMoveCancelLabel">Ship selected</span>
+      <button type="button" class="shipMoveCancelBtn" title="Cancel ship move">✕</button>
+    `;
+    const btn = el.querySelector('.shipMoveCancelBtn');
+    if (btn) {
+      btn.style.border = '1px solid rgba(255,255,255,.18)';
+      btn.style.background = 'rgba(255,255,255,.06)';
+      btn.style.color = '#fff';
+      btn.style.borderRadius = '8px';
+      btn.style.padding = '2px 8px';
+      btn.style.cursor = 'pointer';
+      btn.style.font = '700 12px/1 system-ui, sans-serif';
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        clearShipMoveSelection({ keepMode: true });
+        render();
+      });
+    }
+    document.body.appendChild(el);
+    shipMoveCancelPopup = el;
+
+    document.addEventListener('mousedown', (ev) => {
+      if (!shipMoveCancelPopup || shipMoveCancelPopup.classList.contains('hidden')) return;
+      if (ev.target === shipMoveCancelPopup || shipMoveCancelPopup.contains(ev.target)) return;
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape') return;
+      if (!(inputMode && inputMode.kind === 'move_ship' && inputMode.moveShipFrom != null)) return;
+      clearShipMoveSelection({ keepMode: true });
+      render();
+    });
+  }
+
+  function updateShipMoveCancelPopupPosition() {
+    if (!(inputMode && inputMode.kind === 'move_ship' && inputMode.moveShipFrom != null && state && state.geom)) {
+      hideShipMoveCancelPopup();
+      return;
+    }
+    const e = state.geom.edges?.[inputMode.moveShipFrom];
+    if (!e) { hideShipMoveCancelPopup(); return; }
+    const a = state.geom.nodes?.[e.a];
+    const b = state.geom.nodes?.[e.b];
+    if (!a || !b) { hideShipMoveCancelPopup(); return; }
+
+    ensureShipMoveCancelPopup();
+    if (!shipMoveCancelPopup) return;
+
+    const as = worldToScreen({ x: a.x, y: a.y });
+    const bs = worldToScreen({ x: b.x, y: b.y });
+    let x = (as.x + bs.x) / 2 + 14;
+    let y = (as.y + bs.y) / 2 - 14;
+
+    shipMoveCancelPopup.classList.remove('hidden');
+    shipMoveCancelPopup.style.left = `${Math.round(x)}px`;
+    shipMoveCancelPopup.style.top = `${Math.round(y)}px`;
+
+    const r = shipMoveCancelPopup.getBoundingClientRect();
+    const pad = 10;
+    if (r.right > window.innerWidth - pad) x = Math.max(pad, window.innerWidth - r.width - pad);
+    if (r.bottom > window.innerHeight - pad) y = Math.max(pad, window.innerHeight - r.height - pad);
+    if (y < pad) y = pad;
+    if (x < pad) x = pad;
+    shipMoveCancelPopup.style.left = `${Math.round(x)}px`;
+    shipMoveCancelPopup.style.top = `${Math.round(y)}px`;
+  }
+
   function requestShipMoveTargets(fromEdgeId) {
     if (!ws || ws.readyState !== 1) return;
     inputMode.moveShipTargetsLoading = true;
@@ -4475,12 +4681,17 @@ if (ui.copyMyIdBtn) {
       const used = state && state.shipMoveUsed && state.shipMoveUsed[myPlayerId] === state.turnNumber;
       if (used) { setError('You have already moved a ship this turn.'); return; }
     } catch (_) {}
+    if (edgeTouchesPirateClient(edgeId)) {
+      setError('The pirate blocks moving that ship.');
+      return;
+    }
     inputMode.kind = 'move_ship';
     inputMode.moveShipFrom = edgeId;
     inputMode.moveShipTargets = [];
     inputMode.moveShipTargetsLoading = false;
     setMode('move_ship');
     requestShipMoveTargets(edgeId);
+    updateShipMoveCancelPopupPosition();
     render();
   }
 
@@ -4611,6 +4822,9 @@ function timerSecondsLeft() {
   if (state && state.paused && state.pause && typeof state.pause.remainingMs === 'number') {
     return Math.max(0, Number(state.pause.remainingMs) / 1000);
   }
+  if (state && state.timerHold && typeof state.timerHold.remainingMs === 'number') {
+    return Math.max(0, Number(state.timerHold.remainingMs) / 1000);
+  }
   const t = state && state.timer;
   if (!t || !t.endsAt) return null;
   const left = (Number(t.endsAt) - serverNowMs()) / 1000;
@@ -4638,7 +4852,8 @@ function updateTimerInfo() {
   const left = timerSecondsLeft();
   const sec = left == null ? '—' : String(Math.ceil(left));
   ui.timerInfo.classList.remove('hidden');
-  ui.timerInfo.textContent = `${state.paused ? '⏸' : '⏱'} ${sec}s · ${state.phase}`;
+  const timerHeld = !!(state && state.timerHold && typeof state.timerHold.remainingMs === 'number');
+  ui.timerInfo.textContent = `${(state.paused || timerHeld) ? '⏸' : '⏱'} ${sec}s · ${state.phase}`;
 
   // Right-side clock (all players)
   if (ui.countdownClock) {
@@ -4655,7 +4870,9 @@ function updateTimerInfo() {
         pairTag = ` · ${state.paired.stage === 'p2' ? 'P2' : 'P1'}`;
       }
     } catch (_) {}
-    const meta = `${state.paused ? 'Paused' : 'Turn'}: ${who}${pairTag} · ${state.phase}`;
+    const timerHeld = !!(state && state.timerHold && typeof state.timerHold.remainingMs === 'number');
+    const timerStatus = state.paused ? 'Paused' : (timerHeld ? 'Trade paused' : 'Turn');
+    const meta = `${timerStatus}: ${who}${pairTag} · ${state.phase}`;
     if (metaEl) metaEl.textContent = meta;
   }
 
@@ -5718,6 +5935,8 @@ if (ui.moveShipBtn) {
       }
     }
 
+    modalType = 'playerTradeCompose';
+    setPlayerTradeTimerPause(true);
     openModal({
       title: reviseOfTradeId ? 'Revise Trade' : 'Player Trade',
       bodyNode: wrap,
@@ -6477,10 +6696,7 @@ function handleDiscoveryGoldPrompt() {
       const de = state.geom?.edges?.[directShipHit];
       if (de && de.shipOwner === myPlayerId) {
         if (inputMode.kind === 'move_ship' && inputMode.moveShipFrom === directShipHit) {
-          inputMode.moveShipFrom = null;
-          inputMode.moveShipTargets = [];
-          inputMode.moveShipTargetsLoading = false;
-          setMode('move_ship');
+          clearShipMoveSelection({ keepMode: true });
           render();
           return;
         }
@@ -6501,30 +6717,29 @@ function handleDiscoveryGoldPrompt() {
           setError('Click one of your ships to select it.');
           return;
         }
+        if (edgeTouchesPirateClient(hit)) {
+          setError('The pirate blocks moving that ship.');
+          return;
+        }
         inputMode.moveShipFrom = hit;
         inputMode.moveShipTargets = [];
         inputMode.moveShipTargetsLoading = false;
         setMode('move_ship');
         requestShipMoveTargets(hit);
+        updateShipMoveCancelPopupPosition();
         render();
         return;
       }
 
       // Second click chooses a destination edge (clicking the same edge cancels).
       if (hit === inputMode.moveShipFrom) {
-        inputMode.moveShipFrom = null;
-        inputMode.moveShipTargets = [];
-        inputMode.moveShipTargetsLoading = false;
-        setMode('move_ship');
+        clearShipMoveSelection({ keepMode: true });
         render();
         return;
       }
 
       const from = inputMode.moveShipFrom;
-      inputMode.moveShipFrom = null;
-      inputMode.moveShipTargets = [];
-      inputMode.moveShipTargetsLoading = false;
-      setMode('move_ship');
+      clearShipMoveSelection({ keepMode: true });
       sendGameAction({ kind: 'move_ship', fromEdgeId: from, toEdgeId: hit });
       return;
     }
@@ -6610,7 +6825,7 @@ function handleDiscoveryGoldPrompt() {
   function pickNode(sx, sy) {
     if (!screenCache) return null;
     // Slightly larger hit radius makes setup placement feel reliable.
-    const rad = 18;
+    const rad = 24;
     let best = { id: null, d: 1e9 };
     for (const n of screenCache.nodes) {
       const d = Math.hypot(sx - n.sx, sy - n.sy);
@@ -6623,14 +6838,14 @@ function handleDiscoveryGoldPrompt() {
     if (!screenCache) return null;
 
     // Find nearest node/edge under thresholds, then choose the closer one.
-    const nodeRad = 22;
+    const nodeRad = 28;
     let bestNode = { id: null, d: 1e9 };
     for (const n of screenCache.nodes) {
       const d = Math.hypot(sx - n.sx, sy - n.sy);
       if (d < nodeRad && d < bestNode.d) bestNode = { id: n.id, d };
     }
 
-    const edgeThr = 13;
+    const edgeThr = 10;
     let bestEdge = { id: null, d: 1e9 };
     for (const e of screenCache.edges) {
       const d = distToSeg(sx, sy, e.ax, e.ay, e.bx, e.by);
@@ -6649,7 +6864,7 @@ function handleDiscoveryGoldPrompt() {
   function pickEdge(sx, sy) {
     if (!screenCache) return null;
     // Roads are thin lines; use a more forgiving threshold.
-    const thr = 14;
+    const thr = 10;
     let best = { id: null, d: 1e9 };
     for (const e of screenCache.edges) {
       const d = distToSeg(sx, sy, e.ax, e.ay, e.bx, e.by);
@@ -6667,6 +6882,7 @@ function handleDiscoveryGoldPrompt() {
   }
 
   function render() {
+    if (!state) hideShipMoveCancelPopup();
     // Clear
     const w = ui.canvas.getBoundingClientRect().width;
     const h = ui.canvas.getBoundingClientRect().height;
@@ -7102,6 +7318,8 @@ function handleDiscoveryGoldPrompt() {
       ctx.fillText(`Mode: ${inputMode.kind ? inputMode.kind.replaceAll('_',' ') : 'view'}`, 20, 34);
       ctx.restore();
     }
+
+    updateShipMoveCancelPopupPosition();
   }
 
   function pickStructImg(colorIdx) {
