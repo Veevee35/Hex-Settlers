@@ -2104,105 +2104,6 @@ function syncPostgameToState() {
     'circle',    // orange
   ];
 
-  function colorblindShapeLabel(shape) {
-    if (shape === 'star') return '5-point star';
-    return String(shape || 'shape').charAt(0).toUpperCase() + String(shape || 'shape').slice(1);
-  }
-
-  function regularPolygonPointsStr(sides, radius, cx, cy, startAngle) {
-    const n = Math.max(3, sides | 0);
-    const a0 = (typeof startAngle === 'number') ? startAngle : (-Math.PI / 2);
-    const pts = [];
-    for (let i = 0; i < n; i++) {
-      const a = a0 + (i * Math.PI * 2 / n);
-      const x = cx + Math.cos(a) * radius;
-      const y = cy + Math.sin(a) * radius;
-      pts.push(`${x.toFixed(2)},${y.toFixed(2)}`);
-    }
-    return pts.join(' ');
-  }
-
-  function starPointsStr(points, outerR, innerR, cx, cy) {
-    const p = Math.max(5, points | 0);
-    const step = Math.PI / p;
-    const a0 = -Math.PI / 2;
-    const pts = [];
-    for (let i = 0; i < p * 2; i++) {
-      const r = (i % 2 === 0) ? outerR : innerR;
-      const a = a0 + i * step;
-      const x = cx + Math.cos(a) * r;
-      const y = cy + Math.sin(a) * r;
-      pts.push(`${x.toFixed(2)},${y.toFixed(2)}`);
-    }
-    return pts.join(' ');
-  }
-
-  function createColorblindShapeIconEl(colorIdx, sizePx) {
-    const idx = (colorIdx == null ? 0 : (colorIdx | 0));
-    const shape = COLORBLIND_SHAPE_BY_COLOR[idx] || 'circle';
-    const px = Math.max(10, Number(sizePx || 14));
-    const wrap = document.createElement('span');
-    wrap.className = 'cbShapeIcon';
-    wrap.style.display = 'inline-flex';
-    wrap.style.alignItems = 'center';
-    wrap.style.justifyContent = 'center';
-    wrap.style.width = `${px}px`;
-    wrap.style.height = `${px}px`;
-    wrap.style.flex = '0 0 auto';
-    wrap.style.marginLeft = '2px';
-    wrap.title = colorblindShapeLabel(shape);
-
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 100 100');
-    svg.setAttribute('width', String(px));
-    svg.setAttribute('height', String(px));
-    svg.setAttribute('aria-hidden', 'true');
-
-    let fill = 'rgba(255,255,255,.78)';
-    let stroke = 'rgba(0,0,0,.92)';
-    if (idx === 6) {
-      fill = 'rgba(0,0,0,.55)';
-      stroke = 'rgba(255,255,255,.96)';
-    }
-
-    let el;
-    const mkPoly = (pts) => {
-      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-      poly.setAttribute('points', pts);
-      return poly;
-    };
-
-    if (shape === 'triangle') {
-      el = mkPoly(regularPolygonPointsStr(3, 42, 50, 50, -Math.PI / 2));
-    } else if (shape === 'square') {
-      el = mkPoly(regularPolygonPointsStr(4, 40, 50, 50, Math.PI / 4));
-    } else if (shape === 'pentagon') {
-      el = mkPoly(regularPolygonPointsStr(5, 41, 50, 50, -Math.PI / 2));
-    } else if (shape === 'hexagon') {
-      el = mkPoly(regularPolygonPointsStr(6, 41, 50, 50, Math.PI / 6));
-    } else if (shape === 'star') {
-      el = mkPoly(starPointsStr(5, 43, 19, 50, 50));
-    } else if (shape === 'trapezoid') {
-      el = mkPoly('26,16 74,16 90,84 10,84');
-    } else if (shape === 'diamond') {
-      el = mkPoly('50,8 92,50 50,92 8,50');
-    } else {
-      el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      el.setAttribute('cx', '50');
-      el.setAttribute('cy', '50');
-      el.setAttribute('r', '40');
-    }
-
-    el.setAttribute('fill', fill);
-    el.setAttribute('stroke', stroke);
-    el.setAttribute('stroke-width', '12');
-    el.setAttribute('stroke-linejoin', 'round');
-    el.setAttribute('vector-effect', 'non-scaling-stroke');
-    svg.appendChild(el);
-    wrap.appendChild(svg);
-    return wrap;
-  }
-
   function drawRegularPolygonPath(sides, radius, startAngle) {
     const n = Math.max(3, sides | 0);
     const a0 = (typeof startAngle === 'number') ? startAngle : (-Math.PI / 2);
@@ -2293,6 +2194,100 @@ function syncPostgameToState() {
     ctx.restore();
   }
 
+
+  function regularPolygonPoints(sides, radius, startAngle, cx, cy) {
+    const n = Math.max(3, sides | 0);
+    const a0 = (typeof startAngle === 'number') ? startAngle : (-Math.PI / 2);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i * Math.PI * 2 / n);
+      out.push(`${(cx + Math.cos(a) * radius).toFixed(2)},${(cy + Math.sin(a) * radius).toFixed(2)}`);
+    }
+    return out.join(' ');
+  }
+
+  function starPolygonPoints(points, outerR, innerR, cx, cy) {
+    const p = Math.max(5, points | 0);
+    const step = Math.PI / p;
+    const a0 = -Math.PI / 2;
+    const out = [];
+    for (let i = 0; i < p * 2; i++) {
+      const r = (i % 2 === 0) ? outerR : innerR;
+      const a = a0 + i * step;
+      out.push(`${(cx + Math.cos(a) * r).toFixed(2)},${(cy + Math.sin(a) * r).toFixed(2)}`);
+    }
+    return out.join(' ');
+  }
+
+  function createColorblindShapeBadge(color, sizePx) {
+    const idx = playerColorIndex(color);
+    const shape = COLORBLIND_SHAPE_BY_COLOR[idx] || 'circle';
+    const NS = 'http://www.w3.org/2000/svg';
+    const size = Math.max(10, Number(sizePx || 14));
+    const vb = 24;
+    const c = vb / 2;
+    const r = 8.5;
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${vb} ${vb}`);
+    svg.setAttribute('width', String(size));
+    svg.setAttribute('height', String(size));
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.display = 'inline-block';
+    svg.style.flex = '0 0 auto';
+    svg.style.verticalAlign = 'middle';
+    svg.style.filter = 'drop-shadow(0 1px 1px rgba(0,0,0,.55))';
+
+    let fill = 'rgba(255,255,255,.78)';
+    let stroke = 'rgba(0,0,0,.92)';
+    if (idx === 6) {
+      fill = 'rgba(0,0,0,.55)';
+      stroke = 'rgba(255,255,255,.96)';
+    }
+
+    let el = null;
+    if (shape === 'circle') {
+      el = document.createElementNS(NS, 'circle');
+      el.setAttribute('cx', String(c));
+      el.setAttribute('cy', String(c));
+      el.setAttribute('r', String(r));
+    } else {
+      el = document.createElementNS(NS, 'polygon');
+      let pts = '';
+      if (shape === 'triangle') pts = regularPolygonPoints(3, r, -Math.PI / 2, c, c);
+      else if (shape === 'square') pts = regularPolygonPoints(4, r, Math.PI / 4, c, c);
+      else if (shape === 'pentagon') pts = regularPolygonPoints(5, r, -Math.PI / 2, c, c);
+      else if (shape === 'hexagon') pts = regularPolygonPoints(6, r, Math.PI / 6, c, c);
+      else if (shape === 'star') pts = starPolygonPoints(5, r, Math.max(3, r * 0.45), c, c);
+      else if (shape === 'trapezoid') {
+        const top = r * 0.60;
+        pts = [
+          `${(c - top).toFixed(2)},${(c - r).toFixed(2)}`,
+          `${(c + top).toFixed(2)},${(c - r).toFixed(2)}`,
+          `${(c + r).toFixed(2)},${(c + r).toFixed(2)}`,
+          `${(c - r).toFixed(2)},${(c + r).toFixed(2)}`,
+        ].join(' ');
+      } else if (shape === 'diamond') {
+        pts = [
+          `${c.toFixed(2)},${(c - r).toFixed(2)}`,
+          `${(c + r).toFixed(2)},${c.toFixed(2)}`,
+          `${c.toFixed(2)},${(c + r).toFixed(2)}`,
+          `${(c - r).toFixed(2)},${c.toFixed(2)}`,
+        ].join(' ');
+      } else {
+        pts = regularPolygonPoints(6, r, 0, c, c);
+      }
+      el.setAttribute('points', pts);
+    }
+    el.setAttribute('fill', fill);
+    el.setAttribute('stroke', stroke);
+    el.setAttribute('stroke-width', '2.2');
+    el.setAttribute('stroke-linejoin', 'round');
+    el.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(el);
+    try { svg.title = shape; } catch (_) {}
+    return svg;
+  }
+
   // -------------------- HUD docking (board overlays) -------------------- (board overlays) --------------------
 
   const hudDock = {
@@ -2341,7 +2336,7 @@ function syncPostgameToState() {
     btns.className = 'hudBtns';
     // In-game: keep the same tools as the lobby, but in a compact HUD bar.
     // The user expects Rules to be available in-game next to Game Log.
-    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.endGameVoteBtn, ui.idsBtn]) {
+    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.endGameVoteBtn, ui.idsBtn, ui.colorblindBtn]) {
       if (!b) continue;
       b.classList.add('btnTiny');
       btns.appendChild(b);
@@ -3692,6 +3687,14 @@ function syncPostgameToState() {
       name.style.color = '#e8eef6';
 
       left.appendChild(badge);
+      if (colorblindMode) {
+        try {
+          const shapeBadge = createColorblindShapeBadge(p.color, 14);
+          shapeBadge.style.marginLeft = '-2px';
+          shapeBadge.style.marginRight = '0';
+          left.appendChild(shapeBadge);
+        } catch (_) {}
+      }
       left.appendChild(name);
 
       const id = document.createElement('div');
@@ -5516,11 +5519,6 @@ function ensureTimerUiInterval() {
     if (ui.devCard) ui.devCard.classList.toggle('hidden', !inGame);
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
-    if (ui.colorblindBtn) {
-      ui.colorblindBtn.classList.toggle('hidden', !inGame);
-      ui.colorblindBtn.title = 'Local toggle (only changes your view)';
-      updateColorblindUi();
-    }
     const myTurn = inGame && state.currentPlayerId === myPlayerId;
 
     // Global page state + HUD docking.
@@ -5551,6 +5549,12 @@ function ensureTimerUiInterval() {
     if (ui.idsBtn) {
       ui.idsBtn.classList.toggle('hidden', !isHostNow);
       ui.idsBtn.disabled = !isHostNow;
+    }
+
+    // Local per-player colorblind toggle (client-only)
+    if (ui.colorblindBtn) {
+      ui.colorblindBtn.classList.toggle('hidden', !inGame);
+      ui.colorblindBtn.disabled = !inGame;
     }
 
     // Host-only end-game vote
@@ -5765,14 +5769,8 @@ if (ui.moveShipBtn) {
       badge.style.background = p.color;
       const name = document.createElement('div');
       name.textContent = p.name + (p.id === myPlayerId ? ' (you)' : '') + (p.id === state.currentPlayerId ? ' • turn' : '');
-      const nameRow = document.createElement('div');
-      nameRow.style.display = 'flex';
-      nameRow.style.alignItems = 'center';
-      nameRow.style.gap = '6px';
-      nameRow.appendChild(name);
-      try { nameRow.appendChild(createColorblindShapeIconEl(playerColorIndex(p.color), 13)); } catch (_) {}
       left.appendChild(badge);
-      left.appendChild(nameRow);
+      left.appendChild(name);
 
 
 	      const right = document.createElement('div');
