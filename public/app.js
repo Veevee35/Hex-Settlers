@@ -51,6 +51,7 @@
     rulesBtn: $('rulesBtn'),
     diceBtn: $('diceBtn'),
     chatBtn: $('chatBtn'),
+    colorblindBtn: $('colorblindBtn'),
     endGameVoteBtn: $('endGameVoteBtn'),
     idsBtn: $('idsBtn'),
     resourcesCard: $('resourcesCard'),
@@ -144,6 +145,25 @@
   const TOOL_UI_SCALE_MIN = 0.8;
   const TOOL_UI_SCALE_MAX = 2.0;
   const TOOL_UI_SCALE_STEP = 0.1;
+
+  // Accessibility: colorblind-friendly token markers
+  const COLORBLIND_MODE_KEY = 'hexsettlers_colorblind_mode_v1';
+  let colorblindMode = false;
+  try { colorblindMode = localStorage.getItem(COLORBLIND_MODE_KEY) === '1'; } catch (_) {}
+
+  function updateColorblindUi() {
+    if (!ui.colorblindBtn) return;
+    ui.colorblindBtn.textContent = `Colorblind: ${colorblindMode ? 'On' : 'Off'}`;
+    ui.colorblindBtn.classList.toggle('primary', !!colorblindMode);
+  }
+
+  function setColorblindMode(enabled) {
+    colorblindMode = !!enabled;
+    try { localStorage.setItem(COLORBLIND_MODE_KEY, colorblindMode ? '1' : '0'); } catch (_) {}
+    updateColorblindUi();
+    try { render(); } catch (_) {}
+  }
+
 
   let tabUiScale = 1;
   const tabScaleLabels = [];
@@ -2069,6 +2089,109 @@ function syncPostgameToState() {
   function tokenBgPosPct(kind) {
     const cell = STRUCT_CELL[kind] || STRUCT_CELL.settlement;
     return { x: cell.c * 100, y: cell.r * 100 };
+  }
+
+
+  // Colorblind token markers (shape per player color)
+  const COLORBLIND_SHAPE_BY_COLOR = [
+    'triangle',  // red
+    'square',    // blue
+    'pentagon',  // green
+    'hexagon',   // yellow
+    'star',      // purple
+    'trapezoid', // teal
+    'diamond',   // white
+    'circle',    // orange
+  ];
+
+  function drawRegularPolygonPath(sides, radius, startAngle) {
+    const n = Math.max(3, sides | 0);
+    const a0 = (typeof startAngle === 'number') ? startAngle : (-Math.PI / 2);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i * Math.PI * 2 / n);
+      const px = Math.cos(a) * radius;
+      const py = Math.sin(a) * radius;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  function drawStarPath(points, outerR, innerR) {
+    const p = Math.max(5, points | 0);
+    const step = Math.PI / p;
+    const a0 = -Math.PI / 2;
+    for (let i = 0; i < p * 2; i++) {
+      const r = (i % 2 === 0) ? outerR : innerR;
+      const a = a0 + i * step;
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  function drawColorblindMark(colorIdx, x, y, size, rotRad) {
+    if (!colorblindMode) return;
+    const idx = (colorIdx == null ? 0 : (colorIdx | 0));
+    const shape = COLORBLIND_SHAPE_BY_COLOR[idx] || 'circle';
+    const s = Math.max(10, Number(size || 0));
+    const r = s / 2;
+
+    ctx.save();
+    ctx.translate(x, y);
+    if (rotRad) ctx.rotate(rotRad);
+
+    // High-contrast styling. Special case for white pieces.
+    let fill = 'rgba(255,255,255,.78)';
+    let stroke = 'rgba(0,0,0,.92)';
+    if (idx === 6) { // white
+      fill = 'rgba(0,0,0,.55)';
+      stroke = 'rgba(255,255,255,.96)';
+    }
+
+    ctx.lineWidth = Math.max(2, Math.round(s * 0.12));
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(0,0,0,.55)';
+    ctx.shadowBlur = Math.max(2, Math.round(s * 0.10));
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    ctx.beginPath();
+    if (shape === 'triangle') {
+      drawRegularPolygonPath(3, r, -Math.PI / 2);
+    } else if (shape === 'square') {
+      drawRegularPolygonPath(4, r, Math.PI / 4);
+    } else if (shape === 'pentagon') {
+      drawRegularPolygonPath(5, r, -Math.PI / 2);
+    } else if (shape === 'hexagon') {
+      drawRegularPolygonPath(6, r, Math.PI / 6);
+    } else if (shape === 'star') {
+      drawStarPath(5, r, Math.max(3, r * 0.45));
+    } else if (shape === 'trapezoid') {
+      const top = r * 0.60;
+      ctx.moveTo(-top, -r);
+      ctx.lineTo(top, -r);
+      ctx.lineTo(r, r);
+      ctx.lineTo(-r, r);
+      ctx.closePath();
+    } else if (shape === 'diamond') {
+      ctx.moveTo(0, -r);
+      ctx.lineTo(r, 0);
+      ctx.lineTo(0, r);
+      ctx.lineTo(-r, 0);
+      ctx.closePath();
+    } else { // circle
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+    }
+
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   }
 
   // -------------------- HUD docking (board overlays) -------------------- (board overlays) --------------------
@@ -4342,6 +4465,10 @@ if (ui.copyMyIdBtn) {
   if (ui.rulesBtn) ui.rulesBtn.addEventListener('click', () => openRulesModal());
   ui.diceBtn.addEventListener('click', () => openDiceModal());
   ui.chatBtn.addEventListener('click', () => openChatModal());
+  if (ui.colorblindBtn) {
+    updateColorblindUi();
+    ui.colorblindBtn.addEventListener('click', () => setColorblindMode(!colorblindMode));
+  }
   if (ui.endGameVoteBtn) ui.endGameVoteBtn.addEventListener('click', () => {
     const inGame = !!(state && state.phase && state.phase !== 'lobby');
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
@@ -7671,6 +7798,13 @@ function handleDiscoveryGoldPrompt() {
           ctx.lineTo(bs.x, bs.y);
           ctx.stroke();
           ctx.restore();
+
+          if (colorblindMode) {
+            const mx = (as.x + bs.x) / 2;
+            const my = (as.y + bs.y) / 2;
+            const ang = Math.atan2(bs.y - as.y, bs.x - as.x);
+            drawColorblindMark(colIdx, mx, my, 18, ang);
+          }
         }
       }
 
@@ -7689,6 +7823,13 @@ function handleDiscoveryGoldPrompt() {
           ctx.stroke();
           ctx.setLineDash([]);
           ctx.restore();
+
+          if (colorblindMode) {
+            const mx = (as.x + bs.x) / 2;
+            const my = (as.y + bs.y) / 2;
+            const ang = Math.atan2(bs.y - as.y, bs.x - as.x);
+            drawColorblindMark(colIdx, mx, my, 16, ang);
+          }
         }
       }
     }
@@ -7812,6 +7953,11 @@ function handleDiscoveryGoldPrompt() {
       ctx.drawImage(img, sx, sy, t, t, x - w / 2, y - h / 2, w, h);
     }
     ctx.restore();
+    if (colorblindMode) {
+      const base = Math.min(w, Math.max(h * 2.5, h + 8));
+      const s = Math.max(10, Math.round(base * 0.5));
+      drawColorblindMark(colorIdx, x, y, s, rotRad || 0);
+    }
     return true;
   }
 
@@ -7853,6 +7999,9 @@ function handleDiscoveryGoldPrompt() {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
+    if (colorblindMode) {
+      drawColorblindMark(colIdx, x, y, Math.max(12, Math.round(sz * 0.55)), 0);
+    }
   }
 
   function drawCity(x, y, color) {
@@ -7880,6 +8029,9 @@ function handleDiscoveryGoldPrompt() {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
+    if (colorblindMode) {
+      drawColorblindMark(colIdx, x, y, Math.max(12, Math.round(sz * 0.55)), 0);
+    }
   }
 
   // initial view centering
