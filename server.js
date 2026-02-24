@@ -8471,6 +8471,20 @@ setInterval(() => {
 }, 250);
 
 
+// Robustness: while an end-game vote is active, periodically rebroadcast state so
+// clients that were busy in another modal or temporarily stalled still receive it.
+setInterval(() => {
+  for (const room of rooms.values()) {
+    const g = room && room.game;
+    if (!g || g.phase === 'lobby' || g.phase === 'game-over') continue;
+    if (!(g.endVote && g.endVote.id)) continue;
+    const t = now();
+    if (t < Number(room._nextEndVoteRebroadcastAt || 0)) continue;
+    room._nextEndVoteRebroadcastAt = t + 1000;
+    try { broadcastState(room); } catch (_) {}
+  }
+}, 250);
+
 setInterval(cleanupRooms, 60_000);
 
 server.listen(PORT, () => {

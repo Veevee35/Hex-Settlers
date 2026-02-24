@@ -3080,6 +3080,16 @@ function syncPostgameToState() {
     modalType = null;
     activeToolModal = null;
     chatRefs = null;
+
+    // If an end-game vote prompt was deferred because another modal was open,
+    // try opening it immediately after the current modal closes.
+    try {
+      if (pendingEndVotePromptId && state && state.endVote && Number(state.endVote.id || 0) === Number(pendingEndVotePromptId || 0)) {
+        setTimeout(() => {
+          try { handleEndGameVotePrompt(); } catch (_) {}
+        }, 0);
+      }
+    } catch (_) {}
   }
 
   function forceCloseModal() {
@@ -4562,6 +4572,9 @@ function ensureTimerUiInterval() {
   // Update once per second so the countdown is always readable and stable.
   timerUiInterval = setInterval(() => {
     updateTimerInfo();
+    // Robustness: if an end-game vote is active and its prompt was deferred/missed,
+    // keep retrying so every player reliably sees it.
+    try { handleEndGameVotePrompt(); } catch (_) {}
   }, 1000);
   // Run immediately so you don't wait up to 1s after joining.
   updateTimerInfo();
@@ -5022,6 +5035,7 @@ if (ui.moveShipBtn) {
 
   let lastTradePromptIdSeen = 0;
   let lastEndVotePromptIdSeen = 0;
+  let pendingEndVotePromptId = 0;
   // When the trade proposer hits "Revise Trade" from the proposed-trade popup,
   // we keep track of which trade is being replaced so the server can atomically
   // close the old offer and broadcast the updated one.
@@ -5843,23 +5857,36 @@ if (ui.moveShipBtn) {
 
     const v = state.endVote;
 
-    // If vote cleared, close any open end-vote modal
+    // If vote cleared, close any open end-vote modal and clear deferred prompt state.
     if (!v || !v.id) {
+      pendingEndVotePromptId = 0;
       if (modalType === 'endVote') forceCloseModal();
       return;
     }
 
-    // Keep the end-vote modal live-updated while it's open
+    const voteId = Number(v.id || 0);
+
+    // Keep the end-vote modal live-updated while it's open.
     if (modalType === 'endVote' && !ui.modal.classList.contains('hidden')) {
+      pendingEndVotePromptId = 0;
+      lastEndVotePromptIdSeen = Math.max(Number(lastEndVotePromptIdSeen || 0), voteId);
       openEndGameVoteModal(true);
       return;
     }
 
-    // Don't interrupt other modals
-    if (!ui.modal.classList.contains('hidden')) return;
+    // If another modal is open, defer the end-vote prompt so it opens as soon as
+    // that modal is closed. This prevents the prompt from getting "lost" if no more
+    // state packets arrive before the player dismisses the other modal.
+    if (!ui.modal.classList.contains('hidden')) {
+      pendingEndVotePromptId = voteId;
+      return;
+    }
 
-    if (v.id <= lastEndVotePromptIdSeen) return;
-    lastEndVotePromptIdSeen = v.id;
+    // If this vote was already seen but was deferred, still open it now.
+    if (voteId <= Number(lastEndVotePromptIdSeen || 0) && voteId !== Number(pendingEndVotePromptId || 0)) return;
+
+    pendingEndVotePromptId = 0;
+    lastEndVotePromptIdSeen = Math.max(Number(lastEndVotePromptIdSeen || 0), voteId);
 
     openEndGameVoteModal(true);
   }
