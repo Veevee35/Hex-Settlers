@@ -5771,7 +5771,15 @@ if (ui.moveShipBtn) {
       name.textContent = p.name + (p.id === myPlayerId ? ' (you)' : '') + (p.id === state.currentPlayerId ? ' • turn' : '');
       left.appendChild(badge);
       left.appendChild(name);
-
+      if (colorblindMode) {
+        try {
+          const shapeBadge = createColorblindShapeBadge(p.color, 14);
+          shapeBadge.style.marginLeft = '-2px';
+          shapeBadge.style.marginRight = '0';
+          shapeBadge.style.flexShrink = '0';
+          left.appendChild(shapeBadge);
+        } catch (_) {}
+      }
 
 	      const right = document.createElement('div');
 	      right.style.display = 'flex';
