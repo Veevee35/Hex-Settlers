@@ -334,6 +334,8 @@
   function makeToolScaleControl(scaleId, wrap, { title = 'Scale this tab' } = {}) {
     const ctrl = document.createElement('div');
     ctrl.className = 'toolScaleControl';
+    ctrl.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    ctrl.addEventListener('mousedown', (ev) => ev.stopPropagation());
     ctrl.title = title;
 
     const minus = document.createElement('button');
@@ -2260,6 +2262,10 @@ function syncPostgameToState() {
 
     handleEl.addEventListener('pointerdown', (ev) => {
       if (ev.button != null && ev.button !== 0) return;
+      try {
+        const t = ev.target;
+        if (t && t.closest && t.closest('button, input, select, textarea, a, label, .toolScaleControl, .panelScaleHost, .hudBarScaleHost')) return;
+      } catch (_) {}
       dragging = true;
       handleEl.style.cursor = 'grabbing';
       const r = panelEl.getBoundingClientRect();
