@@ -1644,15 +1644,38 @@ const DEV_CARD_TYPES = {
 
 const RESOURCE_KINDS = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
-const BANK_MAX = 19;
+const BANK_MAX_DEFAULT = 19;
+const BANK_MAX_56 = 24;
+
+function isClassic56MapModeRaw(raw) {
+  const mm = String(raw || 'classic').toLowerCase();
+  return mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6';
+}
+
+function normalizedMapModeRaw(raw) {
+  const mm = String(raw || 'classic').toLowerCase();
+  return isClassic56MapModeRaw(mm) ? 'classic56' : mm;
+}
+
+function bankMaxForRules(rules) {
+  const mm = normalizedMapModeRaw(rules?.mapMode || 'classic');
+  if (mm === 'classic56') return BANK_MAX_56;
+  if (mm === 'seafarers' && isSeafarers56Scenario(rules?.seafarersScenario)) return BANK_MAX_56;
+  return BANK_MAX_DEFAULT;
+}
+
+function bankMaxForGame(game) {
+  return bankMaxForRules(game?.rules || null);
+}
 
 function ensureBank(game) {
   if (!game) return;
   if (!game.bank) game.bank = {};
+  const bankMax = bankMaxForGame(game);
   for (const k of RESOURCE_KINDS) {
     let v = Number(game.bank[k]);
-    if (!Number.isFinite(v)) v = BANK_MAX;
-    v = Math.max(0, Math.min(BANK_MAX, Math.floor(v)));
+    if (!Number.isFinite(v)) v = bankMax;
+    v = Math.max(0, Math.min(bankMax, Math.floor(v)));
     game.bank[k] = v;
   }
 }
@@ -1672,7 +1695,7 @@ function bankReceive(game, kind, n) {
   ensureBank(game);
   const add = Math.max(0, Math.floor(Number(n || 0)));
   const cur = Math.max(0, Math.floor(Number(game.bank[kind] || 0)));
-  const next = Math.min(BANK_MAX, cur + add);
+  const next = Math.min(bankMaxForGame(game), cur + add);
   game.bank[kind] = next;
   return next - cur;
 }
@@ -1878,7 +1901,7 @@ function recordResourceDelta(game, playerId, delta, source) {
 function payCostStats(game, playerId, res, cost, source) {
   payCost(res, cost);
 
-  // Spent resources return to the bank (bank is capped at 19 of each resource).
+  // Spent resources return to the bank (bank cap depends on scenario size: 19 or 24).
   ensureBank(game);
   for (const k of Object.keys(cost || {})) {
     const n = Math.max(0, Math.floor(Number(cost[k] || 0)));
@@ -4300,7 +4323,7 @@ function newEmptyGame(room) {
     lastRoll: null,
     turnNumber: 0,
     geom: geom, // includes tiles/nodes/edges and adjacency helpers
-    bank: { brick: 19, lumber: 19, wool: 19, grain: 19, ore: 19 }, // not enforced tightly
+    bank: (() => { const n = bankMaxForRules(room.rules || DEFAULT_RULES); return { brick: n, lumber: n, wool: n, grain: n, ore: n }; })(), // bank is enforced by scenario size
 
     // Development deck and public event feed (for client popups)
     devDeck: [],
@@ -5814,7 +5837,7 @@ if (kind === 'pirate_steal') {
     const avail = (game.bank && Number.isFinite(game.bank[takeKind])) ? game.bank[takeKind] : 0;
     if (avail < takeQty) return { ok: false, error: `Bank is out of ${takeKind}.` };
 
-    // Pay into the bank (clamped at 19)
+    // Pay into the bank (clamped to scenario bank cap)
     p.resources[giveKind] = (p.resources[giveKind] || 0) - cost;
     bankReceive(game, giveKind, cost);
 
