@@ -40,7 +40,6 @@
     testNumberSelect: $('testNumberSelect'),
     testResetBtn: $('testResetBtn'),
     victoryPointsSelect: $('victoryPointsSelect'),
-    baseResourceCountSelect: $('baseResourceCountSelect'),
     regenMapBtn: $('regenMapBtn'),
     mapGenNote: $('mapGenNote'),
     saveRulesBtn: $('saveRulesBtn'),
@@ -130,20 +129,9 @@
 
   const ctx = ui.canvas.getContext('2d');
 
-  if (ui.baseResourceCountSelect && (!ui.baseResourceCountSelect.options || ui.baseResourceCountSelect.options.length === 0)) {
-    for (let i = 1; i <= 40; i++) {
-      const opt = document.createElement('option');
-      opt.value = String(i);
-      opt.textContent = String(i);
-      if (i === 19) opt.selected = true;
-      ui.baseResourceCountSelect.appendChild(opt);
-    }
-  }
-
-  // Lobby: track whether the host explicitly changed defaults so we don't
-  // auto-overwrite them when toggling map/scenario.
+  // Lobby: track whether the host explicitly changed the VP target so we don't
+  // auto-overwrite it when toggling map/scenario.
   let vpTouched = false;
-  let baseResourceTouched = false;
 
   const AUTH_TOKEN_KEY = 'hexsettlers_auth_token_v1';
   const LAST_ROOM_KEY = 'hexsettlers_last_room_v1';
@@ -2020,18 +2008,6 @@ function syncPostgameToState() {
     return 13; // four islands
   }
 
-  function defaultBaseResourceCountFor(rules) {
-    const mmUi = String(uiMapModeFromRules(rules) || rules?.mapMode || 'classic').toLowerCase();
-    const is56 = (mmUi === 'classic56' || mmUi === 'classic_5_6' || mmUi === 'classic-5-6' || mmUi === 'classic5_6' || mmUi === 'classic5-6' || mmUi === 'seafarers56');
-    return is56 ? 24 : 19;
-  }
-
-  function effectiveBaseResourceCountFor(rules) {
-    const def = defaultBaseResourceCountFor(rules);
-    const n = Math.floor(Number(rules?.baseResourceCount ?? rules?.bankBaseResources ?? rules?.resourceBankBaseCount));
-    return Number.isFinite(n) ? Math.max(1, Math.min(40, n)) : def;
-  }
-
   function uiMapModeFromRules(rules) {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
@@ -3126,6 +3102,7 @@ function syncPostgameToState() {
         hideBuildPopup();
         hideNodeConfirmPopup();
         hideEdgeConfirmPopup();
+        hideThiefMoveConfirmPopup();
         hideBoardHoverIndicator();
         hideEdgeHoverIndicator();
         hoverNodeBuildQuery = null;
@@ -4117,13 +4094,6 @@ function syncPostgameToState() {
       // consider the VP target "touched" so we don't auto-reset it.
       vpTouched = (Number(ui.victoryPointsSelect.value) !== defVp);
     }
-    if (ui.baseResourceCountSelect) {
-      const defBase = defaultBaseResourceCountFor(r);
-      const curBase = effectiveBaseResourceCountFor(r);
-      ui.baseResourceCountSelect.value = String(curBase);
-      ui.baseResourceCountSelect.disabled = !isHost;
-      baseResourceTouched = (Number(ui.baseResourceCountSelect.value) !== defBase);
-    }
     if (ui.saveRulesBtn) ui.saveRulesBtn.disabled = !isHost;
 
     // Lobby map preview controls
@@ -4162,8 +4132,7 @@ function syncPostgameToState() {
         : (mmL === 'seafarers') ? `seafarers (${scenLabel})`
           : (is56 ? 'classic 5–6 (paired turns)' : 'classic');
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
-      const bankEach = effectiveBaseResourceCountFor(r);
-      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Bank: ${bankEach} each • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
+      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
     const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
@@ -4295,13 +4264,6 @@ if (ui.copyMyIdBtn) {
           : ((mm === 'seafarers56') ? (ui.mapScenario56Select?.value || 'six_islands') : 'six_islands');
         ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario: scen }));
       }
-      if (ui.baseResourceCountSelect && !baseResourceTouched) {
-        ui.baseResourceCountSelect.value = String(defaultBaseResourceCountFor({
-          mapMode: mm,
-          seafarersScenario: ui.mapScenarioSelect?.value || 'four_islands',
-          seafarersScenario56: ui.mapScenario56Select?.value || 'six_islands',
-        }));
-      }
     });
   }
 
@@ -4335,24 +4297,11 @@ if (ui.copyMyIdBtn) {
     ui.victoryPointsSelect.addEventListener('change', () => { vpTouched = true; });
   }
 
-  if (ui.baseResourceCountSelect) {
-    ui.baseResourceCountSelect.addEventListener('change', () => {
-      const mm = (ui.mapModeSelect ? (ui.mapModeSelect.value || 'classic') : 'classic');
-      const defBase = defaultBaseResourceCountFor({
-        mapMode: mm,
-        seafarersScenario: ui.mapScenarioSelect?.value || 'four_islands',
-        seafarersScenario56: ui.mapScenario56Select?.value || 'six_islands',
-      });
-      baseResourceTouched = (Number(ui.baseResourceCountSelect.value) !== defBase);
-    });
-  }
-
   // Lobby setup
   ui.saveRulesBtn.addEventListener('click', () => {
     if (!room || room.hostId !== myPlayerId) return;
     const discardLimit = parseInt(ui.discardLimitInput.value, 10);
     const vpToWin = ui.victoryPointsSelect ? parseInt(ui.victoryPointsSelect.value, 10) : NaN;
-    const baseResourceCount = ui.baseResourceCountSelect ? parseInt(ui.baseResourceCountSelect.value, 10) : NaN;
     const preset = (ui.timerSpeedSelect.value || 'normal');
     const factor = preset === 'fast' ? 0.5 : (preset === 'slow' ? 2 : 1);
     const mmSel = (ui.mapModeSelect ? ui.mapModeSelect.value : 'classic');
@@ -4368,7 +4317,6 @@ if (ui.copyMyIdBtn) {
       microPhaseMs: Math.round(15000 * factor),
       mapMode: mm,
       victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
-      baseResourceCount: Number.isFinite(baseResourceCount) ? Math.max(1, Math.min(40, baseResourceCount)) : undefined,
       // Only used if mapMode === 'seafarers'
       seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),
     };
@@ -4463,6 +4411,7 @@ if (ui.copyMyIdBtn) {
   let edgeHoverIndicator = null;
   let edgeConfirmPopup = null;
   let shipMoveCancelPopup = null;
+  let thiefMoveConfirmPopup = null;
 
   function buildCacheKey(targetKind, targetId) {
     return `${targetKind}:${targetId}`;
@@ -4895,6 +4844,115 @@ if (ui.copyMyIdBtn) {
     shipMoveCancelPopup.classList.add('hidden');
     shipMoveCancelPopup.style.left = '-9999px';
     shipMoveCancelPopup.style.top = '-9999px';
+  }
+
+  function hideThiefMoveConfirmPopup() {
+    if (!thiefMoveConfirmPopup) return;
+    thiefMoveConfirmPopup.classList.add('hidden');
+    thiefMoveConfirmPopup.style.display = 'none';
+    thiefMoveConfirmPopup.style.left = '-9999px';
+    thiefMoveConfirmPopup.style.top = '-9999px';
+  }
+
+  function ensureThiefMoveConfirmPopup() {
+    if (thiefMoveConfirmPopup) return;
+    const el = document.createElement('div');
+    el.className = 'hidden thiefMoveConfirmPopup';
+    el.style.display = 'none';
+    el.style.position = 'fixed';
+    el.style.zIndex = '1206';
+    el.style.display = 'grid';
+    el.style.gridTemplateColumns = '1fr auto';
+    el.style.gap = '8px';
+    el.style.alignItems = 'center';
+    el.style.border = '1px solid rgba(255,255,255,.18)';
+    el.style.borderRadius = '14px';
+    el.style.background = 'linear-gradient(180deg, rgba(14,19,28,.98), rgba(10,14,20,.96))';
+    el.style.color = 'var(--text)';
+    el.style.padding = '8px 10px';
+    el.style.boxShadow = '0 16px 36px rgba(0,0,0,.42)';
+    el.innerHTML = `
+      <div style="display:grid; gap:6px;">
+        <div class="thiefMoveConfirmLabel" style="font-size:12px;font-weight:800;white-space:nowrap;">Move Robber here?</div>
+        <div class="thiefMoveConfirmSub" style="font-size:11px;opacity:.85;">Confirm or cancel</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button type="button" class="thiefMoveConfirmOk" title="Confirm move" aria-label="Confirm move">✓</button>
+        <button type="button" class="thiefMoveConfirmCancel" title="Cancel move" aria-label="Cancel move">✕</button>
+      </div>
+    `;
+    for (const sel of ['.thiefMoveConfirmOk', '.thiefMoveConfirmCancel']) {
+      const btn = el.querySelector(sel);
+      if (!btn) continue;
+      btn.style.border = '1px solid rgba(255,255,255,.18)';
+      btn.style.background = 'rgba(255,255,255,.04)';
+      btn.style.color = 'var(--text)';
+      btn.style.width = '28px';
+      btn.style.height = '28px';
+      btn.style.borderRadius = '10px';
+      btn.style.cursor = 'pointer';
+      btn.style.fontWeight = '900';
+      btn.style.lineHeight = '1';
+    }
+    document.body.appendChild(el);
+    thiefMoveConfirmPopup = el;
+    try { makeDraggablePanel(thiefMoveConfirmPopup, thiefMoveConfirmPopup, null); } catch (_) {}
+
+    document.addEventListener('mousedown', (ev) => {
+      if (!thiefMoveConfirmPopup || thiefMoveConfirmPopup.classList.contains('hidden')) return;
+      if (ev.target === thiefMoveConfirmPopup || thiefMoveConfirmPopup.contains(ev.target)) return;
+      hideThiefMoveConfirmPopup();
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') hideThiefMoveConfirmPopup();
+    });
+  }
+
+  function showThiefMoveConfirmPopup(absX, absY, action, onConfirm) {
+    ensureThiefMoveConfirmPopup();
+    if (!thiefMoveConfirmPopup || !action || !action.kind) return;
+
+    const isPirate = action.kind === 'move_pirate';
+    const labelEl = thiefMoveConfirmPopup.querySelector('.thiefMoveConfirmLabel');
+    const subEl = thiefMoveConfirmPopup.querySelector('.thiefMoveConfirmSub');
+    const okBtn = thiefMoveConfirmPopup.querySelector('.thiefMoveConfirmOk');
+    const cancelBtn = thiefMoveConfirmPopup.querySelector('.thiefMoveConfirmCancel');
+
+    if (labelEl) labelEl.textContent = isPirate ? 'Move Pirate here?' : 'Move Robber here?';
+    if (subEl) subEl.textContent = `Tile ${action.tileId == null ? '—' : action.tileId}`;
+    if (okBtn) okBtn.onclick = (ev) => {
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      hideThiefMoveConfirmPopup();
+      onConfirm && onConfirm(action);
+    };
+    if (cancelBtn) cancelBtn.onclick = (ev) => {
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      hideThiefMoveConfirmPopup();
+    };
+
+    try { thiefMoveConfirmPopup.dataset.popupDragged = '0'; } catch (_) {}
+    thiefMoveConfirmPopup.classList.remove('hidden');
+    thiefMoveConfirmPopup.style.display = 'grid';
+    thiefMoveConfirmPopup.style.left = `${Math.round(absX + 12)}px`;
+    thiefMoveConfirmPopup.style.top = `${Math.round(absY + 12)}px`;
+
+    const r = thiefMoveConfirmPopup.getBoundingClientRect();
+    const pad = 10;
+    let nx = absX + 12;
+    let ny = absY + 12;
+    if (r.right > window.innerWidth - pad) nx = Math.max(pad, window.innerWidth - r.width - pad);
+    if (r.bottom > window.innerHeight - pad) ny = Math.max(pad, absY - r.height - 12);
+    if (ny < pad) ny = pad;
+    if (nx < pad) nx = pad;
+    thiefMoveConfirmPopup.style.left = `${Math.round(nx)}px`;
+    thiefMoveConfirmPopup.style.top = `${Math.round(ny)}px`;
+  }
+
+  function promptThiefMoveConfirm(action, absX, absY) {
+    if (!action || !action.kind || action.tileId == null) return;
+    showThiefMoveConfirmPopup(absX, absY, action, (finalAction) => {
+      sendGameAction(finalAction);
+    });
   }
 
   function clearShipMoveSelection(opts = {}) {
@@ -6934,6 +6992,7 @@ function handleDiscoveryGoldPrompt() {
     if (!state || !myPlayerId) return;
     if (state.paused) { setError('Game is paused.'); return; }
     hideBuildPopup();
+    hideThiefMoveConfirmPopup();
     const rect = ui.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -6984,13 +7043,13 @@ function handleDiscoveryGoldPrompt() {
             setError('Pirate must move to a different tile.');
             return;
           }
-          sendGameAction({ kind: 'move_pirate', tileId: tid });
+          promptThiefMoveConfirm({ kind: 'move_pirate', tileId: tid }, e.clientX, e.clientY);
         } else {
           if (tile?.robber) {
             setError('Robber must move to a different tile.');
             return;
           }
-          sendGameAction({ kind: 'move_robber', tileId: tid });
+          promptThiefMoveConfirm({ kind: 'move_robber', tileId: tid }, e.clientX, e.clientY);
         }
       }
       return;
@@ -7002,7 +7061,7 @@ function handleDiscoveryGoldPrompt() {
           setError('Robber must move to a different tile.');
           return;
         }
-        sendGameAction({ kind: 'move_robber', tileId: tid });
+        promptThiefMoveConfirm({ kind: 'move_robber', tileId: tid }, e.clientX, e.clientY);
       }
       return;
     }
@@ -7013,7 +7072,7 @@ function handleDiscoveryGoldPrompt() {
           setError('Pirate must move to a different tile.');
           return;
         }
-        sendGameAction({ kind: 'move_pirate', tileId: tid });
+        promptThiefMoveConfirm({ kind: 'move_pirate', tileId: tid }, e.clientX, e.clientY);
       }
       return;
     }
@@ -7251,6 +7310,10 @@ function handleDiscoveryGoldPrompt() {
     screenCache = { nodes: [], edges: [], tiles: [] };
 
     // Draw tiles
+    const activePlayerThiefMove = (state.currentPlayerId === myPlayerId) && (state.phase === 'pirate-or-robber' || state.phase === 'robber-move' || state.phase === 'pirate-move');
+    const thiefHighlightPhase = String(state.phase || '');
+    const thiefPulse = 0.65 + 0.35 * Math.sin((Date.now() % 1200) / 1200 * Math.PI * 2);
+
     for (const t of state.geom.tiles) {
       const c = worldToScreen({ x: t.cx, y: t.cy });
       const poly = tilePolygonScreen(t);
@@ -7290,6 +7353,37 @@ function handleDiscoveryGoldPrompt() {
       ctx.closePath();
       ctx.stroke();
       ctx.restore();
+
+      if (activePlayerThiefMove) {
+        const isSeaTile = t.type === 'sea';
+        const canRobberHere = (!isSeaTile && !t.robber);
+        const canPirateHere = (isSeaTile && !t.pirate);
+        let showChoice = false;
+        if (thiefHighlightPhase === 'pirate-or-robber') showChoice = (canRobberHere || canPirateHere);
+        else if (thiefHighlightPhase === 'robber-move') showChoice = canRobberHere;
+        else if (thiefHighlightPhase === 'pirate-move') showChoice = canPirateHere;
+
+        if (showChoice) {
+          ctx.save();
+          ctx.globalAlpha = 0.14 + 0.10 * thiefPulse;
+          ctx.fillStyle = isSeaTile ? 'rgba(110,196,255,0.9)' : 'rgba(255,214,102,0.9)';
+          ctx.beginPath();
+          poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          ctx.save();
+          ctx.globalAlpha = 0.55 + 0.20 * thiefPulse;
+          ctx.strokeStyle = isSeaTile ? 'rgba(125,215,255,.95)' : 'rgba(255,224,120,.95)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+          ctx.closePath();
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
 
       // Number token
       if (t.number && !(t.fog && !t.revealed)) {
@@ -7338,6 +7432,17 @@ function handleDiscoveryGoldPrompt() {
         const rx = c.x + ox;
         const ry = c.y - oy;
 
+        if (activePlayerThiefMove && (thiefHighlightPhase === 'pirate-or-robber' || thiefHighlightPhase === 'robber-move')) {
+          ctx.save();
+          ctx.globalAlpha = 0.45 + 0.25 * thiefPulse;
+          ctx.strokeStyle = 'rgba(255,223,128,.98)';
+          ctx.lineWidth = Math.max(3, Math.round(iconSz * 0.12));
+          ctx.beginPath();
+          ctx.arc(rx, ry, Math.max(iconSz * 0.62, 14), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
         ctx.save();
         ctx.globalAlpha = 0.98;
         if (rImg) {
@@ -7364,6 +7469,17 @@ function handleDiscoveryGoldPrompt() {
         const pImg = images['thief_pirate'] || null;
         const px = c.x;
         const py = c.y;
+
+        if (activePlayerThiefMove && (thiefHighlightPhase === 'pirate-or-robber' || thiefHighlightPhase === 'pirate-move')) {
+          ctx.save();
+          ctx.globalAlpha = 0.45 + 0.25 * thiefPulse;
+          ctx.strokeStyle = 'rgba(120,220,255,.98)';
+          ctx.lineWidth = Math.max(3, Math.round(iconSz * 0.12));
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(iconSz * 0.70, 16), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
 
         ctx.save();
         ctx.globalAlpha = 0.98;

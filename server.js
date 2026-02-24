@@ -1658,9 +1658,6 @@ function normalizedMapModeRaw(raw) {
 }
 
 function bankMaxForRules(rules) {
-  const rawOverride = (rules && (rules.baseResourceCount ?? rules.bankBaseResources ?? rules.resourceBankBaseCount));
-  const override = Math.floor(Number(rawOverride));
-  if (Number.isFinite(override)) return Math.max(1, Math.min(40, override));
   const mm = normalizedMapModeRaw(rules?.mapMode || 'classic');
   if (mm === 'classic56') return BANK_MAX_56;
   if (mm === 'seafarers' && isSeafarers56Scenario(rules?.seafarersScenario)) return BANK_MAX_56;
@@ -1904,7 +1901,7 @@ function recordResourceDelta(game, playerId, delta, source) {
 function payCostStats(game, playerId, res, cost, source) {
   payCost(res, cost);
 
-  // Spent resources return to the bank (bank cap depends on rules (default 19/24, or custom override)).
+  // Spent resources return to the bank (bank cap depends on scenario size: 19 or 24).
   ensureBank(game);
   for (const k of Object.keys(cost || {})) {
     const n = Math.max(0, Math.floor(Number(cost[k] || 0)));
@@ -2037,9 +2034,6 @@ const DEFAULT_RULES = Object.freeze({
   mapMode: 'classic',
   seafarersScenario: 'four_islands',
   victoryPointsToWin: 10,
-  // Optional override for the starting bank amount per resource type (1..40).
-  // null/undefined means use map defaults (19 for 4-player, 24 for 5–6).
-  baseResourceCount: null,
 });
 
 function defaultVictoryPointsToWin(rules) {
@@ -4466,7 +4460,7 @@ function newEmptyGame(room) {
     lastRoll: null,
     turnNumber: 0,
     geom: geom, // includes tiles/nodes/edges and adjacency helpers
-    bank: (() => { const n = bankMaxForRules(room.rules || DEFAULT_RULES); return { brick: n, lumber: n, wool: n, grain: n, ore: n }; })(), // bank is enforced by rules/default map size
+    bank: (() => { const n = bankMaxForRules(room.rules || DEFAULT_RULES); return { brick: n, lumber: n, wool: n, grain: n, ore: n }; })(), // bank is enforced by scenario size
 
     // Development deck and public event feed (for client popups)
     devDeck: [],
@@ -7213,14 +7207,6 @@ if (msg.type === 'create_room') {
         next.victoryPointsToWin = Math.max(3, Math.min(30, vp));
       } else {
         next.victoryPointsToWin = defaultVictoryPointsToWin(next);
-      }
-
-      const rawBaseResourceCount = (r.baseResourceCount ?? r.bankBaseResources ?? r.resourceBankBaseCount);
-      const baseResourceCount = Math.floor(Number(rawBaseResourceCount));
-      if (Number.isFinite(baseResourceCount)) {
-        next.baseResourceCount = Math.max(1, Math.min(40, baseResourceCount));
-      } else if (Object.prototype.hasOwnProperty.call(r, 'baseResourceCount') || Object.prototype.hasOwnProperty.call(r, 'bankBaseResources') || Object.prototype.hasOwnProperty.call(r, 'resourceBankBaseCount')) {
-        next.baseResourceCount = null;
       }
 
       room.rules = next;
