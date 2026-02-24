@@ -2573,16 +2573,43 @@ function syncPostgameToState() {
     return {
       play() {
         const a = pool[idx++ % pool.length];
+        try { a.__hsPausedForGamePause = false; } catch (_) {}
         try { a.currentTime = 0; } catch (_) {}
         const p = a.play();
         if (p && typeof p.catch === 'function') p.catch(() => {});
+      },
+      stopAll() {
+        for (const a of pool) {
+          try { a.__hsPausedForGamePause = false; } catch (_) {}
+          try { a.pause(); } catch (_) {}
+          try { a.currentTime = 0; } catch (_) {}
+        }
+      },
+      pauseAll() {
+        for (const a of pool) {
+          try {
+            const active = !a.paused && !a.ended && Number(a.currentTime || 0) > 0;
+            a.__hsPausedForGamePause = !!active;
+            if (active) a.pause();
+          } catch (_) {}
+        }
+      },
+      resumeAll() {
+        for (const a of pool) {
+          try {
+            if (!a.__hsPausedForGamePause) continue;
+            a.__hsPausedForGamePause = false;
+            const p = a.play();
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+          } catch (_) {}
+        }
       },
       prime() {
         for (const a of pool) {
           try {
             const p = a.play();
             if (p && typeof p.then === 'function') {
-              p.then(() => { try { a.pause(); a.currentTime = 0; } catch (_) {} }).catch(() => {});
+              p.then(() => { try { a.pause(); a.currentTime = 0; a.__hsPausedForGamePause = false; } catch (_) {} }).catch(() => {});
             }
           } catch (_) {}
         }
@@ -2632,6 +2659,38 @@ function syncPostgameToState() {
     const snd = sfx[key];
     if (!snd) return;
     snd.play();
+  }
+
+  function stopEndTurnWarnAudio() {
+    try { if (sfx && sfx.end_turn && typeof sfx.end_turn.stopAll === 'function') sfx.end_turn.stopAll(); } catch (_) {}
+  }
+  function pauseEndTurnWarnAudio() {
+    try { if (sfx && sfx.end_turn && typeof sfx.end_turn.pauseAll === 'function') sfx.end_turn.pauseAll(); } catch (_) {}
+  }
+  function resumeEndTurnWarnAudio() {
+    try { if (sfx && sfx.end_turn && typeof sfx.end_turn.resumeAll === 'function') sfx.end_turn.resumeAll(); } catch (_) {}
+  }
+  function endTurnWarnStateKey(st) {
+    try {
+      if (!st || st.paused) return '';
+      if (String(st.phase || '') !== 'main-actions') return '';
+      const endsAt = Number(st?.timer?.endsAt || 0);
+      if (!endsAt) return '';
+      return `${st.turnNumber || 0}:${st.currentPlayerId || ''}:${endsAt}`;
+    } catch (_) {
+      return '';
+    }
+  }
+  function syncEndTurnWarnAudioState(prevState, nextState) {
+    try {
+      const prevKey = endTurnWarnStateKey(prevState);
+      const nextKey = endTurnWarnStateKey(nextState);
+      if (prevKey && prevKey !== nextKey) stopEndTurnWarnAudio();
+      const wasPaused = !!(prevState && prevState.paused);
+      const isPaused = !!(nextState && nextState.paused);
+      if (!wasPaused && isPaused) pauseEndTurnWarnAudio();
+      else if (wasPaused && !isPaused) resumeEndTurnWarnAudio();
+    } catch (_) {}
   }
 
   // End-of-turn warning (played 6s before auto end-turn)
@@ -2953,7 +3012,9 @@ function syncPostgameToState() {
       }
 
       if (msg.type === 'state') {
+        const prevState = state;
         state = msg.state;
+        syncEndTurnWarnAudioState(prevState, state);
         // Any state change should clear click-to-build UI and transient hover/confirm state.
         hideBuildPopup();
         hideNodeConfirmPopup();
@@ -3025,8 +3086,7 @@ function syncPostgameToState() {
     const phase = String(st.phase || '');
     if (phase.startsWith('setup')) return true;
     if (phase === 'main-await-roll') return true;
-    // In Classic 5–6 paired system, Player 2 acts in main-actions (no roll)
-    if (phase === 'main-actions' && st.paired && st.paired.enabled && String(st.paired.stage || '') === 'p2') return true;
+    // Paired Player 2 uses the dedicated paired-turn cue (no turn bell).
     return false;
   }
 
@@ -4506,10 +4566,18 @@ if (ui.postgameTabs) {
 }
 
   ui.rollBtn.addEventListener('click', () => sendGameAction({ kind: 'roll_dice' }));
-  ui.endBtn.addEventListener('click', () => sendGameAction({ kind: 'end_turn' }));
+  ui.endBtn.addEventListener('click', () => {
+    stopEndTurnWarnAudio();
+    clearEndTurnWarn();
+    sendGameAction({ kind: 'end_turn' });
+  });
 
   if (ui.rollDockBtn) ui.rollDockBtn.addEventListener('click', () => sendGameAction({ kind: 'roll_dice' }));
-  if (ui.endDockBtn) ui.endDockBtn.addEventListener('click', () => sendGameAction({ kind: 'end_turn' }));
+  if (ui.endDockBtn) ui.endDockBtn.addEventListener('click', () => {
+    stopEndTurnWarnAudio();
+    clearEndTurnWarn();
+    sendGameAction({ kind: 'end_turn' });
+  });
 
   ui.buildRoadBtn.addEventListener('click', () => setMode('place_road'));
   ui.buildShipBtn.addEventListener('click', () => setMode('place_ship'));
