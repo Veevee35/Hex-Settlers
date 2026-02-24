@@ -40,6 +40,7 @@
     testNumberSelect: $('testNumberSelect'),
     testResetBtn: $('testResetBtn'),
     victoryPointsSelect: $('victoryPointsSelect'),
+    baseResourceCountSelect: $('baseResourceCountSelect'),
     regenMapBtn: $('regenMapBtn'),
     mapGenNote: $('mapGenNote'),
     saveRulesBtn: $('saveRulesBtn'),
@@ -129,9 +130,20 @@
 
   const ctx = ui.canvas.getContext('2d');
 
-  // Lobby: track whether the host explicitly changed the VP target so we don't
-  // auto-overwrite it when toggling map/scenario.
+  if (ui.baseResourceCountSelect && (!ui.baseResourceCountSelect.options || ui.baseResourceCountSelect.options.length === 0)) {
+    for (let i = 1; i <= 40; i++) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = String(i);
+      if (i === 19) opt.selected = true;
+      ui.baseResourceCountSelect.appendChild(opt);
+    }
+  }
+
+  // Lobby: track whether the host explicitly changed defaults so we don't
+  // auto-overwrite them when toggling map/scenario.
   let vpTouched = false;
+  let baseResourceTouched = false;
 
   const AUTH_TOKEN_KEY = 'hexsettlers_auth_token_v1';
   const LAST_ROOM_KEY = 'hexsettlers_last_room_v1';
@@ -2006,6 +2018,18 @@ function syncPostgameToState() {
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
     return 13; // four islands
+  }
+
+  function defaultBaseResourceCountFor(rules) {
+    const mmUi = String(uiMapModeFromRules(rules) || rules?.mapMode || 'classic').toLowerCase();
+    const is56 = (mmUi === 'classic56' || mmUi === 'classic_5_6' || mmUi === 'classic-5-6' || mmUi === 'classic5_6' || mmUi === 'classic5-6' || mmUi === 'seafarers56');
+    return is56 ? 24 : 19;
+  }
+
+  function effectiveBaseResourceCountFor(rules) {
+    const def = defaultBaseResourceCountFor(rules);
+    const n = Math.floor(Number(rules?.baseResourceCount ?? rules?.bankBaseResources ?? rules?.resourceBankBaseCount));
+    return Number.isFinite(n) ? Math.max(1, Math.min(40, n)) : def;
   }
 
   function uiMapModeFromRules(rules) {
@@ -4093,6 +4117,13 @@ function syncPostgameToState() {
       // consider the VP target "touched" so we don't auto-reset it.
       vpTouched = (Number(ui.victoryPointsSelect.value) !== defVp);
     }
+    if (ui.baseResourceCountSelect) {
+      const defBase = defaultBaseResourceCountFor(r);
+      const curBase = effectiveBaseResourceCountFor(r);
+      ui.baseResourceCountSelect.value = String(curBase);
+      ui.baseResourceCountSelect.disabled = !isHost;
+      baseResourceTouched = (Number(ui.baseResourceCountSelect.value) !== defBase);
+    }
     if (ui.saveRulesBtn) ui.saveRulesBtn.disabled = !isHost;
 
     // Lobby map preview controls
@@ -4131,7 +4162,8 @@ function syncPostgameToState() {
         : (mmL === 'seafarers') ? `seafarers (${scenLabel})`
           : (is56 ? 'classic 5–6 (paired turns)' : 'classic');
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
-      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
+      const bankEach = effectiveBaseResourceCountFor(r);
+      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Bank: ${bankEach} each • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
     const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
@@ -4263,6 +4295,13 @@ if (ui.copyMyIdBtn) {
           : ((mm === 'seafarers56') ? (ui.mapScenario56Select?.value || 'six_islands') : 'six_islands');
         ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario: scen }));
       }
+      if (ui.baseResourceCountSelect && !baseResourceTouched) {
+        ui.baseResourceCountSelect.value = String(defaultBaseResourceCountFor({
+          mapMode: mm,
+          seafarersScenario: ui.mapScenarioSelect?.value || 'four_islands',
+          seafarersScenario56: ui.mapScenario56Select?.value || 'six_islands',
+        }));
+      }
     });
   }
 
@@ -4296,11 +4335,24 @@ if (ui.copyMyIdBtn) {
     ui.victoryPointsSelect.addEventListener('change', () => { vpTouched = true; });
   }
 
+  if (ui.baseResourceCountSelect) {
+    ui.baseResourceCountSelect.addEventListener('change', () => {
+      const mm = (ui.mapModeSelect ? (ui.mapModeSelect.value || 'classic') : 'classic');
+      const defBase = defaultBaseResourceCountFor({
+        mapMode: mm,
+        seafarersScenario: ui.mapScenarioSelect?.value || 'four_islands',
+        seafarersScenario56: ui.mapScenario56Select?.value || 'six_islands',
+      });
+      baseResourceTouched = (Number(ui.baseResourceCountSelect.value) !== defBase);
+    });
+  }
+
   // Lobby setup
   ui.saveRulesBtn.addEventListener('click', () => {
     if (!room || room.hostId !== myPlayerId) return;
     const discardLimit = parseInt(ui.discardLimitInput.value, 10);
     const vpToWin = ui.victoryPointsSelect ? parseInt(ui.victoryPointsSelect.value, 10) : NaN;
+    const baseResourceCount = ui.baseResourceCountSelect ? parseInt(ui.baseResourceCountSelect.value, 10) : NaN;
     const preset = (ui.timerSpeedSelect.value || 'normal');
     const factor = preset === 'fast' ? 0.5 : (preset === 'slow' ? 2 : 1);
     const mmSel = (ui.mapModeSelect ? ui.mapModeSelect.value : 'classic');
@@ -4316,6 +4368,7 @@ if (ui.copyMyIdBtn) {
       microPhaseMs: Math.round(15000 * factor),
       mapMode: mm,
       victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
+      baseResourceCount: Number.isFinite(baseResourceCount) ? Math.max(1, Math.min(40, baseResourceCount)) : undefined,
       // Only used if mapMode === 'seafarers'
       seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),
     };
