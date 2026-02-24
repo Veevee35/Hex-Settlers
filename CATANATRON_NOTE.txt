@@ -1,0 +1,12 @@
+Catanatron (Expert) AI integration note
+
+This build adds a new AI difficulty option: "Catanatron (Expert)".
+
+Important licensing detail:
+- The upstream Catanatron project is licensed under GNU GPLv3.
+- To avoid automatically placing Hex Settlers under GPL terms, this build does NOT copy or bundle any Catanatron source code.
+- Instead, it implements a fresh heuristic policy inspired by common Catan-style bot approaches:
+  - heuristic position evaluation (VP, production pips, diversity, build potential)
+  - one-step lookahead over candidate actions (builds, trades, dev buy)
+
+If you want to directly embed / run actual Catanatron code inside Hex Settlers, you should review GPLv3 obligations first.
