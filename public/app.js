@@ -2324,6 +2324,7 @@ function syncPostgameToState() {
       const top = clamp(startTop + dy, 6, maxTop);
       panelEl.style.left = left + 'px';
       panelEl.style.top = top + 'px';
+      try { if (panelEl && panelEl.dataset) panelEl.dataset.popupDragged = '1'; } catch (_) {}
       if (storageKey) {
         try { localStorage.setItem(storageKey, JSON.stringify({ left, top })); } catch (_) {}
       }
@@ -2352,6 +2353,7 @@ function syncPostgameToState() {
       <div class="buildPopupBtns" id="buildPopupBtns"></div>
     `;
     document.body.appendChild(buildPopup);
+    try { makeDraggablePanel(buildPopup, buildPopup, null); } catch (_) {}
 
     // Close on outside click
     document.addEventListener('mousedown', (ev) => {
@@ -2468,6 +2470,7 @@ function syncPostgameToState() {
     view.ox += dx;
     view.oy += dy;
     hideBoardHoverIndicator();
+    hideEdgeHoverIndicator();
     render();
   });
 
@@ -2475,7 +2478,10 @@ function syncPostgameToState() {
   ui.canvas.addEventListener('mouseleave', () => {
     hoverNodeBuild.nodeId = null;
     hoverNodeBuild.actionKind = null;
+    hoverEdgeBuild.edgeId = null;
+    hoverEdgeBuild.actionKinds = [];
     hideBoardHoverIndicator();
+    hideEdgeHoverIndicator();
   });
 
   // Networking
@@ -2858,18 +2864,27 @@ function syncPostgameToState() {
         const tid = msg.targetId;
         const opts = Array.isArray(msg.options) ? msg.options : [];
 
-        // Cache hoverable node options (current state only; cache is cleared on each state message).
-        if (tk === 'node' && Number.isFinite(Number(tid))) {
-          hoverNodeBuildCache.set(buildCacheKey('node', tid), opts);
+        // Cache hoverable build options (current state only; cache is cleared on each state message).
+        if ((tk === 'node' || tk === 'edge') && Number.isFinite(Number(tid))) {
+          hoverNodeBuildCache.set(buildCacheKey(tk, tid), opts);
         }
 
         if (hoverNodeBuildQuery && hoverNodeBuildQuery.targetKind === tk && hoverNodeBuildQuery.targetId === tid) {
           hoverNodeBuildQuery = null;
-          if (hoverNodeBuild.nodeId === tid) {
+          if (tk === 'node' && hoverNodeBuild.nodeId === tid) {
             const act = getNodeActionOption(opts);
             hoverNodeBuild.actionKind = act ? act.kind : null;
             if (act) showBoardHoverIndicator(hoverNodeBuild.absX, hoverNodeBuild.absY, act.kind);
             else hideBoardHoverIndicator();
+          }
+        }
+        if (hoverEdgeBuildQuery && hoverEdgeBuildQuery.targetKind === tk && hoverEdgeBuildQuery.targetId === tid) {
+          hoverEdgeBuildQuery = null;
+          if (tk === 'edge' && hoverEdgeBuild.edgeId === tid) {
+            const edgeOpts = getEdgeActionOptions(opts);
+            hoverEdgeBuild.actionKinds = edgeOpts.map(o => o.kind);
+            if (edgeOpts.length) showEdgeHoverIndicator(hoverEdgeBuild.absX, hoverEdgeBuild.absY, edgeOpts);
+            else hideEdgeHoverIndicator();
           }
         }
 
@@ -2891,6 +2906,15 @@ function syncPostgameToState() {
           const act = getNodeActionOption(opts);
           if (!act) { hideNodeConfirmPopup(); return; }
           showNodeConfirmPopup(clickMeta.absX, clickMeta.absY, act, () => doAction(act));
+          return;
+        }
+
+        if (pendingBuildClick.mode === 'edge_confirm' && tk === 'edge') {
+          const clickMeta = pendingBuildClick;
+          pendingBuildClick = null;
+          const edgeOpts = getEdgeActionOptions(opts);
+          if (!edgeOpts.length) { hideEdgeConfirmPopup(); return; }
+          showEdgeConfirmPopup(clickMeta.absX, clickMeta.absY, edgeOpts, (opt) => doAction(opt));
           return;
         }
 
@@ -3077,8 +3101,11 @@ function syncPostgameToState() {
         // Any state change should clear click-to-build UI and transient hover/confirm state.
         hideBuildPopup();
         hideNodeConfirmPopup();
+        hideEdgeConfirmPopup();
         hideBoardHoverIndicator();
+        hideEdgeHoverIndicator();
         hoverNodeBuildQuery = null;
+        hoverEdgeBuildQuery = null;
         hoverNodeBuildCache.clear();
         if (inputMode) { inputMode.moveShipTargets = []; inputMode.moveShipTargetsLoading = false; }
         // Auto-fit view for larger boards (Seafarers)
@@ -4375,9 +4402,13 @@ if (ui.copyMyIdBtn) {
 
   let hoverNodeBuild = { nodeId: null, absX: 0, absY: 0, actionKind: null };
   let hoverNodeBuildQuery = null; // { targetKind:'node', targetId:number }
+  let hoverEdgeBuild = { edgeId: null, absX: 0, absY: 0, actionKinds: [] };
+  let hoverEdgeBuildQuery = null; // { targetKind:'edge', targetId:number }
   let hoverNodeBuildCache = new Map(); // key => build_options[] for current state snapshot
   let nodeConfirmPopup = null;
   let boardHoverIndicator = null;
+  let edgeHoverIndicator = null;
+  let edgeConfirmPopup = null;
   let shipMoveCancelPopup = null;
 
   function buildCacheKey(targetKind, targetId) {
@@ -4444,6 +4475,7 @@ if (ui.copyMyIdBtn) {
     if (okBtn) okBtn.onclick = () => { hideNodeConfirmPopup(); onConfirm && onConfirm(); };
     if (cancelBtn) cancelBtn.onclick = () => hideNodeConfirmPopup();
 
+    try { nodeConfirmPopup.dataset.popupDragged = '0'; } catch (_) {}
     nodeConfirmPopup.classList.remove('hidden');
     nodeConfirmPopup.style.left = `${Math.round(absX + 12)}px`;
     nodeConfirmPopup.style.top = `${Math.round(absY + 12)}px`;
@@ -4475,6 +4507,7 @@ if (ui.copyMyIdBtn) {
         <button class="nodeBuildConfirmCancel" title="Cancel" aria-label="Cancel">✕</button>
       `;
       document.body.appendChild(nodeConfirmPopup);
+      try { makeDraggablePanel(nodeConfirmPopup, nodeConfirmPopup, null); } catch (_) {}
       document.addEventListener('mousedown', (ev) => {
         if (!nodeConfirmPopup || nodeConfirmPopup.classList.contains('hidden')) return;
         if (ev.target === nodeConfirmPopup || nodeConfirmPopup.contains(ev.target)) return;
@@ -4516,41 +4549,278 @@ if (ui.copyMyIdBtn) {
     return (phase === 'main-actions' || phase === 'setup1-settlement' || phase === 'setup2-settlement');
   }
 
-  function updateBoardHoverBuild(e) {
-    if (!e || view.dragging || !screenCache || !canShowNodeHoverBuild()) {
-      hoverNodeBuild.nodeId = null;
-      hoverNodeBuild.actionKind = null;
-      hideBoardHoverIndicator();
+  function canShowEdgeHoverBuild() {
+    if (!state || !myPlayerId || state.paused) return false;
+    if (state.currentPlayerId !== myPlayerId) return false;
+    if (inputMode && inputMode.kind === 'move_ship') return false;
+    const phase = String(state.phase || '');
+    return (phase === 'main-actions' || phase === 'setup1-road' || phase === 'setup2-road');
+  }
+
+  function getEdgeActionOptions(options) {
+    const opts = Array.isArray(options) ? options : [];
+    return opts.filter(o => o && (o.kind === 'place_road' || o.kind === 'place_ship'));
+  }
+
+  function hideEdgeHoverIndicator() {
+    if (!edgeHoverIndicator) return;
+    edgeHoverIndicator.classList.add('hidden');
+  }
+
+  function showEdgeHoverIndicator(absX, absY, actionOpts) {
+    ensureEdgeBuildUi();
+    if (!edgeHoverIndicator) return;
+    const iconsEl = edgeHoverIndicator.querySelector('.edgeBuildHoverIcons');
+    const txtEl = edgeHoverIndicator.querySelector('.edgeBuildHoverText');
+    const opts = getEdgeActionOptions(actionOpts);
+    if (iconsEl) {
+      iconsEl.innerHTML = '';
+      for (const opt of opts) {
+        const s = document.createElement('span');
+        s.className = 'nodeBuildHoverIcon';
+        s.textContent = getBuildActionIcon(opt.kind);
+        iconsEl.appendChild(s);
+      }
+    }
+    if (txtEl) {
+      const labels = opts.map(opt => opt.kind === 'place_ship' ? 'Ship' : 'Road');
+      txtEl.textContent = labels.length > 1 ? labels.join(' / ') : (labels[0] || 'Build');
+    }
+    edgeHoverIndicator.classList.remove('hidden');
+    const pad = 10;
+    edgeHoverIndicator.style.left = `${Math.round(absX + 12)}px`;
+    edgeHoverIndicator.style.top = `${Math.round(absY - 12)}px`;
+    const r = edgeHoverIndicator.getBoundingClientRect();
+    let nx = absX + 12;
+    let ny = absY - 12;
+    if (r.right > window.innerWidth - pad) nx = Math.max(pad, window.innerWidth - r.width - pad);
+    if (r.bottom > window.innerHeight - pad) ny = Math.max(pad, window.innerHeight - r.height - pad);
+    if (ny < pad) ny = pad;
+    if (nx < pad) nx = pad;
+    edgeHoverIndicator.style.left = `${Math.round(nx)}px`;
+    edgeHoverIndicator.style.top = `${Math.round(ny)}px`;
+  }
+
+  function hideEdgeConfirmPopup() {
+    if (!edgeConfirmPopup) return;
+    edgeConfirmPopup.classList.add('hidden');
+    edgeConfirmPopup.style.display = 'none';
+    edgeConfirmPopup.style.left = '-9999px';
+    edgeConfirmPopup.style.top = '-9999px';
+  }
+
+  function showEdgeConfirmPopup(absX, absY, actionOpts, onPick) {
+    ensureEdgeBuildUi();
+    if (!edgeConfirmPopup) return;
+    const opts = getEdgeActionOptions(actionOpts);
+    if (!opts.length) { hideEdgeConfirmPopup(); return; }
+
+    const row = edgeConfirmPopup.querySelector('.edgeBuildConfirmChoices');
+    if (row) {
+      row.innerHTML = '';
+      for (const opt of opts) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'edgeBuildConfirmChoice';
+        b.style.display = 'inline-flex';
+        b.style.alignItems = 'center';
+        b.style.gap = '6px';
+        b.style.border = '1px solid rgba(255,255,255,.18)';
+        b.style.background = 'rgba(255,255,255,.05)';
+        b.style.color = 'var(--text)';
+        b.style.borderRadius = '10px';
+        b.style.padding = '5px 8px';
+        b.style.cursor = 'pointer';
+        b.style.fontWeight = '700';
+        b.title = opt.kind === 'place_ship' ? 'Confirm ship placement' : 'Confirm road placement';
+        b.innerHTML = `<span class="edgeBuildConfirmChoiceIcon">${getBuildActionIcon(opt.kind)}</span><span>${opt.kind === 'place_ship' ? 'Ship' : 'Road'}</span>`;
+        b.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          hideEdgeConfirmPopup();
+          onPick && onPick(opt);
+        });
+        row.appendChild(b);
+      }
+    }
+
+    const labelEl = edgeConfirmPopup.querySelector('.edgeBuildConfirmLabel');
+    if (labelEl) labelEl.textContent = (opts.length > 1) ? 'Choose build' : `Build ${opts[0].kind === 'place_ship' ? 'Ship' : 'Road'}?`;
+
+    try { edgeConfirmPopup.dataset.popupDragged = '0'; } catch (_) {}
+    edgeConfirmPopup.classList.remove('hidden');
+    edgeConfirmPopup.style.display = 'grid';
+    edgeConfirmPopup.style.left = `${Math.round(absX + 12)}px`;
+    edgeConfirmPopup.style.top = `${Math.round(absY + 12)}px`;
+
+    const r = edgeConfirmPopup.getBoundingClientRect();
+    const pad = 10;
+    let nx = absX + 12;
+    let ny = absY + 12;
+    if (r.right > window.innerWidth - pad) nx = Math.max(pad, window.innerWidth - r.width - pad);
+    if (r.bottom > window.innerHeight - pad) ny = Math.max(pad, absY - r.height - 12);
+    if (ny < pad) ny = pad;
+    if (nx < pad) nx = pad;
+    edgeConfirmPopup.style.left = `${Math.round(nx)}px`;
+    edgeConfirmPopup.style.top = `${Math.round(ny)}px`;
+  }
+
+  function ensureEdgeBuildUi() {
+    if (!edgeHoverIndicator) {
+      edgeHoverIndicator = document.createElement('div');
+      edgeHoverIndicator.className = 'nodeBuildHover hidden edgeBuildHover';
+      edgeHoverIndicator.innerHTML = `<div class="edgeBuildHoverIcons"></div><div class="edgeBuildHoverText">Road / Ship</div>`;
+      const icons = edgeHoverIndicator.querySelector('.edgeBuildHoverIcons');
+      if (icons) {
+        icons.style.display = 'flex';
+        icons.style.alignItems = 'center';
+        icons.style.gap = '6px';
+      }
+      document.body.appendChild(edgeHoverIndicator);
+    }
+    if (!edgeConfirmPopup) {
+      edgeConfirmPopup = document.createElement('div');
+      edgeConfirmPopup.className = 'hidden edgeBuildConfirm';
+      edgeConfirmPopup.style.display = 'none';
+      edgeConfirmPopup.style.position = 'fixed';
+      edgeConfirmPopup.style.zIndex = '1205';
+      edgeConfirmPopup.style.display = 'grid';
+      edgeConfirmPopup.style.gridTemplateColumns = '1fr auto';
+      edgeConfirmPopup.style.gap = '8px';
+      edgeConfirmPopup.style.alignItems = 'center';
+      edgeConfirmPopup.style.border = '1px solid rgba(255,255,255,.18)';
+      edgeConfirmPopup.style.borderRadius = '14px';
+      edgeConfirmPopup.style.background = 'linear-gradient(180deg, rgba(14,19,28,.98), rgba(10,14,20,.96))';
+      edgeConfirmPopup.style.color = 'var(--text)';
+      edgeConfirmPopup.style.padding = '8px 10px';
+      edgeConfirmPopup.style.boxShadow = '0 16px 36px rgba(0,0,0,.42)';
+      edgeConfirmPopup.innerHTML = `
+        <div style="display:grid; gap:6px;">
+          <div class="edgeBuildConfirmLabel" style="font-size:12px;font-weight:800;white-space:nowrap;">Choose build</div>
+          <div class="edgeBuildConfirmChoices" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+        </div>
+        <button type="button" class="edgeBuildConfirmCancel" title="Cancel placement" aria-label="Cancel placement">✕</button>
+      `;
+      const cancelBtn = edgeConfirmPopup.querySelector('.edgeBuildConfirmCancel');
+      if (cancelBtn) {
+        cancelBtn.style.border = '1px solid rgba(255,255,255,.18)';
+        cancelBtn.style.background = 'rgba(255,255,255,.04)';
+        cancelBtn.style.color = 'var(--text)';
+        cancelBtn.style.width = '28px';
+        cancelBtn.style.height = '28px';
+        cancelBtn.style.borderRadius = '10px';
+        cancelBtn.style.cursor = 'pointer';
+        cancelBtn.style.fontWeight = '900';
+        cancelBtn.style.lineHeight = '1';
+        cancelBtn.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); hideEdgeConfirmPopup(); });
+      }
+      document.body.appendChild(edgeConfirmPopup);
+      try { makeDraggablePanel(edgeConfirmPopup, edgeConfirmPopup, null); } catch (_) {}
+      document.addEventListener('mousedown', (ev) => {
+        if (!edgeConfirmPopup || edgeConfirmPopup.classList.contains('hidden')) return;
+        if (ev.target === edgeConfirmPopup || edgeConfirmPopup.contains(ev.target)) return;
+        hideEdgeConfirmPopup();
+      });
+      window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hideEdgeConfirmPopup(); });
+    }
+  }
+
+  function queryEdgeBuildConfirm(edgeId, absX, absY) {
+    ensureEdgeBuildUi();
+    const cached = hoverNodeBuildCache.get(buildCacheKey('edge', edgeId));
+    const opts = getEdgeActionOptions(cached);
+    pendingBuildClick = { absX, absY, targetKind: 'edge', targetId: edgeId, mode: 'edge_confirm' };
+    if (opts && opts.length) {
+      pendingBuildClick = null;
+      showEdgeConfirmPopup(absX, absY, opts, (opt) => {
+        if (!opt || !opt.kind) return;
+        sendGameAction({ kind: opt.kind, edgeId });
+      });
       return;
     }
+    requestBuildOptions('edge', edgeId);
+  }
+
+  function updateBoardHoverBuild(e) {
+    if (!e || view.dragging || !screenCache) {
+      hoverNodeBuild.nodeId = null;
+      hoverNodeBuild.actionKind = null;
+      hoverEdgeBuild.edgeId = null;
+      hoverEdgeBuild.actionKinds = [];
+      hideBoardHoverIndicator();
+      hideEdgeHoverIndicator();
+      return;
+    }
+
     const rect = ui.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const nodeId = pickNode(x, y);
-    if (nodeId == null) {
+
+    // Node hover (settlement / city)
+    if (!canShowNodeHoverBuild()) {
       hoverNodeBuild.nodeId = null;
       hoverNodeBuild.actionKind = null;
       hideBoardHoverIndicator();
+    } else {
+      const nodeId = pickNode(x, y);
+      if (nodeId == null) {
+        hoverNodeBuild.nodeId = null;
+        hoverNodeBuild.actionKind = null;
+        hideBoardHoverIndicator();
+      } else {
+        hoverNodeBuild.nodeId = nodeId;
+        hoverNodeBuild.absX = e.clientX;
+        hoverNodeBuild.absY = e.clientY;
+
+        const cached = hoverNodeBuildCache.get(buildCacheKey('node', nodeId));
+        const act = getNodeActionOption(cached);
+        if (act) {
+          hoverNodeBuild.actionKind = act.kind;
+          showBoardHoverIndicator(e.clientX, e.clientY, act.kind);
+        } else {
+          hoverNodeBuild.actionKind = null;
+          hideBoardHoverIndicator();
+          if (!hoverNodeBuildQuery || hoverNodeBuildQuery.targetKind !== 'node' || hoverNodeBuildQuery.targetId !== nodeId) {
+            hoverNodeBuildQuery = { targetKind: 'node', targetId: nodeId };
+            requestBuildOptions('node', nodeId);
+          }
+        }
+      }
+    }
+
+    // Edge hover (road / ship)
+    if (!canShowEdgeHoverBuild()) {
+      hoverEdgeBuild.edgeId = null;
+      hoverEdgeBuild.actionKinds = [];
+      hideEdgeHoverIndicator();
       return;
     }
 
-    hoverNodeBuild.nodeId = nodeId;
-    hoverNodeBuild.absX = e.clientX;
-    hoverNodeBuild.absY = e.clientY;
-
-    const cached = hoverNodeBuildCache.get(buildCacheKey('node', nodeId));
-    const act = getNodeActionOption(cached);
-    if (act) {
-      hoverNodeBuild.actionKind = act.kind;
-      showBoardHoverIndicator(e.clientX, e.clientY, act.kind);
+    const edgeId = pickEdge(x, y);
+    if (edgeId == null) {
+      hoverEdgeBuild.edgeId = null;
+      hoverEdgeBuild.actionKinds = [];
+      hideEdgeHoverIndicator();
       return;
     }
 
-    hoverNodeBuild.actionKind = null;
-    hideBoardHoverIndicator();
-    if (!hoverNodeBuildQuery || hoverNodeBuildQuery.targetKind !== 'node' || hoverNodeBuildQuery.targetId !== nodeId) {
-      hoverNodeBuildQuery = { targetKind: 'node', targetId: nodeId };
-      requestBuildOptions('node', nodeId);
+    hoverEdgeBuild.edgeId = edgeId;
+    hoverEdgeBuild.absX = e.clientX;
+    hoverEdgeBuild.absY = e.clientY;
+
+    const edgeCached = hoverNodeBuildCache.get(buildCacheKey('edge', edgeId));
+    const edgeOpts = getEdgeActionOptions(edgeCached);
+    if (edgeOpts.length) {
+      hoverEdgeBuild.actionKinds = edgeOpts.map(o => o.kind);
+      showEdgeHoverIndicator(e.clientX, e.clientY, edgeOpts);
+      return;
+    }
+
+    hoverEdgeBuild.actionKinds = [];
+    hideEdgeHoverIndicator();
+    if (!hoverEdgeBuildQuery || hoverEdgeBuildQuery.targetKind !== 'edge' || hoverEdgeBuildQuery.targetId !== edgeId) {
+      hoverEdgeBuildQuery = { targetKind: 'edge', targetId: edgeId };
+      requestBuildOptions('edge', edgeId);
     }
   }
 
@@ -4623,6 +4893,7 @@ if (ui.copyMyIdBtn) {
     }
     document.body.appendChild(el);
     shipMoveCancelPopup = el;
+    try { makeDraggablePanel(shipMoveCancelPopup, shipMoveCancelPopup, null); } catch (_) {}
 
     document.addEventListener('mousedown', (ev) => {
       if (!shipMoveCancelPopup || shipMoveCancelPopup.classList.contains('hidden')) return;
@@ -4655,18 +4926,25 @@ if (ui.copyMyIdBtn) {
     let x = (as.x + bs.x) / 2 + 14;
     let y = (as.y + bs.y) / 2 - 14;
 
+    const hidden = shipMoveCancelPopup.classList.contains('hidden');
+    const dragged = shipMoveCancelPopup.dataset && shipMoveCancelPopup.dataset.popupDragged === '1';
     shipMoveCancelPopup.classList.remove('hidden');
-    shipMoveCancelPopup.style.left = `${Math.round(x)}px`;
-    shipMoveCancelPopup.style.top = `${Math.round(y)}px`;
+
+    if (hidden || !dragged) {
+      shipMoveCancelPopup.style.left = `${Math.round(x)}px`;
+      shipMoveCancelPopup.style.top = `${Math.round(y)}px`;
+    }
 
     const r = shipMoveCancelPopup.getBoundingClientRect();
     const pad = 10;
-    if (r.right > window.innerWidth - pad) x = Math.max(pad, window.innerWidth - r.width - pad);
-    if (r.bottom > window.innerHeight - pad) y = Math.max(pad, window.innerHeight - r.height - pad);
-    if (y < pad) y = pad;
-    if (x < pad) x = pad;
-    shipMoveCancelPopup.style.left = `${Math.round(x)}px`;
-    shipMoveCancelPopup.style.top = `${Math.round(y)}px`;
+    let nx = parseFloat(shipMoveCancelPopup.style.left) || x;
+    let ny = parseFloat(shipMoveCancelPopup.style.top) || y;
+    if (r.right > window.innerWidth - pad) nx = Math.max(pad, window.innerWidth - r.width - pad);
+    if (r.bottom > window.innerHeight - pad) ny = Math.max(pad, window.innerHeight - r.height - pad);
+    if (ny < pad) ny = pad;
+    if (nx < pad) nx = pad;
+    shipMoveCancelPopup.style.left = `${Math.round(nx)}px`;
+    shipMoveCancelPopup.style.top = `${Math.round(ny)}px`;
   }
 
   function requestShipMoveTargets(fromEdgeId) {
@@ -4691,6 +4969,7 @@ if (ui.copyMyIdBtn) {
     inputMode.moveShipTargetsLoading = false;
     setMode('move_ship');
     requestShipMoveTargets(edgeId);
+    try { if (shipMoveCancelPopup) shipMoveCancelPopup.dataset.popupDragged = '0'; } catch (_) {}
     updateShipMoveCancelPopupPosition();
     render();
   }
@@ -6638,7 +6917,7 @@ function handleDiscoveryGoldPrompt() {
     }
     if (phase === 'setup1-road' || phase === 'setup2-road') {
       const hit = pickEdge(x, y);
-      if (hit != null) queryBuildOptions('edge', hit, e.clientX, e.clientY);
+      if (hit != null) queryEdgeBuildConfirm(hit, e.clientX, e.clientY);
       return;
     }
     if (phase === 'pirate-or-robber') {
@@ -6759,7 +7038,7 @@ function handleDiscoveryGoldPrompt() {
     if (inputMode.kind === 'place_road' || inputMode.kind === 'place_ship') {
       const hit = pickEdge(x, y);
       if (hit != null) {
-        queryBuildOptions('edge', hit, e.clientX, e.clientY);
+        queryEdgeBuildConfirm(hit, e.clientX, e.clientY);
         return;
       }
     }
@@ -6768,6 +7047,10 @@ function handleDiscoveryGoldPrompt() {
     if (!tgt) return;
     if (tgt.kind === 'node') {
       queryNodeBuildConfirm(tgt.id, e.clientX, e.clientY);
+      return;
+    }
+    if (tgt.kind === 'edge') {
+      queryEdgeBuildConfirm(tgt.id, e.clientX, e.clientY);
       return;
     }
     queryBuildOptions(tgt.kind, tgt.id, e.clientX, e.clientY);
@@ -6824,8 +7107,8 @@ function handleDiscoveryGoldPrompt() {
 
   function pickNode(sx, sy) {
     if (!screenCache) return null;
-    // Slightly larger hit radius makes setup placement feel reliable.
-    const rad = 24;
+    // Larger hit radius so settlement/city clicks are easier than edge clicks.
+    const rad = 34;
     let best = { id: null, d: 1e9 };
     for (const n of screenCache.nodes) {
       const d = Math.hypot(sx - n.sx, sy - n.sy);
@@ -6838,17 +7121,21 @@ function handleDiscoveryGoldPrompt() {
     if (!screenCache) return null;
 
     // Find nearest node/edge under thresholds, then choose the closer one.
-    const nodeRad = 28;
+    const nodeRad = 32;
     let bestNode = { id: null, d: 1e9 };
     for (const n of screenCache.nodes) {
       const d = Math.hypot(sx - n.sx, sy - n.sy);
       if (d < nodeRad && d < bestNode.d) bestNode = { id: n.id, d };
     }
 
-    const edgeThr = 10;
+    const edgeThr = 7;
     let bestEdge = { id: null, d: 1e9 };
     for (const e of screenCache.edges) {
-      const d = distToSeg(sx, sy, e.ax, e.ay, e.bx, e.by);
+      const mx1 = e.ax + (e.bx - e.ax) * 0.25;
+      const my1 = e.ay + (e.by - e.ay) * 0.25;
+      const mx2 = e.ax + (e.bx - e.ax) * 0.75;
+      const my2 = e.ay + (e.by - e.ay) * 0.75;
+      const d = distToSeg(sx, sy, mx1, my1, mx2, my2);
       if (d < edgeThr && d < bestEdge.d) bestEdge = { id: e.id, d };
     }
 
@@ -6864,10 +7151,15 @@ function handleDiscoveryGoldPrompt() {
   function pickEdge(sx, sy) {
     if (!screenCache) return null;
     // Roads are thin lines; use a more forgiving threshold.
-    const thr = 10;
+    const thr = 7;
     let best = { id: null, d: 1e9 };
     for (const e of screenCache.edges) {
-      const d = distToSeg(sx, sy, e.ax, e.ay, e.bx, e.by);
+      // Only the middle half of the edge is clickable to avoid stealing settlement clicks near nodes.
+      const mx1 = e.ax + (e.bx - e.ax) * 0.25;
+      const my1 = e.ay + (e.by - e.ay) * 0.25;
+      const mx2 = e.ax + (e.bx - e.ax) * 0.75;
+      const my2 = e.ay + (e.by - e.ay) * 0.75;
+      const d = distToSeg(sx, sy, mx1, my1, mx2, my2);
       if (d < thr && d < best.d) best = { id: e.id, d };
     }
     return best.id;
