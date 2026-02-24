@@ -2104,6 +2104,105 @@ function syncPostgameToState() {
     'circle',    // orange
   ];
 
+  function colorblindShapeLabel(shape) {
+    if (shape === 'star') return '5-point star';
+    return String(shape || 'shape').charAt(0).toUpperCase() + String(shape || 'shape').slice(1);
+  }
+
+  function regularPolygonPointsStr(sides, radius, cx, cy, startAngle) {
+    const n = Math.max(3, sides | 0);
+    const a0 = (typeof startAngle === 'number') ? startAngle : (-Math.PI / 2);
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i * Math.PI * 2 / n);
+      const x = cx + Math.cos(a) * radius;
+      const y = cy + Math.sin(a) * radius;
+      pts.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+    }
+    return pts.join(' ');
+  }
+
+  function starPointsStr(points, outerR, innerR, cx, cy) {
+    const p = Math.max(5, points | 0);
+    const step = Math.PI / p;
+    const a0 = -Math.PI / 2;
+    const pts = [];
+    for (let i = 0; i < p * 2; i++) {
+      const r = (i % 2 === 0) ? outerR : innerR;
+      const a = a0 + i * step;
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r;
+      pts.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+    }
+    return pts.join(' ');
+  }
+
+  function createColorblindShapeIconEl(colorIdx, sizePx) {
+    const idx = (colorIdx == null ? 0 : (colorIdx | 0));
+    const shape = COLORBLIND_SHAPE_BY_COLOR[idx] || 'circle';
+    const px = Math.max(10, Number(sizePx || 14));
+    const wrap = document.createElement('span');
+    wrap.className = 'cbShapeIcon';
+    wrap.style.display = 'inline-flex';
+    wrap.style.alignItems = 'center';
+    wrap.style.justifyContent = 'center';
+    wrap.style.width = `${px}px`;
+    wrap.style.height = `${px}px`;
+    wrap.style.flex = '0 0 auto';
+    wrap.style.marginLeft = '2px';
+    wrap.title = colorblindShapeLabel(shape);
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('width', String(px));
+    svg.setAttribute('height', String(px));
+    svg.setAttribute('aria-hidden', 'true');
+
+    let fill = 'rgba(255,255,255,.78)';
+    let stroke = 'rgba(0,0,0,.92)';
+    if (idx === 6) {
+      fill = 'rgba(0,0,0,.55)';
+      stroke = 'rgba(255,255,255,.96)';
+    }
+
+    let el;
+    const mkPoly = (pts) => {
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      poly.setAttribute('points', pts);
+      return poly;
+    };
+
+    if (shape === 'triangle') {
+      el = mkPoly(regularPolygonPointsStr(3, 42, 50, 50, -Math.PI / 2));
+    } else if (shape === 'square') {
+      el = mkPoly(regularPolygonPointsStr(4, 40, 50, 50, Math.PI / 4));
+    } else if (shape === 'pentagon') {
+      el = mkPoly(regularPolygonPointsStr(5, 41, 50, 50, -Math.PI / 2));
+    } else if (shape === 'hexagon') {
+      el = mkPoly(regularPolygonPointsStr(6, 41, 50, 50, Math.PI / 6));
+    } else if (shape === 'star') {
+      el = mkPoly(starPointsStr(5, 43, 19, 50, 50));
+    } else if (shape === 'trapezoid') {
+      el = mkPoly('26,16 74,16 90,84 10,84');
+    } else if (shape === 'diamond') {
+      el = mkPoly('50,8 92,50 50,92 8,50');
+    } else {
+      el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      el.setAttribute('cx', '50');
+      el.setAttribute('cy', '50');
+      el.setAttribute('r', '40');
+    }
+
+    el.setAttribute('fill', fill);
+    el.setAttribute('stroke', stroke);
+    el.setAttribute('stroke-width', '12');
+    el.setAttribute('stroke-linejoin', 'round');
+    el.setAttribute('vector-effect', 'non-scaling-stroke');
+    svg.appendChild(el);
+    wrap.appendChild(svg);
+    return wrap;
+  }
+
   function drawRegularPolygonPath(sides, radius, startAngle) {
     const n = Math.max(3, sides | 0);
     const a0 = (typeof startAngle === 'number') ? startAngle : (-Math.PI / 2);
@@ -5417,6 +5516,11 @@ function ensureTimerUiInterval() {
     if (ui.devCard) ui.devCard.classList.toggle('hidden', !inGame);
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
+    if (ui.colorblindBtn) {
+      ui.colorblindBtn.classList.toggle('hidden', !inGame);
+      ui.colorblindBtn.title = 'Local toggle (only changes your view)';
+      updateColorblindUi();
+    }
     const myTurn = inGame && state.currentPlayerId === myPlayerId;
 
     // Global page state + HUD docking.
@@ -5661,8 +5765,14 @@ if (ui.moveShipBtn) {
       badge.style.background = p.color;
       const name = document.createElement('div');
       name.textContent = p.name + (p.id === myPlayerId ? ' (you)' : '') + (p.id === state.currentPlayerId ? ' • turn' : '');
+      const nameRow = document.createElement('div');
+      nameRow.style.display = 'flex';
+      nameRow.style.alignItems = 'center';
+      nameRow.style.gap = '6px';
+      nameRow.appendChild(name);
+      try { nameRow.appendChild(createColorblindShapeIconEl(playerColorIndex(p.color), 13)); } catch (_) {}
       left.appendChild(badge);
-      left.appendChild(name);
+      left.appendChild(nameRow);
 
 
 	      const right = document.createElement('div');
