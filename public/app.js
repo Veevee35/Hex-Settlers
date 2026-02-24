@@ -314,10 +314,37 @@
     return clampToolUiScale(saved || 1);
   }
 
+  function applyScaledPanelBoxSize(scaleId, wrap, scale) {
+    try {
+      if (!wrap || !wrap.style) return;
+      if (String(scaleId || '') !== 'resources_panel') return;
+      const isResourcesPanel = (wrap.id === 'resourcesCard') || (wrap.classList && wrap.classList.contains('resourcesOverlay'));
+      if (!isResourcesPanel) return;
+
+      if (!wrap.dataset.basePanelWidthPx) {
+        const rect = (typeof wrap.getBoundingClientRect === 'function') ? wrap.getBoundingClientRect() : null;
+        const measured = rect && Number.isFinite(rect.width) ? Math.round(rect.width) : 0;
+        if (measured > 0) wrap.dataset.basePanelWidthPx = String(measured);
+      }
+
+      const baseW = Number(wrap.dataset.basePanelWidthPx || 0);
+      if (!Number.isFinite(baseW) || baseW <= 0) return;
+
+      const viewportW = Math.max(320, Math.floor((window && window.innerWidth) || (document.documentElement && document.documentElement.clientWidth) || 0));
+      const maxW = Math.max(220, viewportW - 20);
+      const nextW = Math.min(maxW, Math.max(220, Math.round(baseW * (Number(scale) || 1))));
+      wrap.style.width = `${nextW}px`;
+      wrap.style.maxWidth = `${maxW}px`;
+    } catch (_) {}
+  }
+
   function setToolUiScale(scaleId, value, wrap, label) {
     const next = clampToolUiScale(value);
     try { localStorage.setItem(`${TOOL_UI_SCALE_PREFIX}${String(scaleId || 'tool')}`, String(next)); } catch (_) {}
-    if (wrap) wrap.style.setProperty('--tool-ui-scale', String(next));
+    if (wrap) {
+      wrap.style.setProperty('--tool-ui-scale', String(next));
+      applyScaledPanelBoxSize(scaleId, wrap, next);
+    }
     if (label) {
       const txt = `${Math.round(next * 100)}%`;
       label.textContent = txt;
