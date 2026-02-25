@@ -4402,9 +4402,9 @@ function syncPostgameToState() {
           : (scenRaw === 'heading_for_new_shores' || scenRaw === 'heading-for-new-shores' || scenRaw === 'new_shores' || scenRaw === 'newshores' || scenRaw === 'heading')
             ? 'Heading for New Shores'
             : (scenRaw === 'cartographer_4_manual' || scenRaw === 'cartographer-4-manual' || scenRaw === 'cartographer_manual' || scenRaw === 'manual_cartographer')
-              ? 'Cartographer 4 Player (Manual Draft)'
+              ? 'Cartographer'
             : (scenRaw === 'cartographer_4_random' || scenRaw === 'cartographer-4-random' || scenRaw === 'cartographer_random' || scenRaw === 'random_cartographer' || scenRaw === 'cartographer_4' || scenRaw === 'cartographer-4' || scenRaw === 'cartographer4' || scenRaw === 'cartographer')
-              ? 'Random 4 Player Scenario'
+              ? 'Scattered Tiles'
               : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
                 ? 'Test Builder'
                 : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
@@ -4882,8 +4882,8 @@ function syncPostgameToState() {
         : (scen === 'through_the_desert_56') ? 'Through the Desert'
         : (scen === 'fog_island' || scen === 'fog_island_56' ? 'Fog Island'
           : (scen === 'heading_for_new_shores' ? 'Heading for New Shores'
-            : (scen === 'cartographer_4_manual' ? 'Cartographer 4 Player (Manual Draft)'
-            : (scen === 'cartographer_4_random' || scen === 'cartographer_4' ? 'Random 4 Player Scenario'
+            : (scen === 'cartographer_4_manual' ? 'Cartographer'
+            : (scen === 'cartographer_4_random' || scen === 'cartographer_4' ? 'Scattered Tiles'
               : (scen === 'test_builder' ? 'Test Builder'
                 : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))))));
       const is56 = (mmL === 'classic56' || mmL === 'classic_5_6' || mmL === 'classic-5-6' || mmL === 'classic5_6' || mmL === 'classic5-6');
