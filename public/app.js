@@ -2112,8 +2112,8 @@ function syncPostgameToState() {
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'through_the_desert_56') return 14;
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-    if (scen === 'cartographer_4_manual' || scen === 'cartographer-4-manual' || scen === 'cartographer_manual' || scen === 'manual_cartographer') return 12;
-    if (scen === 'cartographer_4_random' || scen === 'cartographer-4-random' || scen === 'cartographer_random' || scen === 'random_cartographer' || scen === 'cartographer_4' || scen === 'cartographer-4' || scen === 'cartographer4' || scen === 'cartographer') return 12;
+    if (scen === 'cartographer_4_manual' || scen === 'cartographer-4-manual' || scen === 'cartographer_manual' || scen === 'manual_cartographer' || scen === 'cartographer_56_manual' || scen === 'cartographer-56-manual' || scen === 'cartographer56_manual') return 12;
+    if (scen === 'cartographer_4_random' || scen === 'cartographer-4-random' || scen === 'cartographer_random' || scen === 'random_cartographer' || scen === 'cartographer_4' || scen === 'cartographer-4' || scen === 'cartographer4' || scen === 'cartographer' || scen === 'cartographer_56_random' || scen === 'cartographer-56-random' || scen === 'cartographer56_random' || scen === 'scattered_tiles_56' || scen === 'scattered_tiles56' || scen === 'scattered_56') return 12;
     return 13; // four islands
   }
 
@@ -2122,14 +2122,14 @@ function syncPostgameToState() {
     const mm = mmRaw;
     if (mm === 'classic56' || mm === 'seafarers56') return 24;
     const scen = String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56')) return 24;
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random')) return 24;
     return 19;
   }
 
   function uiMapModeFromRules(rules) {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56')) return 'seafarers56';
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random')) return 'seafarers56';
     return rules?.mapMode || 'classic';
   }
 
@@ -2137,7 +2137,7 @@ function syncPostgameToState() {
     const mm = String(rulesOrSelection?.mapMode || 'classic').toLowerCase();
     if (mm === 'seafarers56') return true;
     const scen = String(rulesOrSelection?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    return (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56'));
+    return (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random'));
   }
 
   // -------------------- Structure sprites (settlement/city/road/ship) --------------------
@@ -3307,7 +3307,7 @@ function syncPostgameToState() {
       const invAll = cd.inventoryByPlayer || {};
       const inv = (myPlayerId && invAll[myPlayerId]) || null;
       const isMyTurn = !!(myPlayerId && state.currentPlayerId === myPlayerId);
-      const counts = inv || { sea:0, gold:0, hills:0, forest:0, pasture:0, field:0, mountains:0 };
+      const counts = inv || { sea:0, gold:0, desert:0, hills:0, forest:0, pasture:0, field:0, mountains:0 };
       const placed = Math.max(0, Number(cd.placedCount || 0));
       const total = Math.max(0, Number(cd.totalCount || (state.geom && state.geom.tiles ? state.geom.tiles.length : 44)));
 
@@ -3322,18 +3322,26 @@ function syncPostgameToState() {
       };
 
       const body = panel.querySelector('.cartographerDraftBody') || panel;
+      const tileChoices = [
+        ['sea','Sea'],
+        ['gold','Gold Field'],
+        ['desert','Desert'],
+        ['hills','Brick (Hills)'],
+        ['forest','Lumber (Forest)'],
+        ['pasture','Wool (Pasture)'],
+        ['field','Grain (Field)'],
+        ['mountains','Ore (Mountains)'],
+      ].filter(([key]) => Number(counts[key] || 0) > 0 || key === cartographerDraftSelection);
+      if (!tileChoices.some(([key]) => key === cartographerDraftSelection)) {
+        cartographerDraftSelection = (tileChoices[0] && tileChoices[0][0]) || 'sea';
+      }
+      const selLabel = ({ sea:'Sea', gold:'Gold Field', desert:'Desert', hills:'Brick (Hills)', forest:'Lumber (Forest)', pasture:'Wool (Pasture)', field:'Grain (Field)', mountains:'Ore (Mountains)' })[cartographerDraftSelection] || cartographerDraftSelection;
       body.innerHTML = [
         `<div style="margin-bottom:8px;opacity:.9">${isMyTurn ? 'Your turn: click a ? board hex to place the selected tile.' : 'Waiting for the current player to place a tile.'}</div>`,
         `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">`,
-          btn('sea','Sea'),
-          btn('gold','Gold Field'),
-          btn('hills','Brick (Hills)'),
-          btn('forest','Lumber (Forest)'),
-          btn('pasture','Wool (Pasture)'),
-          btn('field','Grain (Field)'),
-          btn('mountains','Ore (Mountains)'),
+          ...tileChoices.map(([key,label]) => btn(key, label)),
         `</div>`,
-        `<div style="margin-top:8px;opacity:.75">Selected: <strong>${cartographerDraftSelection === 'gold' ? 'Gold Field' : cartographerDraftSelection}</strong></div>`
+        `<div style="margin-top:8px;opacity:.75">Selected: <strong>${selLabel}</strong></div>`
       ].join('');
 
       body.querySelectorAll('button[data-ctile]').forEach((b) => {
@@ -4587,9 +4595,9 @@ function syncPostgameToState() {
           ? 'Fog Island'
           : (scenRaw === 'heading_for_new_shores' || scenRaw === 'heading-for-new-shores' || scenRaw === 'new_shores' || scenRaw === 'newshores' || scenRaw === 'heading')
             ? 'Heading for New Shores'
-            : (scenRaw === 'cartographer_4_manual' || scenRaw === 'cartographer-4-manual' || scenRaw === 'cartographer_manual' || scenRaw === 'manual_cartographer')
+            : (scenRaw === 'cartographer_4_manual' || scenRaw === 'cartographer-4-manual' || scenRaw === 'cartographer_manual' || scenRaw === 'manual_cartographer' || scenRaw === 'cartographer_56_manual' || scenRaw === 'cartographer-56-manual' || scenRaw === 'cartographer56_manual')
               ? 'Cartographer'
-            : (scenRaw === 'cartographer_4_random' || scenRaw === 'cartographer-4-random' || scenRaw === 'cartographer_random' || scenRaw === 'random_cartographer' || scenRaw === 'cartographer_4' || scenRaw === 'cartographer-4' || scenRaw === 'cartographer4' || scenRaw === 'cartographer')
+            : (scenRaw === 'cartographer_4_random' || scenRaw === 'cartographer-4-random' || scenRaw === 'cartographer_random' || scenRaw === 'random_cartographer' || scenRaw === 'cartographer_4' || scenRaw === 'cartographer-4' || scenRaw === 'cartographer4' || scenRaw === 'cartographer' || scenRaw === 'cartographer_56_random' || scenRaw === 'cartographer-56-random' || scenRaw === 'cartographer56_random' || scenRaw === 'scattered_tiles_56' || scenRaw === 'scattered_tiles56' || scenRaw === 'scattered_56')
               ? 'Scattered Tiles'
               : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
                 ? 'Test Builder'
@@ -5013,7 +5021,9 @@ function syncPostgameToState() {
       const scen56 = (mmNow === 'seafarers56') ? String(r.seafarersScenario || 'six_islands').toLowerCase() : 'six_islands';
       ui.mapScenario56Select.value = (scen56 === 'through_the_desert_56')
         ? 'through_the_desert_56'
-        : ((scen56 === 'fog_island_56') ? 'fog_island_56' : 'six_islands');
+        : ((scen56 === 'fog_island_56') ? 'fog_island_56'
+          : ((scen56 === 'cartographer_56_manual') ? 'cartographer_56_manual'
+            : ((scen56 === 'cartographer_56_random') ? 'cartographer_56_random' : 'six_islands')));
       ui.mapScenario56Select.disabled = !isHost || (mmNow !== 'seafarers56');
     }
 
@@ -5062,14 +5072,14 @@ function syncPostgameToState() {
       const mmUi = uiMapModeFromRules(r);
       const mmL = String(mmUi || 'classic').toLowerCase();
       const scen = (mmL === 'seafarers56')
-        ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56')) ? r.seafarersScenario : 'six_islands')
+        ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56') || (r.seafarersScenario === 'cartographer_56_manual') || (r.seafarersScenario === 'cartographer_56_random')) ? r.seafarersScenario : 'six_islands')
         : (r.seafarersScenario || 'four_islands');
       const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert'
         : (scen === 'through_the_desert_56') ? 'Through the Desert'
         : (scen === 'fog_island' || scen === 'fog_island_56' ? 'Fog Island'
           : (scen === 'heading_for_new_shores' ? 'Heading for New Shores'
-            : (scen === 'cartographer_4_manual' ? 'Cartographer'
-            : (scen === 'cartographer_4_random' || scen === 'cartographer_4' ? 'Scattered Tiles'
+            : (scen === 'cartographer_4_manual' || scen === 'cartographer_56_manual' ? 'Cartographer'
+            : (scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_random' ? 'Scattered Tiles'
               : (scen === 'test_builder' ? 'Test Builder'
                 : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))))));
       const is56 = (mmL === 'classic56' || mmL === 'classic_5_6' || mmL === 'classic-5-6' || mmL === 'classic5_6' || mmL === 'classic5-6');
@@ -8565,7 +8575,7 @@ function handleProductionGoldPrompt() {
     const mm = String(rules.mapMode || '').toLowerCase();
     if (mm !== 'seafarers') return false;
     const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
-    if (scen === 'test_builder' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4') return false;
+    if (scen === 'test_builder' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56') return false;
     if (String(t.type || '').toLowerCase() !== 'sea') return false;
     const nbs = (state.geom.tileNeighbors && Array.isArray(state.geom.tileNeighbors[t.id])) ? state.geom.tileNeighbors[t.id] : null;
     if (!nbs) return false;
