@@ -603,6 +603,20 @@ function generateThroughTheDesertAxials() {
   return coords; // length 70
 }
 
+// Cartographer (4 Player): 44-hex frame using the 70-hex Through-the-Desert outline's interior.
+// Rows are 5,6,7,8,7,6,5 (matching the provided dot-map interior).
+function generateCartographer4Axials() {
+  const coords = [];
+  for (let r = -3; r <= 3; r++) {
+    const baseMin = (r <= 0) ? (-4 - r) : -4;
+    const baseMax = (r <= 0) ? 5 : (5 - r);
+    const qMin = baseMin + 1;
+    const qMax = baseMax - 1;
+    for (let q = qMin; q <= qMax; q++) coords.push({ q, r });
+  }
+  return coords; // length 44
+}
+
 function generateThroughTheDesert56Axials() {
   // Seafarers 5–6 Player Through the Desert uses the large 97-hex frame (rows: 9,10,11,12,13,12,11,10,9).
   // Axials are laid out to match the provided dot-map template.
@@ -1175,6 +1189,11 @@ function seafarersScenarioKey(game) {
 function isSeafarers56Scenario(s) {
   const scen = String(s || '').toLowerCase().replace(/-/g,'_');
   return scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56';
+}
+
+function isCartographer4ScenarioKey(s) {
+  const scen = String(s || '').toLowerCase().replace(/-/g,'_');
+  return scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4';
 }
 
 function isFogIslandScenario(s) {
@@ -2047,6 +2066,7 @@ function defaultVictoryPointsToWin(rules) {
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56') return 14;
   if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
   if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
+  if (isCartographer4ScenarioKey(scen)) return 12;
   return 13; // four islands
 }
 
@@ -2076,6 +2096,8 @@ function phaseDurationMs(game, phase) {
   const rules = game?.rules || DEFAULT_RULES;
   const micro = (rules.microPhaseMs ?? rules.microMs ?? DEFAULT_RULES.microMs);
   switch (phase) {
+    case 'cartographer-draft':
+      return rules.setupTurnMs;
     case 'setup1-settlement':
     case 'setup1-road':
     case 'setup2-settlement':
@@ -2679,8 +2701,55 @@ function settlementDistanceOk(state, nodeId) {
 function isNodeOnBoard(state, nodeId) {
   return nodeId >= 0 && nodeId < state.geom.nodes.length;
 }
+
+function shouldTrimHiddenSeafarersOuterBorder(state) {
+  const rules = state && state.rules ? state.rules : {};
+  const mm = String((rules.mapMode || '')).toLowerCase();
+  if (mm !== 'seafarers') return false;
+  const scen = String((rules.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g, '_');
+  if (scen === 'test_builder' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4') return false;
+  return true;
+}
+function isHiddenSeafarersOuterBorderSeaTile(state, tileId) {
+  const tiles = state && state.geom && Array.isArray(state.geom.tiles) ? state.geom.tiles : null;
+  if (!tiles || tileId == null || tileId < 0 || tileId >= tiles.length) return false;
+  if (!shouldTrimHiddenSeafarersOuterBorder(state)) return false;
+  const t = tiles[tileId];
+  if (!t) return false;
+  if (String(t.type || '').toLowerCase() !== 'sea') return false;
+  const nbs = Array.isArray(state?.geom?.tileNeighbors?.[tileId]) ? state.geom.tileNeighbors[tileId] : null;
+  if (!nbs) return false;
+  return nbs.length < 6;
+}
+function edgeAdjTilesAfterOuterSeaTrim(state, edgeId) {
+  const adj = Array.isArray(state?.geom?.edgeAdjTiles?.[edgeId]) ? state.geom.edgeAdjTiles[edgeId] : [];
+  if (!adj.length) return [];
+  if (!shouldTrimHiddenSeafarersOuterBorder(state)) return adj.slice();
+  return adj.filter(tid => !isHiddenSeafarersOuterBorderSeaTile(state, tid));
+}
+function edgeIsBoundaryAfterOuterSeaTrim(state, edgeId) {
+  return edgeAdjTilesAfterOuterSeaTrim(state, edgeId).length === 1;
+}
+function edgeTouchesLandAfterOuterSeaTrim(state, edgeId) {
+  const adj = edgeAdjTilesAfterOuterSeaTrim(state, edgeId);
+  if (!adj.length) return false;
+  if (adj.length === 1) return true; // allow roads on all outer boundary edges after trimming
+  return adj.some(tid => (state.geom.tiles?.[tid]?.type || '') !== 'sea');
+}
+function edgeTouchesSeaAfterOuterSeaTrim(state, edgeId) {
+  const adj = edgeAdjTilesAfterOuterSeaTrim(state, edgeId);
+  if (!adj.length) return false;
+  if (adj.length === 1) return true; // allow ships on all outer boundary edges after trimming
+  return adj.some(tid => (state.geom.tiles?.[tid]?.type || '') === 'sea');
+}
 function isEdgeOnBoard(state, edgeId) {
-  return edgeId >= 0 && edgeId < state.geom.edges.length;
+  if (!(edgeId >= 0 && edgeId < state.geom.edges.length)) return false;
+  if (shouldTrimHiddenSeafarersOuterBorder(state) && edgeAdjTilesAfterOuterSeaTrim(state, edgeId).length === 0) return false;
+  return true;
+}
+function isTileOnBoard(state, tileId) {
+  const tiles = state && state.geom && Array.isArray(state.geom.tiles) ? state.geom.tiles : null;
+  return !!tiles && tileId >= 0 && tileId < tiles.length;
 }
 
 function generateBoard(geom) {
@@ -4122,6 +4191,194 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
   return allTiles;
 }
 
+function generateBoardSeafarersCartographer4(geom) {
+  // "Cartographer" (4-player custom Seafarers): 44 total hexes, players would draft/place tiles.
+  // This implementation generates the final randomized board using the exact component counts.
+  const allTiles = (geom?.tiles || []).map(t => ({ ...t, type: 'sea', number: null, robber: false, pirate: false }));
+
+  const typePool = [
+    ...Array(20).fill('sea'),
+    ...Array(4).fill('gold'),
+    ...Array(4).fill('hills'),
+    ...Array(4).fill('forest'),
+    ...Array(4).fill('pasture'),
+    ...Array(4).fill('field'),
+    ...Array(4).fill('mountains'),
+  ];
+
+  const numbersPool = [
+    2,
+    3, 3,
+    4, 4, 4,
+    5, 5, 5,
+    6, 6, 6,
+    8, 8, 8,
+    9, 9, 9,
+    10, 10, 10,
+    11, 11,
+    12,
+  ];
+
+  let placed = null;
+  for (let attempt = 0; attempt < 2000; attempt++) {
+    const types = shuffle(typePool.slice());
+    const local = allTiles.map((t, i) => ({ id: t.id, type: types[i], number: null }));
+    const landLocal = local.filter(x => x.type !== 'sea');
+    const nums = shuffle(numbersPool.slice());
+    for (let i = 0; i < landLocal.length; i++) landLocal[i].number = nums[i];
+    if (!hasAdjacentSixEightForPlacement(geom, landLocal)) { placed = local; break; }
+  }
+  if (!placed) {
+    const types = shuffle(typePool.slice());
+    placed = allTiles.map((t, i) => ({ id: t.id, type: types[i], number: null }));
+    const landLocal = placed.filter(x => x.type !== 'sea');
+    const nums = shuffle(numbersPool.slice());
+    for (let i = 0; i < landLocal.length; i++) landLocal[i].number = nums[i];
+  }
+
+  for (const upd of placed) {
+    const t = allTiles[upd.id];
+    if (!t) continue;
+    t.type = upd.type;
+    t.number = upd.number;
+    t.robber = false;
+    t.pirate = false;
+  }
+
+  // Robber starts on the 12 token (already random due to number shuffle).
+  const twelveIds = allTiles.filter(t => t.type !== 'sea' && t.number === 12).map(t => t.id);
+  if (twelveIds.length) {
+    const rid = twelveIds[Math.floor(Math.random() * twelveIds.length)];
+    if (allTiles[rid]) allTiles[rid].robber = true;
+  } else {
+    startSeafarersRobberAndPirate(allTiles, []);
+    return allTiles;
+  }
+
+  const seaIds = allTiles.filter(t => t.type === 'sea').map(t => t.id);
+  if (seaIds.length) {
+    const pid = seaIds[Math.floor(Math.random() * seaIds.length)];
+    if (allTiles[pid]) allTiles[pid].pirate = true;
+  }
+
+  return allTiles;
+}
+
+
+function cartographer4DraftDefaultInventory() {
+  return {
+    sea: 5,
+    gold: 1,
+    hills: 1,
+    forest: 1,
+    pasture: 1,
+    field: 1,
+    mountains: 1,
+  };
+}
+
+function generateBoardSeafarersCartographer4ManualDraft(geom) {
+  // Empty draft board for the manual Cartographer scenario.
+  // Use 'unexplored' placeholders so unplaced slots are visually distinct from sea placements.
+  const allTiles = (geom?.tiles || []).map(t => ({ ...t, type: 'unexplored', number: null, robber: false, pirate: false }));
+  return allTiles;
+}
+
+function assignCartographer4NumbersRobberPirateAndPorts(game) {
+  if (!game || !game.geom || !Array.isArray(game.geom.tiles)) return;
+  const tiles = game.geom.tiles;
+  const numbersPool = [
+    2,
+    3, 3,
+    4, 4, 4,
+    5, 5, 5,
+    6, 6, 6,
+    8, 8, 8,
+    9, 9, 9,
+    10, 10, 10,
+    11, 11,
+    12,
+  ];
+
+  for (const t of tiles) {
+    if (!t) continue;
+    t.number = null;
+    t.robber = false;
+    t.pirate = false;
+    if (t.type === 'unexplored') t.type = 'sea';
+  }
+
+  const landIds = tiles.filter(t => t && t.type !== 'sea' && t.type !== 'desert').map(t => t.id);
+  if (landIds.length === numbersPool.length) {
+    let placed = null;
+    for (let attempt = 0; attempt < 2000; attempt++) {
+      const nums = shuffle(numbersPool.slice());
+      const cand = landIds.map((id, i) => ({ id, type: tiles[id].type, number: nums[i] }));
+      if (!hasAdjacentSixEightForPlacement(game.geom, cand)) { placed = cand; break; }
+    }
+    if (!placed) {
+      const nums = shuffle(numbersPool.slice());
+      placed = landIds.map((id, i) => ({ id, type: tiles[id].type, number: nums[i] }));
+    }
+    for (const upd of placed) {
+      if (tiles[upd.id]) tiles[upd.id].number = upd.number;
+    }
+  }
+
+  const twelveIds = tiles.filter(t => t && t.type !== 'sea' && t.number === 12).map(t => t.id);
+  if (twelveIds.length) {
+    const rid = twelveIds[Math.floor(Math.random() * twelveIds.length)];
+    if (tiles[rid]) tiles[rid].robber = true;
+  } else {
+    startSeafarersRobberAndPirate(tiles, []);
+  }
+
+  const seaIds = tiles.filter(t => t && t.type === 'sea').map(t => t.id);
+  if (seaIds.length) {
+    const pid = seaIds[Math.floor(Math.random() * seaIds.length)];
+    if (tiles[pid]) tiles[pid].pirate = true;
+  }
+
+  game.geom.ports = generatePortsSeafarers(game.geom, 'cartographer_4_random');
+}
+
+function initCartographer4ManualDraftState(game) {
+  if (!game || !Array.isArray(game.players)) return;
+  if (!game.cartographerDraft) game.cartographerDraft = {};
+  const invByPlayer = Object.create(null);
+  for (const p of (game.players || [])) invByPlayer[p.id] = cartographer4DraftDefaultInventory();
+  game.cartographerDraft.inventoryByPlayer = invByPlayer;
+  game.cartographerDraft.turnIndex = 0;
+  game.cartographerDraft.placedCount = 0;
+  game.cartographerDraft.totalCount = Array.isArray(game.geom?.tiles) ? game.geom.tiles.length : 44;
+  game.phase = 'cartographer-draft';
+  game.currentPlayerId = game.turnOrder?.[0] || game.players?.[0]?.id || null;
+  game.message = `Cartographer Draft: ${playerName(game, game.currentPlayerId)} place a tile.`;
+  if (game.setup) game.setup.awaiting = null;
+}
+
+function advanceCartographer4ManualDraftTurn(game) {
+  const order = Array.isArray(game?.turnOrder) ? game.turnOrder : [];
+  if (!order.length) return;
+  const cur = game.currentPlayerId;
+  let idx = order.indexOf(cur);
+  if (idx < 0) idx = 0;
+  idx = (idx + 1) % order.length;
+  game.currentPlayerId = order[idx];
+  if (game.cartographerDraft) game.cartographerDraft.turnIndex = (game.cartographerDraft.turnIndex || 0) + 1;
+  game.message = `Cartographer Draft: ${playerName(game, game.currentPlayerId)} place a tile.`;
+}
+
+function finishCartographer4ManualDraft(room, game) {
+  assignCartographer4NumbersRobberPirateAndPorts(game);
+  try { delete game.cartographerDraft; } catch (_) { game.cartographerDraft = null; }
+  game.phase = 'setup1-settlement';
+  game.currentPlayerId = game.turnOrder?.[0] || game.players?.[0]?.id || null;
+  game.message = `Setup: ${playerName(game, game.currentPlayerId)} place a settlement.`;
+  if (game.setup) game.setup.awaiting = null;
+  pushLog(game, 'Cartographer draft complete. Numbers, robber, pirate, and ports were randomized.', 'system');
+}
+
 function generateBoardSeafarersTestBuilder(geom) {
   // Blank editable map: all sea with a center desert + robber and one sea tile with the pirate.
   const allTiles = seafarersBaseAllSea(geom);
@@ -4154,6 +4411,8 @@ function generateBoardSeafarers(geom, scenario = 'four_islands') {
   if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
   if (s === 'fog_island_56') return generateBoardSeafarersFogIsland56(geom);
   if (s === 'heading_for_new_shores') return generateBoardSeafarersHeadingForNewShores(geom);
+  if (s === 'cartographer_4_random' || s === 'cartographer_4') return generateBoardSeafarersCartographer4(geom);
+  if (s === 'cartographer_4_manual') return generateBoardSeafarersCartographer4ManualDraft(geom);
   if (s === 'six_islands') return generateBoardSeafarersSixIslands(geom);
   if (s === 'test_builder') return generateBoardSeafarersTestBuilder(geom);
   return generateBoardSeafarersFourIslands(geom);
@@ -4460,7 +4719,7 @@ function generatePortsSeafarersSixIslandsBalanced(geom, count = 11) {
 function generatePortsSeafarers(geom, scenario = 'four_islands') {
   // Seafarers uses the same port placement logic, but scenarios may override the count and/or valid coastline.
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-  const count = isSeafarers56Scenario(s) ? 11 : 9;
+  const count = (isCartographer4ScenarioKey(s)) ? 11 : (isSeafarers56Scenario(s) ? 11 : 9);
 
   // Six Islands (5–6): enforce 2 ports per island except the top-center island (1 port).
   if (s === 'six_islands') {
@@ -4528,6 +4787,8 @@ function newEmptyGame(room) {
       geom = buildGeometryFromAxials(generateFogIsland56Axials());
     } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
+    } else if (isCartographer4ScenarioKey(scen)) {
+      geom = buildGeometryFromAxials(generateCartographer4Axials());
     } else if (isSeafarers56Scenario(scen)) {
       geom = buildGeometryFromAxials(generateSixIslandsAxials());
     } else {
@@ -4715,6 +4976,8 @@ function startGame(room) {
       game.geom = buildGeometryFromAxials(generateFogIsland56Axials());
     } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       game.geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
+    } else if (isCartographer4ScenarioKey(scen)) {
+      game.geom = buildGeometryFromAxials(generateCartographer4Axials());
     } else if (isSeafarers56Scenario(scen)) {
       game.geom = buildGeometryFromAxials(generateSixIslandsAxials());
     }
@@ -4733,6 +4996,13 @@ function startGame(room) {
 
   // Once the game starts, the lobby preview is no longer needed.
   room.preview = null;
+
+  // Manual Cartographer 4-player scenario starts with a player tile draft before setup placements.
+  if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'cartographer_4_manual') {
+    game.geom.tiles = generateBoardSeafarersCartographer4ManualDraft(game.geom);
+    game.geom.ports = [];
+    initCartographer4ManualDraftState(game);
+  }
 
   // Development cards
   game.devDeck = buildDevDeck(game.rules);
@@ -5102,6 +5372,49 @@ function applyAction(room, playerId, action) {
     }
   }
 
+  if (kind === 'cartographer_draft_place') {
+    if (game.phase !== 'cartographer-draft') return { ok: false, error: 'Not the right phase for cartographer draft.' };
+    const tileId = Math.floor(Number(action.tileId));
+    if (!isTileOnBoard(game, tileId)) return { ok: false, error: 'Bad tile.' };
+    const tile = game.geom?.tiles?.[tileId];
+    if (!tile) return { ok: false, error: 'Bad tile.' };
+    const draftType = String(tile.type || '').toLowerCase();
+    const isDraftSlot = (draftType === 'unexplored' || draftType === '?' || !!(tile.fog && !tile.revealed));
+    if (!isDraftSlot) return { ok: false, error: 'That tile has already been placed.' };
+
+    const rawType = String(action.tileType || '').toLowerCase();
+    const tileType = (rawType === 'gold_fields' || rawType === 'goldfield') ? 'gold' : rawType;
+    const allowed = new Set(['sea','gold','hills','forest','pasture','field','mountains']);
+    if (!allowed.has(tileType)) return { ok: false, error: 'Invalid cartographer tile type.' };
+
+    if (!game.cartographerDraft) initCartographer4ManualDraftState(game);
+    if (!game.cartographerDraft.inventoryByPlayer) game.cartographerDraft.inventoryByPlayer = Object.create(null);
+    const inv = game.cartographerDraft.inventoryByPlayer[playerId] || (game.cartographerDraft.inventoryByPlayer[playerId] = cartographer4DraftDefaultInventory());
+    if ((inv[tileType] || 0) <= 0) return { ok: false, error: 'You have none of that tile type remaining.' };
+
+    tile.type = tileType;
+    tile.number = null;
+    tile.robber = false;
+    tile.pirate = false;
+    try { delete tile.fog; } catch (_) { tile.fog = false; }
+    try { delete tile.revealed; } catch (_) { tile.revealed = true; }
+    try { delete tile.hiddenType; } catch (_) {}
+    try { delete tile.hiddenNumber; } catch (_) {}
+    inv[tileType] = Math.max(0, (inv[tileType] || 0) - 1);
+    game.cartographerDraft.placedCount = Math.max(0, Math.floor(Number(game.cartographerDraft.placedCount || 0))) + 1;
+
+    pushLog(game, `${playerName(game, playerId)} drafted a ${tileType === 'gold' ? 'gold field' : tileType} tile.`, 'build', { kind: 'cartographer_tile', tileType });
+
+    const total = Math.max(0, Math.floor(Number(game.cartographerDraft.totalCount || (game.geom?.tiles?.length || 44))));
+    if (game.cartographerDraft.placedCount >= total) {
+      finishCartographer4ManualDraft(room, game);
+      return { ok: true };
+    }
+
+    advanceCartographer4ManualDraftTurn(game);
+    return { ok: true };
+  }
+
   // --- Setup placements
   if (kind === 'place_settlement') {
     const nodeId = action.nodeId;
@@ -5177,7 +5490,7 @@ function applyAction(room, playerId, action) {
     // Seafarers: when you build a settlement on an island where you have no buildings yet,
     // you immediately gain +2 VP. (Not awarded during setup.)
     let newIslandBonus = false;
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions' && !isFogIslandScenario(String((game.rules?.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g,'_'))) {
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions' && !isFogIslandScenario(String((game.rules?.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g,'_')) && !isCartographer4ScenarioKey(seafarersScenarioKey(game))) {
       const tileToIsland = computeLandIslands(game.geom);
       const islandId = islandIdForNode(game.geom, nodeId, tileToIsland);
       if (islandId != null) {
@@ -5298,8 +5611,7 @@ if (ttdFarSideBonus) {
     // If the board has sea tiles, roads can only be placed on edges that touch at least one non-sea tile.
     const boardHasSea = (game.geom.tiles || []).some(t => t.type === 'sea');
     if (boardHasSea) {
-      const adj = game.geom.edgeAdjTiles?.[edgeId] || [];
-      const ok = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') !== 'sea');
+      const ok = edgeTouchesLandAfterOuterSeaTrim(game, edgeId);
       if (!ok) return { ok: false, error: 'Roads must be built on land or the coastline.' };
     }
 
@@ -5383,8 +5695,8 @@ if (ttdFarSideBonus) {
     if (!inSetup && game.phase !== 'main-actions') return { ok: false, error: 'You can only build ships after rolling.' };
 
     // Must touch sea
-    const adj = game.geom.edgeAdjTiles?.[edgeId] || [];
-    const touchesSea = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea') || adj.length === 1; // boundary edges are sea perimeter
+    const adj = edgeAdjTilesAfterOuterSeaTrim(game, edgeId);
+    const touchesSea = edgeTouchesSeaAfterOuterSeaTrim(game, edgeId);
     if (!touchesSea) return { ok: false, error: 'Ships must be placed on sea edges.' };
 
     // Fog Island: you cannot place a ship "inside" unrevealed fog (i.e., on an edge adjacent only to unrevealed fog).
@@ -5518,8 +5830,8 @@ if (ttdFarSideBonus) {
     if (!shipIsMovable(game, fromEdgeId, playerId)) return { ok: false, error: 'Only an end ship can be moved.' };
 
     // Destination must touch sea and must not be blocked by pirate.
-    const adj = game.geom.edgeAdjTiles?.[toEdgeId] || [];
-    const touchesSea = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea') || adj.length === 1;
+    const adj = edgeAdjTilesAfterOuterSeaTrim(game, toEdgeId);
+    const touchesSea = edgeTouchesSeaAfterOuterSeaTrim(game, toEdgeId);
     if (!touchesSea) return { ok: false, error: 'Ships must be moved to sea edges.' };
 
     // Fog Island: you cannot move a ship "inside" unrevealed fog (i.e., to an edge adjacent only to unrevealed fog).
@@ -6781,6 +7093,10 @@ function mapPreviewKey(rules) {
         ? 'fog_island_56'
       : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
         ? 'test_builder'
+        : (rawScen === 'cartographer_4_manual' || rawScen === 'cartographer-4-manual' || rawScen === 'cartographer_manual' || rawScen === 'manual_cartographer')
+          ? 'cartographer_4_manual'
+        : (rawScen === 'cartographer_4_random' || rawScen === 'cartographer-4-random' || rawScen === 'cartographer_random' || rawScen === 'random_cartographer' || rawScen === 'cartographer_4' || rawScen === 'cartographer-4' || rawScen === 'cartographer4' || rawScen === 'cartographer')
+          ? 'cartographer_4_random'
         : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
           ? 'heading_for_new_shores'
         : (rawScen === 'through_the_desert_56' || rawScen === 'through-the-desert-56' || rawScen === 'throughdesert56' || rawScen === 'desert56')
@@ -6807,13 +7123,20 @@ function generatePreviewGeom(rules) {
       geom = buildGeometryFromAxials(generateFogIsland56Axials());
     } else if (scen === 'through_the_desert' || scen === 'fog_island' || scen === 'heading_for_new_shores') {
       geom = buildGeometryFromAxials(generateThroughTheDesertAxials());
+    } else if (isCartographer4ScenarioKey(scen)) {
+      geom = buildGeometryFromAxials(generateCartographer4Axials());
     } else if (isSeafarers56Scenario(scen)) {
       geom = buildGeometryFromAxials(generateSixIslandsAxials());
     } else {
       geom = buildGeometry(4);
     }
-    geom.tiles = generateBoardSeafarers(geom, scen);
-    geom.ports = (scen === 'test_builder') ? [] : generatePortsSeafarers(geom, scen);
+    if (scen === 'cartographer_4_manual') {
+      geom.tiles = generateBoardSeafarersCartographer4ManualDraft(geom);
+      geom.ports = [];
+    } else {
+      geom.tiles = generateBoardSeafarers(geom, scen);
+      geom.ports = (scen === 'test_builder') ? [] : generatePortsSeafarers(geom, scen);
+    }
     return geom;
   }
   if (mm === 'classic56') {
@@ -7419,6 +7742,10 @@ if (msg.type === 'create_room') {
             ? 'heading_for_new_shores'
           : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
             ? 'test_builder'
+          : (rawScen === 'cartographer_4_manual' || rawScen === 'cartographer-4-manual' || rawScen === 'cartographer_manual' || rawScen === 'manual_cartographer')
+            ? 'cartographer_4_manual'
+          : (rawScen === 'cartographer_4_random' || rawScen === 'cartographer-4-random' || rawScen === 'cartographer_random' || rawScen === 'random_cartographer' || rawScen === 'cartographer_4' || rawScen === 'cartographer-4' || rawScen === 'cartographer4' || rawScen === 'cartographer')
+            ? 'cartographer_4_random'
           : (rawScen === 'through_the_desert_56' || rawScen === 'through-the-desert-56' || rawScen === 'throughdesert56' || rawScen === 'desert56')
             ? 'through_the_desert_56'
           : (rawScen === 'six_islands' || rawScen === 'six-islands' || rawScen === 'sixislands' || rawScen === 'six')
@@ -7866,7 +8193,57 @@ function handleTimeout(room) {
 
   const phase = game.phase;
 
+  // Cartographer manual draft auto-placement (timeout)
+  if (phase === 'cartographer-draft') {
+    const pid = game.currentPlayerId;
+    if (!pid) return false;
+    const cd = game.cartographerDraft || null;
+    const inv = (cd && cd.inventoryByPlayer && cd.inventoryByPlayer[pid]) ? cd.inventoryByPlayer[pid] : cartographer4DraftDefaultInventory();
+    const prefOrder = ['sea','gold','hills','forest','pasture','field','mountains'];
+    let tileType = prefOrder.find(k => Math.floor(Number(inv[k] || 0)) > 0) || null;
+    if (!tileType) tileType = 'sea';
+    const cands = [];
+    for (let i = 0; i < (game.geom.tiles || []).length; i++) {
+      const t = game.geom.tiles[i];
+      if (!t) continue;
+      if (t.type === 'unexplored' && !t.draftPlaced) cands.push(i);
+    }
+    shuffle(cands);
+    if (cands.length) {
+      applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
+      syncTimer(game);
+      return true;
+    }
+    return false;
+  }
+
   // Setup auto placement
+  if (phase === 'cartographer-draft') {
+    const cd = game.cartographerDraft || null;
+    const inv = (cd && cd.inventoryByPlayer && cd.inventoryByPlayer[pid]) ? cd.inventoryByPlayer[pid] : null;
+    const pool = [];
+    if (inv) {
+      for (const k of ['gold','hills','forest','pasture','field','mountains','sea']) {
+        const n = Math.max(0, Math.floor(Number(inv[k] || 0)));
+        for (let i = 0; i < n; i++) pool.push(k);
+      }
+    }
+    const tileType = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'sea';
+    const cands = [];
+    for (let i = 0; i < (game.geom.tiles || []).length; i++) {
+      const t = game.geom.tiles[i];
+      if (!t) continue;
+      if (t.type === 'unexplored' && !t.draftPlaced) cands.push(i);
+    }
+    shuffle(cands);
+    if (cands.length) {
+      const r = applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
+      if (r && r.ok) { delay(180, 320); return true; }
+    }
+    delay(180, 320);
+    return false;
+  }
+
   if (phase === 'setup1-settlement' || phase === 'setup2-settlement') {
     const pid = game.currentPlayerId;
     if (!pid) return false;
@@ -8193,8 +8570,7 @@ function handleAI(room) {
 
   const edgeTouchesLand = (edgeId) => {
     if (!boardHasSea) return true;
-    const adj = game.geom.edgeAdjTiles?.[edgeId] || [];
-    return adj.some(tid => (game.geom.tiles?.[tid]?.type || '') !== 'sea');
+    return edgeTouchesLandAfterOuterSeaTrim(game, edgeId);
   };
 
   const edgeWouldExploreFog = (edgeId) => {
@@ -8244,8 +8620,8 @@ function handleAI(room) {
       if (!e) continue;
       if (e.shipOwner || e.roadOwner) continue;
       if (edgeTouchesPirate(game, i)) continue;
-      const adj = game.geom.edgeAdjTiles?.[i] || [];
-      const touchesSea = adj.some(tid => (game.geom.tiles?.[tid]?.type || '') === 'sea') || adj.length === 1;
+      const adj = edgeAdjTilesAfterOuterSeaTrim(game, i);
+      const touchesSea = edgeTouchesSeaAfterOuterSeaTrim(game, i);
       if (!touchesSea) continue;
 
       // Fog Island restriction: can't go "inside" unrevealed fog.
@@ -8590,6 +8966,31 @@ const wouldAcceptTrade = (pid, trade, diff) => {
   if (!pid || !me || !me.isAI) return false;
 
   const phase = String(game.phase || '');
+
+  if (phase === 'cartographer-draft') {
+    const cd = game.cartographerDraft || null;
+    const inv = (cd && cd.inventoryByPlayer && cd.inventoryByPlayer[pid]) ? cd.inventoryByPlayer[pid] : cartographer4DraftDefaultInventory();
+    const pool = [];
+    for (const k of ['gold','hills','forest','pasture','field','mountains','sea']) {
+      const n = Math.max(0, Math.floor(Number(inv?.[k] || 0)));
+      for (let i = 0; i < n; i++) pool.push(k);
+    }
+    const tileType = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'sea';
+    const cands = [];
+    for (let i = 0; i < (game.geom?.tiles || []).length; i++) {
+      const t = game.geom.tiles[i];
+      if (!t) continue;
+      const tt = String(t.type || '').toLowerCase();
+      if (tt === 'unexplored' || tt === '?' || (!!t.fog && !t.revealed)) cands.push(i);
+    }
+    shuffle(cands);
+    if (cands.length) {
+      const r = applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
+      if (r && r.ok) { delay(140, 260); return true; }
+    }
+    delay(140, 260);
+    return false;
+  }
 
   if (phase === 'setup1-settlement' || phase === 'setup2-settlement') {
     const rawScen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase();

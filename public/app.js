@@ -2079,6 +2079,8 @@ function syncPostgameToState() {
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'through_the_desert_56') return 14;
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
+    if (scen === 'cartographer_4_manual' || scen === 'cartographer-4-manual' || scen === 'cartographer_manual' || scen === 'manual_cartographer') return 12;
+    if (scen === 'cartographer_4_random' || scen === 'cartographer-4-random' || scen === 'cartographer_random' || scen === 'random_cartographer' || scen === 'cartographer_4' || scen === 'cartographer-4' || scen === 'cartographer4' || scen === 'cartographer') return 12;
     return 13; // four islands
   }
 
@@ -3029,6 +3031,134 @@ function syncPostgameToState() {
   // (e.g., when the game transitions into full-screen board mode). Without this,
   // some browsers can end up with mismatched hit-testing until the next real resize.
   let lastCanvasSizeKey = '';
+  let cartographerDraftSelection = 'sea';
+
+  function updateCartographerDraftPanel() {
+    try {
+      let panel = document.getElementById('cartographerDraftPanel');
+      const active = !!(state && String(state.phase || '') === 'cartographer-draft');
+      if (!active) {
+        if (panel) panel.style.display = 'none';
+        return;
+      }
+      if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'cartographerDraftPanel';
+        panel.classList.add('panelScalable');
+        panel.style.position = 'fixed';
+        panel.style.left = '12px';
+        panel.style.bottom = '12px';
+        panel.style.zIndex = '60';
+        panel.style.minWidth = '260px';
+        panel.style.maxWidth = '360px';
+        panel.style.background = 'rgba(14,18,26,0.95)';
+        panel.style.border = '1px solid rgba(120,160,220,0.55)';
+        panel.style.borderRadius = '10px';
+        panel.style.boxShadow = '0 8px 24px rgba(0,0,0,0.35)';
+        panel.style.padding = '10px';
+        panel.style.color = '#dce8ff';
+        panel.style.font = '12px/1.35 system-ui, sans-serif';
+
+        const header = document.createElement('div');
+        header.className = 'cartographerDraftHeader';
+        header.style.display = 'grid';
+        header.style.gridTemplateColumns = 'auto 1fr auto';
+        header.style.alignItems = 'center';
+        header.style.gap = '8px';
+        header.style.marginBottom = '6px';
+
+        const grip = document.createElement('div');
+        grip.className = 'dragGrip';
+        grip.textContent = '⋮⋮';
+        grip.title = 'Move Cartographer Draft panel';
+        grip.style.opacity = '.9';
+        grip.style.fontWeight = '700';
+        grip.style.lineHeight = '1';
+        grip.style.padding = '2px 4px';
+        grip.style.borderRadius = '6px';
+        grip.style.border = '1px solid rgba(120,160,220,.25)';
+        grip.style.background = 'rgba(255,255,255,.03)';
+
+        const title = document.createElement('strong');
+        title.className = 'cartographerDraftTitle';
+        title.style.fontSize = '13px';
+        title.textContent = 'Cartographer Draft';
+
+        const right = document.createElement('div');
+        right.className = 'cartographerDraftHeaderRight';
+        right.style.display = 'flex';
+        right.style.alignItems = 'center';
+        right.style.gap = '8px';
+
+        const progress = document.createElement('span');
+        progress.className = 'cartographerDraftProgress';
+        progress.style.opacity = '.85';
+        progress.textContent = '0/44';
+        right.appendChild(progress);
+
+        header.appendChild(grip);
+        header.appendChild(title);
+        header.appendChild(right);
+        panel.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'panelScaleContent cartographerDraftBody';
+        panel.appendChild(body);
+
+        document.body.appendChild(panel);
+
+        try {
+          ensurePanelHeaderScaleControl(panel, header, 'cartographer_draft_panel', 'Scale Cartographer Draft panel');
+        } catch (_) {}
+        try {
+          makeDraggablePanel(panel, grip, 'hexsettlers_cartographer_draft_pos_v1');
+          panel.dataset.dragReady = '1';
+        } catch (_) {}
+      }
+      panel.style.display = 'block';
+
+      const cd = state.cartographerDraft || {};
+      const invAll = cd.inventoryByPlayer || {};
+      const inv = (myPlayerId && invAll[myPlayerId]) || null;
+      const isMyTurn = !!(myPlayerId && state.currentPlayerId === myPlayerId);
+      const counts = inv || { sea:0, gold:0, hills:0, forest:0, pasture:0, field:0, mountains:0 };
+      const placed = Math.max(0, Number(cd.placedCount || 0));
+      const total = Math.max(0, Number(cd.totalCount || (state.geom && state.geom.tiles ? state.geom.tiles.length : 44)));
+
+      const progEl = panel.querySelector('.cartographerDraftProgress');
+      if (progEl) progEl.textContent = `${placed}/${total}`;
+
+      const btn = (key, label) => {
+        const selected = cartographerDraftSelection === key;
+        const remaining = Math.max(0, Number(counts[key] || 0));
+        const disabled = !isMyTurn || remaining <= 0;
+        return `<button data-ctile="${key}" ${disabled ? 'disabled' : ''} style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;border:1px solid ${selected ? 'rgba(140,220,180,.9)' : 'rgba(120,160,220,.35)'};background:${selected ? 'rgba(70,120,90,.45)' : 'rgba(30,42,64,.55)'};color:#e8f0ff;cursor:${disabled ? 'not-allowed' : 'pointer'};opacity:${disabled ? '.55' : '1'};font:inherit;"><span>${label}</span><strong>${remaining}</strong></button>`;
+      };
+
+      const body = panel.querySelector('.cartographerDraftBody') || panel;
+      body.innerHTML = [
+        `<div style="margin-bottom:8px;opacity:.9">${isMyTurn ? 'Your turn: click a ? board hex to place the selected tile.' : 'Waiting for the current player to place a tile.'}</div>`,
+        `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">`,
+          btn('sea','Sea'),
+          btn('gold','Gold Field'),
+          btn('hills','Brick (Hills)'),
+          btn('forest','Lumber (Forest)'),
+          btn('pasture','Wool (Pasture)'),
+          btn('field','Grain (Field)'),
+          btn('mountains','Ore (Mountains)'),
+        `</div>`,
+        `<div style="margin-top:8px;opacity:.75">Selected: <strong>${cartographerDraftSelection === 'gold' ? 'Gold Field' : cartographerDraftSelection}</strong></div>`
+      ].join('');
+
+      body.querySelectorAll('button[data-ctile]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const v = String(b.getAttribute('data-ctile') || 'sea');
+          cartographerDraftSelection = v;
+          updateCartographerDraftPanel();
+        });
+      });
+    } catch (_) {}
+  }
 
   // Game Log panel (toggleable overlay)
   let logPanelOpen = false;
@@ -3732,6 +3862,7 @@ function syncPostgameToState() {
         } catch (_) {}
 
         updateButtons();
+        updateCartographerDraftPanel();
         renderLobby();
         render();
         syncPostgameToState();
@@ -4270,11 +4401,15 @@ function syncPostgameToState() {
           ? 'Fog Island'
           : (scenRaw === 'heading_for_new_shores' || scenRaw === 'heading-for-new-shores' || scenRaw === 'new_shores' || scenRaw === 'newshores' || scenRaw === 'heading')
             ? 'Heading for New Shores'
-            : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
-              ? 'Test Builder'
-              : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
-                  ? 'Six Islands'
-                  : 'Four Islands')
+            : (scenRaw === 'cartographer_4_manual' || scenRaw === 'cartographer-4-manual' || scenRaw === 'cartographer_manual' || scenRaw === 'manual_cartographer')
+              ? 'Cartographer 4 Player (Manual Draft)'
+            : (scenRaw === 'cartographer_4_random' || scenRaw === 'cartographer-4-random' || scenRaw === 'cartographer_random' || scenRaw === 'random_cartographer' || scenRaw === 'cartographer_4' || scenRaw === 'cartographer-4' || scenRaw === 'cartographer4' || scenRaw === 'cartographer')
+              ? 'Random 4 Player Scenario'
+              : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
+                ? 'Test Builder'
+                : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
+                    ? 'Six Islands'
+                    : 'Four Islands')
       : (is56 ? 'Paired players' : '—');
 
     const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
@@ -4747,8 +4882,10 @@ function syncPostgameToState() {
         : (scen === 'through_the_desert_56') ? 'Through the Desert'
         : (scen === 'fog_island' || scen === 'fog_island_56' ? 'Fog Island'
           : (scen === 'heading_for_new_shores' ? 'Heading for New Shores'
-            : (scen === 'test_builder' ? 'Test Builder'
-              : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))));
+            : (scen === 'cartographer_4_manual' ? 'Cartographer 4 Player (Manual Draft)'
+            : (scen === 'cartographer_4_random' || scen === 'cartographer_4' ? 'Random 4 Player Scenario'
+              : (scen === 'test_builder' ? 'Test Builder'
+                : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))))));
       const is56 = (mmL === 'classic56' || mmL === 'classic_5_6' || mmL === 'classic-5-6' || mmL === 'classic5_6' || mmL === 'classic5-6');
       const mapLabel = (mmL === 'seafarers56') ? `seafarers 5–6 (${scenLabel.toLowerCase()}, paired turns)`
         : (mmL === 'seafarers') ? `seafarers (${scenLabel})`
@@ -7946,10 +8083,24 @@ function handleProductionGoldPrompt() {
       }
     }
 
+    const phase = state.phase;
+    if (phase === 'cartographer-draft') {
+      const myTurnDraft = state.currentPlayerId === myPlayerId;
+      if (!myTurnDraft) return;
+      const tid = pickTile(x, y);
+      if (tid != null) {
+        const tile = state.geom?.tiles?.[tid];
+        const tileTypeStr = String(tile?.type || '').toLowerCase();
+        const isDraftSlot = !!(tile && (tileTypeStr === 'unexplored' || tileTypeStr === '?' || (tile.fog && !tile.revealed)));
+        if (isDraftSlot) {
+          sendGameAction({ kind: 'cartographer_draft_place', tileId: tid, tileType: cartographerDraftSelection });
+        }
+      }
+      return;
+    }
+
     const myTurn = state.currentPlayerId === myPlayerId;
     if (!myTurn) return;
-
-    const phase = state.phase;
 
     // Setup/robber/pirate override modes
     if (phase === 'setup1-settlement' || phase === 'setup2-settlement') {
@@ -8215,6 +8366,59 @@ function handleProductionGoldPrompt() {
     return null;
   }
 
+  function shouldHideOuterSeaBorderTileClient(t) {
+    if (!state || !state.geom || !t) return false;
+    const rules = state.rules || {};
+    const mm = String(rules.mapMode || '').toLowerCase();
+    if (mm !== 'seafarers') return false;
+    const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
+    if (scen === 'test_builder' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4') return false;
+    if (String(t.type || '').toLowerCase() !== 'sea') return false;
+    const nbs = (state.geom.tileNeighbors && Array.isArray(state.geom.tileNeighbors[t.id])) ? state.geom.tileNeighbors[t.id] : null;
+    if (!nbs) return false;
+    return nbs.length < 6;
+  }
+
+  function edgeAdjTilesAfterOuterSeaTrimClient(edgeId) {
+    const adj = (state && state.geom && state.geom.edgeAdjTiles && Array.isArray(state.geom.edgeAdjTiles[edgeId])) ? state.geom.edgeAdjTiles[edgeId] : [];
+    if (!adj.length) return [];
+    return adj.filter(tid => !shouldHideOuterSeaBorderTileClient(state.geom.tiles && state.geom.tiles[tid]));
+  }
+
+  function edgeIsHiddenByOuterSeaTrimClient(edgeId) {
+    return edgeAdjTilesAfterOuterSeaTrimClient(edgeId).length === 0;
+  }
+
+  function edgeIsBoundaryAfterOuterSeaTrimClient(edgeId) {
+    return edgeAdjTilesAfterOuterSeaTrimClient(edgeId).length === 1;
+  }
+
+  function edgeTouchesSeaAfterOuterSeaTrimClient(edgeId) {
+    const adj = edgeAdjTilesAfterOuterSeaTrimClient(edgeId);
+    if (!adj.length) return false;
+    if (adj.length === 1) return true; // allow ships on all trimmed outer edge segments
+    return adj.some(tid => (state.geom.tiles[tid] && state.geom.tiles[tid].type) === 'sea');
+  }
+
+  function edgeTouchesLandAfterOuterSeaTrimClient(edgeId) {
+    const adj = edgeAdjTilesAfterOuterSeaTrimClient(edgeId);
+    if (!adj.length) return false;
+    if (adj.length === 1) return true; // allow roads on all trimmed outer edge segments
+    return adj.some(tid => (state.geom.tiles[tid] && state.geom.tiles[tid].type) !== 'sea');
+  }
+
+  function nodeIsHiddenByOuterSeaTrimClient(nodeId) {
+    if (!state || !state.geom || !Array.isArray(state.geom.edges)) return false;
+    let sawIncident = false;
+    for (const e of state.geom.edges) {
+      if (!e) continue;
+      if (e.a !== nodeId && e.b !== nodeId) continue;
+      sawIncident = true;
+      if (!edgeIsHiddenByOuterSeaTrimClient(e.id)) return false;
+    }
+    return sawIncident;
+  }
+
   function render() {
     if (!state) hideShipMoveCancelPopup();
     // Clear
@@ -8247,7 +8451,9 @@ function handleProductionGoldPrompt() {
     for (const t of state.geom.tiles) {
       const c = worldToScreen({ x: t.cx, y: t.cy });
       const poly = tilePolygonScreen(t);
-      screenCache.tiles.push({ id: t.id, poly });
+      const hideOuterSeaBorderTile = shouldHideOuterSeaBorderTileClient(t);
+      if (!hideOuterSeaBorderTile) screenCache.tiles.push({ id: t.id, poly });
+      if (hideOuterSeaBorderTile) continue;
 
       // Clip to hex then draw image
       ctx.save();
@@ -8528,6 +8734,7 @@ function handleProductionGoldPrompt() {
         ctx.strokeStyle = 'rgba(255,255,255,.9)';
         ctx.lineWidth = 2;
         for (const n of state.geom.nodes) {
+          if (nodeIsHiddenByOuterSeaTrimClient(n.id)) continue;
           if (n.building) continue;
           let ok = true;
           for (const nb of n.adj || []) {
@@ -8556,10 +8763,10 @@ function handleProductionGoldPrompt() {
           for (const e of state.geom.edges) {
             if (e.roadOwner || e.shipOwner) continue;
             if (e.a !== nid && e.b !== nid) continue;
+            if (edgeIsHiddenByOuterSeaTrimClient(e.id)) continue;
 
-            const adj = (state.geom.edgeAdjTiles && state.geom.edgeAdjTiles[e.id]) || [];
-            const touchesSea = adj.length === 1 || adj.some(tid => (state.geom.tiles[tid] && state.geom.tiles[tid].type) === 'sea');
-            const touchesLand = adj.some(tid => (state.geom.tiles[tid] && state.geom.tiles[tid].type) && state.geom.tiles[tid].type !== 'sea');
+            const touchesSea = edgeTouchesSeaAfterOuterSeaTrimClient(e.id);
+            const touchesLand = edgeTouchesLandAfterOuterSeaTrimClient(e.id);
             if (wantShip) {
               if (!touchesSea) continue;
             } else {
@@ -8582,6 +8789,7 @@ function handleProductionGoldPrompt() {
 
     // Draw roads + ships
     for (const e of state.geom.edges) {
+      if (edgeIsHiddenByOuterSeaTrimClient(e.id)) continue;
       const a = state.geom.nodes[e.a];
       const b = state.geom.nodes[e.b];
       const as = worldToScreen({ x: a.x, y: a.y });
@@ -8640,7 +8848,7 @@ function handleProductionGoldPrompt() {
     // Highlight selected ship and legal destinations when moving ships
     if (inputMode.kind === 'move_ship' && inputMode.moveShipFrom != null) {
       const e = state.geom.edges?.[inputMode.moveShipFrom];
-      if (e) {
+      if (e && !edgeIsHiddenByOuterSeaTrimClient(inputMode.moveShipFrom)) {
         const a = state.geom.nodes[e.a];
         const b = state.geom.nodes[e.b];
         const as = worldToScreen({ x: a.x, y: a.y });
@@ -8666,6 +8874,7 @@ function handleProductionGoldPrompt() {
       const targetSet = new Set(Array.isArray(inputMode.moveShipTargets) ? inputMode.moveShipTargets : []);
       if (targetSet.size) {
         for (const tid of targetSet) {
+          if (edgeIsHiddenByOuterSeaTrimClient(tid)) continue;
           const te = state.geom.edges?.[tid];
           if (!te) continue;
           const a = state.geom.nodes[te.a];
@@ -8689,6 +8898,7 @@ function handleProductionGoldPrompt() {
 
     // Draw nodes + buildings
     for (const n of state.geom.nodes) {
+      if (nodeIsHiddenByOuterSeaTrimClient(n.id)) continue;
       const s = worldToScreen({ x: n.x, y: n.y });
       screenCache.nodes.push({ id: n.id, sx: s.x, sy: s.y });
 
@@ -8735,6 +8945,7 @@ function handleProductionGoldPrompt() {
     if (!state || !state.geom || !Array.isArray(state.geom.tiles)) return;
     for (const t of state.geom.tiles) {
       if (!t || (!t.robber && !t.pirate)) continue;
+      if (shouldHideOuterSeaBorderTileClient(t)) continue;
       const c = worldToScreen({ x: t.cx, y: t.cy });
 
       if (t.robber) {
