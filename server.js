@@ -5190,9 +5190,6 @@ if (ttdFarSideBonus) {
       if (pc.roads >= PIECE_LIMITS.roads) return { ok: false, error: 'You have no roads remaining.' };
     }
 
-    // Enforce piece limits
-    const pc = countPiecesOnBoard(game, playerId);
-    if (pc.cities >= PIECE_LIMITS.cities) return { ok: false, error: 'You have no cities remaining.' };
     let usedFreeRoad = false;
 
 
@@ -5483,6 +5480,14 @@ if (ttdFarSideBonus) {
 
     const p = playerById(game, playerId);
     if (!p) return { ok: false, error: 'Missing player.' };
+
+    // Enforce piece limits (cities in stock). Upgrading a settlement returns a settlement piece,
+    // but still consumes one city piece, so only city count must be checked here.
+    {
+      const pc = countPiecesOnBoard(game, playerId);
+      if (pc.cities >= PIECE_LIMITS.cities) return { ok: false, error: 'You have no cities remaining.' };
+    }
+
     if (!canAfford(p.resources, BUILD_COSTS.city)) return { ok: false, error: 'Not enough resources.' };
 
     payCostStats(game, playerId, p.resources, BUILD_COSTS.city, 'build');
