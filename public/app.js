@@ -8193,6 +8193,10 @@ function handleProductionGoldPrompt() {
       }
     }
 
+    // Re-draw robber/pirate above roads/ships/buildings; re-draw colorblind markers after so shapes remain topmost.
+    drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse);
+    drawColorblindPieceMarksOverlayPass();
+
     // Overlay current selection mode
     if (state.currentPlayerId === myPlayerId) {
       ctx.save();
@@ -8206,6 +8210,144 @@ function handleProductionGoldPrompt() {
     }
 
     updateShipMoveCancelPopupPosition();
+  }
+
+  function drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse) {
+    if (!state || !state.geom || !Array.isArray(state.geom.tiles)) return;
+    for (const t of state.geom.tiles) {
+      if (!t || (!t.robber && !t.pirate)) continue;
+      const c = worldToScreen({ x: t.cx, y: t.cy });
+
+      if (t.robber) {
+        const hexH = 2 * view.scale;
+        const tokenSz = Math.round(hexH / 3);
+        const iconSz = Math.round(hexH / 3);
+        const rImg = images['thief_robber'] || null;
+        const ox = (t.number ? tokenSz * 0.72 : iconSz * 0.65);
+        const oy = (t.number ? tokenSz * 0.72 : iconSz * 0.65);
+        const rx = c.x + ox;
+        const ry = c.y - oy;
+
+        if (activePlayerThiefMove && (thiefHighlightPhase === 'pirate-or-robber' || thiefHighlightPhase === 'robber-move')) {
+          ctx.save();
+          ctx.globalAlpha = 0.45 + 0.25 * thiefPulse;
+          ctx.strokeStyle = 'rgba(255,223,128,.98)';
+          ctx.lineWidth = Math.max(3, Math.round(iconSz * 0.12));
+          ctx.beginPath();
+          ctx.arc(rx, ry, Math.max(iconSz * 0.62, 14), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        ctx.save();
+        ctx.globalAlpha = 0.98;
+        if (rImg) {
+          ctx.drawImage(rImg, rx - iconSz / 2, ry - iconSz / 2, iconSz, iconSz);
+        } else {
+          ctx.fillStyle = 'rgba(0,0,0,.65)';
+          ctx.beginPath();
+          ctx.arc(rx, ry, Math.max(10, Math.round(iconSz * 0.38)), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,.9)';
+          ctx.font = '700 11px ui-monospace, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('R', rx, ry);
+        }
+        ctx.restore();
+      }
+
+      if (t.pirate) {
+        const hexH = 2 * view.scale;
+        const iconSz = Math.round(hexH / 4);
+        const pImg = images['thief_pirate'] || null;
+        const px = c.x;
+        const py = c.y;
+
+        if (activePlayerThiefMove && (thiefHighlightPhase === 'pirate-or-robber' || thiefHighlightPhase === 'pirate-move')) {
+          ctx.save();
+          ctx.globalAlpha = 0.45 + 0.25 * thiefPulse;
+          ctx.strokeStyle = 'rgba(120,220,255,.98)';
+          ctx.lineWidth = Math.max(3, Math.round(iconSz * 0.12));
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(iconSz * 0.70, 16), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        ctx.save();
+        ctx.globalAlpha = 0.98;
+        if (pImg) {
+          ctx.drawImage(pImg, px - iconSz / 2, py - iconSz / 2, iconSz, iconSz);
+        } else {
+          ctx.fillStyle = 'rgba(0,0,0,.65)';
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(10, Math.round(iconSz * 0.38)), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,.9)';
+          ctx.font = '700 11px ui-monospace, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('P', px, py);
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  function drawColorblindPieceMarksOverlayPass() {
+    if (!colorblindMode || !state || !state.geom) return;
+
+    // Roads / ships
+    if (Array.isArray(state.geom.edges)) {
+      for (const e of state.geom.edges) {
+        if (!e) continue;
+        const a = state.geom.nodes?.[e.a];
+        const b = state.geom.nodes?.[e.b];
+        if (!a || !b) continue;
+        const as = worldToScreen({ x: a.x, y: a.y });
+        const bs = worldToScreen({ x: b.x, y: b.y });
+        const mx = (as.x + bs.x) / 2;
+        const my = (as.y + bs.y) / 2;
+        const dx = bs.x - as.x;
+        const dy = bs.y - as.y;
+        const ang = Math.atan2(dy, dx);
+        const dist = Math.hypot(dx, dy);
+        const hexH = 2 * view.scale;
+
+        if (e.roadOwner) {
+          const p = state.players.find(pp => pp.id === e.roadOwner);
+          const colIdx = playerColorIndex(p?.color);
+          const len = Math.max(16, Math.round(dist * 0.5));
+          const thick = Math.max(10, Math.round(hexH * 0.07));
+          const base = Math.min(len, Math.max(thick * 2.5, thick + 8));
+          const s = Math.max(10, Math.round(base * 0.5));
+          drawColorblindMark(colIdx, mx, my, s, ang);
+        }
+        if (e.shipOwner) {
+          const p = state.players.find(pp => pp.id === e.shipOwner);
+          const colIdx = playerColorIndex(p?.color);
+          const len = Math.max(16, Math.round(dist * 0.5));
+          const thick = Math.max(10, Math.round(hexH * 0.08));
+          const base = Math.min(len, Math.max(thick * 2.5, thick + 8));
+          const s = Math.max(10, Math.round(base * 0.5));
+          drawColorblindMark(colIdx, mx, my, s, ang);
+        }
+      }
+    }
+
+    // Settlements / cities
+    if (Array.isArray(state.geom.nodes)) {
+      for (const n of state.geom.nodes) {
+        if (!n || !n.building) continue;
+        const p = state.players.find(pp => pp.id === n.building.owner);
+        const colIdx = playerColorIndex(p?.color);
+        const s = worldToScreen({ x: n.x, y: n.y });
+        const hexH = 2 * view.scale;
+        const sz = Math.max(22, Math.round(hexH / 3));
+        drawColorblindMark(colIdx, s.x, s.y, Math.max(12, Math.round(sz * 0.55)), 0);
+      }
+    }
   }
 
   function pickStructImg(colorIdx) {
