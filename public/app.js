@@ -7949,7 +7949,7 @@ function handleProductionGoldPrompt() {
       // Pirate marker
       if (t.pirate) {
         const hexH = 2 * view.scale;
-        const iconSz = Math.round(hexH / 4);
+        const iconSz = Math.round((hexH / 4) * 1.16);
         const pImg = images['thief_pirate'] || null;
         const px = c.x;
         const py = c.y;
@@ -8332,7 +8332,7 @@ function handleProductionGoldPrompt() {
 
       if (t.pirate) {
         const hexH = 2 * view.scale;
-        const iconSz = Math.round(hexH / 4);
+        const iconSz = Math.round((hexH / 4) * 1.16);
         const pImg = images['thief_pirate'] || null;
         const px = c.x;
         const py = c.y;
