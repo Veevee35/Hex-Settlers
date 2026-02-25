@@ -6594,13 +6594,27 @@ if (kind === 'pirate_steal') {
 
   if (kind === 'respond_trade') {
     const tradeId = Number(action.tradeId || 0);
-    const accept = !!action.accept;
+    let accept = !!action.accept;
 
     const t = game.pendingTrade;
     if (!t || !t.id || t.id !== tradeId) return { ok: false, error: 'No such pending trade.' };
     if (playerId === t.fromId) return { ok: false, error: 'Proposer cannot respond to their own trade.' };
 
     if (!t.responses || !(playerId in t.responses)) return { ok: false, error: 'You cannot respond to this trade.' };
+
+    // If a player clicks approve but cannot afford the requested resources,
+    // treat that click as a reject so the UI shows a red X instead of a green check.
+    // (We do not auto-reject until they actually click.)
+    if (accept) {
+      const responder = playerById(game, playerId);
+      if (!responder) return { ok: false, error: 'Player not found.' };
+      for (const [k, n] of Object.entries(t.request || {})) {
+        if ((responder.resources[k] || 0) < Number(n || 0)) {
+          accept = false;
+          break;
+        }
+      }
+    }
 
     t.responses[playerId] = accept ? 'accept' : 'reject';
 
