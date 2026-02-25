@@ -164,6 +164,8 @@ function makeGameHistoryEntry(room, game, winnerId) {
   // keep snapshot limited to what postgame UI needs
   const snapshot = deepClone({
     phase: 'game-over',
+    winnerId: wid || (w ? w.id : ''),
+    winnerName: w ? w.name : '',
     turnNumber: game.turnNumber || 0,
     rules: game.rules || null,
     players: Array.isArray(game.players) ? game.players : [],
@@ -193,20 +195,29 @@ function persistGameHistoryFromGame(room, game, winnerId) {
   if (room._dryRun) return;
   // Real rooms always have a code + sockets map.
   if (!room.code || !room.sockets) return;
-  if (game._historyPersisted) return;
-  if (game.phase !== 'game-over') return;
+  if (String(game.phase || '').toLowerCase() !== 'game-over') return;
 
-  game._historyPersisted = true;
+  const wid = String(winnerId || game.winnerId || '').trim();
+  if (!wid) return;
+
+  if (game._historyPersisted) return;
 
   try { ensureGameStats(game); } catch (_) {}
   if (game.stats && !game.stats.endedAt) game.stats.endedAt = now();
 
-  const entry = makeGameHistoryEntry(room, game, winnerId);
+  const entry = makeGameHistoryEntry(room, game, wid);
   if (!entry) return;
 
-  if (!Array.isArray(HISTORY_DB.games)) HISTORY_DB.games = [];
-  HISTORY_DB.games.push(entry);
-  saveHistoryDb();
+  try {
+    if (!Array.isArray(HISTORY_DB.games)) HISTORY_DB.games = [];
+    HISTORY_DB.games.push(entry);
+    saveHistoryDb();
+    game._historyPersisted = true;
+  } catch (e) {
+    // If persistence fails, allow a retry.
+    try { game._historyPersisted = false; } catch (_) {}
+    console.error('[history] persist failed:', e && e.message ? e.message : e);
+  }
 }
 
 function listGameHistory(limit = 200) {
@@ -2638,8 +2649,18 @@ function persistUserStatsFromGame(room, game, winnerId) {
   // Prevent accidental persistence from simulation/dry-run rooms (e.g. build option previews).
   if (room._dryRun) return;
   if (!room.code || !room.sockets) return;
+
+  // Only persist when the game is truly over.
+  if (String(game.phase || '').toLowerCase() !== 'game-over') return;
+
+  const wid = String(winnerId || game.winnerId || '').trim();
+  if (!wid) return;
+
+  // Winner must be a real participant in this game.
+  const hasWinner = Array.isArray(game.players) && game.players.some(p => p && String(p.id || '') === wid);
+  if (!hasWinner) return;
+
   if (game._userStatsPersisted) return;
-  game._userStatsPersisted = true;
 
   const endedAt = now();
   let changed = false;
@@ -2649,14 +2670,17 @@ function persistUserStatsFromGame(room, game, winnerId) {
     if (!u) continue;
     if (!u.stats || typeof u.stats !== 'object') u.stats = { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 };
     u.stats.gamesPlayed = Math.max(0, Math.floor(Number(u.stats.gamesPlayed || 0))) + 1;
-    u.stats.wins = Math.max(0, Math.floor(Number(u.stats.wins || 0))) + ((gp.id === winnerId) ? 1 : 0);
-    u.stats.losses = Math.max(0, Math.floor(Number(u.stats.losses || 0))) + ((gp.id !== winnerId) ? 1 : 0);
+    u.stats.wins = Math.max(0, Math.floor(Number(u.stats.wins || 0))) + ((gp.id === wid) ? 1 : 0);
+    u.stats.losses = Math.max(0, Math.floor(Number(u.stats.losses || 0))) + ((gp.id !== wid) ? 1 : 0);
     u.stats.totalVP = Math.max(0, Math.floor(Number(u.stats.totalVP || 0))) + Math.max(0, Math.floor(Number(gp.vp || 0)));
     u.stats.lastGameAt = endedAt;
     changed = true;
   }
 
-  if (changed) saveUsersDb();
+  if (changed) {
+    saveUsersDb();
+    game._userStatsPersisted = true;
+  }
 
   // Push updated stats to connected players
   try {
@@ -2682,10 +2706,12 @@ function checkWin(room, state, pid) {
   if (p.vp >= target) {
     const wasOver = state.phase === 'game-over';
     state.phase = 'game-over';
+    state.winnerId = pid;
     state.message = `${playerName(state, pid)} wins!`;
     try {
       ensureGameStats(state);
       if (state.stats && !state.stats.endedAt) state.stats.endedAt = Date.now();
+      if (state.stats && !state.stats.endedReason) state.stats.endedReason = 'vp';
       recordTurnEnd(state, state.currentPlayerId);
     } catch (_) {}
 
@@ -6954,6 +6980,7 @@ if (kind === 'pirate_steal') {
     const winnerId = pickWinnerByTiebreak(game) || (game.players[0] && game.players[0].id) || null;
 
     game.phase = 'game-over';
+    game.winnerId = winnerId;
     game.message = `${playerName(game, winnerId)} wins!`;
 
     try {

@@ -752,6 +752,16 @@ function fmtMs(ms) {
 
 function computeWinner(st) {
   if (!st || !Array.isArray(st.players) || !st.players.length) return null;
+
+  // Prefer explicit winnerId set by the server (most reliable).
+  try {
+    const wid = String(st.winnerId || (st.stats && st.stats.winnerId) || '').trim();
+    if (wid) {
+      const p = st.players.find(pp => String(pp && pp.id || '') === wid) || null;
+      if (p) return p;
+    }
+  } catch (_) {}
+
   // Prefer parsing the server message: "Name wins!"
   try {
     const msg = String(st.message || '');
@@ -762,31 +772,53 @@ function computeWinner(st) {
       if (p) return p;
     }
   } catch(_) {}
-  // Fallback: max VP
+
+  // Fallback: max VP (may be ambiguous on ties)
   let best = st.players[0];
   for (const p of st.players) if ((p.vp||0) > (best.vp||0)) best = p;
   return best;
 }
 
 function computePieceCounts(st, pid) {
-  const edges = st?.geom?.edges || [];
-  const nodes = st?.geom?.nodes || [];
-  let roads = 0, ships = 0, settlements = 0, cities = 0;
-  for (const e of edges) {
-    if (!e) continue;
-    if (e.roadOwner === pid) roads++;
-    if (e.shipOwner === pid) ships++;
+  // Preferred: exact counts from board geometry (live game state).
+  const edges = st?.geom?.edges || null;
+  const nodes = st?.geom?.nodes || null;
+  if (Array.isArray(edges) && Array.isArray(nodes)) {
+    let roads = 0, ships = 0, settlements = 0, cities = 0;
+    for (const e of edges) {
+      if (!e) continue;
+      if (e.roadOwner === pid) roads++;
+      if (e.shipOwner === pid) ships++;
+    }
+    for (const n of nodes) {
+      const b = n && n.building;
+      if (!b || b.owner !== pid) continue;
+      if (b.type === 'settlement') settlements++;
+      if (b.type === 'city') cities++;
+    }
+    return { roads, ships, settlements, cities };
   }
-  for (const n of nodes) {
-    const b = n && n.building;
-    if (!b || b.owner !== pid) continue;
-    if (b.type === 'settlement') settlements++;
-    if (b.type === 'city') cities++;
-  }
+
+  // Fallback: reconstruct from tracked build stats (history snapshots don't store geom).
+  // Settlements-on-board ≈ settlementsBuilt - citiesBuilt (cities are upgrades).
+  const b = st?.stats?.builds?.byPlayer?.[pid] || null;
+  const roads = Math.max(0, Math.floor(Number(b?.road || 0)));
+  const ships = Math.max(0, Math.floor(Number(b?.ship || 0)));
+  const cities = Math.max(0, Math.floor(Number(b?.city || 0)));
+  const settlementsBuilt = Math.max(0, Math.floor(Number(b?.settlement || 0)));
+  const settlements = Math.max(0, settlementsBuilt - cities);
   return { roads, ships, settlements, cities };
 }
 
 function gameDurationMs(st) {
+  // Preferred: persisted stats timestamps (available in history snapshots).
+  try {
+    const t0 = Number(st?.stats?.startedAt || 0);
+    const t1 = Number(st?.stats?.endedAt || 0);
+    if (t0 && t1 && t1 >= t0) return Math.max(0, t1 - t0);
+  } catch (_) {}
+
+  // Fallback: infer from log timestamps (live games have full log)
   const entries = (st && st.log) ? st.log : [];
   if (!entries.length) return 0;
   const t0 = Number(entries[0].ts || 0);
@@ -1074,7 +1106,7 @@ const lrPid = st.longestRoad?.playerId || null;
 const laPid = st.largestArmy?.playerId || null;
 
 const rawVp = players.map(p => {
-  const pc = pieceCount(p);
+  const pc = computePieceCounts(st, p.id);
   const buildingVP = safeNum(pc.settlements) * 1 + safeNum(pc.cities) * 2;
   const devVP = safeNum(p.vpDev || 0);
   const islandVP = safeNum(p.newIslandVP || 0);
@@ -3960,6 +3992,12 @@ function refreshLobbyJoinLinkUi() {
       if (msg.type === 'game_history_entry') {
         const g = msg.game || null;
         const snap = g && (g.snapshot || g);
+        if (snap && g) {
+          if (!snap.winnerId && g.winnerId) snap.winnerId = g.winnerId;
+          if (!snap.winnerName && g.winnerName) snap.winnerName = g.winnerName;
+          if (snap.stats && !snap.stats.endedAt && g.endedAt) snap.stats.endedAt = g.endedAt;
+          if (snap.stats && !snap.stats.startedAt && g.startedAt) snap.stats.startedAt = g.startedAt;
+        }
         openPostgameSnapshot(snap);
         return;
       }
