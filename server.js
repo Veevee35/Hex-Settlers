@@ -1658,6 +1658,8 @@ function normalizedMapModeRaw(raw) {
 }
 
 function bankMaxForRules(rules) {
+  const custom = Math.floor(Number(rules?.baseResourcesPerType ?? rules?.baseResourceCount));
+  if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
   const mm = normalizedMapModeRaw(rules?.mapMode || 'classic');
   if (mm === 'classic56') return BANK_MAX_56;
   if (mm === 'seafarers' && isSeafarers56Scenario(rules?.seafarersScenario)) return BANK_MAX_56;
@@ -7282,6 +7284,9 @@ if (msg.type === 'create_room') {
       next.setupTurnMs = clampMs(r.setupTurnMs, next.setupTurnMs);
       next.playTurnMs = clampMs(r.playTurnMs, next.playTurnMs);
       next.microPhaseMs = clampMs(r.microPhaseMs, next.microPhaseMs);
+
+      const baseRes = Math.floor(Number(r.baseResourcesPerType ?? r.baseResourceCount ?? next.baseResourcesPerType));
+      if (Number.isFinite(baseRes)) next.baseResourcesPerType = Math.max(1, Math.min(40, baseRes));
 
       const mm = String(r.mapMode ?? next.mapMode ?? 'classic').toLowerCase();
       next.mapMode = (mm === 'seafarers') ? 'seafarers'

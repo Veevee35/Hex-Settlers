@@ -28,6 +28,7 @@
     setupCard: $('setupCard'),
     discardLimitInput: $('discardLimitInput'),
     timerSpeedSelect: $('timerSpeedSelect'),
+    baseResourceCountSelect: $('baseResourceCountSelect'),
     mapModeSelect: $('mapModeSelect'),
     classic56Note: $('classic56Note'),
     sixIslandsNote: $('sixIslandsNote'),
@@ -133,6 +134,7 @@
   // Lobby: track whether the host explicitly changed the VP target so we don't
   // auto-overwrite it when toggling map/scenario.
   let vpTouched = false;
+  let baseResourceCountTouched = false;
 
   const AUTH_TOKEN_KEY = 'hexsettlers_auth_token_v1';
   const LAST_ROOM_KEY = 'hexsettlers_last_room_v1';
@@ -2026,6 +2028,15 @@ function syncPostgameToState() {
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
     return 13; // four islands
+  }
+
+  function defaultBaseResourcesFor(rules) {
+    const mmRaw = String(rules?.mapMode || 'classic').toLowerCase();
+    const mm = mmRaw;
+    if (mm === 'classic56' || mm === 'seafarers56') return 24;
+    const scen = String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56')) return 24;
+    return 19;
   }
 
   function uiMapModeFromRules(rules) {
@@ -4277,6 +4288,14 @@ function syncPostgameToState() {
       ui.timerSpeedSelect.value = preset;
       ui.timerSpeedSelect.disabled = !isHost;
     }
+    if (ui.baseResourceCountSelect) {
+      const defBase = defaultBaseResourcesFor(r);
+      const rawBase = Math.floor(Number(r.baseResourcesPerType ?? r.baseResourceCount ?? defBase));
+      const safeBase = Number.isFinite(rawBase) ? Math.max(1, Math.min(40, rawBase)) : defBase;
+      ui.baseResourceCountSelect.value = String(safeBase);
+      ui.baseResourceCountSelect.disabled = !isHost;
+      baseResourceCountTouched = (safeBase !== defBase);
+    }
     if (ui.mapModeSelect) {
       ui.mapModeSelect.value = uiMapModeFromRules(r);
       ui.mapModeSelect.disabled = !isHost;
@@ -4489,6 +4508,9 @@ if (ui.copyMyIdBtn) {
           ? (ui.mapScenarioSelect ? ui.mapScenarioSelect.value : (room?.rules?.seafarersScenario || 'four_islands'))
           : ((mm === 'seafarers56') ? (ui.mapScenario56Select?.value || 'six_islands') : 'six_islands');
         ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario: scen }));
+        if (ui.baseResourceCountSelect && !baseResourceCountTouched) {
+          ui.baseResourceCountSelect.value = String(defaultBaseResourcesFor({ mapMode: mm, seafarersScenario: scen }));
+        }
       }
     });
   }
@@ -4507,6 +4529,7 @@ if (ui.copyMyIdBtn) {
       }
       if (mm !== 'seafarers') return;
       if (!vpTouched) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario: ui.mapScenarioSelect.value }));
+      if (ui.baseResourceCountSelect && !baseResourceCountTouched) ui.baseResourceCountSelect.value = String(defaultBaseResourcesFor({ mapMode: mm, seafarersScenario: ui.mapScenarioSelect.value }));
     });
   }
 
@@ -4516,11 +4539,15 @@ if (ui.copyMyIdBtn) {
       const mm = (ui.mapModeSelect ? (ui.mapModeSelect.value || 'classic') : 'classic');
       if (mm !== 'seafarers56') return;
       if (!vpTouched) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario56: ui.mapScenario56Select.value }));
+      if (ui.baseResourceCountSelect && !baseResourceCountTouched) ui.baseResourceCountSelect.value = String(defaultBaseResourcesFor({ mapMode: mm, seafarersScenario56: ui.mapScenario56Select.value }));
     });
   }
 
   if (ui.victoryPointsSelect) {
     ui.victoryPointsSelect.addEventListener('change', () => { vpTouched = true; });
+  }
+  if (ui.baseResourceCountSelect) {
+    ui.baseResourceCountSelect.addEventListener('change', () => { baseResourceCountTouched = true; });
   }
 
   // Lobby setup
@@ -4528,6 +4555,7 @@ if (ui.copyMyIdBtn) {
     if (!room || room.hostId !== myPlayerId) return;
     const discardLimit = parseInt(ui.discardLimitInput.value, 10);
     const vpToWin = ui.victoryPointsSelect ? parseInt(ui.victoryPointsSelect.value, 10) : NaN;
+    const baseResourcesPerType = ui.baseResourceCountSelect ? parseInt(ui.baseResourceCountSelect.value, 10) : NaN;
     const preset = (ui.timerSpeedSelect.value || 'normal');
     const factor = preset === 'fast' ? 0.5 : (preset === 'slow' ? 2 : 1);
     const mmSel = (ui.mapModeSelect ? ui.mapModeSelect.value : 'classic');
@@ -4543,6 +4571,7 @@ if (ui.copyMyIdBtn) {
       microPhaseMs: Math.round(15000 * factor),
       mapMode: mm,
       victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
+      baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
       // Only used if mapMode === 'seafarers'
       seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),
     };
