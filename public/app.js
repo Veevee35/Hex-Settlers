@@ -4,6 +4,37 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
+  const ASSET_CACHE_SW_BUILD = '9addbdc761a81ff3';
+  function registerAssetCacheServiceWorker() {
+    try {
+      if (!('serviceWorker' in navigator)) return;
+      const isLocalhost = /^(localhost|127\.0\.0\.1|::1)$/.test(location.hostname);
+      if (location.protocol !== 'https:' && !isLocalhost) return;
+      window.addEventListener('load', async () => {
+        try {
+          const reg = await navigator.serviceWorker.register(`/sw.js?v=${ASSET_CACHE_SW_BUILD}`, { scope: '/' });
+          // Prompt the waiting worker to activate so new asset caches are ready quickly.
+          if (reg && reg.waiting) {
+            try { reg.waiting.postMessage('SKIP_WAITING'); } catch (_) {}
+          }
+          reg && reg.addEventListener && reg.addEventListener('updatefound', () => {
+            const worker = reg.installing;
+            if (!worker) return;
+            worker.addEventListener('statechange', () => {
+              if (worker.state === 'installed' && reg.waiting) {
+                try { reg.waiting.postMessage('SKIP_WAITING'); } catch (_) {}
+              }
+            });
+          });
+        } catch (_) {
+          // Non-fatal: game should still run without offline asset cache.
+        }
+      }, { once: true });
+    } catch (_) {}
+  }
+  registerAssetCacheServiceWorker();
+
   const ui = {
     connDot: $('connDot'),
     connText: $('connText'),
