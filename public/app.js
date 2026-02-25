@@ -2950,32 +2950,36 @@ function syncPostgameToState() {
 
   // Pan/zoom
   const view = { scale: 150, ox: 0, oy: 0, dragging: false, lastX: 0, lastY: 0 };
-  ui.canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const delta = -Math.sign(e.deltaY);
-    if (!delta) return;
-    const factor = delta > 0 ? 1.08 : 0.92;
-    // Zoom around the local cursor position (not a fixed board point).
+  const touchNav = { active: false, moved: false, pinch: false, startX: 0, startY: 0, lastX: 0, lastY: 0, tapClientX: 0, tapClientY: 0, pinchLastDist: 0, pinchLastCx: 0, pinchLastCy: 0 };
+  let mobileSyntheticClickSig = null;
+
+  function applyZoomAtScreenPoint(factor, clientX, clientY) {
+    if (!ui || !ui.canvas || !Number.isFinite(factor) || factor <= 0) return;
     const rect = ui.canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
+    const sx = clientX - rect.left;
+    const sy = clientY - rect.top;
     const cx = rect.width / 2;
     const cy = rect.height / 2;
     const before = {
       x: (sx - cx - view.ox) / view.scale,
       y: (sy - cy - view.oy) / view.scale,
     };
-    // Allow much further zoom out (and a bit further in).
-    // Allow zooming further out/in.
     const nextScale = clamp(view.scale * factor, 10, 800);
     if (nextScale === view.scale) return;
     view.scale = nextScale;
-    // Keep the same world coordinate under the cursor after zoom.
     view.ox = sx - cx - (before.x * view.scale);
     view.oy = sy - cy - (before.y * view.scale);
     hideBoardHoverIndicator();
     hideEdgeHoverIndicator();
     render();
+  }
+
+  ui.canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = -Math.sign(e.deltaY);
+    if (!delta) return;
+    const factor = delta > 0 ? 1.08 : 0.92;
+    applyZoomAtScreenPoint(factor, e.clientX, e.clientY);
   }, { passive: false });
 
   ui.canvas.addEventListener('mousedown', (e) => {
@@ -3007,6 +3011,134 @@ function syncPostgameToState() {
     hideBoardHoverIndicator();
     hideEdgeHoverIndicator();
   });
+
+  ui.canvas.addEventListener('touchstart', (e) => {
+    if (!ui || !ui.canvas) return;
+    hideBuildPopup();
+    const touches = e.touches;
+    if (!touches || !touches.length) return;
+    if (touches.length >= 2) {
+      const a = touches[0];
+      const b = touches[1];
+      const cx = (a.clientX + b.clientX) * 0.5;
+      const cy = (a.clientY + b.clientY) * 0.5;
+      const dx = b.clientX - a.clientX;
+      const dy = b.clientY - a.clientY;
+      touchNav.active = false;
+      touchNav.moved = true;
+      touchNav.pinch = true;
+      touchNav.pinchLastCx = cx;
+      touchNav.pinchLastCy = cy;
+      touchNav.pinchLastDist = Math.max(1, Math.hypot(dx, dy));
+      e.preventDefault();
+      return;
+    }
+    const t = touches[0];
+    touchNav.active = true;
+    touchNav.moved = false;
+    touchNav.pinch = false;
+    touchNav.startX = t.clientX;
+    touchNav.startY = t.clientY;
+    touchNav.lastX = t.clientX;
+    touchNav.lastY = t.clientY;
+    touchNav.tapClientX = t.clientX;
+    touchNav.tapClientY = t.clientY;
+    e.preventDefault();
+  }, { passive: false });
+
+  ui.canvas.addEventListener('touchmove', (e) => {
+    const touches = e.touches;
+    if (!touches || !touches.length) return;
+    if (touches.length >= 2) {
+      const a = touches[0];
+      const b = touches[1];
+      const cx = (a.clientX + b.clientX) * 0.5;
+      const cy = (a.clientY + b.clientY) * 0.5;
+      const dx = b.clientX - a.clientX;
+      const dy = b.clientY - a.clientY;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      if (!touchNav.pinch) {
+        touchNav.pinch = true;
+        touchNav.pinchLastCx = cx;
+        touchNav.pinchLastCy = cy;
+        touchNav.pinchLastDist = dist;
+      } else {
+        const factor = dist / Math.max(1, touchNav.pinchLastDist);
+        if (Number.isFinite(factor) && Math.abs(factor - 1) > 0.003) {
+          applyZoomAtScreenPoint(factor, cx, cy);
+        }
+        const pdx = cx - touchNav.pinchLastCx;
+        const pdy = cy - touchNav.pinchLastCy;
+        if (pdx || pdy) {
+          view.ox += pdx;
+          view.oy += pdy;
+          hideBoardHoverIndicator();
+          hideEdgeHoverIndicator();
+          render();
+        }
+        touchNav.pinchLastCx = cx;
+        touchNav.pinchLastCy = cy;
+        touchNav.pinchLastDist = dist;
+      }
+      touchNav.active = false;
+      touchNav.moved = true;
+      e.preventDefault();
+      return;
+    }
+    const t = touches[0];
+    if (!touchNav.active) {
+      touchNav.active = true;
+      touchNav.lastX = t.clientX;
+      touchNav.lastY = t.clientY;
+      touchNav.startX = t.clientX;
+      touchNav.startY = t.clientY;
+    }
+    const dx = t.clientX - touchNav.lastX;
+    const dy = t.clientY - touchNav.lastY;
+    if (dx || dy) {
+      view.ox += dx;
+      view.oy += dy;
+      touchNav.lastX = t.clientX;
+      touchNav.lastY = t.clientY;
+      if (Math.hypot(t.clientX - touchNav.startX, t.clientY - touchNav.startY) > 8) touchNav.moved = true;
+      hideBoardHoverIndicator();
+      hideEdgeHoverIndicator();
+      render();
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  ui.canvas.addEventListener('touchend', (e) => {
+    if (touchNav.pinch && e.touches && e.touches.length === 1) {
+      const t = e.touches[0];
+      touchNav.active = true;
+      touchNav.pinch = false;
+      touchNav.lastX = t.clientX;
+      touchNav.lastY = t.clientY;
+      touchNav.startX = t.clientX;
+      touchNav.startY = t.clientY;
+      touchNav.tapClientX = t.clientX;
+      touchNav.tapClientY = t.clientY;
+      e.preventDefault();
+      return;
+    }
+    if (e.touches && e.touches.length) {
+      e.preventDefault();
+      return;
+    }
+    const tapX = touchNav.tapClientX;
+    const tapY = touchNav.tapClientY;
+    const shouldTap = !touchNav.moved && !touchNav.pinch && Number.isFinite(tapX) && Number.isFinite(tapY);
+    touchNav.active = false;
+    touchNav.moved = false;
+    touchNav.pinch = false;
+    if (shouldTap) {
+      mobileSyntheticClickSig = { x: tapX, y: tapY, t: Date.now() };
+      const evt = new MouseEvent('click', { bubbles: true, cancelable: true, clientX: tapX, clientY: tapY });
+      ui.canvas.dispatchEvent(evt);
+    }
+    e.preventDefault();
+  }, { passive: false });
 
   // Networking
   let ws = null;
@@ -8056,6 +8188,13 @@ function handleProductionGoldPrompt() {
 
   // Click on board
   ui.canvas.addEventListener('click', (e) => {
+    // Ignore delayed native click after synthetic mobile tap dispatch.
+    if (mobileSyntheticClickSig && e && e.isTrusted) {
+      const dt = Date.now() - mobileSyntheticClickSig.t;
+      const dx = Math.abs((e.clientX || 0) - mobileSyntheticClickSig.x);
+      const dy = Math.abs((e.clientY || 0) - mobileSyntheticClickSig.y);
+      if (dt >= 0 && dt < 700 && dx < 18 && dy < 18) return;
+    }
     if (!state || !myPlayerId) return;
     if (state.paused) { setError('Game is paused.'); return; }
     hideBuildPopup();

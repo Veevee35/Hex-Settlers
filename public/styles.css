@@ -179,6 +179,7 @@ body.in-game .panel{display:none;}
 body.in-game .boardWrap{border:none; border-radius:0; box-shadow:none; height:100vh;}
 body.in-game .boardFooter{display:none;}
 #board{
+  touch-action:none;
   width:100%;
   flex:1;
   height:auto;
@@ -1246,3 +1247,47 @@ select.input{
 
 .resourcesOverlay .panelScaleContent{ display:flex; flex-direction:column; gap:8px; }
 .hudDevOverlay .panelScaleContent{ display:flex; flex-direction:column; gap:8px; }
+
+
+/* Mobile / tablet playability (no desktop view needed) */
+@media (hover:none) and (pointer:coarse), (max-width: 980px) {
+  .layout{
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(300px, 44vh);
+    gap:10px;
+    padding:10px;
+  }
+  .panel{
+    height:auto;
+    max-height:56vh;
+    padding-right:0;
+    padding-bottom:8px;
+  }
+  .boardWrap{min-height:34vh;}
+  .topbar{padding:10px 12px; flex-wrap:wrap; gap:8px;}
+  .brand .title{font-size:17px;}
+  .brand .subtitle, .status{font-size:12px;}
+  .row{flex-wrap:wrap;}
+  .btn, .input, select, button{font-size:16px;}
+  .btn{padding:12px 14px;}
+  .input{padding:12px 12px;}
+  .hudTopLeft, .hudBottomLeft{left:4px;}
+  .rightHud{top:4px; right:4px; gap:6px;}
+  .resourcesOverlay{left:4px; top:48px; width:min(92vw, 420px); max-width:none;}
+  .logOverlay{right:4px; top:48px; width:min(96vw, 560px); max-width:none;}
+  .hudBar{padding:8px 10px; border-radius:14px; max-width:calc(100% - 8px);}
+  .nodeBuildConfirm{max-width:calc(100vw - 12px);}
+  .buildPopup{max-width:min(92vw, 320px);}
+  .audioSfxPanel{right:4px; top:48px; width:min(96vw, 380px);}
+  #cartographerDraftPanel{max-width:min(96vw, 380px) !important;}
+}
+
+@media (max-width: 640px) {
+  .layout{grid-template-rows:auto minmax(260px, 38vh); padding:8px; gap:8px;}
+  .card{padding:10px;}
+  .roomCode{font-size:16px; letter-spacing:1px;}
+  .resourcesOverlay, .logOverlay{top:auto; bottom:4px; width:min(96vw, 420px);}
+  .logOverlay .logList{max-height:180px;}
+  .rightHud .countdownClock{min-width:132px;}
+  .clockTime{font-size:18px;}
+}
