@@ -2675,10 +2675,28 @@ function syncPostgameToState() {
   ui.canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const delta = -Math.sign(e.deltaY);
+    if (!delta) return;
     const factor = delta > 0 ? 1.08 : 0.92;
+    // Zoom around the local cursor position (not a fixed board point).
+    const rect = ui.canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    const before = {
+      x: (sx - cx - view.ox) / view.scale,
+      y: (sy - cy - view.oy) / view.scale,
+    };
     // Allow much further zoom out (and a bit further in).
     // Allow zooming further out/in.
-    view.scale = clamp(view.scale * factor, 10, 800);
+    const nextScale = clamp(view.scale * factor, 10, 800);
+    if (nextScale === view.scale) return;
+    view.scale = nextScale;
+    // Keep the same world coordinate under the cursor after zoom.
+    view.ox = sx - cx - (before.x * view.scale);
+    view.oy = sy - cy - (before.y * view.scale);
+    hideBoardHoverIndicator();
+    hideEdgeHoverIndicator();
     render();
   }, { passive: false });
 
