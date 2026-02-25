@@ -72,6 +72,7 @@
     testNumberSelect: $('testNumberSelect'),
     testResetBtn: $('testResetBtn'),
     victoryPointsSelect: $('victoryPointsSelect'),
+    devDeckModeSelect: $('devDeckModeSelect'),
     regenMapBtn: $('regenMapBtn'),
     mapGenNote: $('mapGenNote'),
     saveRulesBtn: $('saveRulesBtn'),
@@ -4063,6 +4064,13 @@ function syncPostgameToState() {
     addRow('Map', mapMode);
     addRow('Scenario', scenario);
     addRow('Victory Condition', `${vpToWin} VP`);
+    const ddMode = Math.floor(Number(rules.devDeckMode ?? 25));
+    const ddSpec = (ddMode === 38)
+      ? '38 cards (21K / 3RB / 3Inv / 3Mon / 8VP)'
+      : (ddMode === 13)
+        ? '13 cards (7K / 1RB / 1Inv / 1Mon / 3VP)'
+        : '25 cards (14K / 2RB / 2Inv / 2Mon / 5VP)';
+    addRow('Development Deck', ddSpec);
     addRow('Discard Limit', `${discardLimit}`);
     addRow('Timer Speed', `${timerSpeedName()} (setup ${msToS(setupMs)} / turn ${msToS(playMs)} / micro ${msToS(microMs)})`);
 
@@ -4430,6 +4438,11 @@ function syncPostgameToState() {
       ui.mapModeSelect.value = uiMapModeFromRules(r);
       ui.mapModeSelect.disabled = !isHost;
     }
+    if (ui.devDeckModeSelect) {
+      const ddRaw = String(r.devDeckMode ?? 25);
+      ui.devDeckModeSelect.value = (ddRaw === '13' || ddRaw === '25' || ddRaw === '38') ? ddRaw : '25';
+      ui.devDeckModeSelect.disabled = !isHost;
+    }
     // Seafarers scenario selector
     const mmNow = uiMapModeFromRules(r);
     if (ui.scenarioRow) ui.scenarioRow.classList.toggle('hidden', mmNow !== 'seafarers');
@@ -4507,7 +4520,9 @@ function syncPostgameToState() {
         : (mmL === 'seafarers') ? `seafarers (${scenLabel})`
           : (is56 ? 'classic 5–6 (paired turns)' : 'classic');
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
-      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
+      const ddMode = Math.floor(Number(r.devDeckMode ?? 25));
+      const ddCards = (ddMode === 13 || ddMode === 25 || ddMode === 38) ? ddMode : 25;
+      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
     const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
@@ -4686,6 +4701,7 @@ if (ui.copyMyIdBtn) {
     if (!room || room.hostId !== myPlayerId) return;
     const discardLimit = parseInt(ui.discardLimitInput.value, 10);
     const vpToWin = ui.victoryPointsSelect ? parseInt(ui.victoryPointsSelect.value, 10) : NaN;
+    const devDeckMode = ui.devDeckModeSelect ? parseInt(ui.devDeckModeSelect.value, 10) : NaN;
     const baseResourcesPerType = ui.baseResourceCountSelect ? parseInt(ui.baseResourceCountSelect.value, 10) : NaN;
     const preset = (ui.timerSpeedSelect.value || 'normal');
     const factor = preset === 'fast' ? 0.5 : (preset === 'slow' ? 2 : 1);
@@ -4702,6 +4718,7 @@ if (ui.copyMyIdBtn) {
       microPhaseMs: Math.round(15000 * factor),
       mapMode: mm,
       victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
+      devDeckMode: (devDeckMode === 13 || devDeckMode === 25 || devDeckMode === 38) ? devDeckMode : undefined,
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
       // Only used if mapMode === 'seafarers'
       seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),

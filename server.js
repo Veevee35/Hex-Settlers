@@ -2036,6 +2036,7 @@ const DEFAULT_RULES = Object.freeze({
   mapMode: 'classic',
   seafarersScenario: 'four_islands',
   victoryPointsToWin: 10,
+  devDeckMode: 25,
 });
 
 function defaultVictoryPointsToWin(rules) {
@@ -2342,14 +2343,26 @@ function randomResourceFrom(player) {
   return kinds[Math.floor(Math.random() * kinds.length)];
 }
 
-function buildDevDeck() {
-  // Standard base-game-ish distribution (25 cards)
+function normalizeDevDeckMode(raw) {
+  const n = Math.floor(Number(raw));
+  return (n === 13 || n === 25 || n === 38) ? n : 25;
+}
+
+function devDeckDistributionForRules(rules) {
+  const mode = normalizeDevDeckMode(rules && rules.devDeckMode);
+  if (mode === 38) return { knights: 21, roadBuilding: 3, invention: 3, monopoly: 3, victoryPoint: 8, size: 38 };
+  if (mode === 13) return { knights: 7, roadBuilding: 1, invention: 1, monopoly: 1, victoryPoint: 3, size: 13 };
+  return { knights: 14, roadBuilding: 2, invention: 2, monopoly: 2, victoryPoint: 5, size: 25 };
+}
+
+function buildDevDeck(rules) {
+  const dist = devDeckDistributionForRules(rules);
   const deck = [];
-  deck.push(...Array(14).fill(DEV_CARD_TYPES.KNIGHT));
-  deck.push(...Array(2).fill(DEV_CARD_TYPES.ROAD_BUILDING));
-  deck.push(...Array(2).fill(DEV_CARD_TYPES.INVENTION));
-  deck.push(...Array(2).fill(DEV_CARD_TYPES.MONOPOLY));
-  deck.push(...Array(5).fill(DEV_CARD_TYPES.VICTORY_POINT));
+  deck.push(...Array(dist.knights).fill(DEV_CARD_TYPES.KNIGHT));
+  deck.push(...Array(dist.roadBuilding).fill(DEV_CARD_TYPES.ROAD_BUILDING));
+  deck.push(...Array(dist.invention).fill(DEV_CARD_TYPES.INVENTION));
+  deck.push(...Array(dist.monopoly).fill(DEV_CARD_TYPES.MONOPOLY));
+  deck.push(...Array(dist.victoryPoint).fill(DEV_CARD_TYPES.VICTORY_POINT));
   return shuffle(deck);
 }
 
@@ -4722,7 +4735,7 @@ function startGame(room) {
   room.preview = null;
 
   // Development cards
-  game.devDeck = buildDevDeck();
+  game.devDeck = buildDevDeck(game.rules);
 
   recomputeLongestRoad(game);
   computeVP(game);
@@ -7381,6 +7394,8 @@ if (msg.type === 'create_room') {
 
       const baseRes = Math.floor(Number(r.baseResourcesPerType ?? r.baseResourceCount ?? next.baseResourcesPerType));
       if (Number.isFinite(baseRes)) next.baseResourcesPerType = Math.max(1, Math.min(40, baseRes));
+
+      next.devDeckMode = normalizeDevDeckMode(r.devDeckMode ?? next.devDeckMode);
 
       const mm = String(r.mapMode ?? next.mapMode ?? 'classic').toLowerCase();
       next.mapMode = (mm === 'seafarers') ? 'seafarers'
