@@ -84,6 +84,7 @@
     rulesBtn: $('rulesBtn'),
     diceBtn: $('diceBtn'),
     chatBtn: $('chatBtn'),
+    audioBtn: $('audioBtn'),
     colorblindBtn: $('colorblindBtn'),
     endGameVoteBtn: $('endGameVoteBtn'),
     idsBtn: $('idsBtn'),
@@ -184,6 +185,25 @@
   const COLORBLIND_MODE_KEY = 'hexsettlers_colorblind_mode_v1';
   let colorblindMode = false;
   try { colorblindMode = localStorage.getItem(COLORBLIND_MODE_KEY) === '1'; } catch (_) {}
+
+  const AUDIO_SFX_LEVELS_KEY = 'hexsettlers_audio_sfx_levels_v1';
+  const AUDIO_SFX_DEFAULT_PCT = 100;
+  const AUDIO_SFX_MIN_PCT = 0;
+  const AUDIO_SFX_MAX_PCT = 200;
+  const AUDIO_SFX_DEFS = [
+    { key: 'turn_bell', label: 'Turn Bell' },
+    { key: 'paired_turn', label: 'Paired Turn' },
+    { key: 'dice_roll', label: 'Dice Roll' },
+    { key: 'robber_pirate', label: 'Robber / Pirate' },
+    { key: 'structure', label: 'Build / Upgrade' },
+    { key: 'end_turn', label: 'End Turn Warning' },
+    { key: 'dev_card', label: 'Dev Card' },
+    { key: 'trade_proposed', label: 'Trade Proposed' },
+    { key: 'trade_success', label: 'Trade Success' },
+  ];
+  let audioSfxLevels = Object.create(null);
+  let audioPanel = null;
+  let audioPanelOpen = false;
 
   function updateColorblindUi() {
     if (!ui.colorblindBtn) return;
@@ -2379,7 +2399,7 @@ function syncPostgameToState() {
     btns.className = 'hudBtns';
     // In-game: keep the same tools as the lobby, but in a compact HUD bar.
     // The user expects Rules to be available in-game next to Game Log.
-    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.endGameVoteBtn, ui.idsBtn, ui.colorblindBtn]) {
+    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.audioBtn, ui.colorblindBtn, ui.endGameVoteBtn, ui.idsBtn]) {
       if (!b) continue;
       b.classList.add('btnTiny');
       btns.appendChild(b);
@@ -2599,6 +2619,7 @@ function syncPostgameToState() {
       }
     } catch (_) {}
     reapplySavedInGamePanelLayouts();
+    try { loadAudioSfxLevelsForCurrentOwner(); } catch (_) {}
   }
 
   // Make a floating panel draggable (pointer-based, desktop + touch).
@@ -2678,6 +2699,149 @@ function syncPostgameToState() {
 
     handleEl.addEventListener('pointerup', endDrag);
     handleEl.addEventListener('pointercancel', endDrag);
+  }
+
+  function normalizeAudioSfxPercent(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return AUDIO_SFX_DEFAULT_PCT;
+    return Math.max(AUDIO_SFX_MIN_PCT, Math.min(AUDIO_SFX_MAX_PCT, Math.round(n)));
+  }
+
+  function defaultAudioSfxLevels() {
+    const out = Object.create(null);
+    for (const def of AUDIO_SFX_DEFS) out[def.key] = AUDIO_SFX_DEFAULT_PCT;
+    return out;
+  }
+
+  function getAudioSfxStorageKey() {
+    return `${AUDIO_SFX_LEVELS_KEY}::${getLocalPanelLayoutOwnerKey()}`;
+  }
+
+  function saveAudioSfxLevelsForCurrentOwner() {
+    try {
+      localStorage.setItem(getAudioSfxStorageKey(), JSON.stringify(audioSfxLevels || {}));
+    } catch (_) {}
+  }
+
+  function refreshAudioPanelUi() {
+    if (!audioPanel) return;
+    try {
+      const rows = audioPanel.querySelectorAll('[data-audio-sfx-key]');
+      rows.forEach((row) => {
+        const key = String(row.getAttribute('data-audio-sfx-key') || '');
+        if (!key) return;
+        const pct = normalizeAudioSfxPercent((audioSfxLevels && audioSfxLevels[key] != null) ? audioSfxLevels[key] : AUDIO_SFX_DEFAULT_PCT);
+        const slider = row.querySelector('input[type="range"]');
+        const valueEl = row.querySelector('.audioSfxPct');
+        if (slider && String(slider.value) !== String(pct)) slider.value = String(pct);
+        if (valueEl) valueEl.textContent = `${pct}%`;
+      });
+    } catch (_) {}
+  }
+
+  function setAudioPanelVisible(visible) {
+    const show = !!visible;
+    if (show) ensureAudioPanel();
+    audioPanelOpen = show;
+    if (!audioPanel) return;
+    audioPanel.classList.toggle('hidden', !show);
+    if (ui.audioBtn) ui.audioBtn.classList.toggle('primary', show);
+    if (show) refreshAudioPanelUi();
+  }
+
+  function toggleAudioPanel() {
+    if (!(state && state.phase && state.phase !== 'lobby')) return;
+    setAudioPanelVisible(!audioPanelOpen);
+  }
+
+  function ensureAudioPanel() {
+    if (audioPanel) return audioPanel;
+    const panel = document.createElement('div');
+    panel.id = 'audioSfxPanel';
+    panel.className = 'audioSfxPanel hidden';
+
+    const header = document.createElement('div');
+    header.className = 'audioSfxPanelHeader';
+    const title = document.createElement('div');
+    title.className = 'audioSfxPanelTitle';
+    title.textContent = 'Audio';
+    const actions = document.createElement('div');
+    actions.className = 'audioSfxPanelActions';
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn btnTiny';
+    resetBtn.type = 'button';
+    resetBtn.textContent = 'Reset';
+    resetBtn.addEventListener('click', () => {
+      applyAudioSfxLevels(defaultAudioSfxLevels(), { persist: true });
+    });
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btnTiny';
+    closeBtn.type = 'button';
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', () => setAudioPanelVisible(false));
+    actions.appendChild(resetBtn);
+    actions.appendChild(closeBtn);
+    header.appendChild(title);
+    header.appendChild(actions);
+    panel.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'audioSfxPanelBody';
+    for (const def of AUDIO_SFX_DEFS) {
+      const row = document.createElement('div');
+      row.className = 'audioSfxRow';
+      row.setAttribute('data-audio-sfx-key', def.key);
+
+      const labelWrap = document.createElement('div');
+      labelWrap.className = 'audioSfxRowHead';
+      const label = document.createElement('div');
+      label.className = 'audioSfxLabel';
+      label.textContent = def.label;
+      const pct = document.createElement('div');
+      pct.className = 'audioSfxPct';
+      pct.textContent = '100%';
+      labelWrap.appendChild(label);
+      labelWrap.appendChild(pct);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = String(AUDIO_SFX_MIN_PCT);
+      slider.max = String(AUDIO_SFX_MAX_PCT);
+      slider.step = '1';
+      slider.value = String(AUDIO_SFX_DEFAULT_PCT);
+      slider.className = 'audioSfxSlider';
+      slider.addEventListener('input', () => {
+        setAudioSfxLevel(def.key, slider.value, { persist: true, refreshPanel: true });
+      });
+
+      row.appendChild(labelWrap);
+      row.appendChild(slider);
+      body.appendChild(row);
+    }
+    panel.appendChild(body);
+
+    const foot = document.createElement('div');
+    foot.className = 'audioSfxPanelFoot';
+    foot.textContent = 'Per-player local volume. 100% = default mix, 0–200% range.';
+    panel.appendChild(foot);
+
+    document.body.appendChild(panel);
+    try { makeDraggablePanel(panel, header, 'hexsettlers_audio_panel_pos_v1'); } catch (_) {}
+
+    document.addEventListener('mousedown', (ev) => {
+      if (!audioPanel || !audioPanelOpen) return;
+      const t = ev.target;
+      if (t === audioPanel || (audioPanel.contains && audioPanel.contains(t))) return;
+      if (ui.audioBtn && (t === ui.audioBtn || (t && t.closest && t.closest('#audioBtn')))) return;
+      setAudioPanelVisible(false);
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && audioPanelOpen) setAudioPanelVisible(false);
+    });
+
+    audioPanel = panel;
+    refreshAudioPanelUi();
+    return audioPanel;
   }
 
   // Build popup (context menu) for click-to-build.
@@ -2924,18 +3088,24 @@ function syncPostgameToState() {
 
   // Turn notification sound (played only for the active player when it's time to roll)
   const turnBell = new Audio('assets/sfx/turn_bell.wav');
+  const TURN_BELL_BASE_VOLUME = 0.85;
   turnBell.preload = 'auto';
-  turnBell.volume = 0.85;
+  turnBell.volume = TURN_BELL_BASE_VOLUME;
   let lastBellKey = '';
 
 
   // --- Shared SFX (broadcast by server; played locally on all clients) ---
   function makeSfxPool(src, volume = 0.9, poolSize = 4) {
     const pool = [];
+    const baseVolume = Math.max(0, Math.min(1, Number(volume) || 0));
+    let gainPct = 100;
+    function applyPoolVolume(a) {
+      try { a.volume = clamp(baseVolume * (gainPct / 100), 0, 1); } catch (_) {}
+    }
     for (let i = 0; i < poolSize; i++) {
       const a = new Audio(src);
       a.preload = 'auto';
-      a.volume = volume;
+      applyPoolVolume(a);
       pool.push(a);
     }
     let idx = 0;
@@ -2944,6 +3114,7 @@ function syncPostgameToState() {
         const a = pool[idx++ % pool.length];
         try { a.__hsPausedForGamePause = false; } catch (_) {}
         try { a.currentTime = 0; } catch (_) {}
+        applyPoolVolume(a);
         const p = a.play();
         if (p && typeof p.catch === 'function') p.catch(() => {});
       },
@@ -2968,6 +3139,7 @@ function syncPostgameToState() {
           try {
             if (!a.__hsPausedForGamePause) continue;
             a.__hsPausedForGamePause = false;
+            applyPoolVolume(a);
             const p = a.play();
             if (p && typeof p.catch === 'function') p.catch(() => {});
           } catch (_) {}
@@ -2976,12 +3148,20 @@ function syncPostgameToState() {
       prime() {
         for (const a of pool) {
           try {
+            applyPoolVolume(a);
             const p = a.play();
             if (p && typeof p.then === 'function') {
               p.then(() => { try { a.pause(); a.currentTime = 0; a.__hsPausedForGamePause = false; } catch (_) {} }).catch(() => {});
             }
           } catch (_) {}
         }
+      },
+      setGainPercent(pct) {
+        gainPct = Math.max(0, Math.min(200, Math.round(Number(pct) || 0)));
+        for (const a of pool) applyPoolVolume(a);
+      },
+      getGainPercent() {
+        return gainPct;
       }
     };
   }
@@ -2996,6 +3176,60 @@ function syncPostgameToState() {
     trade_success: makeSfxPool('assets/sfx/trade_success.wav', 0.9, 1),
     paired_turn: makeSfxPool('assets/sfx/paired_turn.wav', 0.85, 1),
   };
+
+  function applyAudioSfxLevels(levels, opts = {}) {
+    const merged = defaultAudioSfxLevels();
+    const src = (levels && typeof levels === 'object') ? levels : {};
+    for (const def of AUDIO_SFX_DEFS) {
+      merged[def.key] = normalizeAudioSfxPercent(src[def.key]);
+    }
+    audioSfxLevels = merged;
+
+    try {
+      turnBell.volume = clamp(TURN_BELL_BASE_VOLUME * ((audioSfxLevels.turn_bell || AUDIO_SFX_DEFAULT_PCT) / 100), 0, 1);
+    } catch (_) {}
+
+    try {
+      for (const def of AUDIO_SFX_DEFS) {
+        if (def.key === 'turn_bell') continue;
+        const snd = sfx && sfx[def.key];
+        if (snd && typeof snd.setGainPercent === 'function') snd.setGainPercent(audioSfxLevels[def.key]);
+      }
+    } catch (_) {}
+
+    if (opts && opts.persist) saveAudioSfxLevelsForCurrentOwner();
+    if (!(opts && opts.refreshPanel === false)) refreshAudioPanelUi();
+  }
+
+  function loadAudioSfxLevelsForCurrentOwner() {
+    let parsed = null;
+    try {
+      const scopedKey = getAudioSfxStorageKey();
+      let raw = localStorage.getItem(scopedKey);
+      if (!raw) {
+        const legacy = localStorage.getItem(AUDIO_SFX_LEVELS_KEY);
+        if (legacy) {
+          raw = legacy;
+          try { localStorage.setItem(scopedKey, legacy); } catch (_) {}
+        }
+      }
+      if (raw) parsed = JSON.parse(raw);
+    } catch (_) {
+      parsed = null;
+    }
+    applyAudioSfxLevels(parsed || defaultAudioSfxLevels(), { persist: false, refreshPanel: true });
+  }
+
+  function setAudioSfxLevel(key, pct, opts = {}) {
+    const k = String(key || '').trim().toLowerCase();
+    if (!k) return;
+    if (!AUDIO_SFX_DEFS.some(def => def.key === k)) return;
+    const next = Object.assign(defaultAudioSfxLevels(), audioSfxLevels || {});
+    next[k] = normalizeAudioSfxPercent(pct);
+    applyAudioSfxLevels(next, { persist: !!opts.persist, refreshPanel: opts.refreshPanel !== false });
+  }
+
+  loadAudioSfxLevelsForCurrentOwner();
 
   let sfxUnlocked = false;
   function unlockSfxOnce() {
@@ -4745,6 +4979,7 @@ if (ui.copyMyIdBtn) {
   if (ui.rulesBtn) ui.rulesBtn.addEventListener('click', () => openRulesModal());
   ui.diceBtn.addEventListener('click', () => openDiceModal());
   ui.chatBtn.addEventListener('click', () => openChatModal());
+  if (ui.audioBtn) ui.audioBtn.addEventListener('click', () => toggleAudioPanel());
   if (ui.colorblindBtn) {
     updateColorblindUi();
     ui.colorblindBtn.addEventListener('click', () => setColorblindMode(!colorblindMode));
@@ -5729,7 +5964,12 @@ function ensureTimerUiInterval() {
       ui.idsBtn.disabled = !isHostNow;
     }
 
-    // Local per-player colorblind toggle (client-only)
+    // Local per-player audio + colorblind toggles (client-only)
+    if (ui.audioBtn) {
+      ui.audioBtn.classList.toggle('hidden', !inGame);
+      ui.audioBtn.disabled = !inGame;
+      if (!inGame) setAudioPanelVisible(false);
+    }
     if (ui.colorblindBtn) {
       ui.colorblindBtn.classList.toggle('hidden', !inGame);
       ui.colorblindBtn.disabled = !inGame;
