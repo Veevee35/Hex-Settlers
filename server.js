@@ -4361,10 +4361,99 @@ function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = n
   }
   return out;
 }
+
+function nonSeaTileComponents(geom) {
+  const tiles = geom?.tiles || [];
+  const neigh = geom?.tileNeighbors || {};
+  const eligible = new Set();
+  for (const t of tiles) {
+    if (!t) continue;
+    if ((t.fog && !t.revealed) || t.type === 'sea') continue;
+    eligible.add(t.id);
+  }
+  const comps = [];
+  const seen = new Set();
+  for (const id of eligible) {
+    if (seen.has(id)) continue;
+    const set = new Set();
+    const stack = [id];
+    seen.add(id);
+    while (stack.length) {
+      const cur = stack.pop();
+      set.add(cur);
+      const nbs = neigh[cur] || [];
+      for (const nb of nbs) {
+        if (!eligible.has(nb) || seen.has(nb)) continue;
+        seen.add(nb);
+        stack.push(nb);
+      }
+    }
+    if (set.size) comps.push(set);
+  }
+  return comps;
+}
+
+function generatePortsSeafarersSixIslandsBalanced(geom, count = 11) {
+  const tiles = geom?.tiles || [];
+  const infos = nonSeaTileComponents(geom).filter(c => c && c.size).map((set) => {
+    let qSum = 0, rSum = 0, n = 0;
+    for (const tid of set) {
+      const t = tiles[tid];
+      if (!t || t.type === 'sea') continue;
+      qSum += Number(t.q || 0);
+      rSum += Number(t.r || 0);
+      n++;
+    }
+    return { set, q: n ? (qSum / n) : 0, r: n ? (rSum / n) : 0, n };
+  }).filter(x => x.n > 0);
+
+  if (!infos.length) return null;
+
+  // "Top center island" = centroid closest to q=0 (centerline), tie-break toward smaller r (higher on board).
+  let topCenterIdx = 0;
+  for (let i = 1; i < infos.length; i++) {
+    const a = infos[i];
+    const b = infos[topCenterIdx];
+    const da = Math.abs(a.q);
+    const db = Math.abs(b.q);
+    if (da < db - 1e-9) topCenterIdx = i;
+    else if (Math.abs(da - db) <= 1e-9 && a.r < b.r) topCenterIdx = i;
+  }
+
+  // Six Islands rule requested: 2 ports on every island except top-center (1 port) = 11 total.
+  const quotas = infos.map((_, i) => (i === topCenterIdx ? 1 : 2));
+  const quotaSum = quotas.reduce((a, b) => a + b, 0);
+  if (quotaSum !== count) return null;
+
+  const selected = [];
+  for (let i = 0; i < infos.length; i++) {
+    const quota = quotas[i];
+    const edgeIds = candidateMainlandPortEdgeIds(geom, infos[i].set, null);
+    if (!edgeIds || !edgeIds.length) return null;
+    const part = generatePorts(geom, quota, { edgeIds });
+    if (!Array.isArray(part) || part.length < quota) return null;
+    for (let j = 0; j < quota; j++) selected.push(part[j]);
+  }
+
+  if (selected.length !== count) return null;
+  const kinds = shuffle(defaultPortKinds(count).slice());
+  return selected.map((p, i) => ({
+    ...p,
+    id: i,
+    kind: kinds[i] || 'generic',
+  }));
+}
+
 function generatePortsSeafarers(geom, scenario = 'four_islands') {
   // Seafarers uses the same port placement logic, but scenarios may override the count and/or valid coastline.
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   const count = isSeafarers56Scenario(s) ? 11 : 9;
+
+  // Six Islands (5–6): enforce 2 ports per island except the top-center island (1 port).
+  if (s === 'six_islands') {
+    const ports = generatePortsSeafarersSixIslandsBalanced(geom, count);
+    if (ports && ports.length === count) return ports;
+  }
 
   // Through the Desert: ports must be on the MAINLAND only (no ports on small islands or on desert tiles).
   if (s === 'through_the_desert' || s === 'through_the_desert_56') {

@@ -5859,6 +5859,24 @@ if (ui.moveShipBtn) {
           left.appendChild(shapeBadge);
         } catch (_) {}
       }
+      if (p.id === myPlayerId) {
+        try {
+          const myHandCount = RES_KEYS.reduce((sum, k) => sum + Number(p.resources?.[k] || 0), 0);
+          const handCountTag = document.createElement('div');
+          handCountTag.textContent = `CARDS:${String(myHandCount).padStart(2,' ')}`;
+          handCountTag.style.marginLeft = '6px';
+          handCountTag.style.padding = '1px 6px';
+          handCountTag.style.borderRadius = '999px';
+          handCountTag.style.border = '1px solid rgba(255,255,255,0.16)';
+          handCountTag.style.background = 'rgba(255,255,255,0.05)';
+          handCountTag.style.fontFamily = 'ui-monospace, monospace';
+          handCountTag.style.fontSize = '11px';
+          handCountTag.style.lineHeight = '1.2';
+          handCountTag.style.color = '#dbe7f5';
+          handCountTag.style.flexShrink = '0';
+          left.appendChild(handCountTag);
+        } catch (_) {}
+      }
 
 	      const right = document.createElement('div');
 	      right.style.display = 'flex';
