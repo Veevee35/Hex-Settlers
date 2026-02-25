@@ -1,6 +1,6 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + '5710f934d8585552-pngcachefix1';
+const CACHE_NAME = CACHE_PREFIX + '5710f934d8585552';
 const PRECACHE_URLS = [
   "/assets/Desert.png",
   "/assets/Field.png",
@@ -83,27 +83,25 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
-async function cacheFirstStaticAsset(request) {
+async function cacheFirstRevalidate(request) {
   const cache = await caches.open(CACHE_NAME);
-  const url = new URL(request.url);
-  const key = url.pathname; // normalize so query strings do not create duplicate entries
-
-  // Prefer the normalized pathname entry (used by precache), then fall back to the request.
-  let cached = await cache.match(key);
-  if (!cached) cached = await cache.match(request, { ignoreSearch: true, ignoreVary: true });
-  if (cached) return cached;
-
-  // Only go to network on a real cache miss.
-  try {
-    const net = await fetch(request);
-    if (net && net.ok) {
-      try { await cache.put(key, net.clone()); } catch (_) {}
+  const cached = await cache.match(request, { ignoreVary: true });
+  const networkPromise = fetch(request).then((res) => {
+    if (res && res.ok) {
+      cache.put(request, res.clone()).catch(() => {});
     }
-    return net;
-  } catch (_) {
-    // Final fallback in case another key form exists.
-    return (await cache.match(request.url)) || Response.error();
+    return res;
+  }).catch(() => null);
+
+  if (cached) {
+    // Update in background; keep response instant.
+    networkPromise.catch(() => {});
+    return cached;
   }
+  const net = await networkPromise;
+  if (net) return net;
+  // Last fallback: try URL string variant in cache.
+  return (await cache.match(request.url)) || Response.error();
 }
 
 self.addEventListener('fetch', (event) => {
@@ -112,7 +110,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (!ASSET_EXT_RE.test(url.pathname)) return;
-  event.respondWith(cacheFirstStaticAsset(request));
+  event.respondWith(cacheFirstRevalidate(request));
 });
 
 self.addEventListener('message', (event) => {

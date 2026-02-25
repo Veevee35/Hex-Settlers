@@ -7027,10 +7027,15 @@ const server = http.createServer((req, res) => {
       }
       const ext = path.extname(filePath).toLowerCase();
       const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
-      // Prevent clients/CDNs from serving stale assets after a deploy.
-      headers['Cache-Control'] = 'no-store, max-age=0';
-      headers['Pragma'] = 'no-cache';
-      headers['Expires'] = '0';
+      // Long-cache static binary assets locally (PNG/WAV) to avoid repeat fetches during gameplay.
+      // Keep HTML/JS/CSS/SW non-cached so deploys update immediately.
+      if (ext === '.png' || ext === '.wav' || ext === '.ico') {
+        headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+      } else {
+        headers['Cache-Control'] = 'no-store, max-age=0';
+        headers['Pragma'] = 'no-cache';
+        headers['Expires'] = '0';
+      }
       res.writeHead(200, headers);
       fs.createReadStream(filePath).pipe(res);
     });
