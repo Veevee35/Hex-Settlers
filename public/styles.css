@@ -183,7 +183,7 @@ body.in-game .boardFooter{display:none;}
   flex:1;
   height:auto;
   display:block;
-  background: #96c9e7; /* ocean backdrop */
+  background: #5f6f7c; /* ocean backdrop (darker muted grey-blue) */
 }
 .boardFooter{
   display:flex; justify-content:space-between;
@@ -284,7 +284,7 @@ body.in-game .boardFooter{display:none;}
 .hudBarRow::-webkit-scrollbar{height:8px}
 .hudBarRow::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10); border-radius:999px}
 .hudConn{display:flex; align-items:center; gap:8px}
-.hudTurnInfo{display:flex; align-items:center; gap:10px; min-width:0}
+.hudTurnInfo{display:flex; align-items:center; gap:10px; min-width:0; flex:0 1 auto}
 .hudTurnInfo .timerInfo{margin-top:0}
 .hudBtns{display:flex; align-items:center; gap:8px; flex-wrap:nowrap}
 .btnTiny{padding:8px 10px; border-radius:12px; font-size:12px}

@@ -1,6 +1,6 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + '9addbdc761a81ff3';
+const CACHE_NAME = CACHE_PREFIX + '5710f934d8585552';
 const PRECACHE_URLS = [
   "/assets/Desert.png",
   "/assets/Field.png",

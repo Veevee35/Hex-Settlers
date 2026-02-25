@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = '9addbdc761a81ff3';
+  const ASSET_CACHE_SW_BUILD = '5710f934d8585552';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -2404,12 +2404,6 @@ function syncPostgameToState() {
     grip.textContent = '⋮⋮';
     row.appendChild(grip);
 
-    const info = document.createElement('div');
-    info.className = 'hudTurnInfo';
-    if (ui.turnInfo) info.appendChild(ui.turnInfo);
-    if (ui.timerInfo) info.appendChild(ui.timerInfo);
-    row.appendChild(info);
-
     const actions = document.createElement('div');
     actions.className = 'hudBtns';
     const order = [
@@ -2430,6 +2424,18 @@ function syncPostgameToState() {
       actions.appendChild(b);
     }
     row.appendChild(actions);
+
+    // Reserve the scale-control slot between actions and the turn/timer text so the
+    // bottom bar reads left-to-right as: buttons → scale → status text.
+    const scaleHost = document.createElement('div');
+    scaleHost.className = 'hudBarScaleHost';
+    row.appendChild(scaleHost);
+
+    const info = document.createElement('div');
+    info.className = 'hudTurnInfo';
+    if (ui.turnInfo) info.appendChild(ui.turnInfo);
+    if (ui.timerInfo) info.appendChild(ui.timerInfo);
+    row.appendChild(info);
 
     card.appendChild(row);
     ensureInGamePanelScaleControls();
