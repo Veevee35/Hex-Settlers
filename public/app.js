@@ -2523,6 +2523,83 @@ function syncPostgameToState() {
     }
   }
 
+  const draggablePanelLayoutRegistry = new Set();
+
+  function getLocalPanelLayoutOwnerKey() {
+    try {
+      const explicit = (window && window.__hexSettlersPanelLayoutOwnerKey != null)
+        ? String(window.__hexSettlersPanelLayoutOwnerKey || '').trim()
+        : '';
+      if (explicit) return `player:${explicit}`;
+    } catch (_) {}
+    try {
+      if (authUser && authUser.id) return `user:${String(authUser.id)}`;
+    } catch (_) {}
+    try {
+      if (authToken) return `token:${String(authToken).slice(0, 48)}`;
+    } catch (_) {}
+    return 'anon';
+  }
+
+  function scopedPanelStorageKey(baseKey) {
+    if (!baseKey) return null;
+    return `${String(baseKey)}::${getLocalPanelLayoutOwnerKey()}`;
+  }
+
+  function applySavedPanelPosition(panelEl, storageKey) {
+    if (!panelEl || !storageKey) return false;
+    let raw = null;
+    let scopedKey = null;
+    try {
+      scopedKey = scopedPanelStorageKey(storageKey);
+      if (scopedKey) raw = localStorage.getItem(scopedKey);
+      if (!raw) {
+        const legacy = localStorage.getItem(storageKey);
+        if (legacy) {
+          raw = legacy;
+          try {
+            if (scopedKey) localStorage.setItem(scopedKey, legacy);
+          } catch (_) {}
+        }
+      }
+      if (!raw) return false;
+      const p = JSON.parse(raw);
+      if (!p || typeof p.left !== 'number' || typeof p.top !== 'number') return false;
+      panelEl.style.position = 'fixed';
+      panelEl.style.left = p.left + 'px';
+      panelEl.style.top = p.top + 'px';
+      panelEl.style.right = 'auto';
+      panelEl.style.bottom = 'auto';
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function registerPanelLayoutRestorer(fn) {
+    if (typeof fn !== 'function') return;
+    try { draggablePanelLayoutRegistry.add(fn); } catch (_) {}
+  }
+
+  function reapplySavedInGamePanelLayouts() {
+    try {
+      draggablePanelLayoutRegistry.forEach(fn => {
+        try { fn(); } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
+  function setLocalPanelLayoutOwnerKey(ownerKey) {
+    try {
+      if (ownerKey == null || ownerKey === '') {
+        delete window.__hexSettlersPanelLayoutOwnerKey;
+      } else {
+        window.__hexSettlersPanelLayoutOwnerKey = String(ownerKey);
+      }
+    } catch (_) {}
+    reapplySavedInGamePanelLayouts();
+  }
+
   // Make a floating panel draggable (pointer-based, desktop + touch).
   function makeDraggablePanel(panelEl, handleEl, storageKey) {
     if (!panelEl || !handleEl) return;
@@ -2531,22 +2608,16 @@ function syncPostgameToState() {
     handleEl.style.userSelect = 'none';
     handleEl.style.touchAction = 'none';
 
+    function restoreSavedPosition() {
+      try {
+        if (!storageKey) return;
+        applySavedPanelPosition(panelEl, storageKey);
+      } catch (_) {}
+    }
+
     // Restore saved position.
-    try {
-      if (storageKey) {
-        const raw = localStorage.getItem(storageKey);
-        if (raw) {
-          const p = JSON.parse(raw);
-          if (p && typeof p.left === 'number' && typeof p.top === 'number') {
-            panelEl.style.position = 'fixed';
-            panelEl.style.left = p.left + 'px';
-            panelEl.style.top = p.top + 'px';
-            panelEl.style.right = 'auto';
-            panelEl.style.bottom = 'auto';
-          }
-        }
-      }
-    } catch (_) {}
+    restoreSavedPosition();
+    if (storageKey) registerPanelLayoutRestorer(restoreSavedPosition);
 
     let dragging = false;
     let startX = 0, startY = 0;
@@ -2591,7 +2662,10 @@ function syncPostgameToState() {
       panelEl.style.top = top + 'px';
       try { if (panelEl && panelEl.dataset) panelEl.dataset.popupDragged = '1'; } catch (_) {}
       if (storageKey) {
-        try { localStorage.setItem(storageKey, JSON.stringify({ left, top })); } catch (_) {}
+        try {
+          const scopedKey = scopedPanelStorageKey(storageKey);
+          if (scopedKey) localStorage.setItem(scopedKey, JSON.stringify({ left, top }));
+        } catch (_) {}
       }
     });
 
@@ -3343,6 +3417,7 @@ function syncPostgameToState() {
 
       if (msg.type === 'joined') {
         myPlayerId = msg.playerId;
+        try { setLocalPanelLayoutOwnerKey(myPlayerId || null); } catch (_) {}
         room = msg.room;
         isHost = !!msg.isHost;
         if (ui.rejoinIdInput) ui.rejoinIdInput.value = myPlayerId || '';
@@ -4468,6 +4543,7 @@ function syncPostgameToState() {
     // Optional: drop room state
     room = null;
     myPlayerId = null;
+    try { setLocalPanelLayoutOwnerKey(null); } catch (_) {}
     isHost = false;
     if (ui.roomBox) ui.roomBox.classList.add('hidden');
   });
