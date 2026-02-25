@@ -3724,19 +3724,86 @@ function syncPostgameToState() {
     }
   }
 
-  function buildDirectJoinUrl(roomCode) {
-    const code = String(roomCode || '').trim().toUpperCase();
-    if (!code) return '';
-    try {
-      const u = new URL(window.location.href);
-      u.searchParams.set('room', code);
-      return u.toString();
-    } catch (_) {
-      return `${window.location.origin || ''}${window.location.pathname || '/'}?room=${encodeURIComponent(code)}`;
-    }
-  }
+let localShareOriginOverride = '';
+let localShareOriginLookupPromise = null;
 
-  function refreshLobbyJoinLinkUi() {
+function isLikelyLocalShareLinkHost(hostname) {
+  const h = String(hostname || '').trim().toLowerCase();
+  if (!h) return false;
+  if (h === 'localhost' || h === '::1' || h === '[::1]') return true;
+  if (/^127\./.test(h)) return true;
+  if (/^10\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  const m = h.match(/^172\.(\d+)\./);
+  if (m) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n >= 16 && n <= 31) return true;
+  }
+  return false;
+}
+
+function formatHostForUrl(host) {
+  const h = String(host || '').trim();
+  if (!h) return '';
+  if (h.includes(':') && !/^\[.*\]$/.test(h)) return `[${h}]`;
+  return h;
+}
+
+function ensureLocalShareOriginOverride() {
+  try {
+    if (localShareOriginOverride) return;
+    if (localShareOriginLookupPromise) return;
+    if (!isLikelyLocalShareLinkHost(window.location && window.location.hostname)) return;
+    // Keep deployed Railway / public domains unchanged. Only override local/private hosting.
+    localShareOriginLookupPromise = (async () => {
+      try {
+        const r = await fetch('https://api.ipify.org?format=json', { cache: 'no-store' });
+        if (!r || !r.ok) return;
+        const j = await r.json().catch(() => null);
+        const ip = String((j && j.ip) || '').trim();
+        if (!ip) return;
+        const host = formatHostForUrl(ip);
+        if (!host) return;
+        const protocol = (window.location && window.location.protocol === 'https:') ? 'https:' : 'http:';
+        localShareOriginOverride = `${protocol}//${host}:25000`;
+      } catch (_) {
+        // fall back to current local origin if public IP lookup fails
+      } finally {
+        localShareOriginLookupPromise = null;
+        try { refreshLobbyJoinLinkUi(); } catch (_) {}
+      }
+    })();
+  } catch (_) {}
+}
+
+function buildDirectJoinUrl(roomCode) {
+  const code = String(roomCode || '').trim().toUpperCase();
+  if (!code) return '';
+  try {
+    ensureLocalShareOriginOverride();
+    const u = new URL(window.location.href);
+    if (localShareOriginOverride && isLikelyLocalShareLinkHost(u.hostname)) {
+      const base = new URL(localShareOriginOverride);
+      u.protocol = base.protocol;
+      u.hostname = base.hostname;
+      u.port = base.port;
+    }
+    u.searchParams.set('room', code);
+    return u.toString();
+  } catch (_) {
+    let origin = (window.location && window.location.origin) || '';
+    try {
+      ensureLocalShareOriginOverride();
+      if (localShareOriginOverride && isLikelyLocalShareLinkHost(window.location && window.location.hostname)) {
+        origin = localShareOriginOverride;
+      }
+    } catch (_) {}
+    return `${origin}${(window.location && window.location.pathname) || '/'}?room=${encodeURIComponent(code)}`;
+  }
+}
+
+function refreshLobbyJoinLinkUi() {
+
     const code = String((room && room.code) || '').trim().toUpperCase();
     const link = code ? buildDirectJoinUrl(code) : '';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = link;
@@ -4866,7 +4933,7 @@ function syncPostgameToState() {
             : 'classic';
         const allowSolo = (mm === 'seafarers') && String(room?.rules?.seafarersScenario || '').toLowerCase() === 'test_builder';
         const scen = String(room?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-        const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56'));
+        const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random'));
         const minPlayers = (mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2));
         const maxPlayers = (mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4);
         const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;

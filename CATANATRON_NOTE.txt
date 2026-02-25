@@ -1,4 +1,4 @@
-Catanatron (Expert) AI integration note:
+Catanatron (Expert) AI integration note
 
 This build adds a new AI difficulty option: "Catanatron (Expert)".
 
