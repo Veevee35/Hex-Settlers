@@ -383,12 +383,45 @@
     return Math.max(TOOL_UI_SCALE_MIN, Math.min(TOOL_UI_SCALE_MAX, Math.round(n * 100) / 100));
   }
 
+  function isNarrowPortraitMobileUi() {
+    try {
+      const w = Math.max(0, Math.floor(window.innerWidth || document.documentElement?.clientWidth || 0));
+      const h = Math.max(0, Math.floor(window.innerHeight || document.documentElement?.clientHeight || 0));
+      const coarse = !!(window.matchMedia && window.matchMedia('(hover:none) and (pointer:coarse)').matches);
+      return coarse && w > 0 && h > w && w <= 460;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getAutoDefaultToolUiScale(scaleId) {
+    if (!isNarrowPortraitMobileUi()) return null;
+    switch (String(scaleId || '')) {
+      case 'turn_bar': return 0.9;
+      case 'tools_bar': return 0.9;
+      case 'timer_box': return 0.9;
+      case 'resources_panel': return 0.9;
+      case 'dev_panel': return 0.9;
+      case 'log_panel': return 0.9;
+      case 'cartographer_draft_panel': return 0.9;
+      default: return null;
+    }
+  }
+
   function getToolUiScale(scaleId) {
     let saved = 1;
+    let hadStored = false;
     try {
       const raw = localStorage.getItem(`${TOOL_UI_SCALE_PREFIX}${String(scaleId || 'tool')}`);
-      if (raw != null && raw !== '') saved = Number(raw);
+      if (raw != null && raw !== '') {
+        hadStored = true;
+        saved = Number(raw);
+      }
     } catch (_) {}
+    if (!hadStored) {
+      const mobileDefault = getAutoDefaultToolUiScale(scaleId);
+      if (mobileDefault != null) saved = mobileDefault;
+    }
     return clampToolUiScale(saved || 1);
   }
 
@@ -2588,9 +2621,19 @@ function syncPostgameToState() {
       if (!raw) return false;
       const p = JSON.parse(raw);
       if (!p || typeof p.left !== 'number' || typeof p.top !== 'number') return false;
+      const pad = 6;
+      let left = Number(p.left);
+      let top = Number(p.top);
+      try {
+        const r = panelEl.getBoundingClientRect ? panelEl.getBoundingClientRect() : null;
+        const w = Math.max(0, Math.round((r && Number.isFinite(r.width)) ? r.width : (panelEl.offsetWidth || 0)));
+        const h = Math.max(0, Math.round((r && Number.isFinite(r.height)) ? r.height : (panelEl.offsetHeight || 0)));
+        if (w > 0) left = Math.max(pad, Math.min(left, Math.max(pad, window.innerWidth - w - pad)));
+        if (h > 0) top = Math.max(pad, Math.min(top, Math.max(pad, window.innerHeight - h - pad)));
+      } catch (_) {}
       panelEl.style.position = 'fixed';
-      panelEl.style.left = p.left + 'px';
-      panelEl.style.top = p.top + 'px';
+      panelEl.style.left = left + 'px';
+      panelEl.style.top = top + 'px';
       panelEl.style.right = 'auto';
       panelEl.style.bottom = 'auto';
       return true;
@@ -2923,6 +2966,13 @@ function syncPostgameToState() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   window.addEventListener('resize', () => { resizeCanvas(); render(); });
+  try {
+    if (window.visualViewport) {
+      const onVvResize = () => { resizeCanvas(); render(); };
+      window.visualViewport.addEventListener('resize', onVvResize);
+      window.visualViewport.addEventListener('scroll', onVvResize);
+    }
+  } catch (_) {}
   resizeCanvas();
 
   // Allow the Resources panel to be moved freely.
@@ -3177,6 +3227,10 @@ function syncPostgameToState() {
         panel = document.createElement('div');
         panel.id = 'cartographerDraftPanel';
         panel.classList.add('panelScalable');
+        try {
+          const autoScale = getAutoDefaultToolUiScale('cartographer_draft_panel');
+          if (autoScale != null) panel.style.setProperty('--tool-ui-scale', String(autoScale));
+        } catch (_) {}
         panel.style.position = 'fixed';
         panel.style.left = '12px';
         panel.style.bottom = '12px';

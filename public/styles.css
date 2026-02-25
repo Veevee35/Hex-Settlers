@@ -16,9 +16,13 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
   --tab-ui-scale: 1;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 *{box-sizing:border-box}
-html,body{height:100%; overflow:hidden}
+html,body{height:100%; min-height:100%; overflow:hidden; overscroll-behavior:none}
 body{
   margin:0;
   font-family:var(--sans);
@@ -27,8 +31,9 @@ body{
               var(--bg);
   color:var(--text);
   overflow:hidden;
+  min-height:0;
 }
-#app{height:100vh; display:flex; flex-direction:column}
+#app{height:100dvh; min-height:100vh; display:flex; flex-direction:column}
 .topbar{
   display:flex; align-items:center; justify-content:space-between;
   padding:18px 22px;
@@ -51,11 +56,12 @@ body{
   gap:16px;
   padding:16px;
   height:100%;
+  min-height:0;
   overflow:hidden;
 }
 
 /* During gameplay, the HUD overlays move onto the board. */
-body.in-game .layout{grid-template-columns: 1fr; padding:0; gap:0; height:100vh;}
+body.in-game .layout{grid-template-columns: 1fr; padding:0; gap:0; height:100%; min-height:0; flex:1 1 auto;}
 body.in-game .panel{display:none;}
 .panel{display:flex; flex-direction:column; gap:16px; height:100%; overflow-y:auto; padding-right:6px; padding-bottom:88px}
 .card{
@@ -175,8 +181,9 @@ body.in-game .panel{display:none;}
   display:flex; flex-direction:column;
   position:relative;
   height:100%;
+  min-height:0;
 }
-body.in-game .boardWrap{border:none; border-radius:0; box-shadow:none; height:100vh;}
+body.in-game .boardWrap{border:none; border-radius:0; box-shadow:none; height:100%; min-height:0;}
 body.in-game .boardFooter{display:none;}
 #board{
   touch-action:none;
@@ -1290,4 +1297,100 @@ select.input{
   .logOverlay .logList{max-height:180px;}
   .rightHud .countdownClock{min-width:132px;}
   .clockTime{font-size:18px;}
+}
+
+
+/* S24 Ultra / tall portrait phone pass */
+@media (hover:none) and (pointer:coarse) and (orientation: portrait) and (max-width: 460px) {
+  body{overflow:hidden;}
+  #app{height:100dvh;}
+  .topbar{
+    padding:calc(8px + var(--safe-top)) calc(10px + var(--safe-right)) 8px calc(10px + var(--safe-left));
+    gap:6px;
+  }
+  .brand .title{font-size:16px;}
+  .brand .subtitle{display:none;}
+  .status{font-size:11px; gap:6px; flex-wrap:wrap;}
+  .layout{
+    padding:6px;
+    gap:6px;
+    grid-template-rows:auto minmax(240px, 40dvh);
+  }
+  .card{padding:10px;}
+  .panel{max-height:52dvh; padding-bottom:6px;}
+  .boardWrap{border-radius:12px;}
+
+  body.in-game .layout{padding:0; gap:0;}
+  body.in-game .boardWrap{border-radius:0;}
+  body.in-game .topbar,
+  body.in-game .topbar *{max-width:100%;}
+
+  .hudBar{
+    padding:6px 8px;
+    border-radius:12px;
+    max-width:calc(100% - 8px - var(--safe-left) - var(--safe-right));
+  }
+  .hudTopLeft{left:calc(4px + var(--safe-left)); top:4px;}
+  .hudBottomLeft{left:calc(4px + var(--safe-left)); bottom:calc(4px + var(--safe-bottom));}
+  .hudBarRow{gap:6px;}
+  .hudBtns{gap:6px;}
+  .btnTiny{padding:7px 9px; font-size:11px; border-radius:10px;}
+  .hudTurnInfo{gap:8px;}
+  .hudTurnInfo .turnInfo,
+  .hudTurnInfo .timerInfo{font-size:11px; line-height:1.2;}
+
+  .rightHud{right:calc(4px + var(--safe-right)); top:4px; gap:6px;}
+  .countdownClock{min-width:124px; padding:6px 8px 8px; border-radius:12px;}
+  .clockTime{font-size:17px; letter-spacing:.5px;}
+  .clockMeta{font-size:10px;}
+  .clockTopRow{gap:6px; margin-bottom:2px;}
+
+  .resourcesOverlay{
+    left:calc(4px + var(--safe-left));
+    top:44px;
+    width:min(calc(100vw - 8px - var(--safe-left) - var(--safe-right)), 360px);
+    padding:10px;
+  }
+  .logOverlay{
+    right:calc(4px + var(--safe-right));
+    left:auto;
+    top:auto;
+    bottom:calc(4px + var(--safe-bottom));
+    width:min(calc(100vw - 8px - var(--safe-left) - var(--safe-right)), 388px);
+    padding:10px;
+  }
+  .logOverlay .logList{max-height:28dvh;}
+  .hudDevOverlay{
+    left:calc(4px + var(--safe-left));
+    width:min(calc(100vw - 8px - var(--safe-left) - var(--safe-right)), 388px);
+    max-height:42dvh;
+    top:104px;
+    padding:10px;
+  }
+  .audioSfxPanel{
+    right:calc(4px + var(--safe-right));
+    top:44px;
+    width:min(calc(100vw - 8px - var(--safe-left) - var(--safe-right)), 388px);
+  }
+  #cartographerDraftPanel{
+    left:calc(4px + var(--safe-left)) !important;
+    right:auto !important;
+    bottom:calc(4px + var(--safe-bottom)) !important;
+    width:min(calc(100vw - 8px - var(--safe-left) - var(--safe-right)), 388px) !important;
+    max-width:min(calc(100vw - 8px - var(--safe-left) - var(--safe-right)), 388px) !important;
+  }
+
+  /* tighter modal controls while keeping touch targets usable */
+  .btn, .input, select, button{font-size:15px;}
+  .btn{padding:11px 12px;}
+  .input{padding:11px 11px;}
+}
+
+@media (hover:none) and (pointer:coarse) and (orientation: portrait) and (max-width: 430px) {
+  .resourcesOverlay .pResGrid,
+  .resourcesOverlay .pPieceGrid{font-size:10px;}
+  .resourcesOverlay .resIcon{width:16px; height:16px;}
+  .resourcesOverlay .resVal{font-size:11px;}
+  .hudBarScaleHost .tabScaleLabel,
+  .panelScaleHost .tabScaleLabel{min-width:46px;}
 }
