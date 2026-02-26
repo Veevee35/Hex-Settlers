@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=699eda22" />
+  <link rel="stylesheet" href="styles.css?v=699eda23" />
 </head>
 <body>
   <div id="app">
@@ -86,6 +86,19 @@
                 <div id="myAccountLabel" style="font-family:var(--mono); font-size:11px; color:var(--muted); word-break:break-all;">—</div>
               </div>
             </div>
+
+
+<div id="texturePackRow" style="margin-top:10px;">
+  <div class="labelTiny">Texture pack</div>
+  <div class="row" style="align-items:center; gap:8px; flex-wrap:wrap;">
+    <select id="texturePackSelect" class="input" style="min-width:220px; max-width:100%; flex:1;"></select>
+    <button id="downloadTexturePackBtn" class="btn" type="button">Download Pack</button>
+    <button id="uploadTexturePackBtn" class="btn" type="button">Upload Pack</button>
+    <button id="deleteTexturePackBtn" class="btn" type="button">Delete Pack</button>
+    <input id="texturePackFileInput" type="file" accept=".zip,application/zip" class="hidden" />
+  </div>
+  <div id="texturePackStatus" class="smallNote">Default pack is always available. Custom packs save locally in this browser.</div>
+</div>
 
             <div class="labelTiny">Players</div>
             <div id="playersList" class="playersList"></div>
@@ -477,6 +490,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=699eda22"></script>
+  <script src="app.js?v=699eda23"></script>
 </body>
 </html>

@@ -50,6 +50,13 @@
     rejoinLastBtn: $('rejoinLastBtn'),
     lastRoomHint: $('lastRoomHint'),
     myAccountLabel: $('myAccountLabel'),
+    texturePackRow: $('texturePackRow'),
+    texturePackSelect: $('texturePackSelect'),
+    downloadTexturePackBtn: $('downloadTexturePackBtn'),
+    uploadTexturePackBtn: $('uploadTexturePackBtn'),
+    deleteTexturePackBtn: $('deleteTexturePackBtn'),
+    texturePackFileInput: $('texturePackFileInput'),
+    texturePackStatus: $('texturePackStatus'),
     rejoinIdInput: $('rejoinIdInput'),
     createBtn: $('createBtn'),
     joinBtn: $('joinBtn'),
@@ -162,7 +169,630 @@
     historySub: $('historySub'),
   };
 
+
   const ctx = ui.canvas.getContext('2d');
+
+  const DEFAULT_TEXTURE_PACK_ID = 'default';
+  const TEXTURE_PACK_META_KEY = 'hexsettlers_texture_pack_meta_v1';
+  const TEXTURE_PACK_BROWSER_CACHE = 'hexsettlers-asset-cache-texturepack-v1';
+  const TEXTURE_PACK_TEMPLATE_URL = '/texture-pack-template.zip';
+  const DEFAULT_TEXTURE_ASSET_REL = ["Dev Cards/Invention.png", "Dev Cards/Knight.png", "Dev Cards/Monopoly.png", "Dev Cards/RoadBuilding.png", "Dev Cards/VictoryPoint.png", "Numbers/10.png", "Numbers/11.png", "Numbers/12.png", "Numbers/2.png", "Numbers/3.png", "Numbers/4.png", "Numbers/5.png", "Numbers/6.png", "Numbers/8.png", "Numbers/9.png", "Ports/brick.png", "Ports/generic.png", "Ports/grain.png", "Ports/lumber.png", "Ports/ore.png", "Ports/wool.png", "Resource Hexes/Desert.png", "Resource Hexes/Field.png", "Resource Hexes/Forest.png", "Resource Hexes/GoldFields.png", "Resource Hexes/Hills.png", "Resource Hexes/Mountains.png", "Resource Hexes/Pasture.png", "Resource Hexes/Seas.png", "Resource Hexes/Unexplored.png", "Robber Pirate/thief_pirate.png", "Robber Pirate/thief_robber.png", "Tokens/tokens_blue.png", "Tokens/tokens_green.png", "Tokens/tokens_orange.png", "Tokens/tokens_purple.png", "Tokens/tokens_red.png", "Tokens/tokens_teal.png", "Tokens/tokens_white.png", "Tokens/tokens_yellow.png"];
+  const DEFAULT_TEXTURE_ASSET_SET = new Set(DEFAULT_TEXTURE_ASSET_REL);
+  const DEFAULT_TEXTURE_PACK_LABEL = 'Default';
+  let pendingTexturePackSelectId = null;
+  const texturePackRoomPublished = Object.create(null);
+  const texturePackSessionUrls = Object.create(null);
+  let texturePackAnnounceQueued = false;
+
+  function texturePackMetaDefaults() {
+    return { activeId: DEFAULT_TEXTURE_PACK_ID, packs: [] };
+  }
+
+  function readTexturePackMetaState() {
+    let parsed = null;
+    try {
+      const raw = localStorage.getItem(TEXTURE_PACK_META_KEY);
+      if (raw) parsed = JSON.parse(raw);
+    } catch (_) {}
+    const packs = [];
+    for (const p of (Array.isArray(parsed && parsed.packs) ? parsed.packs : [])) {
+      const id = String(p && p.id || '').trim();
+      if (!id || id === DEFAULT_TEXTURE_PACK_ID) continue;
+      const name = String(p && p.name || 'Custom Pack').trim().slice(0, 48) || 'Custom Pack';
+      const assets = Array.isArray(p && p.assets) ? p.assets.map(normalizeTextureAssetRelPath).filter(Boolean) : [];
+      const uniq = Array.from(new Set(assets.filter(x => DEFAULT_TEXTURE_ASSET_SET.has(x))));
+      packs.push({
+        id,
+        name,
+        assets: uniq,
+        deletable: true,
+        savedAt: Number(p && p.savedAt || Date.now()) || Date.now(),
+      });
+    }
+    let activeId = String(parsed && parsed.activeId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+    if (activeId !== DEFAULT_TEXTURE_PACK_ID && !packs.some(p => p.id === activeId)) activeId = DEFAULT_TEXTURE_PACK_ID;
+    return { activeId, packs };
+  }
+
+  let texturePackMetaState = texturePackMetaDefaults();
+  texturePackMetaState = readTexturePackMetaState();
+
+  function writeTexturePackMetaState() {
+    try {
+      localStorage.setItem(TEXTURE_PACK_META_KEY, JSON.stringify({
+        activeId: texturePackMetaState.activeId || DEFAULT_TEXTURE_PACK_ID,
+        packs: Array.isArray(texturePackMetaState.packs) ? texturePackMetaState.packs : [],
+      }));
+    } catch (_) {}
+  }
+
+  function listLocalTexturePacks() {
+    const rows = [{ id: DEFAULT_TEXTURE_PACK_ID, name: DEFAULT_TEXTURE_PACK_LABEL, assets: DEFAULT_TEXTURE_ASSET_REL.slice(), deletable: false, savedAt: 0 }];
+    for (const p of (texturePackMetaState.packs || [])) rows.push(p);
+    return rows;
+  }
+
+  function getLocalTexturePackMeta(packId) {
+    const id = String(packId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+    if (id === DEFAULT_TEXTURE_PACK_ID) return { id: DEFAULT_TEXTURE_PACK_ID, name: DEFAULT_TEXTURE_PACK_LABEL, assets: DEFAULT_TEXTURE_ASSET_REL.slice(), deletable: false };
+    return (texturePackMetaState.packs || []).find(p => p && p.id === id) || null;
+  }
+
+  function activeTexturePackId() {
+    const id = String(texturePackMetaState.activeId || DEFAULT_TEXTURE_PACK_ID).trim();
+    if (!id) return DEFAULT_TEXTURE_PACK_ID;
+    if (id === DEFAULT_TEXTURE_PACK_ID) return id;
+    return getLocalTexturePackMeta(id) ? id : DEFAULT_TEXTURE_PACK_ID;
+  }
+
+  function activeTexturePackMeta() {
+    return getLocalTexturePackMeta(activeTexturePackId()) || getLocalTexturePackMeta(DEFAULT_TEXTURE_PACK_ID);
+  }
+
+  function setTexturePackStatus(msg, isError = false) {
+    if (!ui.texturePackStatus) return;
+    ui.texturePackStatus.textContent = String(msg || '');
+    ui.texturePackStatus.style.color = isError ? '#ff9aa3' : '';
+  }
+
+  function normalizeTextureAssetRelPath(input) {
+    let s = String(input || '').replace(/\\/g, '/').trim();
+    if (!s) return '';
+    try { s = decodeURIComponent(s); } catch (_) {}
+    s = s.replace(/^\/+/, '');
+    s = s.replace(/^\.\/+/, '');
+    s = s.replace(/^texture pack\//i, '');
+    s = s.replace(/^texturepack\//i, '');
+    s = s.replace(/^texture_pack\//i, '');
+    s = s.replace(/^public\//i, '');
+    const idx = s.toLowerCase().indexOf('texture pack/');
+    if (idx >= 0) s = s.slice(idx + 'texture pack/'.length);
+    const parts = s.split('/').filter(Boolean);
+    return parts.join('/');
+  }
+
+  function defaultTexturePackUrl(rel) {
+    const norm = normalizeTextureAssetRelPath(rel);
+    if (!norm) return '';
+    return `/texture%20pack/${norm.split('/').map(seg => encodeURIComponent(seg)).join('/')}`;
+  }
+
+  function textureRelFromLegacyUrl(src) {
+    const raw = String(src || '').replace(/^\/+/, '');
+    if (!raw) return '';
+    if (!/^texture(?:%20|\s)pack\//i.test(raw)) return '';
+    return normalizeTextureAssetRelPath(raw.replace(/^texture(?:%20|\s)pack\//i, ''));
+  }
+
+  function userTextureCacheUrl(packId, rel) {
+    const id = encodeURIComponent(String(packId || '').trim());
+    const norm = normalizeTextureAssetRelPath(rel);
+    return `/__texturepacks/${id}/${norm.split('/').map(seg => encodeURIComponent(seg)).join('/')}`;
+  }
+
+  function activeTextureHasAsset(rel) {
+    const meta = activeTexturePackMeta();
+    if (!meta || !meta.id || meta.id === DEFAULT_TEXTURE_PACK_ID) return false;
+    const norm = normalizeTextureAssetRelPath(rel);
+    return !!(norm && Array.isArray(meta.assets) && meta.assets.includes(norm));
+  }
+
+  function resolveTextureAssetUrl(rel) {
+    const norm = normalizeTextureAssetRelPath(rel);
+    if (!norm) return '';
+    const active = activeTexturePackMeta();
+    if (active && active.id && active.id !== DEFAULT_TEXTURE_PACK_ID && Array.isArray(active.assets) && active.assets.includes(norm)) {
+      const sessionMap = texturePackSessionUrls[active.id];
+      if (sessionMap && sessionMap[norm]) return sessionMap[norm];
+      return userTextureCacheUrl(active.id, norm);
+    }
+    return defaultTexturePackUrl(norm);
+  }
+
+  function getTextureAssetUrl(rel) {
+    return resolveTextureAssetUrl(rel);
+  }
+
+  function resolveLegacyTextureUrl(src) {
+    const rel = textureRelFromLegacyUrl(src);
+    if (!rel) return String(src || '');
+    return resolveTextureAssetUrl(rel);
+  }
+
+  function setTextureImageElementSrc(img, legacyUrl) {
+    if (!img) return;
+    const fallback = String(legacyUrl || '');
+    const primary = resolveLegacyTextureUrl(fallback) || fallback;
+    let triedFallback = false;
+    img.onerror = () => {
+      if (triedFallback || !fallback || primary === fallback) {
+        img.onerror = null;
+        return;
+      }
+      triedFallback = true;
+      img.src = fallback;
+    };
+    img.src = primary || fallback;
+  }
+
+  function setTextureImageElementSrcFromRel(img, rel) {
+    if (!img) return;
+    const norm = normalizeTextureAssetRelPath(rel);
+    const fallback = defaultTexturePackUrl(norm);
+    const primary = resolveTextureAssetUrl(norm) || fallback;
+    let triedFallback = false;
+    img.onerror = () => {
+      if (triedFallback || !fallback || primary === fallback) {
+        img.onerror = null;
+        return;
+      }
+      triedFallback = true;
+      img.src = fallback;
+    };
+    img.src = primary || fallback;
+  }
+
+  async function openTexturePackBrowserCache() {
+    if (!('caches' in window)) throw new Error('Texture packs need browser cache support.');
+    return await caches.open(TEXTURE_PACK_BROWSER_CACHE);
+  }
+
+  function revokeTexturePackSessionUrls(packId) {
+    const id = String(packId || '').trim();
+    if (!id || !texturePackSessionUrls[id]) return;
+    for (const url of Object.values(texturePackSessionUrls[id])) {
+      try { URL.revokeObjectURL(url); } catch (_) {}
+    }
+    delete texturePackSessionUrls[id];
+  }
+
+  async function setTexturePackSessionUrlsFromBlobs(packId, blobMap) {
+    const id = String(packId || '').trim();
+    if (!id || id === DEFAULT_TEXTURE_PACK_ID) return;
+    revokeTexturePackSessionUrls(id);
+    const next = Object.create(null);
+    for (const [rawRel, blob] of Object.entries(blobMap || {})) {
+      const rel = normalizeTextureAssetRelPath(rawRel);
+      if (!rel || !(blob instanceof Blob)) continue;
+      try { next[rel] = URL.createObjectURL(blob); } catch (_) {}
+    }
+    texturePackSessionUrls[id] = next;
+  }
+
+  async function hydrateTexturePackSessionUrls(packId) {
+    const id = String(packId || '').trim();
+    if (!id || id === DEFAULT_TEXTURE_PACK_ID) return;
+    if (texturePackSessionUrls[id] && Object.keys(texturePackSessionUrls[id]).length) return;
+    const meta = getLocalTexturePackMeta(id);
+    if (!meta) return;
+    const cache = await openTexturePackBrowserCache();
+    const blobs = Object.create(null);
+    for (const rel of (meta.assets || [])) {
+      try {
+        const res = await cache.match(userTextureCacheUrl(id, rel), { ignoreSearch: true, ignoreVary: true });
+        if (!res) continue;
+        const blob = await res.blob();
+        blobs[rel] = blob;
+      } catch (_) {}
+    }
+    await setTexturePackSessionUrlsFromBlobs(id, blobs);
+  }
+
+  async function storeTexturePackBlob(packId, rel, blob) {
+    const cache = await openTexturePackBrowserCache();
+    const url = userTextureCacheUrl(packId, rel);
+    const headers = new Headers({ 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000, immutable' });
+    await cache.put(url, new Response(blob, { headers }));
+  }
+
+  async function deleteTexturePackCacheEntries(packId, relList) {
+    const cache = await openTexturePackBrowserCache();
+    for (const rel of (relList || [])) {
+      try { await cache.delete(userTextureCacheUrl(packId, rel)); } catch (_) {}
+    }
+  }
+
+  async function blobToDataUrl(blob) {
+    return await new Promise((resolve, reject) => {
+      try {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result || ''));
+        fr.onerror = () => reject(new Error('Failed to read texture asset.'));
+        fr.readAsDataURL(blob);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  function bytesToBase64(bytes) {
+    let out = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      const slice = bytes.subarray(i, i + chunk);
+      let bin = '';
+      for (let j = 0; j < slice.length; j++) bin += String.fromCharCode(slice[j]);
+      out += btoa(bin);
+    }
+    return out;
+  }
+
+  function buildTexturePackId(seed = '') {
+    const base = String(seed || 'pack').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 18) || 'pack';
+    const rand = Math.random().toString(36).slice(2, 8);
+    return `tp-${base}-${Date.now().toString(36)}-${rand}`;
+  }
+
+  function packRecordForSave(id, name, assets) {
+    const normAssets = Array.from(new Set((assets || []).map(normalizeTextureAssetRelPath).filter(x => DEFAULT_TEXTURE_ASSET_SET.has(x))));
+    return {
+      id: String(id || '').trim(),
+      name: String(name || 'Custom Pack').trim().slice(0, 48) || 'Custom Pack',
+      assets: normAssets,
+      deletable: true,
+      savedAt: Date.now(),
+    };
+  }
+
+  function upsertLocalTexturePackMeta(record) {
+    if (!record || !record.id || record.id === DEFAULT_TEXTURE_PACK_ID) return null;
+    const next = (texturePackMetaState.packs || []).filter(p => p && p.id !== record.id);
+    next.push(record);
+    next.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || String(a.id || '').localeCompare(String(b.id || '')));
+    texturePackMetaState.packs = next;
+    writeTexturePackMetaState();
+    return record;
+  }
+
+  async function saveTexturePackPayloadLocally(pack, options = {}) {
+    const incomingId = String(pack && pack.id || '').trim();
+    const packId = incomingId && incomingId !== DEFAULT_TEXTURE_PACK_ID ? incomingId : buildTexturePackId(pack && pack.name);
+    const name = String(pack && pack.name || 'Custom Pack').trim().slice(0, 48) || 'Custom Pack';
+    const assetsObj = (pack && pack.assets && typeof pack.assets === 'object') ? pack.assets : {};
+    const savedAssets = [];
+    const blobMap = Object.create(null);
+
+    for (const [rawRel, dataUrl] of Object.entries(assetsObj)) {
+      const rel = normalizeTextureAssetRelPath(rawRel);
+      if (!rel || !DEFAULT_TEXTURE_ASSET_SET.has(rel)) continue;
+      const url = String(dataUrl || '').trim();
+      if (!/^data:image\/png;base64,/i.test(url)) continue;
+      try {
+        const blob = await (await fetch(url)).blob();
+        await storeTexturePackBlob(packId, rel, blob);
+        blobMap[rel] = blob;
+        savedAssets.push(rel);
+      } catch (_) {}
+    }
+
+    if (!savedAssets.length && packId !== DEFAULT_TEXTURE_PACK_ID) throw new Error('No valid PNGs were imported from that texture pack.');
+
+    const record = packRecordForSave(packId, name, savedAssets);
+    upsertLocalTexturePackMeta(record);
+
+    if (options.activate !== false) {
+      texturePackMetaState.activeId = record.id;
+      writeTexturePackMetaState();
+      await setTexturePackSessionUrlsFromBlobs(record.id, blobMap);
+    }
+
+    refreshTexturePackUi();
+  if (activeTexturePackId() !== DEFAULT_TEXTURE_PACK_ID) {
+    setTimeout(() => {
+      void hydrateTexturePackSessionUrls(activeTexturePackId()).then(() => {
+        try { reloadAllTextureAssets(); } catch (_) {}
+      }).catch(() => {});
+    }, 0);
+  }
+    if (options.activate !== false) {
+      reloadAllTextureAssets();
+      queueTexturePackAnnounce(!!options.forcePublish);
+    }
+    return record;
+  }
+
+  async function deleteLocalTexturePack(packId) {
+    const id = String(packId || '').trim();
+    if (!id || id === DEFAULT_TEXTURE_PACK_ID) return false;
+    const meta = getLocalTexturePackMeta(id);
+    if (!meta) return false;
+    try { await deleteTexturePackCacheEntries(id, meta.assets || []); } catch (_) {}
+    revokeTexturePackSessionUrls(id);
+    texturePackMetaState.packs = (texturePackMetaState.packs || []).filter(p => p && p.id !== id);
+    if (activeTexturePackId() === id) texturePackMetaState.activeId = DEFAULT_TEXTURE_PACK_ID;
+    writeTexturePackMetaState();
+    refreshTexturePackUi();
+    reloadAllTextureAssets();
+    queueTexturePackAnnounce(false);
+    return true;
+  }
+
+  async function buildTexturePackPublishPayload(packId) {
+    const meta = getLocalTexturePackMeta(packId);
+    if (!meta || !meta.id || meta.id === DEFAULT_TEXTURE_PACK_ID) return null;
+    const cache = await openTexturePackBrowserCache();
+    const assets = {};
+    for (const rel of (meta.assets || [])) {
+      try {
+        const res = await cache.match(userTextureCacheUrl(meta.id, rel), { ignoreSearch: true, ignoreVary: true });
+        if (!res) continue;
+        const blob = await res.blob();
+        const dataUrl = await blobToDataUrl(blob);
+        if (/^data:image\/png;base64,/i.test(dataUrl)) assets[rel] = dataUrl;
+      } catch (_) {}
+    }
+    if (!Object.keys(assets).length) return null;
+    return { id: meta.id, name: meta.name, assets };
+  }
+
+  async function ensureRoomTexturePackAnnounced(forcePublish = false) {
+    texturePackAnnounceQueued = false;
+    if (!room || !room.code || !myPlayerId || !ws || ws.readyState !== 1) return;
+    const active = activeTexturePackMeta();
+    if (!active) return;
+    const me = Array.isArray(room.players) ? room.players.find(p => p && p.id === myPlayerId) : null;
+    const roomPackId = String((me && me.texturePackId) || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+    const roomPackName = String((me && me.texturePackName) || (roomPackId === DEFAULT_TEXTURE_PACK_ID ? DEFAULT_TEXTURE_PACK_LABEL : 'Custom Pack'));
+
+    if (active.id === DEFAULT_TEXTURE_PACK_ID) {
+      if (roomPackId !== DEFAULT_TEXTURE_PACK_ID || roomPackName !== DEFAULT_TEXTURE_PACK_LABEL) {
+        send({ type: 'set_texture_pack', texturePackId: DEFAULT_TEXTURE_PACK_ID, texturePackName: DEFAULT_TEXTURE_PACK_LABEL });
+      }
+      texturePackRoomPublished[`${room.code}|${DEFAULT_TEXTURE_PACK_ID}`] = true;
+      return;
+    }
+
+    const roomKey = `${room.code}|${active.id}`;
+    if (forcePublish || !texturePackRoomPublished[roomKey]) {
+      const payload = await buildTexturePackPublishPayload(active.id);
+      if (payload) {
+        send({ type: 'texture_pack_publish', pack: payload });
+        texturePackRoomPublished[roomKey] = true;
+      }
+    }
+
+    if (roomPackId !== active.id || roomPackName !== active.name) {
+      send({ type: 'set_texture_pack', texturePackId: active.id, texturePackName: active.name });
+    }
+  }
+
+  function queueTexturePackAnnounce(forcePublish = false) {
+    if (texturePackAnnounceQueued && !forcePublish) return;
+    texturePackAnnounceQueued = true;
+    setTimeout(() => {
+      void ensureRoomTexturePackAnnounced(forcePublish);
+    }, 0);
+  }
+
+  function refreshTexturePackUi() {
+    if (ui.texturePackSelect) {
+      const activeId = activeTexturePackId();
+      ui.texturePackSelect.innerHTML = '';
+      for (const p of listLocalTexturePacks()) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        const count = (p.id === DEFAULT_TEXTURE_PACK_ID) ? DEFAULT_TEXTURE_ASSET_REL.length : ((p.assets || []).length || 0);
+        opt.textContent = `${p.name}${p.id === DEFAULT_TEXTURE_PACK_ID ? '' : ` (${count}/${DEFAULT_TEXTURE_ASSET_REL.length})`}`;
+        ui.texturePackSelect.appendChild(opt);
+      }
+      ui.texturePackSelect.value = activeId;
+    }
+
+    const active = activeTexturePackMeta();
+    const count = (active && Array.isArray(active.assets)) ? active.assets.length : DEFAULT_TEXTURE_ASSET_REL.length;
+    setTexturePackStatus(
+      active && active.id !== DEFAULT_TEXTURE_PACK_ID
+        ? `Active: ${active.name} — ${count}/${DEFAULT_TEXTURE_ASSET_REL.length} PNGs saved locally. Missing icons fall back to default.`
+        : 'Active: Default — always available and cannot be deleted.'
+    );
+
+    if (ui.deleteTexturePackBtn) {
+      const canDelete = !!(active && active.id && active.id !== DEFAULT_TEXTURE_PACK_ID);
+      ui.deleteTexturePackBtn.disabled = !canDelete;
+      ui.deleteTexturePackBtn.title = canDelete ? 'Delete the currently selected custom texture pack from this browser.' : 'The default texture pack cannot be deleted.';
+    }
+  }
+
+  async function setActiveTexturePackById(packId, options = {}) {
+    const target = String(packId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+    if (target !== DEFAULT_TEXTURE_PACK_ID && !getLocalTexturePackMeta(target)) throw new Error('That texture pack is not saved in this browser.');
+    texturePackMetaState.activeId = target;
+    writeTexturePackMetaState();
+    if (target !== DEFAULT_TEXTURE_PACK_ID) {
+      try { await hydrateTexturePackSessionUrls(target); } catch (_) {}
+    }
+    refreshTexturePackUi();
+    reloadAllTextureAssets();
+    if (options.announce !== false) queueTexturePackAnnounce(!!options.forcePublish);
+    return activeTexturePackMeta();
+  }
+
+  async function readZipEocd(bytes) {
+    const min = Math.max(0, bytes.length - (22 + 0xFFFF));
+    for (let i = bytes.length - 22; i >= min; i--) {
+      if (bytes[i] === 0x50 && bytes[i+1] === 0x4b && bytes[i+2] === 0x05 && bytes[i+3] === 0x06) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset + i);
+        return {
+          offset: i,
+          count: view.getUint16(10, true),
+          cdSize: view.getUint32(12, true),
+          cdOffset: view.getUint32(16, true),
+        };
+      }
+    }
+    throw new Error('That ZIP file could not be read.');
+  }
+
+  async function inflateZipDeflate(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('This browser cannot unzip compressed texture packs. Try the template ZIP without recompressing it.');
+    }
+    const ds = new DecompressionStream('deflate-raw');
+    const stream = new Blob([bytes]).stream().pipeThrough(ds);
+    const ab = await new Response(stream).arrayBuffer();
+    return new Uint8Array(ab);
+  }
+
+  async function extractTexturePackAssetsFromZip(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const eocd = await readZipEocd(bytes);
+    const out = Object.create(null);
+    const td = new TextDecoder('utf-8');
+    let ptr = eocd.cdOffset;
+
+    for (let n = 0; n < eocd.count && ptr < bytes.length - 46; n++) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset + ptr);
+      if (view.getUint32(0, true) !== 0x02014b50) break;
+      const method = view.getUint16(10, true);
+      const compSize = view.getUint32(20, true);
+      const nameLen = view.getUint16(28, true);
+      const extraLen = view.getUint16(30, true);
+      const commentLen = view.getUint16(32, true);
+      const localOffset = view.getUint32(42, true);
+      const nameBytes = bytes.slice(ptr + 46, ptr + 46 + nameLen);
+      const rawName = td.decode(nameBytes);
+      const rel = normalizeTextureAssetRelPath(rawName);
+
+      ptr += 46 + nameLen + extraLen + commentLen;
+
+      if (!rel || !DEFAULT_TEXTURE_ASSET_SET.has(rel)) continue;
+
+      const lv = new DataView(bytes.buffer, bytes.byteOffset + localOffset);
+      if (lv.getUint32(0, true) !== 0x04034b50) continue;
+      const localNameLen = lv.getUint16(26, true);
+      const localExtraLen = lv.getUint16(28, true);
+      const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+      const compBytes = bytes.slice(dataStart, dataStart + compSize);
+
+      let data = null;
+      if (method === 0) data = compBytes;
+      else if (method === 8) data = await inflateZipDeflate(compBytes);
+      else continue;
+
+      out[rel] = new Blob([data], { type: 'image/png' });
+    }
+
+    return out;
+  }
+
+  async function importTexturePackZipFile(file) {
+    if (!file) return;
+    const assets = await extractTexturePackAssetsFromZip(file);
+    const rels = Object.keys(assets);
+    if (!rels.length) throw new Error('No valid texture PNGs were found in that ZIP.');
+    const packId = buildTexturePackId((file && file.name) || 'pack');
+    const packName = String((file && file.name) || 'Custom Pack').replace(/\.zip$/i, '').trim().slice(0, 48) || 'Custom Pack';
+
+    for (const rel of rels) {
+      await storeTexturePackBlob(packId, rel, assets[rel]);
+    }
+
+    const record = packRecordForSave(packId, packName, rels);
+    upsertLocalTexturePackMeta(record);
+    texturePackMetaState.activeId = record.id;
+    writeTexturePackMetaState();
+    await setTexturePackSessionUrlsFromBlobs(record.id, assets);
+    refreshTexturePackUi();
+    reloadAllTextureAssets();
+
+    const publishAssets = {};
+    for (const rel of rels) {
+      try {
+        publishAssets[rel] = await blobToDataUrl(assets[rel]);
+      } catch (_) {}
+    }
+
+    if (Object.keys(publishAssets).length && room && room.code && myPlayerId) {
+      send({ type: 'texture_pack_publish', pack: { id: record.id, name: record.name, assets: publishAssets } });
+      texturePackRoomPublished[`${room.code}|${record.id}`] = true;
+      send({ type: 'set_texture_pack', texturePackId: record.id, texturePackName: record.name });
+    } else {
+      queueTexturePackAnnounce(true);
+    }
+
+    setTexturePackStatus(`Imported ${record.name}. ${rels.length}/${DEFAULT_TEXTURE_ASSET_REL.length} PNGs saved. Missing icons will fall back to default.`);
+  }
+
+  async function handlePlayerTexturePackChoice(player) {
+    const targetId = String(player && player.texturePackId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+    if (targetId === DEFAULT_TEXTURE_PACK_ID) {
+      await setActiveTexturePackById(DEFAULT_TEXTURE_PACK_ID, { announce: true, forcePublish: false });
+      return;
+    }
+    if (getLocalTexturePackMeta(targetId)) {
+      await setActiveTexturePackById(targetId, { announce: true, forcePublish: false });
+      return;
+    }
+    pendingTexturePackSelectId = targetId;
+    send({ type: 'get_texture_pack', packId: targetId });
+    setTexturePackStatus(`Fetching ${String(player && player.texturePackName || 'texture pack')} from the lobby…`);
+  }
+
+  function reloadStructureSprites() {
+    try {
+      STRUCT.ready = false;
+      STRUCT.loaded = 0;
+      STRUCT.imgs.forEach((img, idx) => {
+        if (!img) return;
+        const fallback = STRUCT_IMG_SRC[idx];
+        const primary = resolveLegacyTextureUrl(fallback) || fallback;
+        let triedFallback = false;
+        img.onerror = () => {
+          if (triedFallback || !fallback || primary === fallback) {
+            img.onerror = null;
+            return;
+          }
+          triedFallback = true;
+          img.src = fallback;
+        };
+        img.onload = () => {
+          STRUCT.loaded++;
+          const w = img.naturalWidth || img.width || 1024;
+          STRUCT.tile = Math.max(1, Math.floor(w / 2));
+          STRUCT.ready = true;
+          try { render(); } catch (_) {}
+        };
+        img.src = primary || fallback;
+      });
+    } catch (_) {}
+  }
+
+  function reloadAllTextureAssets() {
+    try { refreshTexturePackUi(); } catch (_) {}
+    try { reloadStructureSprites(); } catch (_) {}
+    try {
+      if (typeof loadImages === 'function') {
+        Promise.resolve(loadImages()).then(() => { try { render(); } catch (_) {} });
+      } else {
+        try { render(); } catch (_) {}
+      }
+    } catch (_) {
+      try { render(); } catch (_) {}
+    }
+  }
+
+  refreshTexturePackUi();
+
 
   // Lobby: track whether the host explicitly changed the VP target so we don't
   // auto-overwrite it when toggling map/scenario.
@@ -1461,7 +2091,7 @@ return;
       return wrap;
     };
 
-    const resIconSrc = (k) => `assets/ports/${k}.png`;
+    const resIconSrc = (k) => getTextureAssetUrl(`Ports/${k}.png`);
 
     const resTurnCard = (pid, turn) => {
       const bt = deltas[pid] || {};
@@ -2181,7 +2811,7 @@ function syncPostgameToState() {
     loaded: 0,
   };
 
-  const STRUCT_IMG_SRC = ['tokens_red.png', 'tokens_blue.png', 'tokens_green.png', 'tokens_yellow.png', 'tokens_purple.png', 'tokens_teal.png', 'tokens_white.png', 'tokens_orange.png'];
+  const STRUCT_IMG_SRC = ['texture%20pack/Tokens/tokens_red.png', 'texture%20pack/Tokens/tokens_blue.png', 'texture%20pack/Tokens/tokens_green.png', 'texture%20pack/Tokens/tokens_yellow.png', 'texture%20pack/Tokens/tokens_purple.png', 'texture%20pack/Tokens/tokens_teal.png', 'texture%20pack/Tokens/tokens_white.png', 'texture%20pack/Tokens/tokens_orange.png'];
 
   const STRUCT_CELL = {
     settlement: { r: 0, c: 0 },
@@ -2192,7 +2822,7 @@ function syncPostgameToState() {
 
   try {
     STRUCT.imgs.forEach((img, idx) => {
-      img.src = STRUCT_IMG_SRC[idx];
+      setTextureImageElementSrc(img, STRUCT_IMG_SRC[idx]);
       img.onload = () => {
         STRUCT.loaded++;
         const w = img.naturalWidth || img.width || 1024;
@@ -3394,51 +4024,51 @@ function syncPostgameToState() {
 
   const images = {};
   const TILE_IMG = {
-    desert: 'assets/Desert.png',
-    field: 'assets/Field.png',
-    forest: 'assets/Forest.png',
-    gold: 'assets/GoldFields.png',
-    hills: 'assets/Hills.png',
-    mountains: 'assets/Mountains.png',
-    pasture: 'assets/Pasture.png',
-    sea: 'assets/Seas.png',
-    unexplored: 'assets/Unexplored.png',
+    desert: 'texture%20pack/Resource%20Hexes/Desert.png',
+    field: 'texture%20pack/Resource%20Hexes/Field.png',
+    forest: 'texture%20pack/Resource%20Hexes/Forest.png',
+    gold: 'texture%20pack/Resource%20Hexes/GoldFields.png',
+    hills: 'texture%20pack/Resource%20Hexes/Hills.png',
+    mountains: 'texture%20pack/Resource%20Hexes/Mountains.png',
+    pasture: 'texture%20pack/Resource%20Hexes/Pasture.png',
+    sea: 'texture%20pack/Resource%20Hexes/Seas.png',
+    unexplored: 'texture%20pack/Resource%20Hexes/Unexplored.png',
   };
 
   const DEV_IMG = {
-    knight: 'assets/devcards/Knight.png',
-    road_building: 'assets/devcards/RoadBuilding.png',
-    invention: 'assets/devcards/Invention.png',
-    monopoly: 'assets/devcards/Monopoly.png',
-    victory_point: 'assets/devcards/VictoryPoint.png',
+    knight: 'texture%20pack/Dev%20Cards/Knight.png',
+    road_building: 'texture%20pack/Dev%20Cards/RoadBuilding.png',
+    invention: 'texture%20pack/Dev%20Cards/Invention.png',
+    monopoly: 'texture%20pack/Dev%20Cards/Monopoly.png',
+    victory_point: 'texture%20pack/Dev%20Cards/VictoryPoint.png',
   };
 
 
   const NUM_TOKEN_IMG = {
-    2: 'assets/num/2.png',
-    3: 'assets/num/3.png',
-    4: 'assets/num/4.png',
-    5: 'assets/num/5.png',
-    6: 'assets/num/6.png',
-    8: 'assets/num/8.png',
-    9: 'assets/num/9.png',
-    10: 'assets/num/10.png',
-    11: 'assets/num/11.png',
-    12: 'assets/num/12.png',
+    2: 'texture%20pack/Numbers/2.png',
+    3: 'texture%20pack/Numbers/3.png',
+    4: 'texture%20pack/Numbers/4.png',
+    5: 'texture%20pack/Numbers/5.png',
+    6: 'texture%20pack/Numbers/6.png',
+    8: 'texture%20pack/Numbers/8.png',
+    9: 'texture%20pack/Numbers/9.png',
+    10: 'texture%20pack/Numbers/10.png',
+    11: 'texture%20pack/Numbers/11.png',
+    12: 'texture%20pack/Numbers/12.png',
   };
 
   const PORT_IMG = {
-    generic: 'assets/ports/generic.png',
-    brick: 'assets/ports/brick.png',
-    lumber: 'assets/ports/lumber.png',
-    wool: 'assets/ports/wool.png',
-    grain: 'assets/ports/grain.png',
-    ore: 'assets/ports/ore.png',
+    generic: 'texture%20pack/Ports/generic.png',
+    brick: 'texture%20pack/Ports/brick.png',
+    lumber: 'texture%20pack/Ports/lumber.png',
+    wool: 'texture%20pack/Ports/wool.png',
+    grain: 'texture%20pack/Ports/grain.png',
+    ore: 'texture%20pack/Ports/ore.png',
   };
 
   const THIEF_IMG = {
-    robber: 'assets/thief_robber.png',
-    pirate: 'assets/thief_pirate.png',
+    robber: 'texture%20pack/Robber%20Pirate/thief_robber.png',
+    pirate: 'texture%20pack/Robber%20Pirate/thief_pirate.png',
   };
 
 
@@ -4094,6 +4724,7 @@ function refreshLobbyJoinLinkUi() {
         ui.startBtn.classList.toggle('hidden', !isHost);
         setError(null);
         renderLobby();
+        queueTexturePackAnnounce(false);
         send({ type: 'get_state' });
         return;
       }
@@ -4108,6 +4739,32 @@ function refreshLobbyJoinLinkUi() {
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !(myPlayerId && room.hostId === myPlayerId));
         renderLobby();
+        queueTexturePackAnnounce(false);
+        return;
+      }
+
+      if (msg.type === 'texture_pack_payload') {
+        const pack = msg.pack || null;
+        if (!pack) {
+          setError('Texture pack payload was empty.');
+          return;
+        }
+        if (String(pack.id || '') === DEFAULT_TEXTURE_PACK_ID) {
+          pendingTexturePackSelectId = null;
+          void setActiveTexturePackById(DEFAULT_TEXTURE_PACK_ID, { announce: true, forcePublish: false }).catch((err) => {
+            setError(err && err.message ? err.message : 'Failed to switch texture pack.');
+          });
+          return;
+        }
+        void saveTexturePackPayloadLocally(pack, { activate: false, forcePublish: false }).then((record) => {
+          if (!record) throw new Error('Failed to save that texture pack.');
+          pendingTexturePackSelectId = null;
+          if (room && room.code) texturePackRoomPublished[`${room.code}|${record.id}`] = true;
+          return setActiveTexturePackById(record.id, { announce: true, forcePublish: false });
+        }).catch((err) => {
+          pendingTexturePackSelectId = null;
+          setError(err && err.message ? err.message : 'Failed to save that texture pack.');
+        });
         return;
       }
 
@@ -4239,9 +4896,20 @@ function refreshLobbyJoinLinkUi() {
   async function loadImages() {
     const load = (k, src) => new Promise((resolve) => {
       const img = new Image();
+      const fallback = String(src || '');
+      const primary = resolveLegacyTextureUrl(fallback) || fallback;
+      let triedFallback = false;
       img.onload = () => { images[k] = img; resolve(); };
-      img.onerror = () => { images[k] = null; resolve(); };
-      img.src = src;
+      img.onerror = () => {
+        if (!triedFallback && fallback && primary !== fallback) {
+          triedFallback = true;
+          img.src = fallback;
+          return;
+        }
+        images[k] = null;
+        resolve();
+      };
+      img.src = primary || fallback;
     });
     const entries = [
       ...Object.entries(TILE_IMG),
@@ -4251,6 +4919,7 @@ function refreshLobbyJoinLinkUi() {
       ...Object.entries(THIEF_IMG).map(([k, v]) => [`thief_${k}`, v]),
     ];
     await Promise.all(entries.map(([k, src]) => load(k, src)));
+    return true;
   }
   loadImages().then(render);
 
@@ -4613,7 +5282,7 @@ function refreshLobbyJoinLinkUi() {
 
           const img = document.createElement('img');
           img.className = 'logResIcon';
-          img.src = PORT_IMG[k] || `assets/ports/${k}.png`;
+          setTextureImageElementSrcFromRel(img, `Ports/${k}.png`);
           img.alt = k;
           r.appendChild(img);
 
@@ -4870,7 +5539,7 @@ function refreshLobbyJoinLinkUi() {
       const wrap = document.createElement('div');
       const img = document.createElement('img');
       img.className = 'modalImg';
-      img.src = DEV_IMG[ev.cardType] || '';
+      setTextureImageElementSrc(img, DEV_IMG[ev.cardType] || '');
       img.alt = prettyCardName(ev.cardType);
       wrap.appendChild(img);
       openModal({
@@ -4896,6 +5565,7 @@ function refreshLobbyJoinLinkUi() {
   function renderLobby() {
     if (!room) return;
     refreshLobbyJoinLinkUi();
+    refreshTexturePackUi();
 
     const showAllIds = !!(myPlayerId && room.hostId === myPlayerId);
 
@@ -4921,6 +5591,30 @@ function refreshLobbyJoinLinkUi() {
       tag.appendChild(name);
 
       row.appendChild(tag);
+
+      const activePackIdNow = activeTexturePackId();
+      const playerPackId = String((p && p.texturePackId) || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+      const playerPackName = String((p && p.texturePackName) || (playerPackId === DEFAULT_TEXTURE_PACK_ID ? DEFAULT_TEXTURE_PACK_LABEL : 'Custom Pack'));
+      if (p.id !== myPlayerId && playerPackId !== activePackIdNow) {
+        const useBtn = document.createElement('button');
+        useBtn.className = 'btn';
+        useBtn.type = 'button';
+        useBtn.style.padding = '6px 8px';
+        useBtn.style.fontSize = '11px';
+        useBtn.style.whiteSpace = 'nowrap';
+        useBtn.textContent = `Use ${playerPackName}`;
+        useBtn.title = (playerPackId === DEFAULT_TEXTURE_PACK_ID)
+          ? 'Switch back to the default texture pack.'
+          : 'Switch to this player\'s texture pack and save it in this browser.';
+        useBtn.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          void handlePlayerTexturePackChoice(p).catch((err) => {
+            setError(err && err.message ? err.message : 'Failed to switch texture pack.');
+          });
+        });
+        row.appendChild(useBtn);
+      }
 
       if (showAllIds) {
         const right = document.createElement('button');
@@ -6551,7 +7245,7 @@ if (ui.moveShipBtn) {
 
     const RES_KEYS = ['brick','lumber','wool','grain','ore'];
     function resIconSrc(k) {
-      return `assets/ports/${k}.png`;
+      return getTextureAssetUrl(`Ports/${k}.png`);
     }
 
     function makeResCell(k, v) {
@@ -6683,7 +7377,7 @@ if (ui.moveShipBtn) {
 	      lrIcon.style.height = '16px';
 	      lrIcon.style.borderRadius = '6px';
 	      const colIdx2 = playerColorIndex(p.color);
-	      const src = STRUCT_IMG_SRC[colIdx2] || STRUCT_IMG_SRC[0];
+	      const src = resolveLegacyTextureUrl(STRUCT_IMG_SRC[colIdx2] || STRUCT_IMG_SRC[0]);
 	      lrIcon.style.backgroundImage = `url('${src}')`;
 	      lrIcon.style.backgroundSize = '200% 200%';
 	      const pos = tokenBgPosPct('road');
@@ -6735,7 +7429,7 @@ if (ui.moveShipBtn) {
 
         const icon = document.createElement('div');
         icon.className = 'pieceIcon';
-        const src = STRUCT_IMG_SRC[colIdx] || STRUCT_IMG_SRC[0];
+        const src = resolveLegacyTextureUrl(STRUCT_IMG_SRC[colIdx] || STRUCT_IMG_SRC[0]);
         icon.style.backgroundImage = `url('${src}')`;
         icon.style.backgroundSize = '200% 200%';
         const pos = tokenBgPosPct(kind);
@@ -6809,7 +7503,7 @@ if (ui.moveShipBtn) {
 
       const thumb = document.createElement('img');
       thumb.className = 'devThumb';
-      thumb.src = DEV_IMG[card.type] || '';
+      setTextureImageElementSrc(thumb, DEV_IMG[card.type] || '');
       thumb.alt = prettyCardName(card.type);
 
       const text = document.createElement('div');
@@ -7115,7 +7809,7 @@ if (ui.moveShipBtn) {
 
 
   function resIconSrcForTrade(k) {
-    return `assets/ports/${k}.png`;
+    return getTextureAssetUrl(`Ports/${k}.png`);
   }
 
   function openPendingTradeModal(forceOpen = false) {
@@ -9497,6 +10191,60 @@ function handleProductionGoldPrompt() {
       drawColorblindMark(colIdx, x, y, Math.max(12, Math.round(sz * 0.55)), 0);
     }
   }
+
+
+  if (ui.texturePackSelect) {
+    ui.texturePackSelect.addEventListener('change', () => {
+      const targetId = String(ui.texturePackSelect.value || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+      void setActiveTexturePackById(targetId, { announce: true, forcePublish: false }).catch((err) => {
+        setError(err && err.message ? err.message : 'Failed to switch texture pack.');
+      });
+    });
+  }
+
+  if (ui.downloadTexturePackBtn) {
+    ui.downloadTexturePackBtn.addEventListener('click', () => {
+      try {
+        const aEl = document.createElement('a');
+        aEl.href = TEXTURE_PACK_TEMPLATE_URL;
+        aEl.download = 'texture-pack-template.zip';
+        document.body.appendChild(aEl);
+        aEl.click();
+        aEl.remove();
+      } catch (_) {
+        window.open(TEXTURE_PACK_TEMPLATE_URL, '_blank');
+      }
+    });
+  }
+
+  if (ui.uploadTexturePackBtn && ui.texturePackFileInput) {
+    ui.uploadTexturePackBtn.addEventListener('click', () => {
+      try { ui.texturePackFileInput.value = ''; } catch (_) {}
+      ui.texturePackFileInput.click();
+    });
+    ui.texturePackFileInput.addEventListener('change', () => {
+      const file = (ui.texturePackFileInput.files && ui.texturePackFileInput.files[0]) ? ui.texturePackFileInput.files[0] : null;
+      if (!file) return;
+      setTexturePackStatus('Importing texture pack ZIP…');
+      void importTexturePackZipFile(file).catch((err) => {
+        setError(err && err.message ? err.message : 'Failed to import texture pack ZIP.');
+        refreshTexturePackUi();
+      });
+    });
+  }
+
+  if (ui.deleteTexturePackBtn) {
+    ui.deleteTexturePackBtn.addEventListener('click', () => {
+      const active = activeTexturePackMeta();
+      if (!active || !active.id || active.id === DEFAULT_TEXTURE_PACK_ID) return;
+      void deleteLocalTexturePack(active.id).then((ok) => {
+        if (ok) setTexturePackStatus(`Deleted ${active.name}.`);
+      }).catch((err) => {
+        setError(err && err.message ? err.message : 'Failed to delete texture pack.');
+      });
+    });
+  }
+
 
   // initial view centering
   function autoCenterOnce() {

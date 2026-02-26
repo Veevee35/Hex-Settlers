@@ -24,6 +24,7 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
   '.wav': 'audio/wav',
+  '.zip': 'application/zip',
 };
 
 function sendJson(ws, obj) {
@@ -7157,6 +7158,8 @@ function addAIPlayersToRoom(room, targetCount) {
       joinedAt: now(),
       isAI: true,
       aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
+      texturePackId: 'default',
+      texturePackName: 'Default',
     });
   }
 }
@@ -7185,6 +7188,8 @@ function createRoom(hostUserId, hostName) {
       name: safeName,
       color: COLORS[0],
       joinedAt: now(),
+      texturePackId: 'default',
+      texturePackName: 'Default',
     }],
     sockets: new Map(), // playerId -> ws
     game: null,
@@ -7194,6 +7199,7 @@ function createRoom(hostUserId, hostName) {
     chatSeq: 1,
     aiSeq: 1,
     aiDifficulty: 'test',
+    sharedTexturePacks: Object.create(null),
   };
   rooms.set(code, room);
   return room;
@@ -7215,6 +7221,8 @@ function createRematchRoomFrom(prevRoom) {
     color: String(p && p.color || COLORS[0]),
     joinedAt: now(),
     isAI: !!(p && p.isAI),
+    texturePackId: String((p && p.texturePackId) || 'default'),
+    texturePackName: String((p && p.texturePackName) || 'Default'),
   })).filter(p => p.id);
 
   // Ensure host exists in the player list (fallback: first player or a fresh id)
@@ -7224,7 +7232,7 @@ function createRematchRoomFrom(prevRoom) {
       finalHostId = players[0].id;
     }
   } else {
-    players.push({ id: finalHostId, name: 'Host', color: COLORS[0], joinedAt: now() });
+    players.push({ id: finalHostId, name: 'Host', color: COLORS[0], joinedAt: now(), texturePackId: 'default', texturePackName: 'Default' });
   }
 
   const room = {
@@ -7240,6 +7248,7 @@ function createRematchRoomFrom(prevRoom) {
     chatSeq: 1,
     aiSeq: 1,
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'test',
+    sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
   };
   rooms.set(code, room);
   return room;
@@ -7282,7 +7291,7 @@ function joinRoom(code, userId, name) {
   if (room.game && room.game.phase !== 'lobby') return { ok: false, error: 'Game already started.' };
 
   const color = pickAvailableColor(room);
-  room.players.push({ id: pid, name: (desiredName || 'Player').slice(0, 20), color, joinedAt: now() });
+  room.players.push({ id: pid, name: (desiredName || 'Player').slice(0, 20), color, joinedAt: now(), texturePackId: 'default', texturePackName: 'Default' });
   return { ok: true, room, playerId: pid };
 }
 
@@ -7428,7 +7437,7 @@ function roomSnapshot(room) {
   return {
     code: room.code,
     hostId: room.hostId,
-    players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI) })),
+    players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI), texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     gamePhase: room.game ? room.game.phase : 'lobby',
     rules: room.rules || { ...DEFAULT_RULES },
     aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
@@ -7565,6 +7574,7 @@ function safePath(p) {
 const server = http.createServer((req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
+    try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
     if (urlPath === '/') urlPath = '/index.html';
 
     // Block websocket path from static handling
@@ -7741,6 +7751,124 @@ wss.on('connection', (ws) => {
       sendJson(ws, { type: 'player_leaderboard', rows });
       return;
     }
+
+
+if (msg.type === 'set_texture_pack') {
+  const room = ws._roomCode ? rooms.get(ws._roomCode) : null;
+  if (!room || !ws._userId) { sendJson(ws, { type: 'error', error: 'Join a room first.' }); return; }
+  const p = (room.players || []).find(x => x && x.id === ws._userId);
+  if (!p) { sendJson(ws, { type: 'error', error: 'Player not found in room.' }); return; }
+
+  const rawId = String(msg.texturePackId || 'default').trim();
+  const packId = rawId || 'default';
+  let packName = String(msg.texturePackName || '').trim();
+
+  if (packId === 'default') {
+    if (String((p && p.texturePackId) || 'default') === 'default' && String((p && p.texturePackName) || 'Default') === 'Default') {
+      return;
+    }
+    p.texturePackId = 'default';
+    p.texturePackName = 'Default';
+    broadcastRoom(room);
+    return;
+  }
+
+  const store = room.sharedTexturePacks || (room.sharedTexturePacks = Object.create(null));
+  const shared = store[packId];
+  if (!shared) {
+    sendJson(ws, { type: 'error', error: 'Texture pack is not available in this lobby yet.' });
+    return;
+  }
+
+  const nextName = packName || String(shared.name || 'Custom Pack');
+  if (String((p && p.texturePackId) || '') === packId && String((p && p.texturePackName) || '') === nextName) {
+    return;
+  }
+  p.texturePackId = packId;
+  p.texturePackName = nextName;
+  broadcastRoom(room);
+  return;
+}
+
+if (msg.type === 'texture_pack_publish') {
+  const room = ws._roomCode ? rooms.get(ws._roomCode) : null;
+  if (!room || !ws._userId) { sendJson(ws, { type: 'error', error: 'Join a room first.' }); return; }
+
+  const pack = (msg && msg.pack) ? msg.pack : null;
+  const packId = String(pack && pack.id || '').trim();
+  const packNameRaw = String(pack && pack.name || 'Custom Pack').trim();
+  const packName = (packNameRaw || 'Custom Pack').slice(0, 48);
+  const assets = (pack && typeof pack.assets === 'object' && pack.assets) ? pack.assets : null;
+  if (!packId || packId === 'default' || !assets) {
+    sendJson(ws, { type: 'error', error: 'Invalid texture pack payload.' });
+    return;
+  }
+
+  const cleanAssets = Object.create(null);
+  let assetCount = 0;
+  for (const [k, v] of Object.entries(assets)) {
+    const rel = String(k || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
+    const dataUrl = String(v || '').trim();
+    if (!rel || !/\.png$/i.test(rel)) continue;
+    if (!/^data:image\/png;base64,/i.test(dataUrl)) continue;
+    cleanAssets[rel] = dataUrl;
+    assetCount += 1;
+    if (assetCount >= 80) break;
+  }
+
+  if (!assetCount) {
+    sendJson(ws, { type: 'error', error: 'No valid PNGs were found in that texture pack.' });
+    return;
+  }
+
+  const store = room.sharedTexturePacks || (room.sharedTexturePacks = Object.create(null));
+  store[packId] = {
+    id: packId,
+    name: packName,
+    ownerId: ws._userId,
+    createdAt: now(),
+    assets: cleanAssets,
+  };
+
+  const p = (room.players || []).find(x => x && x.id === ws._userId);
+  if (p) {
+    p.texturePackId = packId;
+    p.texturePackName = packName;
+  }
+
+  broadcastRoom(room);
+  return;
+}
+
+if (msg.type === 'get_texture_pack') {
+  const room = ws._roomCode ? rooms.get(ws._roomCode) : null;
+  if (!room || !ws._userId) { sendJson(ws, { type: 'error', error: 'Join a room first.' }); return; }
+
+  const packId = String(msg.packId || '').trim();
+  if (!packId) { sendJson(ws, { type: 'error', error: 'Missing texture pack ID.' }); return; }
+  if (packId === 'default') {
+    sendJson(ws, { type: 'texture_pack_payload', pack: { id: 'default', name: 'Default', assets: {} } });
+    return;
+  }
+
+  const store = room.sharedTexturePacks || (room.sharedTexturePacks = Object.create(null));
+  const shared = store[packId];
+  if (!shared) {
+    sendJson(ws, { type: 'error', error: 'Texture pack not found in this lobby.' });
+    return;
+  }
+
+  sendJson(ws, {
+    type: 'texture_pack_payload',
+    pack: {
+      id: String(shared.id || ''),
+      name: String(shared.name || 'Custom Pack'),
+      ownerId: String(shared.ownerId || ''),
+      assets: shared.assets || {},
+    }
+  });
+  return;
+}
 
 if (msg.type === 'create_room') {
       if (!ws._userId) {
