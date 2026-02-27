@@ -7013,11 +7013,13 @@ function updateTimerInfo() {
     if (ui.pausedOverlay) ui.pausedOverlay.classList.add('hidden');
     return;
   }
+  const phaseKey = String((state && state.phase) || '');
+  const phaseLabel = (phaseKey === 'production-gold') ? 'gold choice' : phaseKey;
   const left = timerSecondsLeft();
   const sec = left == null ? '—' : String(Math.ceil(left));
   ui.timerInfo.classList.remove('hidden');
   const timerHeld = !!(state && state.timerHold && typeof state.timerHold.remainingMs === 'number');
-  ui.timerInfo.textContent = `${(state.paused || timerHeld) ? '⏸' : '⏱'} ${sec}s · ${state.phase}`;
+  ui.timerInfo.textContent = `${(state.paused || timerHeld) ? '⏸' : '⏱'} ${sec}s · ${phaseLabel}`;
 
   // Right-side clock (all players)
   if (ui.countdownClock) {
@@ -7025,18 +7027,23 @@ function updateTimerInfo() {
     const timeEl = ui.countdownClock.querySelector('.clockTime');
     const metaEl = ui.countdownClock.querySelector('.clockMeta');
     if (timeEl) timeEl.textContent = formatClock(left);
-    const who = (state.players || []).find(p => p.id === state.currentPlayerId)?.name || '—';
+    const timedPlayerId = (phaseKey === 'production-gold' && state && state.special && state.special.kind === 'production_gold' && state.special.forPlayerId)
+      ? state.special.forPlayerId
+      : state.currentPlayerId;
+    const who = (state.players || []).find(p => p.id === timedPlayerId)?.name || '—';
     let pairTag = '';
     try {
       const mm = String((state && state.rules && state.rules.mapMode) || '').toLowerCase();
       const is56 = (mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6');
-      if (is56 && state && state.paired && state.paired.stage) {
+      if (is56 && state && state.paired && state.paired.stage && phaseKey === 'main-actions') {
         pairTag = ` · ${state.paired.stage === 'p2' ? 'P2' : 'P1'}`;
       }
     } catch (_) {}
     const timerHeld = !!(state && state.timerHold && typeof state.timerHold.remainingMs === 'number');
-    const timerStatus = state.paused ? 'Paused' : (timerHeld ? 'Trade paused' : 'Turn');
-    const meta = `${timerStatus}: ${who}${pairTag} · ${state.phase}`;
+    const timerStatus = state.paused
+      ? 'Paused'
+      : (timerHeld ? 'Trade paused' : (phaseKey === 'production-gold' ? 'Gold choice' : 'Turn'));
+    const meta = `${timerStatus}: ${who}${pairTag} · ${phaseLabel}`;
     if (metaEl) metaEl.textContent = meta;
   }
 
@@ -8854,7 +8861,9 @@ function handleProductionGoldPrompt() {
   sub.style.opacity = '0.85';
   sub.style.fontSize = '12px';
   sub.style.marginBottom = '10px';
-  if (sp.roll != null) sub.textContent = `Triggered by roll ${sp.roll}.`;
+  sub.textContent = (sp.roll != null)
+    ? `Triggered by roll ${sp.roll}. You have 10 seconds before the game auto-picks.`
+    : 'You have 10 seconds before the game auto-picks.';
   wrap.appendChild(sub);
 
   const picksLabel = document.createElement('div');

@@ -2126,6 +2126,12 @@ function timerSegmentKey(game) {
     const stage = (game.paired && game.paired.enabled) ? String(game.paired.stage || '') : '';
     return `main-actions:${game.currentPlayerId || ''}:${stage}`;
   }
+  // Gold Field production uses the same phase for multiple sequential players.
+  // Include the prompt/player id so each chooser gets a fresh 10-second timer.
+  if (game.phase === 'production-gold') {
+    const sp = game.special || {};
+    return `production-gold:${sp.forPlayerId || ''}:${Number(sp.id || 0)}`;
+  }
   return String(game.phase || '');
 }
 
@@ -2146,6 +2152,8 @@ function phaseDurationMs(game, phase) {
       // In paired 5–6 turns, Player 2 gets their own separate 30s action timer.
       if (isPairedTurnPlayerTwoStage(game)) return 30_000;
       return rules.playTurnMs;
+    case 'production-gold':
+      return 10_000;
     case 'discard':
       return micro;
     case 'robber-move':
@@ -6335,12 +6343,13 @@ if (kind === 'choose_production_gold') {
 
   if (qi < q.length) {
     const next = q[qi] || {};
+    game.phase = 'production-gold';
     sp.queueIndex = qi;
     sp.forPlayerId = next.playerId || null;
     sp.amount = Math.max(1, Math.floor(Number(next.amount || 1)));
     sp.tileIds = Array.isArray(next.tileIds) ? next.tileIds.slice() : [];
     sp.id = (game.discoverySeq = (game.discoverySeq || 1), game.discoverySeq++);
-    game.message = `${playerName(game, sp.forPlayerId)}: Choose ${sp.amount} resource${sp.amount === 1 ? '' : 's'} for Gold Field production (roll ${sp.roll}).`;
+    game.message = `${playerName(game, sp.forPlayerId)} has 10 seconds to choose ${sp.amount} resource${sp.amount === 1 ? '' : 's'} for Gold Field production (roll ${sp.roll}).`;
     return { ok: true };
   }
 
@@ -6405,8 +6414,8 @@ if (kind === 'choose_production_gold') {
       } catch (_) {}
 
       if (game.special && game.special.kind === 'production_gold' && game.special.forPlayerId) {
-        game.phase = 'main-actions';
-        game.message = `${playerName(game, playerId)} rolled ${roll}. ${playerName(game, game.special.forPlayerId)} must choose ${game.special.amount} resource${game.special.amount === 1 ? '' : 's'} from Gold Field production.`;
+        game.phase = 'production-gold';
+        game.message = `${playerName(game, playerId)} rolled ${roll}. ${playerName(game, game.special.forPlayerId)} has 10 seconds to choose ${game.special.amount} resource${game.special.amount === 1 ? '' : 's'} from Gold Field production.`;
       } else {
         game.phase = 'main-actions';
         game.message = `${playerName(game, playerId)} rolled ${roll}. Build or end turn.`;
@@ -8654,6 +8663,29 @@ function handleTimeout(room) {
     }
     syncTimer(game);
     return true;
+  }
+
+  // Auto-resolve timed Gold Field production choices (10s each, outside the roller's turn clock).
+  if (phase === 'production-gold') {
+    const sp = game.special;
+    if (!(sp && sp.kind === 'production_gold' && sp.forPlayerId)) {
+      game.special = null;
+      game.phase = 'main-actions';
+      game.message = `${playerName(game, game.currentPlayerId)} may build or end turn.`;
+      syncTimer(game);
+      return true;
+    }
+
+    const pid = sp.forPlayerId;
+    const amount = Math.max(1, Math.floor(Number(sp.amount || 1)));
+    const choices = [];
+    for (let i = 0; i < amount; i++) choices.push(RESOURCE_KINDS[Math.floor(Math.random() * RESOURCE_KINDS.length)]);
+    const r = applyAction(room, pid, { kind: 'choose_production_gold', choices });
+    if (r && r.ok) {
+      syncTimer(game);
+      return true;
+    }
+    return false;
   }
 
   // Auto roll
