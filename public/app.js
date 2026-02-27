@@ -179,6 +179,17 @@
   const DEFAULT_TEXTURE_ASSET_REL = ["Dev Cards/Invention.png", "Dev Cards/Knight.png", "Dev Cards/Monopoly.png", "Dev Cards/RoadBuilding.png", "Dev Cards/VictoryPoint.png", "Numbers/10.png", "Numbers/11.png", "Numbers/12.png", "Numbers/2.png", "Numbers/3.png", "Numbers/4.png", "Numbers/5.png", "Numbers/6.png", "Numbers/8.png", "Numbers/9.png", "Ports/brick.png", "Ports/generic.png", "Ports/grain.png", "Ports/lumber.png", "Ports/ore.png", "Ports/wool.png", "Resource Hexes/Desert.png", "Resource Hexes/Field.png", "Resource Hexes/Forest.png", "Resource Hexes/GoldFields.png", "Resource Hexes/Hills.png", "Resource Hexes/Mountains.png", "Resource Hexes/Pasture.png", "Resource Hexes/Seas.png", "Resource Hexes/Unexplored.png", "Robber Pirate/thief_pirate.png", "Robber Pirate/thief_robber.png", "Tokens/tokens_blue.png", "Tokens/tokens_green.png", "Tokens/tokens_orange.png", "Tokens/tokens_purple.png", "Tokens/tokens_red.png", "Tokens/tokens_teal.png", "Tokens/tokens_white.png", "Tokens/tokens_yellow.png"];
   const DEFAULT_TEXTURE_ASSET_SET = new Set(DEFAULT_TEXTURE_ASSET_REL);
   const DEFAULT_TEXTURE_PACK_LABEL = 'Default';
+  const BUILTIN_TEXTURE_PACKS = [
+    {
+      id: 'simplified',
+      name: 'Simplified',
+      basePath: '/texture%20pack%20simplified',
+      assets: DEFAULT_TEXTURE_ASSET_REL.slice(),
+      deletable: false,
+      builtIn: true,
+      savedAt: 0,
+    },
+  ];
   let pendingTexturePackSelectId = null;
   const texturePackRoomPublished = Object.create(null);
   const texturePackSessionUrls = Object.create(null);
@@ -186,6 +197,34 @@
 
   function texturePackMetaDefaults() {
     return { activeId: DEFAULT_TEXTURE_PACK_ID, packs: [] };
+  }
+
+  function listBuiltInTexturePacks() {
+    return BUILTIN_TEXTURE_PACKS.map((p) => ({
+      id: p.id,
+      name: p.name,
+      basePath: p.basePath,
+      assets: Array.isArray(p.assets) ? p.assets.slice() : DEFAULT_TEXTURE_ASSET_REL.slice(),
+      deletable: false,
+      builtIn: true,
+      savedAt: 0,
+    }));
+  }
+
+  function getBuiltInTexturePackMeta(packId) {
+    const id = String(packId || '').trim();
+    if (!id) return null;
+    const found = BUILTIN_TEXTURE_PACKS.find((p) => p && p.id === id);
+    if (!found) return null;
+    return {
+      id: found.id,
+      name: found.name,
+      basePath: found.basePath,
+      assets: Array.isArray(found.assets) ? found.assets.slice() : DEFAULT_TEXTURE_ASSET_REL.slice(),
+      deletable: false,
+      builtIn: true,
+      savedAt: 0,
+    };
   }
 
   function readTexturePackMetaState() {
@@ -210,7 +249,7 @@
       });
     }
     let activeId = String(parsed && parsed.activeId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
-    if (activeId !== DEFAULT_TEXTURE_PACK_ID && !packs.some(p => p.id === activeId)) activeId = DEFAULT_TEXTURE_PACK_ID;
+    if (activeId !== DEFAULT_TEXTURE_PACK_ID && !getBuiltInTexturePackMeta(activeId) && !packs.some(p => p.id === activeId)) activeId = DEFAULT_TEXTURE_PACK_ID;
     return { activeId, packs };
   }
 
@@ -228,6 +267,7 @@
 
   function listLocalTexturePacks() {
     const rows = [{ id: DEFAULT_TEXTURE_PACK_ID, name: DEFAULT_TEXTURE_PACK_LABEL, assets: DEFAULT_TEXTURE_ASSET_REL.slice(), deletable: false, savedAt: 0 }];
+    for (const p of listBuiltInTexturePacks()) rows.push(p);
     for (const p of (texturePackMetaState.packs || [])) rows.push(p);
     return rows;
   }
@@ -235,6 +275,8 @@
   function getLocalTexturePackMeta(packId) {
     const id = String(packId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
     if (id === DEFAULT_TEXTURE_PACK_ID) return { id: DEFAULT_TEXTURE_PACK_ID, name: DEFAULT_TEXTURE_PACK_LABEL, assets: DEFAULT_TEXTURE_ASSET_REL.slice(), deletable: false };
+    const builtIn = getBuiltInTexturePackMeta(id);
+    if (builtIn) return builtIn;
     return (texturePackMetaState.packs || []).find(p => p && p.id === id) || null;
   }
 
@@ -271,10 +313,15 @@
     return parts.join('/');
   }
 
-  function defaultTexturePackUrl(rel) {
+  function texturePackUrlFromBase(basePath, rel) {
     const norm = normalizeTextureAssetRelPath(rel);
     if (!norm) return '';
-    return `/texture%20pack/${norm.split('/').map(seg => encodeURIComponent(seg)).join('/')}`;
+    const base = String(basePath || '/texture%20pack').replace(/\/+$/, '');
+    return `${base}/${norm.split('/').map(seg => encodeURIComponent(seg)).join('/')}`;
+  }
+
+  function defaultTexturePackUrl(rel) {
+    return texturePackUrlFromBase('/texture%20pack', rel);
   }
 
   function textureRelFromLegacyUrl(src) {
@@ -302,9 +349,9 @@
     if (!norm) return '';
     const active = activeTexturePackMeta();
     if (active && active.id && active.id !== DEFAULT_TEXTURE_PACK_ID && Array.isArray(active.assets) && active.assets.includes(norm)) {
+      if (active.basePath) return texturePackUrlFromBase(active.basePath, norm);
       const sessionMap = texturePackSessionUrls[active.id];
       if (sessionMap && sessionMap[norm]) return sessionMap[norm];
-      return userTextureCacheUrl(active.id, norm);
     }
     return defaultTexturePackUrl(norm);
   }
@@ -515,7 +562,7 @@
     const id = String(packId || '').trim();
     if (!id || id === DEFAULT_TEXTURE_PACK_ID) return false;
     const meta = getLocalTexturePackMeta(id);
-    if (!meta) return false;
+    if (!meta || !meta.deletable) return false;
     try { await deleteTexturePackCacheEntries(id, meta.assets || []); } catch (_) {}
     revokeTexturePackSessionUrls(id);
     texturePackMetaState.packs = (texturePackMetaState.packs || []).filter(p => p && p.id !== id);
@@ -529,7 +576,7 @@
 
   async function buildTexturePackPublishPayload(packId) {
     const meta = getLocalTexturePackMeta(packId);
-    if (!meta || !meta.id || meta.id === DEFAULT_TEXTURE_PACK_ID) return null;
+    if (!meta || !meta.id || meta.id === DEFAULT_TEXTURE_PACK_ID || meta.basePath) return null;
     const cache = await openTexturePackBrowserCache();
     const assets = {};
     for (const rel of (meta.assets || [])) {
@@ -564,10 +611,14 @@
 
     const roomKey = `${room.code}|${active.id}`;
     if (forcePublish || !texturePackRoomPublished[roomKey]) {
-      const payload = await buildTexturePackPublishPayload(active.id);
-      if (payload) {
-        send({ type: 'texture_pack_publish', pack: payload });
+      if (active.basePath) {
         texturePackRoomPublished[roomKey] = true;
+      } else {
+        const payload = await buildTexturePackPublishPayload(active.id);
+        if (payload) {
+          send({ type: 'texture_pack_publish', pack: payload });
+          texturePackRoomPublished[roomKey] = true;
+        }
       }
     }
 
@@ -602,23 +653,30 @@
     const count = (active && Array.isArray(active.assets)) ? active.assets.length : DEFAULT_TEXTURE_ASSET_REL.length;
     setTexturePackStatus(
       active && active.id !== DEFAULT_TEXTURE_PACK_ID
-        ? `Active: ${active.name} — ${count}/${DEFAULT_TEXTURE_ASSET_REL.length} PNGs saved locally. Missing icons fall back to default.`
+        ? (active.deletable
+            ? `Active: ${active.name} — ${count}/${DEFAULT_TEXTURE_ASSET_REL.length} PNGs saved locally. Missing icons fall back to default.`
+            : `Active: ${active.name} — built-in pack. Your last selection is saved locally and reloads automatically.`)
         : 'Active: Default — always available and cannot be deleted.'
     );
 
     if (ui.deleteTexturePackBtn) {
-      const canDelete = !!(active && active.id && active.id !== DEFAULT_TEXTURE_PACK_ID);
+      const canDelete = !!(active && active.deletable);
       ui.deleteTexturePackBtn.disabled = !canDelete;
-      ui.deleteTexturePackBtn.title = canDelete ? 'Delete the currently selected custom texture pack from this browser.' : 'The default texture pack cannot be deleted.';
+      ui.deleteTexturePackBtn.title = canDelete
+        ? 'Delete the currently selected custom texture pack from this browser.'
+        : (active && active.id && active.id !== DEFAULT_TEXTURE_PACK_ID
+            ? 'Built-in texture packs cannot be deleted.'
+            : 'The default texture pack cannot be deleted.');
     }
   }
 
   async function setActiveTexturePackById(packId, options = {}) {
     const target = String(packId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
-    if (target !== DEFAULT_TEXTURE_PACK_ID && !getLocalTexturePackMeta(target)) throw new Error('That texture pack is not saved in this browser.');
+    const targetMeta = target === DEFAULT_TEXTURE_PACK_ID ? getLocalTexturePackMeta(DEFAULT_TEXTURE_PACK_ID) : getLocalTexturePackMeta(target);
+    if (target !== DEFAULT_TEXTURE_PACK_ID && !targetMeta) throw new Error('That texture pack is not saved in this browser.');
     texturePackMetaState.activeId = target;
     writeTexturePackMetaState();
-    if (target !== DEFAULT_TEXTURE_PACK_ID) {
+    if (target !== DEFAULT_TEXTURE_PACK_ID && targetMeta && targetMeta.deletable) {
       try { await hydrateTexturePackSessionUrls(target); } catch (_) {}
     }
     refreshTexturePackUi();
@@ -792,6 +850,11 @@
   }
 
   refreshTexturePackUi();
+  if (activeTexturePackId() !== DEFAULT_TEXTURE_PACK_ID) {
+    setTimeout(() => {
+      void setActiveTexturePackById(activeTexturePackId(), { announce: false, forcePublish: false }).catch(() => {});
+    }, 0);
+  }
 
 
   // Lobby: track whether the host explicitly changed the VP target so we don't
