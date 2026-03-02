@@ -10,4 +10,3 @@ Important licensing detail:
   - one-step lookahead over candidate actions (builds, trades, dev buy)
 
 If you want to directly embed / run actual Catanatron code inside Hex Settlers, you should review GPLv3 obligations first.
- 

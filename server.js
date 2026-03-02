@@ -1764,6 +1764,27 @@ function grantFromBankStats(game, playerId, res, kind, n, source) {
   return g;
 }
 
+function randomGoldChoicesFromBank(game, amount) {
+  ensureBank(game);
+  const want = Math.max(1, Math.floor(Number(amount || 1)));
+  const pool = [];
+  for (const kind of RESOURCE_KINDS) {
+    const avail = Math.max(0, Math.floor(Number(game?.bank?.[kind] || 0)));
+    for (let i = 0; i < avail; i++) pool.push(kind);
+  }
+  const picks = [];
+  for (let i = 0; i < want; i++) {
+    if (pool.length > 0) {
+      const idx = Math.floor(Math.random() * pool.length);
+      picks.push(pool[idx]);
+      pool.splice(idx, 1);
+    } else {
+      picks.push(RESOURCE_KINDS[Math.floor(Math.random() * RESOURCE_KINDS.length)]);
+    }
+  }
+  return picks;
+}
+
 
 function emptyDiceStats() {
   const ds = {};
@@ -2793,14 +2814,18 @@ function edgeIsBoundaryAfterOuterSeaTrim(state, edgeId) {
 function edgeTouchesLandAfterOuterSeaTrim(state, edgeId) {
   const adj = edgeAdjTilesAfterOuterSeaTrim(state, edgeId);
   if (!adj.length) return false;
-  if (adj.length === 1) return true; // allow roads on all outer boundary edges after trimming
-  return adj.some(tid => (state.geom.tiles?.[tid]?.type || '') !== 'sea');
+  if (adj.length === 1) return String(state.geom.tiles?.[adj[0]]?.type || '').toLowerCase() !== 'sea';
+  return adj.some(tid => String(state.geom.tiles?.[tid]?.type || '').toLowerCase() !== 'sea');
 }
 function edgeTouchesSeaAfterOuterSeaTrim(state, edgeId) {
+  const rawAdj = Array.isArray(state?.geom?.edgeAdjTiles?.[edgeId]) ? state.geom.edgeAdjTiles[edgeId] : [];
   const adj = edgeAdjTilesAfterOuterSeaTrim(state, edgeId);
   if (!adj.length) return false;
-  if (adj.length === 1) return true; // allow ships on all outer boundary edges after trimming
-  return adj.some(tid => (state.geom.tiles?.[tid]?.type || '') === 'sea');
+  if (adj.length === 1) {
+    if (String(state.geom.tiles?.[adj[0]]?.type || '').toLowerCase() === 'sea') return true;
+    return rawAdj.some(tid => !adj.includes(tid) && String(state.geom.tiles?.[tid]?.type || '').toLowerCase() === 'sea');
+  }
+  return adj.some(tid => String(state.geom.tiles?.[tid]?.type || '').toLowerCase() === 'sea');
 }
 function isEdgeOnBoard(state, edgeId) {
   if (!(edgeId >= 0 && edgeId < state.geom.edges.length)) return false;
@@ -8678,8 +8703,7 @@ function handleTimeout(room) {
 
     const pid = sp.forPlayerId;
     const amount = Math.max(1, Math.floor(Number(sp.amount || 1)));
-    const choices = [];
-    for (let i = 0; i < amount; i++) choices.push(RESOURCE_KINDS[Math.floor(Math.random() * RESOURCE_KINDS.length)]);
+    const choices = randomGoldChoicesFromBank(game, amount);
     const r = applyAction(room, pid, { kind: 'choose_production_gold', choices });
     if (r && r.ok) {
       syncTimer(game);
@@ -9357,8 +9381,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
         if (r && r.ok) { delay(140, 260); return true; }
       } else if (game.special.kind === 'production_gold') {
         const amount = Math.max(1, Math.floor(Number(game.special.amount || 1)));
-        const choices = [];
-        for (let i = 0; i < amount; i++) choices.push(RESOURCE_KINDS[Math.floor(Math.random() * RESOURCE_KINDS.length)]);
+        const choices = randomGoldChoicesFromBank(game, amount);
         const r = applyAction(room, pid, { kind: 'choose_production_gold', choices });
         if (r && r.ok) { delay(140, 260); return true; }
       }
