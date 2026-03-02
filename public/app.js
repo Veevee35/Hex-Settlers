@@ -767,8 +767,7 @@
         };
         img.onload = () => {
           STRUCT.loaded++;
-          const w = img.naturalWidth || img.width || 1024;
-          STRUCT.tile = Math.max(1, Math.floor(w / 2));
+          STRUCT.tile = structTileSizeForImage(img);
           STRUCT.ready = true;
           try { render(); } catch (_) {}
         };
@@ -2821,13 +2820,19 @@ function syncPostgameToState() {
     ship: { r: 1, c: 1 },
   };
 
+  function structTileSizeForImage(img) {
+    const w = Number(img?.naturalWidth || img?.width || 0);
+    const h = Number(img?.naturalHeight || img?.height || 0);
+    const side = Math.max(w, h) > 0 ? Math.min(w || h, h || w) : (STRUCT.tile || 1024);
+    return Math.max(1, Math.floor(side / 2));
+  }
+
   try {
     STRUCT.imgs.forEach((img, idx) => {
       setTextureImageElementSrc(img, STRUCT_IMG_SRC[idx]);
       img.onload = () => {
         STRUCT.loaded++;
-        const w = img.naturalWidth || img.width || 1024;
-        STRUCT.tile = Math.max(1, Math.floor(w / 2)); // 2x2 grid
+        STRUCT.tile = structTileSizeForImage(img); // remember a sane default, but draw uses per-image size
         STRUCT.ready = true; // at least one sprite loaded
         try { render(); } catch (_) {}
       };
@@ -10182,7 +10187,7 @@ function handleProductionGoldPrompt() {
     const img = pickStructImg(colorIdx);
     if (!img) return false;
 
-    const t = STRUCT.tile;
+    const t = structTileSizeForImage(img);
     const cell = STRUCT_CELL[kind] || STRUCT_CELL.settlement;
     const sx = cell.c * t;
     const sy = cell.r * t;
