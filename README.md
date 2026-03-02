@@ -37,6 +37,25 @@ Use a tunneling tool like `ngrok` or `cloudflared`:
 Deploy this folder to any Node hosting provider (Render, Fly.io, Railway, etc.)
 - It’s a single Node server serving static files + WebSocket.
 
+## Electron desktop release deployment
+This repo now includes an Electron wrapper that opens the hosted Railway game URL:
+- `https://hexsettlers.up.railway.app/`
+
+### Build locally
+```bash
+npm install
+npm run electron:dist -- --linux AppImage
+```
+(Use `--win nsis` or `--mac dmg` on those platforms.)
+
+### Automated release deploy (GitHub Actions)
+Tag a version and push it:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+The workflow `.github/workflows/electron-release.yml` builds Linux/Windows/macOS installers and publishes them to the GitHub Release for that tag.
+
 ## How to start a game
 1) One player clicks **Create Lobby**, then shares the 4‑letter room code.
 2) Friends click **Join Lobby** and enter the code.

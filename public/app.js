@@ -93,6 +93,7 @@
     chatBtn: $('chatBtn'),
     audioBtn: $('audioBtn'),
     colorblindBtn: $('colorblindBtn'),
+    leaveGameBtn: $('leaveGameBtn'),
     endGameVoteBtn: $('endGameVoteBtn'),
     idsBtn: $('idsBtn'),
     resourcesCard: $('resourcesCard'),
@@ -3930,6 +3931,36 @@ function syncPostgameToState() {
   let myPlayerId = null;
   let room = null;
   let state = null;
+
+  function roomPlayersList() {
+    return (room && Array.isArray(room.players)) ? room.players : [];
+  }
+
+  function roomSpectatorsList() {
+    return (room && Array.isArray(room.spectators)) ? room.spectators : [];
+  }
+
+  function amRoomSpectator() {
+    if (!room || !myPlayerId) return false;
+    return roomSpectatorsList().some(p => p && p.id === myPlayerId);
+  }
+
+  function handleLocalRoomExit(reason) {
+    room = null;
+    state = { phase: 'lobby' };
+    isHost = false;
+    myPlayerId = null;
+    try { setLocalPanelLayoutOwnerKey(null); } catch (_) {}
+    try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+    if (ui.rejoinIdInput) ui.rejoinIdInput.value = '';
+    if (ui.roomBox) ui.roomBox.classList.add('hidden');
+    refreshLobbyJoinLinkUi();
+    updateAuthUi();
+    updateButtons();
+    renderLobby();
+    setError(reason || 'You left the room.');
+  }
+
   let isHost = false;
   let lastEventIdSeen = 0;
   let serverTimeOffsetMs = 0;
@@ -4805,6 +4836,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'room') {
         room = msg.room;
+        isHost = !!(myPlayerId && room && room.hostId === myPlayerId);
         if (modalType !== 'playerTradeCompose') playerTradeTimerPauseRequested = false;
         ui.roomBox.classList.remove('hidden');
         ui.roomCode.textContent = room.code;
@@ -4814,6 +4846,28 @@ function refreshLobbyJoinLinkUi() {
         ui.startBtn.classList.toggle('hidden', !(myPlayerId && room.hostId === myPlayerId));
         renderLobby();
         queueTexturePackAnnounce(false);
+        return;
+      }
+
+      if (msg.type === 'left_room') {
+        handleLocalRoomExit(msg.reason || (msg.kicked ? 'You were removed from the room.' : 'You left the room.'));
+        return;
+      }
+
+      if (msg.type === 'leave_game_request') {
+        openLeaveGameRequestPrompt(msg.playerId, msg.playerName);
+        return;
+      }
+
+      if (msg.type === 'leave_game_result') {
+        const body = document.createElement('div');
+        body.className = 'modalText';
+        body.textContent = msg.message || (msg.accepted ? 'Leave-game request approved.' : 'Leave-game request declined.');
+        openModal({
+          title: (msg.accepted === true) ? 'Now Spectating' : ((msg.accepted === false) ? 'Leave Game Declined' : 'Leave Game'),
+          bodyNode: body,
+          actions: [{ label: 'OK', primary: true, onClick: closeModal }]
+        });
         return;
       }
 
@@ -5636,17 +5690,119 @@ function refreshLobbyJoinLinkUi() {
   }
 
   // Lobby UI
+  function openLeaveRoomConfirm() {
+    if (!room || !myPlayerId) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'modalText';
+    wrap.textContent = 'Leave this room? You can rejoin later if the room is still open.';
+    openModal({
+      title: 'Leave Room',
+      bodyNode: wrap,
+      actions: [
+        { label: 'Cancel', onClick: closeModal },
+        {
+          label: 'Leave Room',
+          primary: true,
+          onClick: () => {
+            closeModal();
+            send({ type: 'leave_room' });
+          }
+        }
+      ]
+    });
+  }
+
+  function openLeaveGameConfirm() {
+    if (!room || !state || state.phase === 'lobby' || !myPlayerId) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'modalText';
+    wrap.textContent = 'Leave the active game and become a spectator? The host must approve before you are removed from turn order.';
+    openModal({
+      title: 'Leave Game',
+      bodyNode: wrap,
+      actions: [
+        { label: 'Cancel', onClick: closeModal },
+        {
+          label: 'Request Leave',
+          primary: true,
+          onClick: () => {
+            closeModal();
+            send({ type: 'request_leave_game' });
+          }
+        }
+      ]
+    });
+  }
+
+  function openKickPlayerConfirm(playerId, playerName) {
+    if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
+    const targetId = String(playerId || '').trim();
+    if (!targetId || targetId === room.hostId) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'modalText';
+    wrap.textContent = `Remove ${playerName || 'this player'} from the room?`;
+    openModal({
+      title: 'Kick Player',
+      bodyNode: wrap,
+      actions: [
+        { label: 'Cancel', onClick: closeModal },
+        {
+          label: 'Kick Player',
+          primary: true,
+          onClick: () => {
+            closeModal();
+            send({ type: 'kick_player', playerId: targetId });
+          }
+        }
+      ]
+    });
+  }
+
+  function openLeaveGameRequestPrompt(playerId, playerName) {
+    const targetId = String(playerId || '').trim();
+    if (!targetId) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'modalText';
+    wrap.textContent = `${playerName || 'A player'} wants to leave the active game and become a spectator. Approve this request?`;
+    openModal({
+      title: 'Leave Game Request',
+      bodyNode: wrap,
+      actions: [
+        {
+          label: 'Reject',
+          onClick: () => {
+            closeModal();
+            send({ type: 'respond_leave_game', playerId: targetId, accepted: false });
+          }
+        },
+        {
+          label: 'Approve',
+          primary: true,
+          onClick: () => {
+            closeModal();
+            send({ type: 'respond_leave_game', playerId: targetId, accepted: true });
+          }
+        }
+      ]
+    });
+  }
+
   function renderLobby() {
-    if (!room) return;
     refreshLobbyJoinLinkUi();
     refreshTexturePackUi();
 
-    const showAllIds = !!(myPlayerId && room.hostId === myPlayerId);
-
     if (ui.myAccountLabel) ui.myAccountLabel.textContent = authUser ? `${authUser.username} (${authUser.displayName || authUser.username})` : '—';
+    if (!ui.playersList) return;
 
     ui.playersList.innerHTML = '';
-    for (const p of room.players) {
+    if (!room) return;
+
+    const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
+    const amHost = !!(myPlayerId && room.hostId === myPlayerId);
+    const activePackIdNow = activeTexturePackId();
+
+    function appendMemberRow(p, roleLabel) {
+      if (!p) return;
       const row = document.createElement('div');
       row.className = 'playerRow';
 
@@ -5658,15 +5814,21 @@ function refreshLobbyJoinLinkUi() {
       const name = document.createElement('div');
       let label = p.name;
       if (p.isAI) label += ' (AI)';
+      if (roleLabel === 'spectator') label += ' (spectator)';
       if (p.id === room.hostId) label += ' (host)';
       if (p.id === myPlayerId) label += ' (you)';
       name.textContent = label;
       tag.appendChild(badge);
       tag.appendChild(name);
-
       row.appendChild(tag);
 
-      const activePackIdNow = activeTexturePackId();
+      const controls = document.createElement('div');
+      controls.style.display = 'flex';
+      controls.style.alignItems = 'center';
+      controls.style.gap = '8px';
+      controls.style.flexWrap = 'wrap';
+      controls.style.justifyContent = 'flex-end';
+
       const playerPackId = String((p && p.texturePackId) || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
       const playerPackName = String((p && p.texturePackName) || (playerPackId === DEFAULT_TEXTURE_PACK_ID ? DEFAULT_TEXTURE_PACK_LABEL : 'Custom Pack'));
       if (p.id !== myPlayerId && playerPackId !== activePackIdNow) {
@@ -5687,33 +5849,79 @@ function refreshLobbyJoinLinkUi() {
             setError(err && err.message ? err.message : 'Failed to switch texture pack.');
           });
         });
-        row.appendChild(useBtn);
+        controls.appendChild(useBtn);
       }
 
-      if (showAllIds) {
-        const right = document.createElement('button');
-        right.className = 'btn';
-        right.style.padding = '6px 8px';
-        right.style.fontSize = '11px';
-        right.style.fontFamily = 'ui-monospace, monospace';
-        right.style.color = '#93a4b8';
-        right.style.background = 'rgba(0,0,0,.10)';
-        right.style.cursor = 'pointer';
-        right.style.whiteSpace = 'nowrap';
-        const short = (p.id.length > 16) ? `${p.id.slice(0, 8)}…${p.id.slice(-4)}` : p.id;
-        right.textContent = short;
-        right.title = 'Click to copy full player ID';
-        right.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          copyText(p.id);
-        });
-        row.appendChild(right);
+      if (p.id === myPlayerId) {
+        if (!gameStartedNow || roleLabel === 'spectator') {
+          if (p.id !== room.hostId) {
+            const leaveBtn = document.createElement('button');
+            leaveBtn.className = 'btn';
+            leaveBtn.type = 'button';
+            leaveBtn.style.padding = '6px 8px';
+            leaveBtn.style.fontSize = '11px';
+            leaveBtn.textContent = 'Leave Room';
+            leaveBtn.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              openLeaveRoomConfirm();
+            });
+            controls.appendChild(leaveBtn);
+          }
+        }
+
+        if (!gameStartedNow) {
+          const spectBtn = document.createElement('button');
+          spectBtn.className = 'btn';
+          spectBtn.type = 'button';
+          spectBtn.style.padding = '6px 8px';
+          spectBtn.style.fontSize = '11px';
+          spectBtn.textContent = (roleLabel === 'spectator') ? 'Join Game' : 'Spectator Mode';
+          if (p.id === room.hostId) {
+            spectBtn.disabled = true;
+            spectBtn.title = 'The host must remain an active player.';
+          }
+          spectBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (p.id === room.hostId) return;
+            send({ type: 'set_spectator_mode', enabled: roleLabel !== 'spectator' });
+          });
+          controls.appendChild(spectBtn);
+        }
+      } else if (amHost && !p.isAI && p.id !== room.hostId) {
+        const canKick = !gameStartedNow || roleLabel === 'spectator';
+        if (canKick) {
+          const kickBtn = document.createElement('button');
+          kickBtn.className = 'btn';
+          kickBtn.type = 'button';
+          kickBtn.style.padding = '6px 8px';
+          kickBtn.style.fontSize = '11px';
+          kickBtn.textContent = 'Kick Player';
+          kickBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            openKickPlayerConfirm(p.id, p.name || 'this player');
+          });
+          controls.appendChild(kickBtn);
+        }
       }
 
+      if (controls.childNodes.length) row.appendChild(controls);
       ui.playersList.appendChild(row);
     }
 
+    for (const p of roomPlayersList()) appendMemberRow(p, 'player');
+
+    const spectators = roomSpectatorsList();
+    if (spectators.length) {
+      const label = document.createElement('div');
+      label.className = 'smallNote';
+      label.style.marginTop = '2px';
+      label.textContent = 'Spectators';
+      ui.playersList.appendChild(label);
+      for (const p of spectators) appendMemberRow(p, 'spectator');
+    }
     // AI fill controls (host-only, lobby only)
     try {
       const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
@@ -6192,6 +6400,7 @@ if (ui.copyMyIdBtn) {
     updateColorblindUi();
     ui.colorblindBtn.addEventListener('click', () => setColorblindMode(!colorblindMode));
   }
+  if (ui.leaveGameBtn) ui.leaveGameBtn.addEventListener('click', () => openLeaveGameConfirm());
   if (ui.endGameVoteBtn) ui.endGameVoteBtn.addEventListener('click', () => {
     const inGame = !!(state && state.phase && state.phase !== 'lobby');
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
@@ -6244,6 +6453,10 @@ if (ui.copyMyIdBtn) {
 
   function sendGameAction(action) {
     if (!action) return;
+    if (amRoomSpectator()) {
+      setError('Spectators cannot take game actions.');
+      return;
+    }
     if (state && state.paused) {
       setError('Game is paused.');
       return;
@@ -7141,13 +7354,14 @@ function ensureTimerUiInterval() {
 
   function updateButtons() {
     const inGame = !!state && state.phase !== 'lobby';
+    const amSpectator = inGame && amRoomSpectator();
 
     // Hide in-game HUD cards during lobby.
     if (ui.turnCard) ui.turnCard.classList.toggle('hidden', !inGame);
     if (ui.devCard) ui.devCard.classList.toggle('hidden', !inGame);
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
-    const myTurn = inGame && state.currentPlayerId === myPlayerId;
+    const myTurn = inGame && !amSpectator && state.currentPlayerId === myPlayerId;
 
     // Global page state + HUD docking.
     try { document.body.classList.toggle('in-game', inGame); } catch (_) {}
@@ -7189,6 +7403,11 @@ function ensureTimerUiInterval() {
       ui.colorblindBtn.classList.toggle('hidden', !inGame);
       ui.colorblindBtn.disabled = !inGame;
     }
+    if (ui.leaveGameBtn) {
+      const canRequestLeaveGame = !!(inGame && !amSpectator && myPlayerId && room && room.hostId !== myPlayerId);
+      ui.leaveGameBtn.classList.toggle('hidden', !canRequestLeaveGame);
+      ui.leaveGameBtn.disabled = !canRequestLeaveGame;
+    }
 
     // Host-only end-game vote
     if (ui.endGameVoteBtn) {
@@ -7215,12 +7434,16 @@ function ensureTimerUiInterval() {
       setMode(null);
       // still render resources + dev hand (view-only)
       if (!inGame) {
-        ui.turnInfo.textContent = room ? 'In lobby. Host can start when ready.' : 'Create or join a lobby.';
+        ui.turnInfo.textContent = room
+        ? (amRoomSpectator() ? 'In lobby as a spectator.' : 'In lobby. Host can start when ready.')
+        : 'Create or join a lobby.';
         ui.resourcesBox.textContent = '—';
         ui.devHand.textContent = '—';
         return;
       }
-      ui.turnInfo.textContent = state.message || '—';
+      ui.turnInfo.textContent = amSpectator
+        ? (state.message ? `Spectating · ${state.message}` : 'Spectating this room.')
+        : (state.message || '—');
       renderResources();
       renderDevCards();
       if (ui.devRemaining) {
@@ -7303,13 +7526,17 @@ if (ui.moveShipBtn) {
 
     // Turn info + resources
     if (!inGame) {
-      ui.turnInfo.textContent = room ? 'In lobby. Host can start when ready.' : 'Create or join a lobby.';
+      ui.turnInfo.textContent = room
+        ? (amRoomSpectator() ? 'In lobby as a spectator.' : 'In lobby. Host can start when ready.')
+        : 'Create or join a lobby.';
       ui.resourcesBox.textContent = '—';
       ui.devHand.textContent = '—';
       if (ui.devRemaining) ui.devRemaining.textContent = 'Dev deck: —';
       return;
     }
-    ui.turnInfo.textContent = state.message || '—';
+    ui.turnInfo.textContent = amSpectator
+      ? (state.message ? `Spectating · ${state.message}` : 'Spectating this room.')
+      : (state.message || '—');
     renderResources();
     renderDevCards();
     if (ui.devRemaining) {

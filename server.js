@@ -5234,7 +5234,7 @@ function pushChat(room, fromId, text) {
   if (!room) return null;
   room.chat = room.chat || [];
   room.chatSeq = room.chatSeq || 1;
-  const from = room.players.find(p => p.id === fromId);
+  const from = findRoomMember(room, fromId);
   const msg = { id: room.chatSeq++, ts: now(), fromId, from: from ? from.name : 'Player', text: sanitizeChatText(text) };
   if (!msg.text) return null;
   room.chat.push(msg);
@@ -5678,6 +5678,8 @@ function applyAction(room, playerId, action) {
 
   const kind = action && action.kind;
   if (!kind) return { ok: false, error: 'Invalid action.' };
+
+  if (!playerById(game, playerId)) return { ok: false, error: 'Spectators cannot take game actions.' };
 
   // Only current player may act (except trade responses and simultaneous discard selections)
   const outOfTurnOk =
@@ -7154,7 +7156,7 @@ if (kind === 'pirate_steal') {
         ? 'classic56'
         : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
 
-      if (mm === 'classic56' || (mm === 'seafarers' && isSeafarers56Scenario(game?.rules?.seafarersScenario))) {
+      if (gameUsesPairedTurns(game)) {
         const n = game.turnOrder.length;
         const stage = (game.paired && game.paired.stage) ? String(game.paired.stage) : 'p1';
 
@@ -7298,6 +7300,249 @@ function clearAIPlayersFromRoom(room) {
   room.players = room.players.filter(p => p && !isAIPlayerObj(p));
 }
 
+function ensureRoomRoleLists(room) {
+  if (!room) return null;
+  if (!Array.isArray(room.players)) room.players = [];
+  if (!Array.isArray(room.spectators)) room.spectators = [];
+  if (!room.pendingLeaveRequests || typeof room.pendingLeaveRequests !== 'object') room.pendingLeaveRequests = Object.create(null);
+  return room;
+}
+
+function roomMembers(room) {
+  const safe = ensureRoomRoleLists(room);
+  if (!safe) return [];
+  return safe.players.concat(safe.spectators);
+}
+
+function findRoomPlayer(room, playerId) {
+  const pid = String(playerId || '').trim();
+  if (!pid) return null;
+  const safe = ensureRoomRoleLists(room);
+  return (safe && safe.players.find(p => p && p.id === pid)) || null;
+}
+
+function findRoomSpectator(room, playerId) {
+  const pid = String(playerId || '').trim();
+  if (!pid) return null;
+  const safe = ensureRoomRoleLists(room);
+  return (safe && safe.spectators.find(p => p && p.id === pid)) || null;
+}
+
+function findRoomMember(room, playerId) {
+  return findRoomPlayer(room, playerId) || findRoomSpectator(room, playerId) || null;
+}
+
+function roomRole(room, playerId) {
+  if (findRoomPlayer(room, playerId)) return 'player';
+  if (findRoomSpectator(room, playerId)) return 'spectator';
+  return null;
+}
+
+function gameUsesPairedTurns(game) {
+  if (!game || !Array.isArray(game.turnOrder)) return false;
+  if (game.turnOrder.length < 5) return false;
+  const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
+  const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
+    ? 'classic56'
+    : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
+  return (mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')));
+}
+
+function recomputeLargestArmy(game) {
+  if (!game) return;
+  if (!game.largestArmy) game.largestArmy = { playerId: null, size: 0 };
+  let best = 0;
+  let nextOwner = null;
+  let tie = false;
+  const prevOwner = game.largestArmy.playerId || null;
+  for (const p of (game.players || [])) {
+    const size = Math.max(0, Math.floor(Number(p && p.army || 0)));
+    if (size < 3) continue;
+    if (size > best) {
+      best = size;
+      nextOwner = p.id;
+      tie = false;
+    } else if (size === best && best >= 3) {
+      if (prevOwner && (p.id === prevOwner || nextOwner === prevOwner)) {
+        nextOwner = prevOwner;
+        tie = false;
+      } else {
+        tie = true;
+      }
+    }
+  }
+  if (tie && nextOwner !== prevOwner) nextOwner = null;
+  game.largestArmy = { playerId: nextOwner, size: best };
+}
+
+function normalizeGameAfterPlayerRemoval(game, removedPid, removedWasCurrent) {
+  if (!game) return;
+  const pid = String(removedPid || '').trim();
+
+  if (game.discard) {
+    if (game.discard.required && typeof game.discard.required === 'object') delete game.discard.required[pid];
+    if (game.discard.done && typeof game.discard.done === 'object') delete game.discard.done[pid];
+    const reqKeys = game.discard.required ? Object.keys(game.discard.required).filter(k => Math.max(0, Math.floor(Number(game.discard.required[k] || 0))) > 0 && !(game.discard.done && game.discard.done[k])) : [];
+    if (!reqKeys.length) game.discard = null;
+  }
+
+  if (game.robberSteal && Array.isArray(game.robberSteal.victims)) {
+    game.robberSteal.victims = game.robberSteal.victims.filter(v => v && v !== pid && !!playerById(game, v));
+    if (!game.robberSteal.victims.length) game.robberSteal = null;
+  }
+
+  if (game.pirateSteal && Array.isArray(game.pirateSteal.victims)) {
+    game.pirateSteal.victims = game.pirateSteal.victims.filter(v => v && v !== pid && !!playerById(game, v));
+    if (!game.pirateSteal.victims.length) game.pirateSteal = null;
+  }
+
+  if (game.thiefChoice && game.thiefChoice.playerId === pid) game.thiefChoice = null;
+  if (game.special && game.special.forPlayerId === pid) game.special = null;
+  if (game.pendingTrade && (game.pendingTrade.fromId === pid || game.pendingTrade.toId === pid)) game.pendingTrade = null;
+  if (game.robberContext && game.robberContext.playerId === pid) game.robberContext = null;
+  if (game.setup && game.setup.awaiting && game.setup.awaiting.playerId === pid) game.setup.awaiting = null;
+
+  if (!Array.isArray(game.turnOrder) || !game.turnOrder.length) {
+    game.currentPlayerId = null;
+    game.paired = null;
+    if (game.phase !== 'game-over') {
+      game.phase = 'game-over';
+      game.message = 'No active players remain.';
+    }
+    return;
+  }
+
+  if (!playerById(game, game.currentPlayerId) || !game.turnOrder.includes(game.currentPlayerId)) {
+    if (removedWasCurrent) {
+      game.currentPlayerId = game.turnOrder[0] || null;
+      if (game.currentPlayerId) {
+        if (game.phase !== 'lobby' && game.phase !== 'game-over') {
+          game.phase = 'main-await-roll';
+          game.message = `${playerName(game, game.currentPlayerId)}: Roll the dice.`;
+          try { recordTurnStart(game); } catch (_) {}
+        }
+      }
+    } else {
+      game.currentPlayerId = game.turnOrder[0] || null;
+    }
+  }
+
+  if (!gameUsesPairedTurns(game)) {
+    game.paired = null;
+  } else if (game.currentPlayerId) {
+    const n = game.turnOrder.length;
+    const p1Idx = Math.max(0, game.turnOrder.indexOf(game.currentPlayerId));
+    const offset = 3;
+    game.paired = {
+      enabled: true,
+      stage: 'p1',
+      p1Id: game.currentPlayerId,
+      p2Id: game.turnOrder[(p1Idx + offset) % n],
+      p1Idx,
+      offset,
+    };
+  }
+
+  recomputeLargestArmy(game);
+  recomputeLongestRoad(game);
+}
+
+function retirePlayerFromGame(game, playerId) {
+  if (!game) return false;
+  const pid = String(playerId || '').trim();
+  if (!pid) return false;
+  const existing = playerById(game, pid);
+  if (!existing) return false;
+
+  const removedWasCurrent = (game.currentPlayerId === pid);
+
+  for (const n of (game?.geom?.nodes || [])) {
+    if (n && n.building && n.building.owner === pid) n.building = null;
+  }
+  for (const e of (game?.geom?.edges || [])) {
+    if (!e) continue;
+    if (e.roadOwner === pid) e.roadOwner = null;
+    if (e.shipOwner === pid) e.shipOwner = null;
+  }
+
+  game.players = (game.players || []).filter(p => p && p.id !== pid);
+  game.turnOrder = (game.turnOrder || []).filter(id => id && id !== pid);
+
+  normalizeGameAfterPlayerRemoval(game, pid, removedWasCurrent);
+  return true;
+}
+
+function moveRoomPlayerToSpectator(room, playerId) {
+  const safe = ensureRoomRoleLists(room);
+  if (!safe) return { ok: false, error: 'Room not found.' };
+  const pid = String(playerId || '').trim();
+  if (!pid) return { ok: false, error: 'Missing player ID.' };
+
+  const idx = safe.players.findIndex(p => p && p.id === pid);
+  if (idx < 0) {
+    if (findRoomSpectator(safe, pid)) return { ok: true, changed: false, spectator: findRoomSpectator(safe, pid) };
+    return { ok: false, error: 'Player not found in room.' };
+  }
+
+  const [member] = safe.players.splice(idx, 1);
+  if (!member) return { ok: false, error: 'Player not found in room.' };
+
+  if (safe.game && safe.game.phase && safe.game.phase !== 'lobby' && safe.game.phase !== 'game-over') {
+    retirePlayerFromGame(safe.game, pid);
+  }
+
+  const existingSpectator = findRoomSpectator(safe, pid);
+  if (existingSpectator) {
+    Object.assign(existingSpectator, member, { isSpectator: true });
+    return { ok: true, changed: true, spectator: existingSpectator };
+  }
+
+  const spectator = {
+    ...member,
+    isSpectator: true,
+    texturePackId: String((member && member.texturePackId) || 'default'),
+    texturePackName: String((member && member.texturePackName) || 'Default'),
+  };
+  safe.spectators.push(spectator);
+  return { ok: true, changed: true, spectator };
+}
+
+function removeRoomMember(room, playerId) {
+  const safe = ensureRoomRoleLists(room);
+  if (!safe) return null;
+  const pid = String(playerId || '').trim();
+  if (!pid) return null;
+
+  const playerIdx = safe.players.findIndex(p => p && p.id === pid);
+  if (playerIdx >= 0) {
+    const [member] = safe.players.splice(playerIdx, 1);
+    if (safe.game && safe.game.phase && safe.game.phase !== 'lobby' && safe.game.phase !== 'game-over') {
+      retirePlayerFromGame(safe.game, pid);
+    }
+    try { if (safe.pendingLeaveRequests) delete safe.pendingLeaveRequests[pid]; } catch (_) {}
+    return member || null;
+  }
+
+  const specIdx = safe.spectators.findIndex(p => p && p.id === pid);
+  if (specIdx >= 0) {
+    const [member] = safe.spectators.splice(specIdx, 1);
+    try { if (safe.pendingLeaveRequests) delete safe.pendingLeaveRequests[pid]; } catch (_) {}
+    return member || null;
+  }
+
+  return null;
+}
+
+function sendToRoomMember(room, playerId, payload) {
+  if (!room || !room.sockets) return false;
+  const pid = String(playerId || '').trim();
+  if (!pid) return false;
+  const ws = room.sockets.get(pid);
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  sendJson(ws, payload);
+  return true;
+}
+
 const rooms = new Map(); // code -> room
 
 function createRoom(hostUserId, hostName) {
@@ -7320,7 +7565,8 @@ function createRoom(hostUserId, hostName) {
       texturePackId: 'default',
       texturePackName: 'Default',
     }],
-    sockets: new Map(), // playerId -> ws
+    spectators: [],
+    sockets: new Map(), // room member id -> ws
     game: null,
     preview: null,
     rules: { ...DEFAULT_RULES },
@@ -7329,6 +7575,7 @@ function createRoom(hostUserId, hostName) {
     aiSeq: 1,
     aiDifficulty: 'test',
     sharedTexturePacks: Object.create(null),
+    pendingLeaveRequests: Object.create(null),
   };
   rooms.set(code, room);
   return room;
@@ -7369,6 +7616,7 @@ function createRematchRoomFrom(prevRoom) {
     hostId: finalHostId,
     createdAt: now(),
     players,
+    spectators: [],
     sockets: new Map(),
     game: null,
     preview: null,
@@ -7378,6 +7626,7 @@ function createRematchRoomFrom(prevRoom) {
     aiSeq: 1,
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'test',
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
+    pendingLeaveRequests: Object.create(null),
   };
   rooms.set(code, room);
   return room;
@@ -7387,53 +7636,56 @@ function createRematchRoomFrom(prevRoom) {
 function joinRoom(code, userId, name) {
   const room = rooms.get(code);
   if (!room) return { ok: false, error: 'Room not found.' };
+  ensureRoomRoleLists(room);
 
   const pid = String(userId || '').trim();
   if (!pid) return { ok: false, error: 'Not logged in.' };
 
   const desiredName = (name == null) ? '' : String(name || '').slice(0, 20);
 
-  // If this user is already in the room, treat this as a rejoin (even if game started)
-  const existing = room.players.find(p => p && p.id === pid);
+  const existing = findRoomMember(room, pid);
   if (existing) {
     if (desiredName) existing.name = desiredName;
     if (room.game && room.game.players) {
       const gp = room.game.players.find(p => p && p.id === pid);
       if (gp && desiredName) gp.name = desiredName;
     }
-    return { ok: true, room, playerId: pid };
+    return { ok: true, room, playerId: pid, role: roomRole(room, pid) || 'player' };
   }
 
-  // New join
-  {
-    const rawMM = String(room.rules?.mapMode || 'classic').toLowerCase();
-    const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
-      ? 'classic56'
-      : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
-    let maxPlayers = (mm === 'classic56') ? 6 : 4;
-    if (mm === 'seafarers') {
-      const scen = String((room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase();
-      if (isSeafarers56Scenario(scen)) maxPlayers = 6;
-    }
-    if (room.players.length >= maxPlayers) return { ok: false, error: 'Room is full.' };
+  const joinAsSpectator = !!(room.game && room.game.phase !== 'lobby') || (room.players.length >= maxPlayersForRules(room.rules || DEFAULT_RULES));
+
+  if (joinAsSpectator) {
+    const spectator = {
+      id: pid,
+      name: (desiredName || 'Spectator').slice(0, 20),
+      color: '#93a4b8',
+      joinedAt: now(),
+      isSpectator: true,
+      texturePackId: 'default',
+      texturePackName: 'Default',
+    };
+    room.spectators.push(spectator);
+    return { ok: true, room, playerId: pid, role: 'spectator' };
   }
-  if (room.game && room.game.phase !== 'lobby') return { ok: false, error: 'Game already started.' };
 
   const color = pickAvailableColor(room);
   room.players.push({ id: pid, name: (desiredName || 'Player').slice(0, 20), color, joinedAt: now(), texturePackId: 'default', texturePackName: 'Default' });
-  return { ok: true, room, playerId: pid };
+  return { ok: true, room, playerId: pid, role: 'player' };
 }
+
 
 
 
 function rejoinRoom(code, playerId) {
   const room = rooms.get(code);
   if (!room) return { ok: false, error: 'Room not found.' };
+  ensureRoomRoleLists(room);
   const pid = String(playerId || '').trim();
   if (!pid) return { ok: false, error: 'Missing player ID.' };
-  const exists = room.players.some(p => p.id === pid);
-  if (!exists) return { ok: false, error: 'Player ID not found in this room.' };
-  return { ok: true, room, playerId: pid };
+  const role = roomRole(room, pid);
+  if (!role) return { ok: false, error: 'Player ID not found in this room.' };
+  return { ok: true, room, playerId: pid, role };
 }
 
 
@@ -7554,19 +7806,21 @@ function makePreviewGame(room) {
 function broadcastPreviewState(room) {
   if (!room) return;
   const previewGame = makePreviewGame(room);
-  for (const p of room.players) {
-    const ws = room.sockets.get(p.id);
+  for (const [pid, ws] of room.sockets.entries()) {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      sendJson(ws, { type: 'state', state: sanitizeStateFor(previewGame, p.id) });
+      sendJson(ws, { type: 'state', state: sanitizeStateFor(previewGame, pid) });
     }
   }
 }
 
 function roomSnapshot(room) {
+  ensureRoomRoleLists(room);
   return {
     code: room.code,
     hostId: room.hostId,
     players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI), texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
+    spectators: room.spectators.map(p => ({ id: p.id, name: p.name, color: p.color, isSpectator: true, texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
+    maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES),
     gamePhase: room.game ? room.game.phase : 'lobby',
     rules: room.rules || { ...DEFAULT_RULES },
     aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
@@ -7885,7 +8139,7 @@ wss.on('connection', (ws) => {
 if (msg.type === 'set_texture_pack') {
   const room = ws._roomCode ? rooms.get(ws._roomCode) : null;
   if (!room || !ws._userId) { sendJson(ws, { type: 'error', error: 'Join a room first.' }); return; }
-  const p = (room.players || []).find(x => x && x.id === ws._userId);
+  const p = findRoomMember(room, ws._userId);
   if (!p) { sendJson(ws, { type: 'error', error: 'Player not found in room.' }); return; }
 
   const rawId = String(msg.texturePackId || 'default').trim();
@@ -7959,7 +8213,7 @@ if (msg.type === 'texture_pack_publish') {
     assets: cleanAssets,
   };
 
-  const p = (room.players || []).find(x => x && x.id === ws._userId);
+  const p = findRoomMember(room, ws._userId);
   if (p) {
     p.texturePackId = packId;
     p.texturePackName = packName;
@@ -8017,7 +8271,7 @@ if (msg.type === 'create_room') {
       room.sockets.set(ws._userId, ws);
       ensurePreview(room, true);
 
-      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true });
+      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true, role: roomRole(room, ws._userId) || 'player' });
       broadcastRoom(room);
       return;
     }
@@ -8056,7 +8310,7 @@ if (msg.type === 'create_room') {
 
       ensurePreview(room, false);
 
-      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: ws._userId === room.hostId });
+      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: ws._userId === room.hostId, role: roomRole(room, ws._userId) || 'player' });
       broadcastRoom(room);
       return;
     }
@@ -8093,7 +8347,7 @@ if (msg.type === 'create_room') {
           try { prev.close(); } catch (_) {}
         }
 
-        sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId });
+        sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
         if (room.game) {
           syncTradeTimerPause(room.game);
           syncTimer(room.game);
@@ -8128,7 +8382,7 @@ if (msg.type === 'create_room') {
         try { prev.close(); } catch (_) {}
       }
 
-      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId });
+      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
       if (room.game) {
         syncTradeTimerPause(room.game);
         syncTimer(room.game);
@@ -8152,6 +8406,182 @@ if (msg.type === 'create_room') {
     const room = rooms.get(code);
     if (!room) {
       sendJson(ws, { type: 'error', error: 'Room expired.' });
+      return;
+    }
+
+    if (msg.type === 'leave_room') {
+      const member = findRoomMember(room, pid);
+      if (!member) {
+        sendJson(ws, { type: 'error', error: 'You are not in this room.' });
+        return;
+      }
+      if (pid === room.hostId) {
+        sendJson(ws, { type: 'error', error: 'The host cannot leave this room.' });
+        return;
+      }
+      if (room.game && room.game.phase && room.game.phase !== 'lobby' && roomRole(room, pid) === 'player') {
+        sendJson(ws, { type: 'error', error: 'Use Leave Game during an active match.' });
+        return;
+      }
+      removeRoomMember(room, pid);
+      if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
+      ws._roomCode = null;
+      ws._playerId = null;
+      sendJson(ws, { type: 'left_room', code, reason: 'You left the room.' });
+      if (!room.game || room.game.phase === 'lobby') ensurePreview(room, true);
+      broadcastRoom(room);
+      if (!room.game || room.game.phase === 'lobby') broadcastPreviewState(room);
+      return;
+    }
+
+    if (msg.type === 'set_spectator_mode') {
+      if (room.game && room.game.phase && room.game.phase !== 'lobby') {
+        sendJson(ws, { type: 'error', error: 'Spectator mode can only be changed in the lobby.' });
+        return;
+      }
+      const wantSpectator = !!msg.enabled;
+      const roleNow = roomRole(room, pid);
+      if (!roleNow) {
+        sendJson(ws, { type: 'error', error: 'You are not in this room.' });
+        return;
+      }
+      if (wantSpectator) {
+        if (roleNow === 'spectator') return;
+        const moved = moveRoomPlayerToSpectator(room, pid);
+        if (!moved.ok) {
+          sendJson(ws, { type: 'error', error: moved.error || 'Could not switch to spectator mode.' });
+          return;
+        }
+      } else {
+        if (roleNow === 'player') return;
+        if (room.players.length >= maxPlayersForRules(room.rules || DEFAULT_RULES)) {
+          sendJson(ws, { type: 'error', error: 'The active player seats are full.' });
+          return;
+        }
+        const spec = findRoomSpectator(room, pid);
+        if (!spec) {
+          sendJson(ws, { type: 'error', error: 'Spectator not found.' });
+          return;
+        }
+        room.spectators = room.spectators.filter(p => p && p.id !== pid);
+        let desiredColor = String(spec.color || '').trim();
+        if (!desiredColor || room.players.some(p => p && String(p.color || '').toLowerCase() === desiredColor.toLowerCase())) {
+          desiredColor = pickAvailableColor(room);
+        }
+        room.players.push({
+          id: spec.id,
+          name: spec.name,
+          color: desiredColor,
+          joinedAt: spec.joinedAt || now(),
+          texturePackId: String((spec && spec.texturePackId) || 'default'),
+          texturePackName: String((spec && spec.texturePackName) || 'Default'),
+        });
+      }
+      ensurePreview(room, true);
+      broadcastRoom(room);
+      broadcastPreviewState(room);
+      return;
+    }
+
+    if (msg.type === 'request_leave_game') {
+      if (!room.game || room.game.phase === 'lobby' || room.game.phase === 'game-over') {
+        sendJson(ws, { type: 'error', error: 'No active game to leave.' });
+        return;
+      }
+      if (pid === room.hostId) {
+        sendJson(ws, { type: 'error', error: 'The host cannot use Leave Game.' });
+        return;
+      }
+      if (roomRole(room, pid) !== 'player') {
+        sendJson(ws, { type: 'error', error: 'Only active players can leave the game.' });
+        return;
+      }
+      room.pendingLeaveRequests = room.pendingLeaveRequests || Object.create(null);
+      room.pendingLeaveRequests[pid] = { playerId: pid, requestedAt: now() };
+      const requester = findRoomMember(room, pid);
+      const sent = sendToRoomMember(room, room.hostId, {
+        type: 'leave_game_request',
+        playerId: pid,
+        playerName: requester ? requester.name : 'Player',
+      });
+      if (!sent) {
+        delete room.pendingLeaveRequests[pid];
+        sendJson(ws, { type: 'error', error: 'The host is not connected right now.' });
+        return;
+      }
+      sendJson(ws, { type: 'leave_game_result', accepted: null, playerId: pid, message: 'Leave game request sent to the host.' });
+      return;
+    }
+
+    if (msg.type === 'respond_leave_game') {
+      if (pid !== room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Only the host can respond to leave-game requests.' });
+        return;
+      }
+      room.pendingLeaveRequests = room.pendingLeaveRequests || Object.create(null);
+      const targetId = String(msg.playerId || '').trim();
+      const req = targetId ? room.pendingLeaveRequests[targetId] : null;
+      if (!req) {
+        sendJson(ws, { type: 'error', error: 'That leave-game request is no longer pending.' });
+        return;
+      }
+      delete room.pendingLeaveRequests[targetId];
+      const accepted = !!msg.accepted;
+      if (!accepted) {
+        sendToRoomMember(room, targetId, { type: 'leave_game_result', accepted: false, playerId: targetId, message: 'The host declined your leave-game request.' });
+        sendJson(ws, { type: 'leave_game_result', accepted: false, playerId: targetId, message: 'Leave-game request declined.' });
+        return;
+      }
+      const moved = moveRoomPlayerToSpectator(room, targetId);
+      if (!moved.ok) {
+        sendJson(ws, { type: 'error', error: moved.error || 'Could not move that player to spectators.' });
+        return;
+      }
+      sendToRoomMember(room, targetId, { type: 'leave_game_result', accepted: true, playerId: targetId, message: 'You are now spectating this room.' });
+      sendJson(ws, { type: 'leave_game_result', accepted: true, playerId: targetId, message: 'Player moved to spectators.' });
+      broadcastRoom(room);
+      if (room.game && room.game.phase !== 'lobby') broadcastState(room);
+      else {
+        ensurePreview(room, true);
+        broadcastPreviewState(room);
+      }
+      return;
+    }
+
+    if (msg.type === 'kick_player') {
+      if (pid !== room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Only the host can kick players.' });
+        return;
+      }
+      const targetId = String(msg.playerId || '').trim();
+      if (!targetId) {
+        sendJson(ws, { type: 'error', error: 'Missing player ID.' });
+        return;
+      }
+      if (targetId === room.hostId) {
+        sendJson(ws, { type: 'error', error: 'The host cannot be kicked.' });
+        return;
+      }
+      const target = findRoomMember(room, targetId);
+      if (!target) {
+        sendJson(ws, { type: 'error', error: 'Player not found.' });
+        return;
+      }
+      if (target.isAI) {
+        sendJson(ws, { type: 'error', error: 'Kick is only available for human players.' });
+        return;
+      }
+      const targetWs = room.sockets.get(targetId);
+      removeRoomMember(room, targetId);
+      if (targetWs && room.sockets.get(targetId) === targetWs) room.sockets.delete(targetId);
+      if (targetWs) {
+        try { targetWs._roomCode = null; targetWs._playerId = null; } catch (_) {}
+        sendJson(targetWs, { type: 'left_room', code, reason: 'The host removed you from the room.', kicked: true });
+      }
+      if (!room.game || room.game.phase === 'lobby') ensurePreview(room, true);
+      broadcastRoom(room);
+      if (room.game && room.game.phase !== 'lobby') broadcastState(room);
+      else broadcastPreviewState(room);
       return;
     }
 
