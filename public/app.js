@@ -824,6 +824,7 @@
     { key: 'turn_bell', label: 'Turn Bell' },
     { key: 'paired_turn', label: 'Paired Turn' },
     { key: 'dice_roll', label: 'Dice Roll' },
+    { key: 'gold_field_production', label: 'Gold Field Production' },
     { key: 'robber_pirate', label: 'Robber / Pirate' },
     { key: 'structure', label: 'Build / Upgrade' },
     { key: 'end_turn', label: 'End Turn Warning' },
@@ -4154,6 +4155,7 @@ function syncPostgameToState() {
 
   const sfx = {
     dice_roll: makeSfxPool('assets/sfx/dice_roll.wav', 0.9, 4),
+    gold_field_production: makeSfxPool('assets/sfx/gold_field_production.wav', 0.9, 2),
     robber_pirate: makeSfxPool('assets/sfx/robber_pirate.wav', 0.9, 3),
     structure: makeSfxPool('assets/sfx/structure.wav', 0.85, 4),
     end_turn: makeSfxPool('assets/sfx/end_turn.wav', 0.9, 2),
@@ -8966,6 +8968,7 @@ function handleProductionGoldPrompt() {
 
   renderPicks();
 
+  playSfx('gold_field_production');
   modalLocked = true;
   modalType = 'production-gold';
   openModal({ title: 'Gold Field Production', bodyNode: wrap, actions: [] });
