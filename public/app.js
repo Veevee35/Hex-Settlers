@@ -176,7 +176,7 @@
   const TEXTURE_PACK_META_KEY = 'hexsettlers_texture_pack_meta_v1';
   const TEXTURE_PACK_BROWSER_CACHE = 'hexsettlers-asset-cache-texturepack-v1';
   const TEXTURE_PACK_TEMPLATE_URL = '/texture-pack-template.zip';
-  const DEFAULT_TEXTURE_ASSET_REL = ["Dev Cards/Invention.png", "Dev Cards/Knight.png", "Dev Cards/Monopoly.png", "Dev Cards/RoadBuilding.png", "Dev Cards/VictoryPoint.png", "Numbers/10.png", "Numbers/11.png", "Numbers/12.png", "Numbers/2.png", "Numbers/3.png", "Numbers/4.png", "Numbers/5.png", "Numbers/6.png", "Numbers/8.png", "Numbers/9.png", "Ports/brick.png", "Ports/generic.png", "Ports/grain.png", "Ports/lumber.png", "Ports/ore.png", "Ports/wool.png", "Resource Hexes/Desert.png", "Resource Hexes/Field.png", "Resource Hexes/Forest.png", "Resource Hexes/GoldFields.png", "Resource Hexes/Hills.png", "Resource Hexes/Mountains.png", "Resource Hexes/Pasture.png", "Resource Hexes/Seas.png", "Resource Hexes/Unexplored.png", "Robber Pirate/thief_pirate.png", "Robber Pirate/thief_robber.png", "Tokens/tokens_blue.png", "Tokens/tokens_green.png", "Tokens/tokens_orange.png", "Tokens/tokens_purple.png", "Tokens/tokens_red.png", "Tokens/tokens_teal.png", "Tokens/tokens_white.png", "Tokens/tokens_yellow.png"];
+  const DEFAULT_TEXTURE_ASSET_REL = ["Dev Cards/Invention.png", "Dev Cards/Knight.png", "Dev Cards/Monopoly.png", "Dev Cards/RoadBuilding.png", "Dev Cards/VictoryPoint.png", "Numbers/10.png", "Numbers/11.png", "Numbers/12.png", "Numbers/2.png", "Numbers/3.png", "Numbers/4.png", "Numbers/5.png", "Numbers/6.png", "Numbers/8.png", "Numbers/9.png", "Ports/brick.png", "Ports/generic.png", "Ports/grain.png", "Ports/lumber.png", "Ports/ore.png", "Ports/wool.png", "Resource Hexes/Desert.png", "Resource Hexes/Field.png", "Resource Hexes/Forest.png", "Resource Hexes/GoldFields.png", "Resource Hexes/Hills.png", "Resource Hexes/Mountains.png", "Resource Hexes/Pasture.png", "Resource Hexes/Seas.png", "Resource Hexes/Unexplored.png", "Robber Pirate/thief_pirate.png", "Robber Pirate/thief_robber.png", "Tokens/tokens_black.png", "Tokens/tokens_blue.png", "Tokens/tokens_green.png", "Tokens/tokens_orange.png", "Tokens/tokens_pink.png", "Tokens/tokens_purple.png", "Tokens/tokens_red.png", "Tokens/tokens_teal.png", "Tokens/tokens_white.png", "Tokens/tokens_yellow.png"];
   const DEFAULT_TEXTURE_ASSET_SET = new Set(DEFAULT_TEXTURE_ASSET_REL);
   const DEFAULT_TEXTURE_PACK_LABEL = 'Default';
   let pendingTexturePackSelectId = null;
@@ -2806,13 +2806,13 @@ function syncPostgameToState() {
   // -------------------- Structure sprites (settlement/city/road/ship) --------------------
 
   const STRUCT = {
-    imgs: [new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image()],
+    imgs: [new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image(), new Image()],
     ready: false,
     tile: 512,
     loaded: 0,
   };
 
-  const STRUCT_IMG_SRC = ['texture%20pack/Tokens/tokens_red.png', 'texture%20pack/Tokens/tokens_blue.png', 'texture%20pack/Tokens/tokens_green.png', 'texture%20pack/Tokens/tokens_yellow.png', 'texture%20pack/Tokens/tokens_purple.png', 'texture%20pack/Tokens/tokens_teal.png', 'texture%20pack/Tokens/tokens_white.png', 'texture%20pack/Tokens/tokens_orange.png'];
+  const STRUCT_IMG_SRC = ['texture%20pack/Tokens/tokens_red.png', 'texture%20pack/Tokens/tokens_blue.png', 'texture%20pack/Tokens/tokens_green.png', 'texture%20pack/Tokens/tokens_yellow.png', 'texture%20pack/Tokens/tokens_purple.png', 'texture%20pack/Tokens/tokens_teal.png', 'texture%20pack/Tokens/tokens_white.png', 'texture%20pack/Tokens/tokens_orange.png', 'texture%20pack/Tokens/tokens_black.png', 'texture%20pack/Tokens/tokens_pink.png'];
 
   const STRUCT_CELL = {
     settlement: { r: 0, c: 0 },
@@ -2844,6 +2844,8 @@ function syncPostgameToState() {
     if (c === '#88f8f8') return 5; // teal
     if (c === '#f8f8f8' || c === '#ffffff') return 6; // white
     if (c === '#f86800') return 7; // orange
+    if (c === '#111111' || c === '#000000') return 8; // black
+    if (c === '#ff6ec7') return 9; // pink
     return 0;
   }
 
@@ -2863,6 +2865,8 @@ function syncPostgameToState() {
     'trapezoid', // teal
     'diamond',   // white
     'circle',    // orange
+    'cross',     // black
+    'heart',     // pink
   ];
 
   function drawRegularPolygonPath(sides, radius, startAngle) {
@@ -2904,11 +2908,14 @@ function syncPostgameToState() {
     ctx.translate(x, y);
     if (rotRad) ctx.rotate(rotRad);
 
-    // High-contrast styling. Special case for white pieces.
+    // High-contrast styling. Special cases for white and black pieces.
     let fill = 'rgba(255,255,255,.78)';
     let stroke = 'rgba(0,0,0,.92)';
     if (idx === 6) { // white
       fill = 'rgba(0,0,0,.55)';
+      stroke = 'rgba(255,255,255,.96)';
+    } else if (idx === 8) { // black
+      fill = 'rgba(255,255,255,.92)';
       stroke = 'rgba(255,255,255,.96)';
     }
 
@@ -2919,6 +2926,33 @@ function syncPostgameToState() {
     ctx.shadowBlur = Math.max(2, Math.round(s * 0.10));
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
+
+    const drawCrossShape = () => {
+      const bar = Math.max(2, r * 0.36);
+      const arm = r * 0.95;
+      ctx.moveTo(-bar / 2, -arm);
+      ctx.lineTo(bar / 2, -arm);
+      ctx.lineTo(bar / 2, -bar / 2);
+      ctx.lineTo(arm, -bar / 2);
+      ctx.lineTo(arm, bar / 2);
+      ctx.lineTo(bar / 2, bar / 2);
+      ctx.lineTo(bar / 2, arm);
+      ctx.lineTo(-bar / 2, arm);
+      ctx.lineTo(-bar / 2, bar / 2);
+      ctx.lineTo(-arm, bar / 2);
+      ctx.lineTo(-arm, -bar / 2);
+      ctx.lineTo(-bar / 2, -bar / 2);
+      ctx.closePath();
+    };
+
+    const drawHeartShape = () => {
+      const top = r * 0.9;
+      const bottom = r * 0.95;
+      ctx.moveTo(0, bottom);
+      ctx.bezierCurveTo(r * 1.0, r * 0.3, r * 1.05, -r * 0.45, 0, -top * 0.15);
+      ctx.bezierCurveTo(-r * 1.05, -r * 0.45, -r * 1.0, r * 0.3, 0, bottom);
+      ctx.closePath();
+    };
 
     ctx.beginPath();
     if (shape === 'triangle') {
@@ -2944,6 +2978,10 @@ function syncPostgameToState() {
       ctx.lineTo(0, r);
       ctx.lineTo(-r, 0);
       ctx.closePath();
+    } else if (shape === 'cross') {
+      drawCrossShape();
+    } else if (shape === 'heart') {
+      drawHeartShape();
     } else { // circle
       ctx.arc(0, 0, r, 0, Math.PI * 2);
     }
@@ -3003,6 +3041,9 @@ function syncPostgameToState() {
     if (idx === 6) {
       fill = 'rgba(0,0,0,.55)';
       stroke = 'rgba(255,255,255,.96)';
+    } else if (idx === 8) {
+      fill = 'rgba(255,255,255,.92)';
+      stroke = 'rgba(255,255,255,.96)';
     }
 
     let el = null;
@@ -3011,6 +3052,15 @@ function syncPostgameToState() {
       el.setAttribute('cx', String(c));
       el.setAttribute('cy', String(c));
       el.setAttribute('r', String(r));
+    } else if (shape === 'heart') {
+      el = document.createElementNS(NS, 'path');
+      const d = [
+        `M ${c.toFixed(2)} ${(c + r * 0.9).toFixed(2)}`,
+        `C ${(c + r * 1.0).toFixed(2)} ${(c + r * 0.25).toFixed(2)}, ${(c + r * 1.05).toFixed(2)} ${(c - r * 0.45).toFixed(2)}, ${c.toFixed(2)} ${(c - r * 0.15).toFixed(2)}`,
+        `C ${(c - r * 1.05).toFixed(2)} ${(c - r * 0.45).toFixed(2)}, ${(c - r * 1.0).toFixed(2)} ${(c + r * 0.25).toFixed(2)}, ${c.toFixed(2)} ${(c + r * 0.9).toFixed(2)}`,
+        'Z',
+      ].join(' ');
+      el.setAttribute('d', d);
     } else {
       el = document.createElementNS(NS, 'polygon');
       let pts = '';
@@ -3033,6 +3083,23 @@ function syncPostgameToState() {
           `${(c + r).toFixed(2)},${c.toFixed(2)}`,
           `${c.toFixed(2)},${(c + r).toFixed(2)}`,
           `${(c - r).toFixed(2)},${c.toFixed(2)}`,
+        ].join(' ');
+      } else if (shape === 'cross') {
+        const bar = Math.max(2, r * 0.36);
+        const arm = r * 0.95;
+        pts = [
+          `${(c - bar / 2).toFixed(2)},${(c - arm).toFixed(2)}`,
+          `${(c + bar / 2).toFixed(2)},${(c - arm).toFixed(2)}`,
+          `${(c + bar / 2).toFixed(2)},${(c - bar / 2).toFixed(2)}`,
+          `${(c + arm).toFixed(2)},${(c - bar / 2).toFixed(2)}`,
+          `${(c + arm).toFixed(2)},${(c + bar / 2).toFixed(2)}`,
+          `${(c + bar / 2).toFixed(2)},${(c + bar / 2).toFixed(2)}`,
+          `${(c + bar / 2).toFixed(2)},${(c + arm).toFixed(2)}`,
+          `${(c - bar / 2).toFixed(2)},${(c + arm).toFixed(2)}`,
+          `${(c - bar / 2).toFixed(2)},${(c + bar / 2).toFixed(2)}`,
+          `${(c - arm).toFixed(2)},${(c + bar / 2).toFixed(2)}`,
+          `${(c - arm).toFixed(2)},${(c - bar / 2).toFixed(2)}`,
+          `${(c - bar / 2).toFixed(2)},${(c - bar / 2).toFixed(2)}`,
         ].join(' ');
       } else {
         pts = regularPolygonPoints(6, r, 0, c, c);
@@ -5713,6 +5780,8 @@ function refreshLobbyJoinLinkUi() {
             { name: 'Teal', hex: '#88f8f8' },
             { name: 'White', hex: '#f8f8f8' },
             { name: 'Orange', hex: '#f86800' },
+            { name: 'Black', hex: '#111111' },
+            { name: 'Pink', hex: '#ff6ec7' },
           ];
 
           const taken = new Map();

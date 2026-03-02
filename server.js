@@ -7217,7 +7217,7 @@ if (kind === 'pirate_steal') {
 
 // -------------------- Rooms + Networking --------------------
 
-const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#8000f8', '#88f8f8', '#f8f8f8', '#f86800'];
+const COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#8000f8', '#88f8f8', '#f8f8f8', '#f86800', '#111111', '#ff6ec7'];
 
 function pickAvailableColor(room) {
   const used = new Set((room && Array.isArray(room.players) ? room.players : []).map(p => String(p && p.color || '').toLowerCase()));
