@@ -2177,9 +2177,15 @@ function phaseDurationMs(game, phase) {
       return 10_000;
     case 'discard':
       return micro;
+    case 'pirate-or-robber':
+      return micro;
     case 'robber-move':
       return micro;
     case 'robber-steal':
+      return micro;
+    case 'pirate-move':
+      return micro;
+    case 'pirate-steal':
       return micro;
     default:
       return 0;
@@ -2198,6 +2204,84 @@ function syncTimer(game) {
     const t0 = now();
     game.timer = { phase: game.phase, segmentKey: segKey, startedAt: t0, endsAt: t0 + dur, durationMs: dur };
   }
+}
+
+
+function snapshotCurrentPhaseTimer(game) {
+  if (!game) return null;
+  syncTimer(game);
+  const segKey = String(timerSegmentKey(game) || '');
+  const t = game.timer;
+  const dur = Math.max(0, Math.floor(Number(t?.durationMs || phaseDurationMs(game, game.phase) || 0)));
+  if (!dur) return null;
+  const remainingMs = (t && t.phase === game.phase && String(t.segmentKey || '') === segKey && t.endsAt)
+    ? Math.max(0, Math.floor(Number(t.endsAt - now())))
+    : dur;
+  return { phase: String(game.phase || ''), segmentKey: segKey, remainingMs, durationMs: dur };
+}
+
+function setTimerForCurrentPhase(game, remainingMs, durationMs) {
+  if (!game) return false;
+  const segKey = String(timerSegmentKey(game) || '');
+  const rem = Math.max(0, Math.floor(Number(remainingMs || 0)));
+  const dur = Math.max(rem, Math.floor(Number(durationMs || rem || phaseDurationMs(game, game.phase) || 0)));
+  if (!dur) {
+    game.timer = null;
+    return false;
+  }
+  const t0 = now();
+  game.timer = {
+    phase: String(game.phase || ''),
+    segmentKey: segKey,
+    durationMs: dur,
+    startedAt: t0 - Math.max(0, dur - rem),
+    endsAt: t0 + rem,
+  };
+  return true;
+}
+
+function beginThiefTimerResume(game, spec) {
+  if (!game) return;
+  if (!spec || typeof spec !== 'object') {
+    game.thiefTimerResume = null;
+    return;
+  }
+  const mode = (spec.mode === 'restore') ? 'restore' : 'fresh-main';
+  const remainingMs = Math.max(0, Math.floor(Number(spec.remainingMs || 0)));
+  const durationMs = Math.max(remainingMs, Math.floor(Number(spec.durationMs || remainingMs || 0)));
+  game.thiefTimerResume = {
+    mode,
+    phase: String(spec.phase || ''),
+    segmentKey: String(spec.segmentKey || ''),
+    remainingMs,
+    durationMs,
+  };
+}
+
+function resumeThiefTimerIfPending(game) {
+  const tr = game?.thiefTimerResume;
+  if (!tr) return false;
+  const mode = String(tr.mode || '');
+  if (mode === 'restore') {
+    const curPhase = String(game.phase || '');
+    const segKey = String(timerSegmentKey(game) || '');
+    if (curPhase !== String(tr.phase || '') || (String(tr.segmentKey || '') && segKey !== String(tr.segmentKey || ''))) {
+      game.thiefTimerResume = null;
+      return false;
+    }
+    game.thiefTimerResume = null;
+    return setTimerForCurrentPhase(game, tr.remainingMs, tr.durationMs);
+  }
+  if (mode === 'fresh-main') {
+    if (String(game.phase || '') !== 'main-actions') {
+      game.thiefTimerResume = null;
+      return false;
+    }
+    game.thiefTimerResume = null;
+    return setTimerForCurrentPhase(game, tr.remainingMs, tr.durationMs);
+  }
+  game.thiefTimerResume = null;
+  return false;
 }
 
 function ensureTradeTimerPauseState(game) {
@@ -5099,6 +5183,7 @@ function newEmptyGame(room) {
     rules: { ...(room.rules || DEFAULT_RULES) },
     aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
     timer: null,
+    thiefTimerResume: null,
 
     // Pause state (host-controlled)
     paused: false,
@@ -6241,6 +6326,7 @@ if (ttdFarSideBonus) {
       checkWin(room, game, playerId);
       if (game.phase === 'game-over') return { ok: true };
 
+      beginThiefTimerResume(game, { mode: 'restore', ...(snapshotCurrentPhaseTimer(game) || {}) });
       game.robberContext = { source: 'knight', playerId, cardId, preRoll: (phaseBeforeDev === 'main-await-roll') };
       if ((game.rules?.mapMode || 'classic') === 'seafarers') {
         startThiefChoice(game, 'knight', playerId);
@@ -6410,6 +6496,11 @@ if (kind === 'choose_production_gold') {
         if (req > 0) required[p.id] = req;
       }
 
+      beginThiefTimerResume(game, {
+        mode: 'fresh-main',
+        remainingMs: Math.max(0, Math.floor(Number(game?.rules?.playTurnMs ?? DEFAULT_RULES.playTurnMs))),
+        durationMs: Math.max(0, Math.floor(Number(game?.rules?.playTurnMs ?? DEFAULT_RULES.playTurnMs))),
+      });
       game.robberContext = { source: 'roll7', playerId };
 
       if (Object.keys(required).length > 0) {
@@ -6551,6 +6642,7 @@ if (kind === 'choose_production_gold') {
       game.robberSteal = null;
 
       game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+      resumeThiefTimerIfPending(game);
       game.message = backToAwaitRoll
         ? `Robber moved. ${playerName(game, playerId)}: Roll the dice.`
         : `Robber moved. ${playerName(game, playerId)} may build or end turn.`;
@@ -6594,6 +6686,7 @@ if (kind === 'choose_production_gold') {
     game.pirateSteal = null;
     game.robberSteal = null;
     game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+    resumeThiefTimerIfPending(game);
     if (stolenKind) {
       // Private event: only the thief sees which resource was stolen
       game.lastEvent = { id: game.eventSeq++, type: 'steal_result', playerId, victimId: victimIdUsed, resourceKind: stolenKind };
@@ -6663,6 +6756,7 @@ if (kind === 'move_pirate') {
     game.pirateSteal = null;
 
     game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+    resumeThiefTimerIfPending(game);
     game.message = backToAwaitRoll
       ? `Pirate moved. ${playerName(game, playerId)}: Roll the dice.`
       : `Pirate moved. ${playerName(game, playerId)} may build or end turn.`;
@@ -6704,6 +6798,7 @@ if (kind === 'pirate_steal') {
   game.robberContext = null;
   game.pirateSteal = null;
   game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+  resumeThiefTimerIfPending(game);
   if (stolenKind) {
     game.lastEvent = { id: game.eventSeq++, type: 'steal_result', playerId, victimId: victimIdUsed, resourceKind: stolenKind };
     game.message = backToAwaitRoll ? `${playerName(game, playerId)} stole 1 resource. Roll the dice.` : `${playerName(game, playerId)} stole 1 resource.`;
@@ -8742,15 +8837,23 @@ function handleTimeout(room) {
       // If something went sideways, force-exit discard.
       if (game.phase === 'discard') {
         game.discard = null;
-        game.phase = 'robber-move';
-        game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
+        if ((game.rules?.mapMode || 'classic') === 'seafarers') {
+          startThiefChoice(game, 'roll7', game.currentPlayerId);
+        } else {
+          game.phase = 'robber-move';
+          game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
+        }
       }
     } else {
       // Defensive: discard phase with missing discard state.
       if (game.phase === 'discard') {
         game.discard = null;
-        game.phase = 'robber-move';
-        game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
+        if ((game.rules?.mapMode || 'classic') === 'seafarers') {
+          startThiefChoice(game, 'roll7', game.currentPlayerId);
+        } else {
+          game.phase = 'robber-move';
+          game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
+        }
       }
     }
 
@@ -8779,6 +8882,51 @@ function handleTimeout(room) {
     return true;
   }
 
+  // Auto choose robber/pirate placement directly on timeout
+  if (phase === 'pirate-or-robber') {
+    const pid = game.currentPlayerId;
+    if (!pid) return false;
+    const currentRobber = getRobberTileId(game);
+    const currentPirate = getPirateTileId(game);
+    const land = [];
+    const sea = [];
+    for (let i = 0; i < game.geom.tiles.length; i++) {
+      const t = game.geom.tiles[i];
+      if (!t) continue;
+      if (t.type === 'sea') {
+        if (i !== currentPirate) sea.push(i);
+      } else if (i !== currentRobber) {
+        land.push(i);
+      }
+    }
+    shuffle(land);
+    shuffle(sea);
+    if (land.length) applyAction(room, pid, { kind: 'move_robber', tileId: land[0] });
+    else if (sea.length) applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] });
+    syncTimer(game);
+    return true;
+  }
+
+  // Auto move pirate to a random different sea tile
+  if (phase === 'pirate-move') {
+    const pid = game.currentPlayerId;
+    if (!pid) return false;
+    const current = getPirateTileId(game);
+    const cands = [];
+    for (let i = 0; i < game.geom.tiles.length; i++) {
+      const t = game.geom.tiles[i];
+      if (!t || t.type !== 'sea' || i === current) continue;
+      cands.push(i);
+    }
+    const shuffled = shuffle(cands);
+    for (const tid of shuffled) {
+      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: tid });
+      if (r && r.ok) break;
+    }
+    syncTimer(game);
+    return true;
+  }
+
   // Auto choose victim: steal from player with most resources
   if (phase === 'robber-steal') {
     const pid = game.currentPlayerId;
@@ -8788,11 +8936,35 @@ function handleTimeout(room) {
     if (victimId) applyAction(room, pid, { kind: 'robber_steal', victimId });
     else {
       game.robberContext = null;
-    game.thiefChoice = null;
-    game.pirateSteal = null;
+      game.thiefChoice = null;
+      game.pirateSteal = null;
       game.robberSteal = null;
       game.phase = 'main-actions';
+      resumeThiefTimerIfPending(game);
       game.message = `${playerName(game, pid)} may build or end turn.`;
+    }
+    syncTimer(game);
+    return true;
+  }
+
+  // Auto choose pirate victim: steal from player with most resources
+  if (phase === 'pirate-steal') {
+    const pid = game.currentPlayerId;
+    if (!pid) return false;
+    const victims = game.pirateSteal?.victims || [];
+    const victimId = bestVictimByResources(game, victims);
+    if (victimId) applyAction(room, pid, { kind: 'pirate_steal', victimId });
+    else {
+      const ctx = game.robberContext;
+      const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
+      game.robberContext = null;
+      game.thiefChoice = null;
+      game.pirateSteal = null;
+      game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+      resumeThiefTimerIfPending(game);
+      game.message = backToAwaitRoll
+        ? `${playerName(game, pid)}: Roll the dice.`
+        : `${playerName(game, pid)} may build or end turn.`;
     }
     syncTimer(game);
     return true;
