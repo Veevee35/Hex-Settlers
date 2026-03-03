@@ -7601,6 +7601,17 @@ function createRematchRoomFrom(prevRoom) {
     texturePackName: String((p && p.texturePackName) || 'Default'),
   })).filter(p => p.id);
 
+  const prevSpectators = (prevRoom && Array.isArray(prevRoom.spectators)) ? prevRoom.spectators : [];
+  const spectators = prevSpectators.map(p => ({
+    id: String(p && p.id || '').trim(),
+    name: String(p && p.name || 'Spectator').slice(0, 20),
+    color: String(p && p.color || '#93a4b8'),
+    joinedAt: now(),
+    isSpectator: true,
+    texturePackId: String((p && p.texturePackId) || 'default'),
+    texturePackName: String((p && p.texturePackName) || 'Default'),
+  })).filter(p => p.id && !players.some(pp => pp.id === p.id));
+
   // Ensure host exists in the player list (fallback: first player or a fresh id)
   let finalHostId = safeHostId;
   if (players.length) {
@@ -7616,7 +7627,7 @@ function createRematchRoomFrom(prevRoom) {
     hostId: finalHostId,
     createdAt: now(),
     players,
-    spectators: [],
+    spectators,
     sockets: new Map(),
     game: null,
     preview: null,
@@ -8597,7 +8608,8 @@ if (msg.type === 'create_room') {
       ensurePreview(newRoom, true);
 
       // Move any connected sockets to the new room and notify them.
-      for (const p of newRoom.players) {
+      const rematchMembers = [...newRoom.players, ...newRoom.spectators];
+      for (const p of rematchMembers) {
         const pid2 = p.id;
         const sock = room.sockets.get(pid2);
         if (!sock || sock.readyState !== WebSocket.OPEN) continue;

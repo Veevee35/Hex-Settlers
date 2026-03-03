@@ -3170,7 +3170,7 @@ function syncPostgameToState() {
     btns.className = 'hudBtns';
     // In-game: keep the same tools as the lobby, but in a compact HUD bar.
     // The user expects Rules to be available in-game next to Game Log.
-    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.audioBtn, ui.colorblindBtn, ui.endGameVoteBtn, ui.idsBtn]) {
+    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.audioBtn, ui.colorblindBtn, ui.leaveGameBtn, ui.endGameVoteBtn, ui.idsBtn]) {
       if (!b) continue;
       b.classList.add('btnTiny');
       btns.appendChild(b);
@@ -3946,6 +3946,10 @@ function syncPostgameToState() {
   }
 
   function handleLocalRoomExit(reason) {
+    try {
+      if (postgameState && postgameState.historyMode) closePostgameSnapshot();
+      else if (postgameState && postgameState.active) exitPostgame();
+    } catch (_) {}
     room = null;
     state = { phase: 'lobby' };
     isHost = false;
@@ -5714,20 +5718,24 @@ function refreshLobbyJoinLinkUi() {
 
   function openLeaveGameConfirm() {
     if (!room || !state || state.phase === 'lobby' || !myPlayerId) return;
+    const amSpectatorNow = amRoomSpectator();
+    const directLeave = !!(amSpectatorNow || state.phase === 'game-over');
     const wrap = document.createElement('div');
     wrap.className = 'modalText';
-    wrap.textContent = 'Leave the active game and become a spectator? The host must approve before you are removed from turn order.';
+    wrap.textContent = directLeave
+      ? 'Leave this room? You will immediately leave the lobby and stop spectating.'
+      : 'Leave the active game and become a spectator? The host must approve before you are removed from turn order.';
     openModal({
-      title: 'Leave Game',
+      title: directLeave ? 'Leave Room' : 'Leave Game',
       bodyNode: wrap,
       actions: [
         { label: 'Cancel', onClick: closeModal },
         {
-          label: 'Request Leave',
+          label: directLeave ? 'Leave Room' : 'Request Leave',
           primary: true,
           onClick: () => {
             closeModal();
-            send({ type: 'request_leave_game' });
+            send({ type: directLeave ? 'leave_room' : 'request_leave_game' });
           }
         }
       ]
@@ -7404,9 +7412,9 @@ function ensureTimerUiInterval() {
       ui.colorblindBtn.disabled = !inGame;
     }
     if (ui.leaveGameBtn) {
-      const canRequestLeaveGame = !!(inGame && !amSpectator && myPlayerId && room && room.hostId !== myPlayerId);
-      ui.leaveGameBtn.classList.toggle('hidden', !canRequestLeaveGame);
-      ui.leaveGameBtn.disabled = !canRequestLeaveGame;
+      const canUseLeaveGame = !!(inGame && myPlayerId && room && room.hostId !== myPlayerId);
+      ui.leaveGameBtn.classList.toggle('hidden', !canUseLeaveGame);
+      ui.leaveGameBtn.disabled = !canUseLeaveGame;
     }
 
     // Host-only end-game vote
