@@ -1175,14 +1175,6 @@
     } catch (_) {}
   }
 
-  function syncRightSidebarResourceScale(scale) {
-    try {
-      if (!ui || !ui.rightSidebarResourcesDock) return;
-      const next = clampToolUiScale(scale == null ? getToolUiScale('dev_panel') : scale);
-      ui.rightSidebarResourcesDock.style.setProperty('--tool-ui-scale', String(next));
-    } catch (_) {}
-  }
-
   function setToolUiScale(scaleId, value, wrap, label) {
     const next = clampToolUiScale(value);
     try { localStorage.setItem(`${TOOL_UI_SCALE_PREFIX}${String(scaleId || 'tool')}`, String(next)); } catch (_) {}
@@ -1190,12 +1182,19 @@
       wrap.style.setProperty('--tool-ui-scale', String(next));
       applyScaledPanelBoxSize(scaleId, wrap, next);
     }
-    if (String(scaleId || '') === 'dev_panel') syncRightSidebarResourceScale(next);
     if (label) {
       const txt = `${Math.round(next * 100)}%`;
       label.textContent = txt;
       label.title = `Tab size ${txt}`;
     }
+
+    // Keep right sidebar resources synced to the Dev panel scale when docked.
+    try {
+      if (String(scaleId || '') === 'dev_panel') {
+        const dock = (typeof ui !== 'undefined' && ui) ? ui.rightSidebarResourcesDock : null;
+        if (dock && dock.style) dock.style.setProperty('--tool-ui-scale', String(next));
+      }
+    } catch (_) {}
   }
 
   function bumpToolUiScale(scaleId, delta, wrap, label) {
@@ -3295,6 +3294,13 @@ function syncPostgameToState() {
       ensureRightSidebarResizeHandle();
       ui.rightSidebar.classList.remove('hidden');
       if (ui.rightSidebar.parentNode !== boardWrap) boardWrap.appendChild(ui.rightSidebar);
+
+      // Ensure the bottom resources dock uses the same scale as the Dev panel.
+      try {
+        if (ui.rightSidebarResourcesDock && ui.rightSidebarResourcesDock.style) {
+          ui.rightSidebarResourcesDock.style.setProperty('--tool-ui-scale', String(getToolUiScale('dev_panel')));
+        }
+      } catch (_) {}
 
       const anchor = ui.rightSidebarResourcesDock || null;
       if (ui.logCard) {
@@ -7778,7 +7784,6 @@ if (ui.moveShipBtn) {
 
   function renderResources() {
     if (!state) return;
-    syncRightSidebarResourceScale();
     const summaryBox = ui.resourcesBox;
     const sideBox = ui.rightSidebarResourcesBody;
     if (summaryBox) summaryBox.innerHTML = '';
