@@ -3955,6 +3955,8 @@ function syncPostgameToState() {
       if (postgameState && postgameState.historyMode) closePostgameSnapshot();
       else if (postgameState && postgameState.active) exitPostgame();
     } catch (_) {}
+    try { closeModal(); } catch (_) {}
+    pendingAutoRejoin = false;
     room = null;
     state = { phase: 'lobby' };
     isHost = false;
@@ -3962,6 +3964,13 @@ function syncPostgameToState() {
     try { setLocalPanelLayoutOwnerKey(null); } catch (_) {}
     try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
     if (ui.rejoinIdInput) ui.rejoinIdInput.value = '';
+    if (ui.codeInput) ui.codeInput.value = '';
+    if (ui.roomCode) ui.roomCode.textContent = '----';
+    if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = '';
+    if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = true;
+    if (ui.genJoinLinkBtn) ui.genJoinLinkBtn.disabled = true;
+    if (ui.playersList) ui.playersList.innerHTML = '';
+    if (ui.startBtn) ui.startBtn.classList.add('hidden');
     if (ui.roomBox) ui.roomBox.classList.add('hidden');
     refreshLobbyJoinLinkUi();
     updateAuthUi();
