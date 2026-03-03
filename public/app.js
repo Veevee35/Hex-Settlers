@@ -3940,6 +3940,11 @@ function syncPostgameToState() {
     return (room && Array.isArray(room.spectators)) ? room.spectators : [];
   }
 
+  function currentRoomPhase() {
+    const phase = String(((state && state.phase) || (room && room.gamePhase) || 'lobby') || 'lobby');
+    return phase || 'lobby';
+  }
+
   function amRoomSpectator() {
     if (!room || !myPlayerId) return false;
     return roomSpectatorsList().some(p => p && p.id === myPlayerId);
@@ -4833,6 +4838,7 @@ function refreshLobbyJoinLinkUi() {
         ui.startBtn.classList.toggle('hidden', !isHost);
         setError(null);
         renderLobby();
+        updateButtons();
         queueTexturePackAnnounce(false);
         send({ type: 'get_state' });
         return;
@@ -4849,6 +4855,7 @@ function refreshLobbyJoinLinkUi() {
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !(myPlayerId && room.hostId === myPlayerId));
         renderLobby();
+        updateButtons();
         queueTexturePackAnnounce(false);
         return;
       }
@@ -5717,9 +5724,10 @@ function refreshLobbyJoinLinkUi() {
   }
 
   function openLeaveGameConfirm() {
-    if (!room || !state || state.phase === 'lobby' || !myPlayerId) return;
+    const phaseNow = currentRoomPhase();
+    if (!room || phaseNow === 'lobby' || !myPlayerId) return;
     const amSpectatorNow = amRoomSpectator();
-    const directLeave = !!(amSpectatorNow || state.phase === 'game-over');
+    const directLeave = !!(amSpectatorNow || phaseNow === 'game-over');
     const wrap = document.createElement('div');
     wrap.className = 'modalText';
     wrap.textContent = directLeave
@@ -7361,6 +7369,7 @@ function ensureTimerUiInterval() {
 }
 
   function updateButtons() {
+    const phaseNow = currentRoomPhase();
     const inGame = !!state && state.phase !== 'lobby';
     const amSpectator = inGame && amRoomSpectator();
 
@@ -7412,7 +7421,7 @@ function ensureTimerUiInterval() {
       ui.colorblindBtn.disabled = !inGame;
     }
     if (ui.leaveGameBtn) {
-      const canUseLeaveGame = !!(inGame && myPlayerId && room && room.hostId !== myPlayerId);
+      const canUseLeaveGame = !!(myPlayerId && room && room.hostId !== myPlayerId && phaseNow !== 'lobby');
       ui.leaveGameBtn.classList.toggle('hidden', !canUseLeaveGame);
       ui.leaveGameBtn.disabled = !canUseLeaveGame;
     }
