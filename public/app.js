@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = '5710f934d8585552-pngcachefix1';
+  const ASSET_CACHE_SW_BUILD = '5710f934d8585552-previewfix2';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -789,6 +789,19 @@
     } catch (_) {
       try { render(); } catch (_) {}
     }
+  }
+
+  function ensureStructureSpritesReady() {
+    try {
+      const loadedNow = STRUCT.imgs.reduce((acc, img) => acc + ((img && img.complete && (img.naturalWidth || img.width)) ? 1 : 0), 0);
+      if (loadedNow > 0) {
+        STRUCT.loaded = Math.max(Number(STRUCT.loaded || 0), loadedNow);
+        STRUCT.ready = true;
+        STRUCT.tile = structTileSizeForImage(STRUCT.imgs.find(img => img && img.complete && (img.naturalWidth || img.width)) || STRUCT.imgs[0]);
+        return;
+      }
+    } catch (_) {}
+    try { reloadStructureSprites(); } catch (_) {}
   }
 
   refreshTexturePackUi();
@@ -2830,13 +2843,24 @@ function syncPostgameToState() {
 
   try {
     STRUCT.imgs.forEach((img, idx) => {
-      setTextureImageElementSrc(img, STRUCT_IMG_SRC[idx]);
+      const fallback = STRUCT_IMG_SRC[idx];
+      const primary = resolveLegacyTextureUrl(fallback) || fallback;
+      let triedFallback = false;
+      img.onerror = () => {
+        if (triedFallback || !fallback || primary === fallback) {
+          img.onerror = null;
+          return;
+        }
+        triedFallback = true;
+        img.src = fallback;
+      };
       img.onload = () => {
         STRUCT.loaded++;
         STRUCT.tile = structTileSizeForImage(img); // remember a sane default, but draw uses per-image size
         STRUCT.ready = true; // at least one sprite loaded
         try { render(); } catch (_) {}
       };
+      img.src = primary || fallback;
     });
   } catch (_) {}
 
@@ -3950,6 +3974,15 @@ function syncPostgameToState() {
     return roomSpectatorsList().some(p => p && p.id === myPlayerId);
   }
 
+  function resetViewportForRoomChange() {
+    try {
+      lastTileCountForView = 0;
+      view.scale = 150;
+      view.ox = 0;
+      view.oy = 0;
+    } catch (_) {}
+  }
+
   function handleLocalRoomExit(reason) {
     try {
       if (postgameState && postgameState.historyMode) closePostgameSnapshot();
@@ -3958,7 +3991,8 @@ function syncPostgameToState() {
     try { closeModal(); } catch (_) {}
     pendingAutoRejoin = false;
     room = null;
-    state = { phase: 'lobby' };
+    state = null;
+    resetViewportForRoomChange();
     isHost = false;
     myPlayerId = null;
     try { setLocalPanelLayoutOwnerKey(null); } catch (_) {}
@@ -3976,6 +4010,7 @@ function syncPostgameToState() {
     updateAuthUi();
     updateButtons();
     renderLobby();
+    render();
     setError(reason || 'You left the room.');
   }
 
@@ -4836,6 +4871,8 @@ function refreshLobbyJoinLinkUi() {
         myPlayerId = msg.playerId;
         try { setLocalPanelLayoutOwnerKey(myPlayerId || null); } catch (_) {}
         room = msg.room;
+        resetViewportForRoomChange();
+        ensureStructureSpritesReady();
         isHost = !!msg.isHost;
         if (ui.rejoinIdInput) ui.rejoinIdInput.value = myPlayerId || '';
         if (ui.codeInput && room?.code) ui.codeInput.value = room.code;
@@ -4855,6 +4892,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'room') {
         room = msg.room;
+        ensureStructureSpritesReady();
         isHost = !!(myPlayerId && room && room.hostId === myPlayerId);
         if (modalType !== 'playerTradeCompose') playerTradeTimerPauseRequested = false;
         ui.roomBox.classList.remove('hidden');
@@ -4957,6 +4995,7 @@ function refreshLobbyJoinLinkUi() {
         handleDiscoveryGoldPrompt();
         handleProductionGoldPrompt();
         refreshToolModals();
+        if (state && state.phase && state.phase !== 'lobby') ensureStructureSpritesReady();
 
         // Keep the draggable Game Log overlay in sync while it's open.
         try {
@@ -6250,6 +6289,9 @@ function refreshLobbyJoinLinkUi() {
   ui.createBtn.addEventListener('click', () => {
     setError(null);
     if (!authUser) { setError('Log in first.'); return; }
+    state = null;
+    resetViewportForRoomChange();
+    render();
     const displayName = (ui.nameInput?.value || '').trim() || authUser.displayName || 'Host';
     send({ type: 'create_room', displayName });
   });
@@ -6257,6 +6299,9 @@ function refreshLobbyJoinLinkUi() {
   ui.joinBtn.addEventListener('click', () => {
     setError(null);
     if (!authUser) { setError('Log in first.'); return; }
+    state = null;
+    resetViewportForRoomChange();
+    render();
     const code = (ui.codeInput?.value || '').trim().toUpperCase();
     const displayName = (ui.nameInput?.value || '').trim() || authUser.displayName || 'Player';
     send({ type: 'join_room', code, displayName });

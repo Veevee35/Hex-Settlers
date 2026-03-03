@@ -1,6 +1,6 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'texturepack-v4';
+const CACHE_NAME = CACHE_PREFIX + 'texturepack-v5';
 const PRECACHE_URLS = [
   "/assets/sfx/dev_card.wav",
   "/assets/sfx/dice_roll.wav",

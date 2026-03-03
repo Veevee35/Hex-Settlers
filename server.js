@@ -7824,6 +7824,19 @@ function broadcastPreviewState(room) {
   }
 }
 
+function sendRoomStateToSocket(room, ws, pid) {
+  if (!room || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (room.game && room.game.phase !== 'lobby') {
+    syncTradeTimerPause(room.game);
+    syncTimer(room.game);
+    sendJson(ws, { type: 'state', state: sanitizeStateFor(room.game, pid) });
+    return;
+  }
+  ensurePreview(room, false);
+  const previewGame = makePreviewGame(room);
+  sendJson(ws, { type: 'state', state: sanitizeStateFor(previewGame, pid) });
+}
+
 function roomSnapshot(room) {
   ensureRoomRoleLists(room);
   return {
@@ -8283,6 +8296,7 @@ if (msg.type === 'create_room') {
       ensurePreview(room, true);
 
       sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true, role: roomRole(room, ws._userId) || 'player' });
+      sendRoomStateToSocket(room, ws, ws._userId);
       broadcastRoom(room);
       return;
     }
@@ -8322,6 +8336,7 @@ if (msg.type === 'create_room') {
       ensurePreview(room, false);
 
       sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: ws._userId === room.hostId, role: roomRole(room, ws._userId) || 'player' });
+      sendRoomStateToSocket(room, ws, ws._userId);
       broadcastRoom(room);
       return;
     }
@@ -8359,15 +8374,7 @@ if (msg.type === 'create_room') {
         }
 
         sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
-        if (room.game) {
-          syncTradeTimerPause(room.game);
-          syncTimer(room.game);
-          sendJson(ws, { type: 'state', state: sanitizeStateFor(room.game, pid) });
-        } else {
-          ensurePreview(room, false);
-          const pg = makePreviewGame(room);
-          sendJson(ws, { type: 'state', state: sanitizeStateFor(pg, pid) });
-        }
+        sendRoomStateToSocket(room, ws, pid);
         broadcastRoom(room);
         return;
       }
@@ -9086,16 +9093,7 @@ if (msg.type === 'create_room') {
 
     if (msg.type === 'get_state') {
       sendJson(ws, { type: 'room', room: roomSnapshot(room) });
-      if (room.game) {
-        syncTradeTimerPause(room.game);
-        syncTimer(room.game);
-        const state = sanitizeStateFor(room.game, pid);
-        sendJson(ws, { type: 'state', state });
-      } else {
-        ensurePreview(room, false);
-        const pg = makePreviewGame(room);
-        sendJson(ws, { type: 'state', state: sanitizeStateFor(pg, pid) });
-      }
+      sendRoomStateToSocket(room, ws, pid);
       return;
     }
   });
