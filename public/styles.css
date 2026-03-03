@@ -20,7 +20,9 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  --right-sidebar-width: 520px;
 }
+
 *{box-sizing:border-box}
 html,body{height:100%; min-height:100%; overflow:hidden; overscroll-behavior:none}
 body{
@@ -183,7 +185,7 @@ body.in-game .panel{display:none;}
   height:100%;
   min-height:0;
 }
-body.in-game .boardWrap{border:none; border-radius:0; box-shadow:none; height:100%; min-height:0;}
+body.in-game .boardWrap{border:none; border-radius:0; box-shadow:none; height:100%; min-height:0; padding-right:var(--right-sidebar-width, 520px);}
 body.in-game .boardFooter{display:none;}
 #board{
   touch-action:none;
@@ -209,8 +211,8 @@ body.in-game .boardFooter{display:none;}
   right:auto;
   bottom:auto;
   z-index:13;
-  width:min(380px, 46vw);
-  max-width:460px;
+  width:min(360px, 34vw);
+  max-width:400px;
   padding:12px;
   background: rgba(14,19,28,.78);
   backdrop-filter: blur(6px);
@@ -219,6 +221,116 @@ body.in-game .boardFooter{display:none;}
 .resourcesOverlay .resourcesBox{gap:8px; font-size:12px}
 .resourcesOverlay .pResGrid,
 .resourcesOverlay .pPieceGrid{font-size:11px}
+.resourcesOverlay > .smallNote{display:none;}
+
+.resSummaryRow{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+  background: rgba(0,0,0,.18);
+}
+.resSummaryRow + .resSummaryRow{margin-top:8px;}
+.resSummaryRow.turnActive{border-color:rgba(74,163,255,.5); box-shadow:0 0 0 2px rgba(74,163,255,.16) inset;}
+.resSummaryMain{display:flex; align-items:center; gap:8px; min-width:0; width:100%;}
+.resSummaryName{font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:116px;}
+.resSummaryStats{display:flex; align-items:center; gap:8px; flex:1 1 auto; min-width:0; flex-wrap:wrap;}
+.resSummaryStat{font-family:var(--mono); font-size:11px; color:#dbe7f5; white-space:nowrap;}
+.resSummaryRoad{display:inline-flex; align-items:center; gap:5px;}
+.resSummaryRoadSwatch{width:12px; height:6px; border-radius:999px; box-shadow:0 0 0 1px rgba(255,255,255,.16) inset;}
+.resSummaryVp{margin-left:auto; display:inline-flex; align-items:center; gap:6px; justify-content:flex-end;}
+.resSummaryBadges{font-size:10px; color:var(--muted); letter-spacing:.02em;}
+
+.rightSidebar{
+  position:absolute;
+  top:0;
+  right:0;
+  bottom:0;
+  width:var(--right-sidebar-width, 520px);
+  z-index:12;
+  display:flex;
+  border-left:1px solid rgba(255,255,255,.08);
+  background: rgba(14,19,28,.76);
+  backdrop-filter: blur(8px);
+  box-shadow:-18px 0 48px rgba(0,0,0,.24);
+}
+.rightSidebar.hidden{display:none !important;}
+.rightSidebarResize{
+  width:8px;
+  cursor:ew-resize;
+  flex:0 0 8px;
+  position:relative;
+  touch-action:none;
+}
+.rightSidebarResize::before{
+  content:'';
+  position:absolute;
+  top:50%;
+  left:2px;
+  width:3px;
+  height:72px;
+  border-radius:999px;
+  transform:translateY(-50%);
+  background:rgba(255,255,255,.12);
+}
+.rightSidebarInner{
+  flex:1 1 auto;
+  min-width:0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:10px 10px 10px 6px;
+  overflow:hidden;
+}
+.rightSidebarInner > .card{margin:0;}
+.rightSidebarInner > .card.hidden{display:none !important;}
+.rightSidebarInner > #logCard,
+.rightSidebarInner > #devCard{flex:1 1 0; min-height:0;}
+.rightSidebarResourceDock{
+  flex:0 0 auto;
+  border-top:1px solid rgba(255,255,255,.08);
+  padding-top:10px;
+  min-height:0;
+}
+.rightSidebarResourcesBody{display:flex; flex-direction:column; gap:10px;}
+.rightSidebarBankTitle{font-size:12px; font-weight:800; letter-spacing:.3px; color:var(--text);}
+.rightSidebarResStrip,
+.rightSidebarPieceStrip{display:grid; gap:10px;}
+.rightSidebarResStrip{grid-template-columns:repeat(5, minmax(0, 1fr));}
+.rightSidebarPieceStrip{grid-template-columns:repeat(4, minmax(0, 1fr));}
+.rightSidebarSeparator{height:1px; background:rgba(255,255,255,.08);}
+.rightSidebarMeta{display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; font-family:var(--mono); font-size:11px; color:#dbe7f5;}
+.rightSidebarMetaStrong{font-size:17px; font-weight:900; color:var(--text); letter-spacing:.02em;}
+.rightSidebarNote{font-size:11px; color:var(--muted);}
+.rightSidebar .logOverlay,
+.rightSidebar #devCard.rightSidebarDocked{
+  position:relative;
+  left:auto;
+  right:auto;
+  top:auto;
+  bottom:auto;
+  width:100%;
+  max-width:none;
+  padding:0;
+  background:transparent;
+  backdrop-filter:none;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.rightSidebar .logOverlay .cardTitleRow,
+.rightSidebar #devCard.rightSidebarDocked .devHeaderRow{margin-bottom:8px;}
+.rightSidebar .logOverlay .logList{max-height:none; flex:1 1 auto; min-height:0;}
+.rightSidebar #devCard.rightSidebarDocked .panelScaleContent{display:flex; flex-direction:column; min-height:0; gap:8px;}
+.rightSidebar #devCard.rightSidebarDocked .devHand{flex:1 1 auto; min-height:0; overflow:auto; margin-top:0;}
+body.in-game .rightHud{right:calc(var(--right-sidebar-width, 520px) + 8px);}
 
 /* Game log overlay (toggleable + draggable) */
 .logOverlay{
@@ -1280,7 +1392,7 @@ select.input{
   .input{padding:12px 12px;}
   .hudTopLeft, .hudBottomLeft{left:4px;}
   .rightHud{top:4px; right:4px; gap:6px;}
-  .resourcesOverlay{left:4px; top:48px; width:min(92vw, 420px); max-width:none;}
+  .resourcesOverlay{left:4px; top:48px; width:min(92vw, 360px); max-width:none;}
   .logOverlay{right:4px; top:48px; width:min(96vw, 560px); max-width:none;}
   .hudBar{padding:8px 10px; border-radius:14px; max-width:calc(100% - 8px);}
   .nodeBuildConfirm{max-width:calc(100vw - 12px);}
@@ -1393,4 +1505,15 @@ select.input{
   .resourcesOverlay .resVal{font-size:11px;}
   .hudBarScaleHost .tabScaleLabel,
   .panelScaleHost .tabScaleLabel{min-width:46px;}
+}
+
+@media (max-width: 1180px){
+  :root{--right-sidebar-width: min(420px, 40vw);}
+  body.in-game .boardWrap{padding-right:var(--right-sidebar-width, 420px);}
+}
+
+@media (max-width: 900px){
+  :root{--right-sidebar-width: min(340px, 44vw);}
+  .rightSidebarResize{flex-basis:6px; width:6px;}
+  body.in-game .rightHud{right:calc(var(--right-sidebar-width, 340px) + 6px);}
 }

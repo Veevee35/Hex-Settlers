@@ -87,6 +87,11 @@
     turnCard: $('turnCard'),
     toolsCard: $('toolsCard'),
     devCard: $('devCard'),
+    rightSidebar: $('rightSidebar'),
+    rightSidebarResize: $('rightSidebarResize'),
+    rightSidebarInner: $('rightSidebarInner'),
+    rightSidebarResourcesDock: $('rightSidebarResourcesDock'),
+    rightSidebarResourcesBody: $('rightSidebarResourcesBody'),
     logBtn: $('logBtn'),
     rulesBtn: $('rulesBtn'),
     diceBtn: $('diceBtn'),
@@ -169,6 +174,83 @@
     historyBody: $('historyBody'),
     historySub: $('historySub'),
   };
+
+  const RIGHT_SIDEBAR_WIDTH_KEY = 'hexsettlers_right_sidebar_width_v1';
+  const RIGHT_SIDEBAR_DEFAULT_WIDTH = 520;
+  const RIGHT_SIDEBAR_MIN_WIDTH = 340;
+  const RIGHT_SIDEBAR_MAX_WIDTH = 760;
+
+  function clampRightSidebarWidth(v) {
+    const hardMax = Math.min(RIGHT_SIDEBAR_MAX_WIDTH, Math.max(260, window.innerWidth - 160));
+    const floor = Math.min(RIGHT_SIDEBAR_MIN_WIDTH, hardMax);
+    const n = Math.round(Number(v) || RIGHT_SIDEBAR_DEFAULT_WIDTH);
+    return Math.max(floor, Math.min(hardMax, n));
+  }
+
+  function getSavedRightSidebarWidth() {
+    try {
+      return clampRightSidebarWidth(localStorage.getItem(RIGHT_SIDEBAR_WIDTH_KEY));
+    } catch (_) {}
+    return clampRightSidebarWidth(RIGHT_SIDEBAR_DEFAULT_WIDTH);
+  }
+
+  function setRightSidebarWidth(v, { persist = false } = {}) {
+    const next = clampRightSidebarWidth(v);
+    try { document.documentElement.style.setProperty('--right-sidebar-width', `${next}px`); } catch (_) {}
+    try { if (ui.rightSidebar) ui.rightSidebar.style.width = `${next}px`; } catch (_) {}
+    if (persist) {
+      try { localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, String(next)); } catch (_) {}
+    }
+    return next;
+  }
+
+  function ensureRightSidebarResizeHandle() {
+    if (!ui.rightSidebar || !ui.rightSidebarResize || ui.rightSidebarResize.dataset.ready === '1') return;
+    const handle = ui.rightSidebarResize;
+    handle.dataset.ready = '1';
+    let dragging = false;
+    let startX = 0;
+    let startW = getSavedRightSidebarWidth();
+
+    const stop = () => {
+      if (!dragging) return;
+      dragging = false;
+      try { handle.releasePointerCapture && handle.releasePointerCapture(pointerId); } catch (_) {}
+      try { handle.classList.remove('isDragging'); } catch (_) {}
+      setRightSidebarWidth(startW, { persist: true });
+    };
+
+    let pointerId = null;
+
+    handle.addEventListener('pointerdown', (ev) => {
+      if (ev.button != null && ev.button !== 0) return;
+      dragging = true;
+      pointerId = ev.pointerId;
+      startX = ev.clientX;
+      startW = getSavedRightSidebarWidth();
+      try { handle.setPointerCapture(ev.pointerId); } catch (_) {}
+      ev.preventDefault();
+    });
+
+    handle.addEventListener('pointermove', (ev) => {
+      if (!dragging) return;
+      const dx = startX - ev.clientX;
+      startW = setRightSidebarWidth(startW + dx);
+      startX = ev.clientX;
+      try {
+        const r = ui.canvas && ui.canvas.getBoundingClientRect ? ui.canvas.getBoundingClientRect() : null;
+        const key = r ? `${Math.round(r.width)}x${Math.round(r.height)}` : '';
+        if (key && key !== lastCanvasSizeKey) {
+          lastCanvasSizeKey = key;
+          resizeCanvas();
+          render();
+        }
+      } catch (_) {}
+    });
+
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+  }
 
 
   const ctx = ui.canvas.getContext('2d');
@@ -3156,6 +3238,11 @@ function syncPostgameToState() {
     movedDevInline: false,
   };
 
+  const rightSidebarDock = {
+    isDocked: false,
+    originals: null,
+  };
+
   function rememberOriginal(el) {
     return {
       parent: el && el.parentNode ? el.parentNode : null,
@@ -3167,6 +3254,78 @@ function syncPostgameToState() {
     if (!el || !rec || !rec.parent) return;
     if (rec.next && rec.next.parentNode === rec.parent) rec.parent.insertBefore(el, rec.next);
     else rec.parent.appendChild(el);
+  }
+
+  function clearDockedPanelPosition(el) {
+    if (!el || !el.style) return;
+    el.style.position = '';
+    el.style.left = '';
+    el.style.top = '';
+    el.style.right = '';
+    el.style.bottom = '';
+    el.style.width = '';
+    el.style.maxWidth = '';
+    el.style.minWidth = '';
+    try { if (el.dataset) el.dataset.popupDragged = '0'; } catch (_) {}
+  }
+
+  function syncRightSidebarDock(inGame) {
+    const boardWrap = document.querySelector('section.boardWrap');
+    if (!boardWrap || !ui.rightSidebar || !ui.rightSidebarInner) return;
+
+    if (inGame && !rightSidebarDock.isDocked) {
+      rightSidebarDock.isDocked = true;
+      rightSidebarDock.originals = {
+        log: ui.logCard ? rememberOriginal(ui.logCard) : null,
+        dev: ui.devCard ? rememberOriginal(ui.devCard) : null,
+      };
+    }
+
+    if (inGame) {
+      setRightSidebarWidth(getSavedRightSidebarWidth());
+      ensureRightSidebarResizeHandle();
+      ui.rightSidebar.classList.remove('hidden');
+      if (ui.rightSidebar.parentNode !== boardWrap) boardWrap.appendChild(ui.rightSidebar);
+
+      const anchor = ui.rightSidebarResourcesDock || null;
+      if (ui.logCard) {
+        ui.logCard.dataset.dragDisabled = '1';
+        ui.logCard.classList.add('rightSidebarDocked');
+        clearDockedPanelPosition(ui.logCard);
+        if (ui.logCard.parentNode !== ui.rightSidebarInner) {
+          if (anchor) ui.rightSidebarInner.insertBefore(ui.logCard, anchor);
+          else ui.rightSidebarInner.appendChild(ui.logCard);
+        }
+      }
+      if (ui.devCard) {
+        ui.devCard.dataset.dragDisabled = '1';
+        ui.devCard.classList.add('rightSidebarDocked');
+        ui.devCard.classList.remove('hudDevOverlay');
+        clearDockedPanelPosition(ui.devCard);
+        if (ui.devCard.parentNode !== ui.rightSidebarInner) {
+          if (anchor) ui.rightSidebarInner.insertBefore(ui.devCard, anchor);
+          else ui.rightSidebarInner.appendChild(ui.devCard);
+        }
+      }
+      return;
+    }
+
+    ui.rightSidebar.classList.add('hidden');
+    if (!rightSidebarDock.isDocked) return;
+    rightSidebarDock.isDocked = false;
+
+    if (ui.logCard) {
+      delete ui.logCard.dataset.dragDisabled;
+      ui.logCard.classList.remove('rightSidebarDocked');
+      clearDockedPanelPosition(ui.logCard);
+      restoreOriginal(ui.logCard, rightSidebarDock.originals && rightSidebarDock.originals.log);
+    }
+    if (ui.devCard) {
+      delete ui.devCard.dataset.dragDisabled;
+      ui.devCard.classList.remove('rightSidebarDocked');
+      clearDockedPanelPosition(ui.devCard);
+      restoreOriginal(ui.devCard, rightSidebarDock.originals && rightSidebarDock.originals.dev);
+    }
   }
 
   function buildToolsHudOnce() {
@@ -3294,17 +3453,6 @@ function syncPostgameToState() {
           if (grip && !ui.turnCard.dataset.dragReady) {
             makeDraggablePanel(ui.turnCard, grip, 'hexsettlers_turn_pos_v2');
             ui.turnCard.dataset.dragReady = '1';
-          }
-        } catch (_) {}
-      }
-      if (ui.devCard) {
-        ui.devCard.classList.add('hudDevOverlay');
-        boardWrap.appendChild(ui.devCard);
-        try {
-          const handle = ui.devCard.querySelector('.devHeaderRow') || ui.devCard.querySelector('h2');
-          if (handle && !ui.devCard.dataset.dragReady) {
-            makeDraggablePanel(ui.devCard, handle, 'hexsettlers_dev_pos_v2');
-            ui.devCard.dataset.dragReady = '1';
           }
         } catch (_) {}
       }
@@ -3460,6 +3608,7 @@ function syncPostgameToState() {
         const t = ev.target;
         if (t && t.closest && t.closest('button, input, select, textarea, a, label, .toolScaleControl, .panelScaleHost, .hudBarScaleHost')) return;
       } catch (_) {}
+      try { if (panelEl && panelEl.dataset && panelEl.dataset.dragDisabled === '1') return; } catch (_) {}
       dragging = true;
       handleEl.style.cursor = 'grabbing';
       const r = panelEl.getBoundingClientRect();
@@ -3725,7 +3874,7 @@ function syncPostgameToState() {
     ui.canvas.height = Math.floor((rect.height) * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  window.addEventListener('resize', () => { resizeCanvas(); render(); });
+  window.addEventListener('resize', () => { try { setRightSidebarWidth(getSavedRightSidebarWidth()); } catch (_) {} resizeCanvas(); render(); });
   try {
     if (window.visualViewport) {
       const onVvResize = () => { resizeCanvas(); render(); };
@@ -7437,6 +7586,7 @@ function ensureTimerUiInterval() {
     // Global page state + HUD docking.
     try { document.body.classList.toggle('in-game', inGame); } catch (_) {}
     dockHudToBoard(inGame);
+    syncRightSidebarDock(inGame);
 
     // IMPORTANT: the board layout (and thus the canvas CSS pixel size) changes when the
     // game transitions into the in-game full-page view. If we don't resync the canvas
@@ -7619,8 +7769,10 @@ if (ui.moveShipBtn) {
 
   function renderResources() {
     if (!state) return;
-    const box = ui.resourcesBox;
-    box.innerHTML = '';
+    const summaryBox = ui.resourcesBox;
+    const sideBox = ui.rightSidebarResourcesBody;
+    if (summaryBox) summaryBox.innerHTML = '';
+    if (sideBox) sideBox.innerHTML = '';
 
     const seafarers = ((state && state.rules && state.rules.mapMode) || 'classic') === 'seafarers';
 
@@ -7672,7 +7824,7 @@ if (ui.moveShipBtn) {
       };
     }
 
-    const playersForResources = (() => {
+    function sortedPlayers() {
       const arr = Array.isArray(state.players) ? [...state.players] : [];
       const order = Array.isArray(state.turnOrder) ? state.turnOrder : [];
       if (!order.length) return arr;
@@ -7684,173 +7836,167 @@ if (ui.moveShipBtn) {
         return String(a.name || a.id || '').localeCompare(String(b.name || b.id || ''));
       });
       return arr;
-    })();
+    }
 
-    for (const p of playersForResources) {
-      const wrap = document.createElement('div');
-      wrap.className = 'pRes';
-      if (p.id === state.currentPlayerId) wrap.classList.add('turnActive');
-      const head = document.createElement('div');
-      head.className = 'pResHead';
+    function makePieceCellForColor(color, kind, count) {
+      const cell = document.createElement('div');
+      cell.className = 'pieceCell';
 
       const left = document.createElement('div');
-      left.className = 'pResName';
-      const badge = document.createElement('div');
-      badge.className = 'badge';
-      badge.style.background = p.color;
-      const name = document.createElement('div');
-      name.textContent = p.name + (p.id === myPlayerId ? ' (you)' : '') + (p.id === state.currentPlayerId ? ' • turn' : '');
-      left.appendChild(badge);
-      left.appendChild(name);
-      if (colorblindMode) {
-        try {
-          const shapeBadge = createColorblindShapeBadge(p.color, 14);
-          shapeBadge.style.marginLeft = '-2px';
-          shapeBadge.style.marginRight = '0';
-          shapeBadge.style.flexShrink = '0';
-          left.appendChild(shapeBadge);
-        } catch (_) {}
-      }
-      if (p.id === myPlayerId) {
-        try {
-          const myHandCount = RES_KEYS.reduce((sum, k) => sum + Number(p.resources?.[k] || 0), 0);
-          const handCountTag = document.createElement('div');
-          handCountTag.textContent = `CARDS:${String(myHandCount).padStart(2,' ')}`;
-          handCountTag.style.marginLeft = '6px';
-          handCountTag.style.padding = '1px 6px';
-          handCountTag.style.borderRadius = '999px';
-          handCountTag.style.border = '1px solid rgba(255,255,255,0.16)';
-          handCountTag.style.background = 'rgba(255,255,255,0.05)';
-          handCountTag.style.fontFamily = 'ui-monospace, monospace';
-          handCountTag.style.fontSize = '11px';
-          handCountTag.style.lineHeight = '1.2';
-          handCountTag.style.color = '#dbe7f5';
-          handCountTag.style.flexShrink = '0';
-          left.appendChild(handCountTag);
-        } catch (_) {}
-      }
+      left.className = 'pieceLeft';
 
-	      const right = document.createElement('div');
-	      right.style.display = 'flex';
-	      right.style.flexDirection = 'column';
-	      right.style.alignItems = 'flex-end';
-	      right.style.gap = '2px';
+      const icon = document.createElement('div');
+      icon.className = 'pieceIcon';
+      const colIdx = playerColorIndex(color);
+      const src = resolveLegacyTextureUrl(STRUCT_IMG_SRC[colIdx] || STRUCT_IMG_SRC[0]);
+      icon.style.backgroundImage = `url('${src}')`;
+      icon.style.backgroundSize = '200% 200%';
+      const pos = tokenBgPosPct(kind);
+      icon.style.backgroundPosition = `${pos.x}% ${pos.y}%`;
 
-	      const vp = document.createElement('div');
-	      vp.style.fontFamily = 'ui-monospace, monospace';
-	      vp.style.color = '#e8eef6';
-	      const tags = [];
-	      if (state && state.largestArmy && state.largestArmy.playerId === p.id) tags.push('LA');
-	      if (state && state.longestRoad && state.longestRoad.playerId === p.id) tags.push('LR');
-	      vp.textContent = `VP ${p.vp}${tags.length ? ` • ${tags.join(' • ')}` : ''}`;
-	      right.appendChild(vp);
+      const val = document.createElement('span');
+      val.className = 'pieceVal';
+      val.textContent = String(count);
 
-	      // Longest road length (per player)
-	      const lrLine = document.createElement('div');
-	      lrLine.style.display = 'flex';
-	      lrLine.style.alignItems = 'center';
-	      lrLine.style.gap = '6px';
-	      lrLine.style.fontFamily = 'ui-monospace, monospace';
-	      lrLine.style.color = '#e8eef6';
+      left.appendChild(val);
+      left.appendChild(icon);
+      cell.appendChild(left);
+      return cell;
+    }
 
-	      const lrIcon = document.createElement('div');
-	      lrIcon.style.width = '16px';
-	      lrIcon.style.height = '16px';
-	      lrIcon.style.borderRadius = '6px';
-	      const colIdx2 = playerColorIndex(p.color);
-	      const src = resolveLegacyTextureUrl(STRUCT_IMG_SRC[colIdx2] || STRUCT_IMG_SRC[0]);
-	      lrIcon.style.backgroundImage = `url('${src}')`;
-	      lrIcon.style.backgroundSize = '200% 200%';
-	      const pos = tokenBgPosPct('road');
-	      lrIcon.style.backgroundPosition = `${pos.x}% ${pos.y}%`;
-	      lrIcon.title = 'Longest road length';
+    const playersForResources = sortedPlayers();
 
-	      const lrVal = document.createElement('span');
-	      lrVal.textContent = String(Math.max(0, p.longestRoadLen || 0));
-	      lrLine.appendChild(lrIcon);
-	      lrLine.appendChild(lrVal);
-	      right.appendChild(lrLine);
+    if (summaryBox) {
+      for (const p of playersForResources) {
+        const row = document.createElement('div');
+        row.className = 'resSummaryRow';
+        if (p.id === state.currentPlayerId) row.classList.add('turnActive');
 
-	      head.appendChild(left);
-	      head.appendChild(right);
+        const main = document.createElement('div');
+        main.className = 'resSummaryMain';
 
-      const grid = document.createElement('div');
-      grid.className = 'pResGrid';
-
-      const isMe = p.id === myPlayerId;
-      if (isMe) {
-        for (const k of RES_KEYS) {
-          grid.appendChild(makeResCell(k, p.resources?.[k] ?? 0));
+        const badge = document.createElement('div');
+        badge.className = 'badge';
+        badge.style.background = p.color;
+        main.appendChild(badge);
+        if (colorblindMode) {
+          try {
+            const shapeBadge = createColorblindShapeBadge(p.color, 14);
+            shapeBadge.style.flexShrink = '0';
+            main.appendChild(shapeBadge);
+          } catch (_) {}
         }
-      } else {
-        const hand = p.handCount ?? 0;
-        const dev = p.devCount ?? 0;
-        const cell1 = document.createElement('div');
-        cell1.textContent = `CARDS:${String(hand).padStart(2,' ')}`;
-        const cell2 = document.createElement('div');
-        cell2.textContent = `DEV:${String(dev).padStart(2,' ')}`;
-        grid.appendChild(cell1);
-        grid.appendChild(cell2);
-        // pad to keep the grid layout stable
-        for (let i = 0; i < 3; i++) grid.appendChild(document.createElement('div'));
+
+        const name = document.createElement('div');
+        name.className = 'resSummaryName';
+        name.textContent = p.name + (p.id === myPlayerId ? ' (you)' : '');
+        main.appendChild(name);
+
+        const stats = document.createElement('div');
+        stats.className = 'resSummaryStats';
+
+        const handCount = (p.id === myPlayerId && p.resources)
+          ? RES_KEYS.reduce((sum, k) => sum + Number(p.resources?.[k] || 0), 0)
+          : Number(p.handCount || 0);
+        const devCount = (p.id === myPlayerId && Array.isArray(p.devCards))
+          ? p.devCards.length
+          : Number(p.devCount || 0);
+
+        function stat(label, value) {
+          const el = document.createElement('span');
+          el.className = 'resSummaryStat';
+          el.textContent = `${label}: ${value}`;
+          return el;
+        }
+
+        stats.appendChild(stat('CARDS', handCount));
+        stats.appendChild(stat('DEV', devCount));
+        stats.appendChild(stat('KP', Math.max(0, Number(p.army || 0))));
+
+        const road = document.createElement('span');
+        road.className = 'resSummaryStat resSummaryRoad';
+        const sw = document.createElement('span');
+        sw.className = 'resSummaryRoadSwatch';
+        sw.style.background = p.color || '#7aa2ff';
+        const rv = document.createElement('span');
+        rv.textContent = String(Math.max(0, Number(p.longestRoadLen || 0)));
+        road.appendChild(sw);
+        road.appendChild(rv);
+        stats.appendChild(road);
+
+        const vp = document.createElement('span');
+        vp.className = 'resSummaryStat resSummaryVp';
+        vp.textContent = `VP ${Number(p.vp || 0)}`;
+        const badges = [];
+        if (state && state.largestArmy && state.largestArmy.playerId === p.id) badges.push('LA');
+        if (state && state.longestRoad && state.longestRoad.playerId === p.id) badges.push('LR');
+        if (badges.length) {
+          const extra = document.createElement('span');
+          extra.className = 'resSummaryBadges';
+          extra.textContent = badges.join(' • ');
+          vp.appendChild(extra);
+        }
+        stats.appendChild(vp);
+
+        main.appendChild(stats);
+        row.appendChild(main);
+        summaryBox.appendChild(row);
       }
-
-      // Public piece counts (how many remain)
-      const pc = pieceCounts(p.id);
-      const pgrid = document.createElement('div');
-      pgrid.className = 'pPieceGrid';
-
-      const colIdx = playerColorIndex(p.color);
-      function makePieceCell(kind, count) {
-        const cell = document.createElement('div');
-        cell.className = 'pieceCell';
-
-        const left = document.createElement('div');
-        left.className = 'pieceLeft';
-
-        const icon = document.createElement('div');
-        icon.className = 'pieceIcon';
-        const src = resolveLegacyTextureUrl(STRUCT_IMG_SRC[colIdx] || STRUCT_IMG_SRC[0]);
-        icon.style.backgroundImage = `url('${src}')`;
-        icon.style.backgroundSize = '200% 200%';
-        const pos = tokenBgPosPct(kind);
-        icon.style.backgroundPosition = `${pos.x}% ${pos.y}%`;
-
-        const val = document.createElement('span');
-        val.className = 'pieceVal';
-        val.textContent = String(count);
-
-        left.appendChild(val);
-        left.appendChild(icon);
-        cell.appendChild(left);
-        return cell;
-      }
-      // Piece icons: settlement/city/road/ship (2x2 per-color sheet)
-      pgrid.appendChild(makePieceCell('road', pc.roadsLeft));
-      pgrid.appendChild(makePieceCell('ship', seafarers ? pc.shipsLeft : '--'));
-      pgrid.appendChild(makePieceCell('settlement', pc.settlementsLeft));
-      pgrid.appendChild(makePieceCell('city', pc.citiesLeft));
-      wrap.appendChild(head);
-      wrap.appendChild(grid);
-      // Only show piece counts to the owning player.
-      if (isMe) wrap.appendChild(pgrid);
-      box.appendChild(wrap);
     }
 
-    // Bank resources (visible to all)
-    const bankWrap = document.createElement('div');
-    bankWrap.className = 'bankRes';
-    const bh = document.createElement('div');
-    bh.className = 'bankResHead';
-    bh.textContent = 'Bank resources';
-    bankWrap.appendChild(bh);
-    const bgrid = document.createElement('div');
-    bgrid.className = 'pResGrid';
-    for (const k of RES_KEYS) {
-      bgrid.appendChild(makeResCell(k, (state.bank && state.bank[k]) ?? 0));
+    if (!sideBox) return;
+
+    const bankTitle = document.createElement('div');
+    bankTitle.className = 'rightSidebarBankTitle';
+    bankTitle.textContent = 'Bank Resources';
+    sideBox.appendChild(bankTitle);
+
+    const bankStrip = document.createElement('div');
+    bankStrip.className = 'rightSidebarResStrip';
+    for (const k of RES_KEYS) bankStrip.appendChild(makeResCell(k, (state.bank && state.bank[k]) ?? 0));
+    sideBox.appendChild(bankStrip);
+
+    sideBox.appendChild(document.createElement('div')).className = 'rightSidebarSeparator';
+
+    const me = myPlayer();
+    if (!me || !me.resources) {
+      const note = document.createElement('div');
+      note.className = 'rightSidebarNote';
+      note.textContent = 'Spectating — private hand details stay hidden.';
+      sideBox.appendChild(note);
+      return;
     }
-    bankWrap.appendChild(bgrid);
-    box.appendChild(bankWrap);
+
+    const myHandCount = RES_KEYS.reduce((sum, k) => sum + Number(me.resources?.[k] || 0), 0);
+    const meta = document.createElement('div');
+    meta.className = 'rightSidebarMeta';
+    meta.innerHTML = `
+      <span class="rightSidebarMetaStrong">CARDS: ${myHandCount}</span>
+      <span>DEV: ${Array.isArray(me.devCards) ? me.devCards.length : Number(me.devCount || 0)}</span>
+      <span>LR: ${Math.max(0, Number(me.longestRoadLen || 0))}</span>
+      <span>KP: ${Math.max(0, Number(me.army || 0))}</span>
+      <span>VP: ${Number(me.vp || 0)}</span>
+    `;
+    sideBox.appendChild(meta);
+
+    const myResStrip = document.createElement('div');
+    myResStrip.className = 'rightSidebarResStrip';
+    for (const k of RES_KEYS) myResStrip.appendChild(makeResCell(k, me.resources?.[k] ?? 0));
+    sideBox.appendChild(myResStrip);
+
+    const pc = pieceCounts(me.id);
+    const pieceStrip = document.createElement('div');
+    pieceStrip.className = 'rightSidebarPieceStrip';
+    pieceStrip.appendChild(makePieceCellForColor(me.color, 'road', pc.roadsLeft));
+    pieceStrip.appendChild(makePieceCellForColor(me.color, 'ship', seafarers ? pc.shipsLeft : '--'));
+    pieceStrip.appendChild(makePieceCellForColor(me.color, 'settlement', pc.settlementsLeft));
+    pieceStrip.appendChild(makePieceCellForColor(me.color, 'city', pc.citiesLeft));
+    sideBox.appendChild(pieceStrip);
+
+    const cost = document.createElement('div');
+    cost.className = 'rightSidebarNote';
+    cost.textContent = 'Costs: Road (brick+lumber), Ship (lumber+wool), Settlement (brick+lumber+wool+grain), City (2 grain + 3 ore).';
+    sideBox.appendChild(cost);
   }
 
   function renderDevCards() {
