@@ -1175,6 +1175,14 @@
     } catch (_) {}
   }
 
+  function syncRightSidebarResourceScale(scale) {
+    try {
+      if (!ui || !ui.rightSidebarResourcesDock) return;
+      const next = clampToolUiScale(scale == null ? getToolUiScale('dev_panel') : scale);
+      ui.rightSidebarResourcesDock.style.setProperty('--tool-ui-scale', String(next));
+    } catch (_) {}
+  }
+
   function setToolUiScale(scaleId, value, wrap, label) {
     const next = clampToolUiScale(value);
     try { localStorage.setItem(`${TOOL_UI_SCALE_PREFIX}${String(scaleId || 'tool')}`, String(next)); } catch (_) {}
@@ -1182,6 +1190,7 @@
       wrap.style.setProperty('--tool-ui-scale', String(next));
       applyScaledPanelBoxSize(scaleId, wrap, next);
     }
+    if (String(scaleId || '') === 'dev_panel') syncRightSidebarResourceScale(next);
     if (label) {
       const txt = `${Math.round(next * 100)}%`;
       label.textContent = txt;
@@ -7769,6 +7778,7 @@ if (ui.moveShipBtn) {
 
   function renderResources() {
     if (!state) return;
+    syncRightSidebarResourceScale();
     const summaryBox = ui.resourcesBox;
     const sideBox = ui.rightSidebarResourcesBody;
     if (summaryBox) summaryBox.innerHTML = '';
