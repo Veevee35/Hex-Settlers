@@ -4575,19 +4575,16 @@ function syncPostgameToState() {
   function stopEndTurnWarnAudio() {
     try { if (sfx && sfx.end_turn && typeof sfx.end_turn.stopAll === 'function') sfx.end_turn.stopAll(); } catch (_) {}
   }
-  function pauseEndTurnWarnAudio() {
-    try { if (sfx && sfx.end_turn && typeof sfx.end_turn.pauseAll === 'function') sfx.end_turn.pauseAll(); } catch (_) {}
-  }
-  function resumeEndTurnWarnAudio() {
-    try { if (sfx && sfx.end_turn && typeof sfx.end_turn.resumeAll === 'function') sfx.end_turn.resumeAll(); } catch (_) {}
-  }
   function endTurnWarnStateKey(st) {
     try {
       if (!st || st.paused) return '';
-      if (String(st.phase || '') !== 'main-actions') return '';
-      const endsAt = Number(st?.timer?.endsAt || 0);
-      if (!endsAt) return '';
-      return `${st.turnNumber || 0}:${st.currentPlayerId || ''}:${endsAt}`;
+      if (st.timerHold && typeof st.timerHold.remainingMs === 'number') return '';
+      const t = st.timer;
+      const endsAt = Number(t?.endsAt || 0);
+      if (!t || !endsAt) return '';
+      const phase = String(st.phase || t.phase || '');
+      const segKey = String(t.segmentKey || '');
+      return `${phase}:${segKey}:${endsAt}`;
     } catch (_) {
       return '';
     }
@@ -4597,14 +4594,11 @@ function syncPostgameToState() {
       const prevKey = endTurnWarnStateKey(prevState);
       const nextKey = endTurnWarnStateKey(nextState);
       if (prevKey && prevKey !== nextKey) stopEndTurnWarnAudio();
-      const wasPaused = !!(prevState && prevState.paused);
-      const isPaused = !!(nextState && nextState.paused);
-      if (!wasPaused && isPaused) pauseEndTurnWarnAudio();
-      else if (wasPaused && !isPaused) resumeEndTurnWarnAudio();
+      if (prevKey && !nextKey) stopEndTurnWarnAudio();
     } catch (_) {}
   }
 
-  // End-of-turn warning (played 6s before auto end-turn)
+  // Countdown warning (played exactly 6s before any active countdown ends)
   let endTurnWarnTimeout = null;
   let lastEndTurnWarnKey = null;
 
@@ -4618,14 +4612,12 @@ function syncPostgameToState() {
   function scheduleEndTurnWarn() {
     clearEndTurnWarn();
     try {
-      if (!state || state.paused) return;
-      if (state.phase !== 'main-actions') return;
-      const t = state.timer;
-      if (!t || !t.endsAt) return;
-
-      const endsAt = Number(t.endsAt);
-      const key = `${state.turnNumber || 0}:${state.currentPlayerId || ''}:${endsAt}`;
+      const key = endTurnWarnStateKey(state);
+      if (!key) return;
       if (lastEndTurnWarnKey === key) return;
+
+      const endsAt = Number(state?.timer?.endsAt || 0);
+      if (!endsAt) return;
 
       const nowMs = serverNowMs();
       const remainingMs = endsAt - nowMs;
@@ -4633,21 +4625,17 @@ function syncPostgameToState() {
 
       const warnAtMs = endsAt - 6000;
       const delay = warnAtMs - nowMs;
-
-      if (delay <= 0) {
-        // Already inside the last 6 seconds window; play immediately (once).
-        lastEndTurnWarnKey = key;
-        playSfx('end_turn');
-        return;
-      }
+      if (delay <= 0) return;
 
       endTurnWarnTimeout = setTimeout(() => {
-        // Re-check current state hasn't moved on.
+        // Re-check that the same timer is still active and not paused/held.
         try {
-          if (!state || state.paused) return;
-          if (state.phase !== 'main-actions') return;
-          if (!state.timer || Number(state.timer.endsAt) !== endsAt) return;
-          const curKey = `${state.turnNumber || 0}:${state.currentPlayerId || ''}:${endsAt}`;
+          const curKey = endTurnWarnStateKey(state);
+          if (!curKey || curKey !== key) return;
+          const currentEndsAt = Number(state?.timer?.endsAt || 0);
+          if (!currentEndsAt || currentEndsAt !== endsAt) return;
+          const msLeft = currentEndsAt - serverNowMs();
+          if (msLeft <= 0 || msLeft > 6000) return;
           if (lastEndTurnWarnKey === curKey) return;
           lastEndTurnWarnKey = curKey;
           playSfx('end_turn');
