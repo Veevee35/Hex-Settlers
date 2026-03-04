@@ -5225,6 +5225,21 @@ function pushLog(game, text, kind = 'info', data = null) {
   if (game.log.length > MAX) game.log.splice(0, game.log.length - MAX);
 }
 
+function displayTurnNumber(game) {
+  const n = Math.floor(Number(game && game.turnNumber || 0));
+  return Math.max(1, n + 1);
+}
+
+function pushTurnStartLog(game) {
+  if (!game || !game.currentPlayerId) return;
+  const turn = displayTurnNumber(game);
+  pushLog(game, `Turn ${turn}: ${playerName(game, game.currentPlayerId)} to act.`, 'turn', {
+    kind: 'turn_start',
+    turn,
+    playerId: game.currentPlayerId,
+  });
+}
+
 function sanitizeChatText(t) {
   const s = String(t || '').replace(/\s+/g, ' ').trim();
   return s.slice(0, 240);
@@ -5464,6 +5479,7 @@ function advanceSetup(game) {
         }
       }
       recordTurnStart(game);
+      pushTurnStartLog(game);
       return;
     } else {
       s.index -= 1;
@@ -7178,6 +7194,7 @@ if (kind === 'pirate_steal') {
 
           recordTurnStart(game);
           pushLog(game, `${playerName(game, p1Id)} ended their action (Player 1).`, 'turn', { kind: 'paired_p1_end', p1Id, p2Id });
+          pushTurnStartLog(game);
           return { ok: true };
         }
 
@@ -7198,6 +7215,7 @@ if (kind === 'pirate_steal') {
 
         recordTurnStart(game);
         pushLog(game, `${playerName(game, playerId)} ended their action (Player 2).`, 'turn', { kind: 'paired_p2_end', nextP1 });
+        pushTurnStartLog(game);
         return { ok: true };
       }
     }
@@ -7211,6 +7229,7 @@ if (kind === 'pirate_steal') {
     game.message = `${playerName(game, next)}: Roll the dice.`;
     recordTurnStart(game);
     pushLog(game, `${playerName(game, playerId)} ended their turn.`, 'turn');
+    pushTurnStartLog(game);
     return { ok: true };
   }
 
@@ -7419,7 +7438,10 @@ function normalizeGameAfterPlayerRemoval(game, removedPid, removedWasCurrent) {
         if (game.phase !== 'lobby' && game.phase !== 'game-over') {
           game.phase = 'main-await-roll';
           game.message = `${playerName(game, game.currentPlayerId)}: Roll the dice.`;
-          try { recordTurnStart(game); } catch (_) {}
+          try {
+            recordTurnStart(game);
+            pushTurnStartLog(game);
+          } catch (_) {}
         }
       }
     } else {
