@@ -57,9 +57,10 @@ git push origin v1.0.0
 The workflow `.github/workflows/electron-release.yml` builds Linux/Windows/macOS installers and publishes them to the GitHub Release for that tag.
 
 ## How to start a game
-1) One player clicks **Create Lobby**, then shares the 4‑letter room code.
-2) Friends click **Join Lobby** and enter the code.
-3) Host clicks **Start Game** once 2–4 players have joined.
+1) Each player creates an account (or logs in) from the **Account** section in the lobby.
+2) One player clicks **Create Lobby**, then shares the 4‑letter room code.
+3) Friends click **Join Lobby** and enter the code.
+4) Host clicks **Start Game** once enough players have joined.
 
 ## Controls (in game)
 - Setup: place settlement, then road (twice, snake order).
