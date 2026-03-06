@@ -8828,6 +8828,22 @@ if (msg.type === 'create_room') {
       return;
     }
 
+    if (msg.type === 'set_expert_ai_tuning') {
+      if (pid !== room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Only host can tune expert AI.' });
+        return;
+      }
+      const next = {};
+      for (const [k, v] of Object.entries(msg.tuning || {})) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) continue;
+        next[k] = n;
+      }
+      room.expertAiTuning = { ...readExpertAiTuning(room), ...next };
+      sendJson(ws, { type: 'expert_ai_tuning_ok', tuning: room.expertAiTuning });
+      return;
+    }
+
     if (msg.type === 'fill_ai' || msg.type === 'clear_ai') {
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only host can manage AI players.' });
@@ -9898,6 +9914,7 @@ function handleAI(room) {
     const p = playerById(game, pid);
     if (!p) return null;
 
+    const tuning = readExpertAiTuning(room);
     computeVP(game);
     const baseValue = stateValueFor(game, pid);
     let best = null;
@@ -9960,8 +9977,8 @@ function handleAI(room) {
 
       let score = stateValueFor(sim, pid);
       // Aggressively prioritize immediate VP gain in expert mode.
-      score += vpGain * 220;
-      if ((act.kind === 'upgrade_city' || act.kind === 'place_settlement') && vpGain > 0) score += 70;
+      score += vpGain * tuning.vpGainWeight;
+      if ((act.kind === 'upgrade_city' || act.kind === 'place_settlement') && vpGain > 0) score += tuning.vpBuildBonus;
       if (act.kind === 'place_road' || act.kind === 'place_ship') {
         const beforeSettleSpots = listSettlementPlacements(pid).length;
         const afterSettleSpots = (() => {
@@ -9987,9 +10004,9 @@ function handleAI(room) {
           }
           return c;
         })();
-        if (afterSettleSpots > beforeSettleSpots) score += 40 + (afterSettleSpots - beforeSettleSpots) * 6;
+        if (afterSettleSpots > beforeSettleSpots) score += tuning.newSettlementSpotBase + (afterSettleSpots - beforeSettleSpots) * tuning.newSettlementSpotStep;
       }
-      if (act.kind === 'bank_trade' && vpGain === 0) score -= 16;
+      if (act.kind === 'bank_trade' && vpGain === 0) score -= tuning.neutralTradePenalty;
 
       if (!best || score > best.v) best = { act, v: score };
     }
@@ -9997,10 +10014,10 @@ function handleAI(room) {
     // Avoid pointless churn on neutral bank trades, but otherwise keep building pressure.
     if (!best) return null;
     if (best.act.kind === 'bank_trade') {
-      if (best.v <= baseValue + 0.05) return null;
+      if (best.v <= baseValue + tuning.bankTradeMinGain) return null;
       return best.act;
     }
-    if (best.v <= baseValue - 8) return null;
+    if (best.v <= baseValue + tuning.minActionGain) return null;
     return best.act;
   };
 const wouldAcceptTrade = (pid, trade, diff) => {
@@ -10447,6 +10464,26 @@ const wouldAcceptTrade = (pid, trade, diff) => {
 
 // Timer loop: server-authoritative timeouts (no per-tick broadcasts; clients count down locally)
 const AI_TICK_MS = (String(process.env.AI_FAST || '').toLowerCase() === '1') ? 10 : 250;
+
+const EXPERT_AI_TUNING_DEFAULTS = Object.freeze({
+  vpGainWeight: Number(process.env.EXPERT_AI_VP_GAIN_WEIGHT || 220),
+  vpBuildBonus: Number(process.env.EXPERT_AI_VP_BUILD_BONUS || 70),
+  newSettlementSpotBase: Number(process.env.EXPERT_AI_NEW_SPOT_BASE || 40),
+  newSettlementSpotStep: Number(process.env.EXPERT_AI_NEW_SPOT_STEP || 6),
+  neutralTradePenalty: Number(process.env.EXPERT_AI_NEUTRAL_TRADE_PENALTY || 16),
+  minActionGain: Number(process.env.EXPERT_AI_MIN_ACTION_GAIN || -8),
+  bankTradeMinGain: Number(process.env.EXPERT_AI_BANK_TRADE_MIN_GAIN || 0.05),
+});
+
+function readExpertAiTuning(room) {
+  const src = (room && room.expertAiTuning && typeof room.expertAiTuning === 'object') ? room.expertAiTuning : {};
+  const out = { ...EXPERT_AI_TUNING_DEFAULTS };
+  for (const [k, v] of Object.entries(src)) {
+    const n = Number(v);
+    if (Number.isFinite(n)) out[k] = n;
+  }
+  return out;
+}
 
 setInterval(() => {
   for (const room of rooms.values()) {
