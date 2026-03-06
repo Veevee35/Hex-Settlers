@@ -9470,7 +9470,13 @@ function handleAI(room) {
     } catch (_) { return false; }
   };
 
+  const aiFastMode = String(process.env.AI_FAST || '').toLowerCase() === '1';
+
   const delay = (msMin, msMax) => {
+    if (aiFastMode) {
+      game.ai.nextAt = now();
+      return;
+    }
     const a = Math.max(0, Math.floor(msMin || 0));
     const b = Math.max(a, Math.floor(msMax || a));
     game.ai.nextAt = now() + (a + Math.floor(Math.random() * (b - a + 1)));
@@ -9819,6 +9825,8 @@ function handleAI(room) {
     if (!p) return -1e12;
 
     const vp = p.vp || 0;
+    const vpTarget = Math.max(3, Math.floor(Number(state?.rules?.victoryPointsToWin || 10)));
+    const vpToWin = Math.max(0, vpTarget - vp);
     const res = p.resources || {};
     const resTotal = RESOURCE_KINDS.reduce((s, k) => s + (res[k] || 0), 0);
 
@@ -9831,13 +9839,48 @@ function handleAI(room) {
     const missSet = missingFor(res, BUILD_COSTS.settlement).total;
     const missDev = missingFor(res, DEV_CARD_COST).total;
 
+    const hasCitySpot = (state?.geom?.nodes || []).some(n => {
+      const b = n?.building;
+      return !!(b && b.owner === pid && b.type === 'settlement');
+    });
+
+    const hasSettleSpot = (() => {
+      const nodes = state?.geom?.nodes || [];
+      const boardHasSeaState = (state?.geom?.tiles || []).some(t => t && t.type === 'sea');
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        if (!node || node.building) continue;
+        if (!settlementDistanceOk(state, i)) continue;
+        if (boardHasSeaState) {
+          const adj = state?.geom?.nodeAdjTiles?.[i] || [];
+          if (!adj.some(tid => (state?.geom?.tiles?.[tid]?.type || '') !== 'sea')) continue;
+        }
+        const edges = state?.geom?.nodeEdges?.[i] || [];
+        let connected = false;
+        for (const eid of edges) {
+          const e = state?.geom?.edges?.[eid];
+          if (!e) continue;
+          if (e.roadOwner === pid || (isSeafarers && e.shipOwner === pid)) { connected = true; break; }
+        }
+        if (connected) return true;
+      }
+      return false;
+    })();
+
+    let immediateVpPotential = 0;
+    if (hasCitySpot && canAffordCost(res, BUILD_COSTS.city)) immediateVpPotential += 1.8;
+    if (hasSettleSpot && canAffordCost(res, BUILD_COSTS.settlement)) immediateVpPotential += 1.6;
+
     const discardRisk = Math.max(0, resTotal - 7);
+    const closingPressure = (vpToWin <= 3) ? (4 - vpToWin) : 0;
 
     // Big emphasis on VP, then production, then hand efficiency.
     return (vp * 1000)
       + (incomeTotal * 18)
       + (resTotal * 4)
       + (devUnplayed * 12)
+      + (immediateVpPotential * 20)
+      + (closingPressure * 14)
       - (Math.min(missCity, missSet) * 6)
       - (missDev * 2)
       - (discardRisk * 3);
@@ -9855,6 +9898,7 @@ function handleAI(room) {
     const p = playerById(game, pid);
     if (!p) return null;
 
+    computeVP(game);
     const baseValue = stateValueFor(game, pid);
     let best = null;
 
@@ -9908,12 +9952,23 @@ function handleAI(room) {
       if (act.kind === 'bank_trade' && (mem.tradeCount || 0) >= 2) continue;
       const sim = simulateAction(pid, act);
       if (!sim) continue;
-      const v = stateValueFor(sim, pid);
-      if (!best || v > best.v) best = { act, v };
+      const before = playerById(game, pid);
+      const after = playerById(sim, pid);
+      const beforeVp = before ? (before.vp || 0) : 0;
+      const afterVp = after ? (after.vp || 0) : 0;
+      const vpGain = Math.max(0, afterVp - beforeVp);
+
+      let score = stateValueFor(sim, pid);
+      // Aggressively prioritize immediate VP gain in expert mode.
+      score += vpGain * 220;
+      if ((act.kind === 'upgrade_city' || act.kind === 'place_settlement') && vpGain > 0) score += 70;
+      if (act.kind === 'bank_trade' && vpGain === 0) score -= 16;
+
+      if (!best || score > best.v) best = { act, v: score };
     }
 
     // Require an actual improvement; otherwise no-op.
-    if (!best || best.v <= baseValue + 0.5) return null;
+    if (!best || best.v <= baseValue + 0.15) return null;
     return best.act;
   };
 const wouldAcceptTrade = (pid, trade, diff) => {
@@ -10359,6 +10414,8 @@ const wouldAcceptTrade = (pid, trade, diff) => {
 }
 
 // Timer loop: server-authoritative timeouts (no per-tick broadcasts; clients count down locally)
+const AI_TICK_MS = (String(process.env.AI_FAST || '').toLowerCase() === '1') ? 10 : 250;
+
 setInterval(() => {
   for (const room of rooms.values()) {
     if (!room.game) continue;
@@ -10366,7 +10423,7 @@ setInterval(() => {
     const changed = handleTimeout(room) || handleAI(room);
     if (changed) broadcastState(room);
   }
-}, 250);
+}, AI_TICK_MS);
 
 
 // Robustness: while an end-game vote is active, periodically rebroadcast state so
