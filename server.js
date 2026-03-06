@@ -9492,7 +9492,7 @@ function handleAI(room) {
     return 'test';
   };
 
-  const aiBudgetFor = (diff) => (diff === 'catanatron') ? 5 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
+  const aiBudgetFor = (diff) => (diff === 'catanatron') ? 8 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
 
   const DICE_PIPS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
@@ -9879,11 +9879,11 @@ function handleAI(room) {
       + (incomeTotal * 18)
       + (resTotal * 4)
       + (devUnplayed * 12)
-      + (immediateVpPotential * 20)
+      + (immediateVpPotential * 32)
       + (closingPressure * 14)
       - (Math.min(missCity, missSet) * 6)
       - (missDev * 2)
-      - (discardRisk * 3);
+      - (discardRisk * 2);
   };
 
   const simulateAction = (pid, action) => {
@@ -9938,7 +9938,7 @@ function handleAI(room) {
     }
 
     // Bank trades (up to 2 per turn in expert mode).
-    const maxTrades = 2;
+    const maxTrades = 3;
     if ((mem.tradeCount || 0) < maxTrades) {
       const targets = [BUILD_COSTS.city, BUILD_COSTS.settlement, DEV_CARD_COST];
       for (const t of targets) {
@@ -9962,13 +9962,45 @@ function handleAI(room) {
       // Aggressively prioritize immediate VP gain in expert mode.
       score += vpGain * 220;
       if ((act.kind === 'upgrade_city' || act.kind === 'place_settlement') && vpGain > 0) score += 70;
+      if (act.kind === 'place_road' || act.kind === 'place_ship') {
+        const beforeSettleSpots = listSettlementPlacements(pid).length;
+        const afterSettleSpots = (() => {
+          const nodes = sim?.geom?.nodes || [];
+          const boardHasSeaState = (sim?.geom?.tiles || []).some(t => t && t.type === 'sea');
+          let c = 0;
+          for (let i = 0; i < nodes.length; i++) {
+            const node = nodes[i];
+            if (!node || node.building) continue;
+            if (!settlementDistanceOk(sim, i)) continue;
+            if (boardHasSeaState) {
+              const adj = sim?.geom?.nodeAdjTiles?.[i] || [];
+              if (!adj.some(tid => (sim?.geom?.tiles?.[tid]?.type || '') !== 'sea')) continue;
+            }
+            const edges = sim?.geom?.nodeEdges?.[i] || [];
+            let connected = false;
+            for (const eid of edges) {
+              const e = sim?.geom?.edges?.[eid];
+              if (!e) continue;
+              if (e.roadOwner === pid || (isSeafarers && e.shipOwner === pid)) { connected = true; break; }
+            }
+            if (connected) c++;
+          }
+          return c;
+        })();
+        if (afterSettleSpots > beforeSettleSpots) score += 40 + (afterSettleSpots - beforeSettleSpots) * 6;
+      }
       if (act.kind === 'bank_trade' && vpGain === 0) score -= 16;
 
       if (!best || score > best.v) best = { act, v: score };
     }
 
-    // Require an actual improvement; otherwise no-op.
-    if (!best || best.v <= baseValue + 0.15) return null;
+    // Avoid pointless churn on neutral bank trades, but otherwise keep building pressure.
+    if (!best) return null;
+    if (best.act.kind === 'bank_trade') {
+      if (best.v <= baseValue + 0.05) return null;
+      return best.act;
+    }
+    if (best.v <= baseValue - 8) return null;
     return best.act;
   };
 const wouldAcceptTrade = (pid, trade, diff) => {
