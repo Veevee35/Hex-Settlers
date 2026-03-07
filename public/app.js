@@ -6149,8 +6149,8 @@ function refreshLobbyJoinLinkUi() {
         ui.aiDifficultySelect.disabled = !canManageAI;
         const rawDiff = String(room?.aiDifficulty || 'test').toLowerCase();
         let diff = 'test';
-        if (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard' || rawDiff === 'catanatron' || rawDiff === 'expert') {
-          diff = (rawDiff === 'expert') ? 'catanatron' : rawDiff;
+        if (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard' || rawDiff === 'catanatron' || rawDiff === 'expert' || rawDiff === 'neural_net' || rawDiff === 'neural') {
+          diff = (rawDiff === 'expert') ? 'catanatron' : ((rawDiff === 'neural') ? 'neural_net' : rawDiff);
         }
         ui.aiDifficultySelect.value = diff;
       }
