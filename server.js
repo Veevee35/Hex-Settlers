@@ -9977,7 +9977,8 @@ function handleAI(room) {
 
       let score = stateValueFor(sim, pid);
       // Aggressively prioritize immediate VP gain in expert mode.
-      score += vpGain * tuning.vpGainWeight;
+      const seatVpGainWeight = expertAiVpGainWeightForSeat(game, pid, tuning);
+      score += vpGain * seatVpGainWeight;
       if ((act.kind === 'upgrade_city' || act.kind === 'place_settlement') && vpGain > 0) score += tuning.vpBuildBonus;
       if (act.kind === 'place_road' || act.kind === 'place_ship') {
         const beforeSettleSpots = listSettlementPlacements(pid).length;
@@ -10483,6 +10484,15 @@ function readExpertAiTuning(room) {
     if (Number.isFinite(n)) out[k] = n;
   }
   return out;
+}
+
+function expertAiVpGainWeightForSeat(game, pid, tuning) {
+  const order = Array.isArray(game?.turnOrder) ? game.turnOrder : [];
+  const idx = Math.max(0, order.indexOf(pid));
+  const seatKey = `seat${idx + 1}VpGainWeight`;
+  const seatWeight = Number(tuning?.[seatKey]);
+  if (Number.isFinite(seatWeight) && seatWeight > 0) return seatWeight;
+  return Number(tuning?.vpGainWeight || EXPERT_AI_TUNING_DEFAULTS.vpGainWeight);
 }
 
 setInterval(() => {
