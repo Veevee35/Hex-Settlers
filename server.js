@@ -9799,6 +9799,96 @@ function handleAI(room) {
     return { kind: 'bank_trade', giveKind: best.giveKind, takeKind: best.takeKind, takeQty: 1 };
   };
 
+  const chooseInventionChoices = (pid) => {
+    const p = playerById(game, pid);
+    if (!p) return ['grain', 'ore'];
+
+    const priority = [];
+    const pushMissing = (cost) => {
+      const miss = missingFor(p.resources || {}, cost).miss;
+      for (const rk of RESOURCE_KINDS) {
+        const n = Math.max(0, Number(miss?.[rk] || 0));
+        for (let i = 0; i < n; i++) priority.push(rk);
+      }
+    };
+
+    // Prefer closing city/settlement/dev-card gaps first.
+    pushMissing(BUILD_COSTS.city);
+    pushMissing(BUILD_COSTS.settlement);
+    pushMissing(DEV_CARD_COST);
+
+    const byScarcity = RESOURCE_KINDS.slice().sort((a, b) => (p.resources?.[a] || 0) - (p.resources?.[b] || 0));
+    for (const rk of byScarcity) priority.push(rk);
+
+    const picks = [];
+    for (const rk of priority) {
+      if (RESOURCE_KINDS.includes(rk)) picks.push(rk);
+      if (picks.length >= 2) break;
+    }
+    while (picks.length < 2) picks.push(byScarcity[0] || 'grain');
+    return picks.slice(0, 2);
+  };
+
+  const chooseMonopolyResource = (pid) => {
+    let bestKind = 'grain';
+    let bestTotal = -1;
+    for (const rk of RESOURCE_KINDS) {
+      let total = 0;
+      for (const op of (game.players || [])) {
+        if (!op || op.id === pid) continue;
+        total += Number(op.resources?.[rk] || 0);
+      }
+      if (total > bestTotal) {
+        bestTotal = total;
+        bestKind = rk;
+      }
+    }
+    return bestKind;
+  };
+
+  const chooseDevPlayAction = (pid, phase) => {
+    const p = playerById(game, pid);
+    if (!p) return null;
+    const cards = (p.devCards || []).filter(c => c && !c.played);
+    if (!cards.length) return null;
+
+    const playable = cards.filter((card) => {
+      if (!card) return false;
+      const isVP = card.type === DEV_CARD_TYPES.VICTORY_POINT;
+      if (!isVP && card.boughtTurn === game.turnNumber) return false;
+      if (!isVP && p.devPlayedTurn === game.turnNumber) return false;
+      if (phase === 'main-await-roll') {
+        return card.type === DEV_CARD_TYPES.KNIGHT
+          || card.type === DEV_CARD_TYPES.ROAD_BUILDING
+          || card.type === DEV_CARD_TYPES.INVENTION
+          || card.type === DEV_CARD_TYPES.MONOPOLY
+          || card.type === DEV_CARD_TYPES.VICTORY_POINT;
+      }
+      return phase === 'main-actions';
+    });
+    if (!playable.length) return null;
+
+    const byPriority = [
+      DEV_CARD_TYPES.VICTORY_POINT,
+      DEV_CARD_TYPES.KNIGHT,
+      DEV_CARD_TYPES.MONOPOLY,
+      DEV_CARD_TYPES.INVENTION,
+      DEV_CARD_TYPES.ROAD_BUILDING,
+    ];
+
+    playable.sort((a, b) => byPriority.indexOf(a.type) - byPriority.indexOf(b.type));
+    const card = playable[0];
+    if (!card) return null;
+
+    if (card.type === DEV_CARD_TYPES.INVENTION) {
+      return { kind: 'play_dev_card', cardId: card.id, choices: chooseInventionChoices(pid) };
+    }
+    if (card.type === DEV_CARD_TYPES.MONOPOLY) {
+      return { kind: 'play_dev_card', cardId: card.id, resourceKind: chooseMonopolyResource(pid) };
+    }
+    return { kind: 'play_dev_card', cardId: card.id };
+  };
+
   
   // --- Catanatron-inspired Expert mode (one-step lookahead) ---
   const playerResourceIncomeState = (state, pid) => {
@@ -10220,6 +10310,11 @@ const wouldAcceptTrade = (pid, trade, diff) => {
   }
 
   if (phase === 'main-await-roll') {
+    const devAct = chooseDevPlayAction(pid, 'main-await-roll');
+    if (devAct && aiCan(pid, devAct)) {
+      const r = applyAction(room, pid, devAct);
+      if (r && r.ok) { delay(200, 340); return true; }
+    }
     const r = applyAction(room, pid, { kind: 'roll_dice' });
     if (r && r.ok) { delay(200, 340); return true; }
     delay(200, 340);
@@ -10349,6 +10444,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     }
 
     const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
+    const hasFreeRoads = !!(game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === pid && Number(game.special.remaining || 0) > 0);
 
     // Expert (Catanatron-inspired): try a one-step lookahead action chooser first.
     if (diff === 'catanatron') {
@@ -10370,6 +10466,15 @@ const wouldAcceptTrade = (pid, trade, diff) => {
         }
       }
       // If lookahead doesn't find a clear win, fall through to the normal heuristic.
+    }
+
+    // 0) Play a development card when available.
+    {
+      const devAct = chooseDevPlayAction(pid, 'main-actions');
+      if (devAct && aiCan(pid, devAct)) {
+        const r = applyAction(room, pid, devAct);
+        if (r && r.ok) { mem.actions++; delay(220, 360); return true; }
+      }
     }
 
     // 1) Try immediate VP upgrades.
@@ -10429,7 +10534,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       }
     }
 
-    if (canAfford(p.resources, BUILD_COSTS.road)) {
+    if (hasFreeRoads || canAfford(p.resources, BUILD_COSTS.road)) {
       const roadEdges = listRoadEdges(pid, preferExplore);
       if (roadEdges.length) {
         const edgeId = roadEdges[0];
