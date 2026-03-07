@@ -2870,6 +2870,17 @@ function persistUserStatsFromGame(room, game, winnerId) {
 }
 
 
+
+function missingFor(res, cost) {
+  const miss = {};
+  let total = 0;
+  for (const k of RESOURCE_KINDS) {
+    const need = Math.max(0, Math.floor(Number(cost?.[k] || 0)) - Math.floor(Number(res?.[k] || 0)));
+    if (need > 0) { miss[k] = need; total += need; }
+  }
+  return { miss, total };
+}
+
 function neuralTanh(x) {
   const n = Number(x) || 0;
   if (n > 20) return 1;
