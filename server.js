@@ -70,8 +70,67 @@ let userSockets = new Map(); // userId -> ws (enforce one active connection per 
 // Each entry includes a compact metadata header + a postgame snapshot (stats + players + rules) for viewing later.
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
 const HISTORY_MAX_GAMES = 500;
+const NEURAL_AI_MODEL_PATH = path.join(DATA_DIR, 'neural_ai_model.json');
 
 let HISTORY_DB = { version: 1, games: [] };
+let NEURAL_AI_MODEL = null;
+
+function createDefaultNeuralAiModel() {
+  // Tiny MLP: 12 normalized inputs -> 8 hidden -> 1 output.
+  // Biases start with a strong VP preference so the policy is useful before training.
+  const inputSize = 12;
+  const hiddenSize = 8;
+  const mkRow = (n, scale = 0.12) => Array.from({ length: n }, () => (Math.random() * 2 - 1) * scale);
+  const w1 = Array.from({ length: hiddenSize }, () => mkRow(inputSize));
+  const b1 = mkRow(hiddenSize, 0.05);
+  const w2 = mkRow(hiddenSize, 0.1);
+  const b2 = 0.2;
+
+  // Seed extra emphasis on VP-ish features (indexes 0/1/2/3 in feature vector below).
+  for (let h = 0; h < hiddenSize; h++) {
+    w1[h][0] += 0.5;
+    w1[h][1] += 0.4;
+    w1[h][2] += 0.25;
+    w1[h][3] += 0.2;
+    w2[h] += 0.15;
+  }
+
+  return {
+    version: 1,
+    trainedGames: 0,
+    meta: { inputSize, hiddenSize },
+    params: { w1, b1, w2, b2 },
+  };
+}
+
+function loadNeuralAiModel() {
+  try {
+    if (!fs.existsSync(NEURAL_AI_MODEL_PATH)) {
+      NEURAL_AI_MODEL = createDefaultNeuralAiModel();
+      saveNeuralAiModel();
+      return;
+    }
+    const raw = fs.readFileSync(NEURAL_AI_MODEL_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.params) throw new Error('invalid model');
+    NEURAL_AI_MODEL = parsed;
+  } catch (e) {
+    console.error('[neural-ai] Failed to load model, resetting:', e && e.message ? e.message : e);
+    NEURAL_AI_MODEL = createDefaultNeuralAiModel();
+    saveNeuralAiModel();
+  }
+}
+
+function saveNeuralAiModel() {
+  try {
+    const safe = NEURAL_AI_MODEL && typeof NEURAL_AI_MODEL === 'object'
+      ? NEURAL_AI_MODEL
+      : createDefaultNeuralAiModel();
+    fs.writeFileSync(NEURAL_AI_MODEL_PATH, JSON.stringify(safe, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[neural-ai] Failed to save model:', e && e.message ? e.message : e);
+  }
+}
 
 function loadHistoryDb() {
   try {
@@ -573,6 +632,8 @@ function setUserDisplayName(user, displayName) {
 loadUsersDb();
 
 loadHistoryDb();
+
+loadNeuralAiModel();
 
 // Repair any inflated user stats caused by older builds (stats should match *valid* history).
 rebuildUserStatsFromHistory();
@@ -2808,6 +2869,116 @@ function persistUserStatsFromGame(room, game, winnerId) {
   } catch (_) {}
 }
 
+
+function neuralTanh(x) {
+  const n = Number(x) || 0;
+  if (n > 20) return 1;
+  if (n < -20) return -1;
+  const e2 = Math.exp(2 * n);
+  return (e2 - 1) / (e2 + 1);
+}
+
+function neuralFeaturesFromState(state, pid) {
+  const p = playerById(state, pid);
+  if (!p) return Array(12).fill(0);
+  computeVP(state);
+  const vpTarget = Math.max(3, Math.floor(Number(state?.rules?.victoryPointsToWin || 10)));
+  const vp = Math.max(0, Number(p.vp || 0));
+  const vpToWin = Math.max(0, vpTarget - vp);
+  const res = p.resources || {};
+  const resTotal = RESOURCE_KINDS.reduce((n, k) => n + Math.max(0, Number(res[k] || 0)), 0);
+  const missCity = missingFor(res, BUILD_COSTS.city).total;
+  const missSettle = missingFor(res, BUILD_COSTS.settlement).total;
+  const missDev = missingFor(res, DEV_CARD_COST).total;
+
+  const nodes = state?.geom?.nodes || [];
+  const edges = state?.geom?.edges || [];
+  const citySpots = nodes.reduce((n, node) => n + ((node?.building?.owner === pid && node?.building?.type === 'settlement') ? 1 : 0), 0);
+  const roads = edges.reduce((n, e) => n + ((e?.roadOwner === pid || e?.shipOwner === pid) ? 1 : 0), 0);
+
+  const devUnplayed = (p.devCards || []).filter(c => c && !c.played).length;
+
+  return [
+    vp / vpTarget,
+    (vpTarget - vpToWin) / vpTarget,
+    1 - Math.min(1, vpToWin / vpTarget),
+    Math.max(0, (vp - 6) / vpTarget),
+    Math.min(1, resTotal / 12),
+    1 - Math.min(1, missCity / 5),
+    1 - Math.min(1, missSettle / 4),
+    1 - Math.min(1, missDev / 3),
+    Math.min(1, citySpots / 5),
+    Math.min(1, roads / 15),
+    Math.min(1, devUnplayed / 4),
+    1,
+  ];
+}
+
+function neuralModelPredict(features) {
+  const m = NEURAL_AI_MODEL && NEURAL_AI_MODEL.params ? NEURAL_AI_MODEL : createDefaultNeuralAiModel();
+  const prm = m.params;
+  const hidden = [];
+  for (let i = 0; i < prm.w1.length; i++) {
+    let z = Number(prm.b1[i] || 0);
+    const row = prm.w1[i] || [];
+    for (let j = 0; j < features.length; j++) z += Number(row[j] || 0) * Number(features[j] || 0);
+    hidden.push(neuralTanh(z));
+  }
+  let out = Number(prm.b2 || 0);
+  for (let i = 0; i < hidden.length; i++) out += Number(prm.w2[i] || 0) * hidden[i];
+  return { hidden, out: neuralTanh(out) };
+}
+
+function neuralActionValue(state, pid, fallback = 0) {
+  const feat = neuralFeaturesFromState(state, pid);
+  const pred = neuralModelPredict(feat).out;
+  return pred * 1200 + Number(fallback || 0);
+}
+
+function trainNeuralAiFromFinishedGame(game) {
+  try {
+    if (!game || game._neuralTrained) return;
+    if (String(game.phase || '').toLowerCase() !== 'game-over') return;
+    if (!Array.isArray(game.players) || game.players.length < 2) return;
+    const winnerId = String(game.winnerId || '').trim();
+    if (!winnerId) return;
+
+    if (!NEURAL_AI_MODEL || !NEURAL_AI_MODEL.params) NEURAL_AI_MODEL = createDefaultNeuralAiModel();
+    const prm = NEURAL_AI_MODEL.params;
+    const lr = 0.035;
+
+    for (const gp of game.players) {
+      const pid = String(gp?.id || '').trim();
+      if (!pid) continue;
+      const target = (pid === winnerId) ? 1 : -1;
+      const x = neuralFeaturesFromState(game, pid);
+      const { hidden, out } = neuralModelPredict(x);
+      const err = out - target;
+      const dOut = (1 - out * out) * err;
+
+      for (let i = 0; i < prm.w2.length; i++) {
+        prm.w2[i] = Number(prm.w2[i] || 0) - lr * dOut * Number(hidden[i] || 0);
+      }
+      prm.b2 = Number(prm.b2 || 0) - lr * dOut;
+
+      for (let i = 0; i < prm.w1.length; i++) {
+        const h = Number(hidden[i] || 0);
+        const dHidden = (1 - h * h) * Number(prm.w2[i] || 0) * dOut;
+        for (let j = 0; j < x.length; j++) {
+          prm.w1[i][j] = Number(prm.w1[i][j] || 0) - lr * dHidden * Number(x[j] || 0);
+        }
+        prm.b1[i] = Number(prm.b1[i] || 0) - lr * dHidden;
+      }
+    }
+
+    NEURAL_AI_MODEL.trainedGames = Math.max(0, Number(NEURAL_AI_MODEL.trainedGames || 0)) + 1;
+    game._neuralTrained = true;
+    saveNeuralAiModel();
+  } catch (e) {
+    console.error('[neural-ai] Failed to train model from game:', e && e.message ? e.message : e);
+  }
+}
+
 function checkWin(room, state, pid) {
   const p = playerById(state, pid);
   if (!p) return;
@@ -2832,6 +3003,7 @@ function checkWin(room, state, pid) {
     if (!wasOver) {
       try { persistUserStatsFromGame(room, state, pid); } catch (_) {}
       try { persistGameHistoryFromGame(room, state, pid); } catch (_) {}
+      try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
     }
   }
 }
@@ -7142,6 +7314,7 @@ if (kind === 'pirate_steal') {
     if (!wasOver) {
       try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
       try { persistGameHistoryFromGame(room, game, winnerId); } catch (_) {}
+      try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
     }
 
     return { ok: true };
@@ -8805,9 +8978,10 @@ if (msg.type === 'create_room') {
       }
 
       const raw = String(msg.difficulty || msg.mode || 'test').toLowerCase().trim();
-      const allowed = new Set(['test', 'easy', 'medium', 'hard', 'catanatron', 'expert']);
+      const allowed = new Set(['test', 'easy', 'medium', 'hard', 'catanatron', 'expert', 'neural_net', 'neural-net', 'neural']);
       let diff = allowed.has(raw) ? raw : 'test';
       if (diff === 'expert') diff = 'catanatron';
+      if (diff === 'neural-net' || diff === 'neural') diff = 'neural_net';
 
       room.aiDifficulty = diff;
       // Apply to lobby players
@@ -9502,13 +9676,14 @@ function handleAI(room) {
     const p = playerById(game, pid);
     const raw = String((p && p.aiDifficulty) || game.aiDifficulty || room.aiDifficulty || 'test').toLowerCase();
     if (raw === 'catanatron' || raw === 'expert' || raw === 'expert_ai' || raw === 'expert ai') return 'catanatron';
-    if (raw === 'easy' || raw === 'medium' || raw === 'hard' || raw === 'test') return raw;
+    if (raw === 'easy' || raw === 'medium' || raw === 'hard' || raw === 'test' || raw === 'neural_net') return raw;
     // accept legacy labels
     if (raw.includes('catanatron')) return 'catanatron';
+    if (raw.includes('neural')) return 'neural_net';
     return 'test';
   };
 
-  const aiBudgetFor = (diff) => (diff === 'catanatron') ? 8 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
+  const aiBudgetFor = (diff) => (diff === 'catanatron' || diff === 'neural_net') ? 8 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
 
   const DICE_PIPS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
@@ -10111,6 +10286,74 @@ function handleAI(room) {
     if (best.v <= baseValue + tuning.minActionGain) return null;
     return best.act;
   };
+
+  const chooseBestActionNeuralNet = (pid, preferExplore, mem) => {
+    const p = playerById(game, pid);
+    if (!p) return null;
+
+    computeVP(game);
+    const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid));
+    let best = null;
+    const candidates = [];
+
+    if (canAfford(p.resources, BUILD_COSTS.city)) {
+      const cityNodes = listCityUpgrades(pid)
+        .map(id => ({ id, score: nodeStrategicScore(pid, id) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8)
+        .map(o => ({ kind: 'upgrade_city', nodeId: o.id }));
+      candidates.push(...cityNodes);
+    }
+
+    if (canAfford(p.resources, BUILD_COSTS.settlement)) {
+      const setNodes = listSettlementPlacements(pid).slice(0, 10).map(o => ({ kind: 'place_settlement', nodeId: o.id }));
+      candidates.push(...setNodes);
+    }
+
+    if (isSeafarers && canAfford(p.resources, BUILD_COSTS.ship)) {
+      const shipEdges = listShipEdges(pid, preferExplore).slice(0, 10).map(edgeId => ({ kind: 'place_ship', edgeId }));
+      candidates.push(...shipEdges);
+    }
+
+    if (canAfford(p.resources, BUILD_COSTS.road)) {
+      const roadEdges = listRoadEdges(pid, preferExplore).slice(0, 10).map(edgeId => ({ kind: 'place_road', edgeId }));
+      candidates.push(...roadEdges);
+    }
+
+    if (canAfford(p.resources, DEV_CARD_COST) && (game.devDeck || []).length > 0) {
+      candidates.push({ kind: 'buy_dev_card' });
+    }
+
+    if ((mem.tradeCount || 0) < 3) {
+      const targets = [BUILD_COSTS.city, BUILD_COSTS.settlement, DEV_CARD_COST];
+      for (const t of targets) {
+        const bt = chooseBankTradeToEnable(pid, t);
+        if (bt) candidates.push(bt);
+      }
+    }
+
+    for (const act of candidates) {
+      if (act.kind === 'bank_trade' && (mem.tradeCount || 0) >= 2) continue;
+      const sim = simulateAction(pid, act);
+      if (!sim) continue;
+      const before = playerById(game, pid);
+      const after = playerById(sim, pid);
+      const vpGain = Math.max(0, Number(after?.vp || 0) - Number(before?.vp || 0));
+
+      let score = neuralActionValue(sim, pid, stateValueFor(sim, pid));
+      score += vpGain * 250;
+      if (act.kind === 'upgrade_city' || act.kind === 'place_settlement') score += 50;
+      if ((act.kind === 'place_road' || act.kind === 'place_ship') && listSettlementPlacements(pid).length < 1) score += 25;
+      if (act.kind === 'bank_trade' && vpGain === 0) score -= 18;
+
+      if (!best || score > best.v) best = { act, v: score };
+    }
+
+    if (!best) return null;
+    if (best.act.kind === 'bank_trade' && best.v <= baseValue + 0.05) return null;
+    if (best.v <= baseValue - 10) return null;
+    return best.act;
+  };
 const wouldAcceptTrade = (pid, trade, diff) => {
     const p = playerById(game, pid);
     if (!p || !trade) return false;
@@ -10446,8 +10689,8 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
     const hasFreeRoads = !!(game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === pid && Number(game.special.remaining || 0) > 0);
 
-    // Expert (Catanatron-inspired): try a one-step lookahead action chooser first.
-    if (diff === 'catanatron') {
+    // Expert/Neural: try one-step lookahead chooser first.
+    if (diff === 'catanatron' || diff === 'neural_net') {
       if (mem.actions >= budget) {
         const r = applyAction(room, pid, { kind: 'end_turn' });
         if (r && r.ok) { delay(220, 360); return true; }
@@ -10455,7 +10698,9 @@ const wouldAcceptTrade = (pid, trade, diff) => {
         return false;
       }
 
-      const bestAct = chooseBestActionCatanatron(pid, preferExplore, mem);
+      const bestAct = (diff === 'neural_net')
+        ? chooseBestActionNeuralNet(pid, preferExplore, mem)
+        : chooseBestActionCatanatron(pid, preferExplore, mem);
       if (bestAct) {
         const r = applyAction(room, pid, bestAct);
         if (r && r.ok) {
@@ -10503,7 +10748,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     }
 
     // 2) Bank trades (limited per turn).
-    const maxTrades = (diff === 'catanatron') ? 2 : ((diff === 'medium' || diff === 'hard') ? 1 : 0);
+    const maxTrades = (diff === 'catanatron' || diff === 'neural_net') ? 2 : ((diff === 'medium' || diff === 'hard') ? 1 : 0);
     if (maxTrades > 0 && (mem.tradeCount || 0) < maxTrades) {
       let target = null;
       if (listCityUpgrades(pid).length) target = BUILD_COSTS.city;
