@@ -5402,10 +5402,26 @@ function pushLog(game, text, kind = 'info', data = null) {
   if (!game) return;
   game.log = game.log || [];
   game.logSeq = game.logSeq || 1;
-  const entry = { id: game.logSeq++, ts: now(), kind, text: String(text || ''), data };
+  const auto = (game._autoLogContext && typeof game._autoLogContext === 'object')
+    ? { ...game._autoLogContext }
+    : null;
+  const entry = { id: game.logSeq++, ts: now(), kind, text: String(text || ''), data, auto };
   game.log.push(entry);
   const MAX = 300;
   if (game.log.length > MAX) game.log.splice(0, game.log.length - MAX);
+}
+
+function withAutoLogContext(game, context, fn) {
+  if (!game || typeof fn !== 'function') return null;
+  const hadPrev = Object.prototype.hasOwnProperty.call(game, '_autoLogContext');
+  const prev = game._autoLogContext;
+  game._autoLogContext = (context && typeof context === 'object') ? { ...context } : context;
+  try {
+    return fn();
+  } finally {
+    if (hadPrev) game._autoLogContext = prev;
+    else delete game._autoLogContext;
+  }
 }
 
 function displayTurnNumber(game) {
@@ -9357,6 +9373,10 @@ function handleTimeout(room) {
   if (now() < game.timer.endsAt) return false;
 
   const phase = game.phase;
+  const runAutoTimeoutAction = (playerId, fn) => withAutoLogContext(game, {
+    kind: 'timeout',
+    playerId: playerId || null,
+  }, fn);
 
   // Cartographer manual draft auto-placement (timeout)
   if (phase === 'cartographer-draft') {
@@ -9375,7 +9395,7 @@ function handleTimeout(room) {
     }
     shuffle(cands);
     if (cands.length) {
-      applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
+      runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType }));
       syncTimer(game);
       return true;
     }
@@ -9402,7 +9422,7 @@ function handleTimeout(room) {
     }
     shuffle(cands);
     if (cands.length) {
-      const r = applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType }));
       if (r && r.ok) { delay(180, 320); return true; }
     }
     delay(180, 320);
@@ -9426,7 +9446,7 @@ function handleTimeout(room) {
     }
     const shuffled = shuffle(nodeIds);
     for (const nid of shuffled) {
-      const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'place_settlement', nodeId: nid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9441,7 +9461,7 @@ function handleTimeout(room) {
     const cand = nid != null ? (game.geom.nodeEdges[nid] || []) : [];
     const edgeIds = shuffle(cand.filter(eid => !game.geom.edges[eid].roadOwner));
     for (const eid of edgeIds) {
-      const r = applyAction(room, pid, { kind: 'place_road', edgeId: eid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'place_road', edgeId: eid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9462,7 +9482,7 @@ function handleTimeout(room) {
     const pid = sp.forPlayerId;
     const amount = Math.max(1, Math.floor(Number(sp.amount || 1)));
     const choices = randomGoldChoicesFromBank(game, amount);
-    const r = applyAction(room, pid, { kind: 'choose_production_gold', choices });
+    const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'choose_production_gold', choices }));
     if (r && r.ok) {
       syncTimer(game);
       return true;
@@ -9474,7 +9494,7 @@ function handleTimeout(room) {
   if (phase === 'main-await-roll') {
     const pid = game.currentPlayerId;
     if (!pid) return false;
-    applyAction(room, pid, { kind: 'roll_dice' });
+    runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'roll_dice' }));
     syncTimer(game);
     return true;
   }
@@ -9494,14 +9514,14 @@ function handleTimeout(room) {
         if (!p) continue;
         const req = required[pid] || 0;
         const cards = randomDiscardMap(p, req);
-        applyAction(room, pid, { kind: 'discard_cards', cards });
+        runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'discard_cards', cards }));
       }
 
       // If something went sideways, force-exit discard.
       if (game.phase === 'discard') {
         game.discard = null;
         if ((game.rules?.mapMode || 'classic') === 'seafarers') {
-          startThiefChoice(game, 'roll7', game.currentPlayerId);
+          runAutoTimeoutAction(game.currentPlayerId, () => startThiefChoice(game, 'roll7', game.currentPlayerId));
         } else {
           game.phase = 'robber-move';
           game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
@@ -9512,7 +9532,7 @@ function handleTimeout(room) {
       if (game.phase === 'discard') {
         game.discard = null;
         if ((game.rules?.mapMode || 'classic') === 'seafarers') {
-          startThiefChoice(game, 'roll7', game.currentPlayerId);
+          runAutoTimeoutAction(game.currentPlayerId, () => startThiefChoice(game, 'roll7', game.currentPlayerId));
         } else {
           game.phase = 'robber-move';
           game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
@@ -9538,7 +9558,7 @@ function handleTimeout(room) {
     }
     const shuffled = shuffle(cands);
     for (const tid of shuffled) {
-      const r = applyAction(room, pid, { kind: 'move_robber', tileId: tid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_robber', tileId: tid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9564,8 +9584,8 @@ function handleTimeout(room) {
     }
     shuffle(land);
     shuffle(sea);
-    if (land.length) applyAction(room, pid, { kind: 'move_robber', tileId: land[0] });
-    else if (sea.length) applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] });
+    if (land.length) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_robber', tileId: land[0] }));
+    else if (sea.length) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] }));
     syncTimer(game);
     return true;
   }
@@ -9583,7 +9603,7 @@ function handleTimeout(room) {
     }
     const shuffled = shuffle(cands);
     for (const tid of shuffled) {
-      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: tid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_pirate', tileId: tid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9596,7 +9616,7 @@ function handleTimeout(room) {
     if (!pid) return false;
     const victims = game.robberSteal?.victims || [];
     const victimId = bestVictimByResources(game, victims);
-    if (victimId) applyAction(room, pid, { kind: 'robber_steal', victimId });
+    if (victimId) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'robber_steal', victimId }));
     else {
       game.robberContext = null;
       game.thiefChoice = null;
@@ -9616,7 +9636,7 @@ function handleTimeout(room) {
     if (!pid) return false;
     const victims = game.pirateSteal?.victims || [];
     const victimId = bestVictimByResources(game, victims);
-    if (victimId) applyAction(room, pid, { kind: 'pirate_steal', victimId });
+    if (victimId) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'pirate_steal', victimId }));
     else {
       const ctx = game.robberContext;
       const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
@@ -9637,7 +9657,7 @@ function handleTimeout(room) {
   if (phase === 'main-actions') {
     const pid = game.currentPlayerId;
     if (!pid) return false;
-    applyAction(room, pid, { kind: 'end_turn' });
+    runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'end_turn' }));
     syncTimer(game);
     return true;
   }

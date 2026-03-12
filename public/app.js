@@ -5568,6 +5568,15 @@ function refreshLobbyJoinLinkUi() {
     ts.textContent = `[${formatTs(entry.ts, { withSeconds: true })}]`;
     row.appendChild(ts);
 
+    if (entry && entry.auto && entry.auto.kind === 'timeout') {
+      const autoIcon = document.createElement('span');
+      autoIcon.className = 'logAutoIcon';
+      autoIcon.textContent = '🤖';
+      autoIcon.title = 'Auto-played after timer expired';
+      autoIcon.setAttribute('aria-label', 'Auto-played after timer expired');
+      row.appendChild(autoIcon);
+    }
+
     // Rich production rows: show per-player gains with resource icons.
     if (entry && entry.kind === 'production' && entry.data && entry.data.gains) {
       const data = entry.data;
