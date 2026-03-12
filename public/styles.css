@@ -811,6 +811,7 @@ select.input{
 .logRow:last-child{ border-bottom:none; }
 
 .logTs{color:var(--muted); font-family:var(--mono); margin-right:6px;}
+.logAutoIcon{display:inline-flex; align-items:center; justify-content:center; font-size:12px; line-height:1; margin-right:6px; opacity:.95;}
 .logPlayerSeg{display:inline-flex; align-items:center; gap:6px; margin-left:10px; margin-right:6px; flex-wrap:wrap;}
 .logDot{width:10px; height:10px; border-radius:999px; display:inline-block; border:1px solid rgba(0,0,0,.35)}
 .logRes{display:inline-flex; align-items:center; gap:4px; margin-left:6px;}
