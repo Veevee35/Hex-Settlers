@@ -1205,7 +1205,22 @@ select.input{
   flex-direction:column;
   gap:8px;
   margin-bottom:12px;
+  position: fixed;
+  top: 88px;
+  left: 12px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(74vh, 620px);
+  overflow: hidden;
+  z-index: 66;
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(17, 23, 34, 0.92);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 20px 40px rgba(0,0,0,.45);
 }
+.pgReplayFloatTop{display:flex; align-items:center; gap:8px;}
+.pgReplayFloatTitle{font-weight:900; letter-spacing:.2px;}
+.pgReplayControlsBody{display:flex; flex-direction:column; gap:8px; overflow:auto; padding-right:2px;}
 .pgReplayNav{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
 .pgReplayMeta{font-family:var(--mono); color:var(--muted); font-size:11px; font-weight:700;}
 .pgReplayText{font-size:12px; color:rgba(255,255,255,.9);}
@@ -1231,6 +1246,17 @@ select.input{
   font-family:var(--mono);
   font-weight:800;
 }
+
+.pgReplayStepState{display:grid; grid-template-columns:1fr; gap:8px;}
+.pgReplayResCard{border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:8px; background:rgba(0,0,0,.2);}
+.pgReplayResTitle{font-size:11px; font-family:var(--mono); color:var(--muted); margin-bottom:6px; font-weight:800;}
+.pgReplayResGrid{display:flex; flex-wrap:wrap; gap:6px;}
+.pgReplayResItem{font-size:11px; border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:4px 8px; background:rgba(255,255,255,.04);}
+.pgReplayResPlayerBtn{border:1px solid rgba(255,255,255,.2); background:rgba(0,0,0,.18); color:var(--text); border-radius:999px; padding:5px 9px; font-size:11px; font-weight:800; cursor:pointer;}
+.pgReplayResPlayerBtn.active{background:rgba(74,163,255,.2);}
+.pgReplayLog{border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:8px; background:rgba(0,0,0,.2); display:flex; flex-direction:column; gap:6px; max-height:220px; overflow:auto;}
+.pgReplayLogRow{text-align:left; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); color:var(--text); border-radius:10px; padding:6px 8px; font-size:11px; cursor:pointer;}
+.pgReplayLogRow.active{border-color:rgba(74,163,255,.55); background:rgba(74,163,255,.16);}
 
 /* User-adjustable scaling for tabbed overlays (Postgame + History) */
 .postgameTabs,

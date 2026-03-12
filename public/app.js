@@ -2106,7 +2106,27 @@ return;
     if (!postgameState.replayActivePlayerId && players[0]) postgameState.replayActivePlayerId = players[0].id;
 
     const replayControls = document.createElement('div');
-    replayControls.className = 'pgReplayControls';
+    replayControls.className = 'pgReplayControls panelScalable';
+
+    const replayTop = document.createElement('div');
+    replayTop.className = 'pgReplayFloatTop';
+    const replayGrip = document.createElement('div');
+    replayGrip.className = 'dragGrip';
+    replayGrip.textContent = '⋮⋮';
+    replayTop.appendChild(replayGrip);
+    const replayTitle = document.createElement('div');
+    replayTitle.className = 'pgReplayFloatTitle';
+    replayTitle.textContent = 'Replay Controls';
+    replayTop.appendChild(replayTitle);
+    const replayScaleHost = document.createElement('div');
+    replayScaleHost.className = 'panelScaleHost';
+    replayScaleHost.appendChild(makeToolScaleControl('postgame_replay_tab', replayControls, { title: 'Scale replay controls tab' }));
+    replayTop.appendChild(replayScaleHost);
+    replayControls.appendChild(replayTop);
+
+    const replayContent = document.createElement('div');
+    replayContent.className = 'pgReplayControlsBody panelScaleContent';
+    replayControls.appendChild(replayContent);
 
     if (replayLog.length) {
       const maxI = replayLog.length - 1;
@@ -2137,13 +2157,104 @@ return;
       stepMeta.className = 'pgReplayMeta';
       stepMeta.textContent = `Step ${postgameState.replayIndex + 1}/${replayLog.length}`;
       nav.appendChild(stepMeta);
-      replayControls.appendChild(nav);
+      replayContent.appendChild(nav);
 
       const stepText = document.createElement('div');
       stepText.className = 'pgReplayText';
       const t = step && step.ts ? fmtDateTime(step.ts) : '—';
       stepText.textContent = `${t} · ${step && step.text ? step.text : '—'}`;
-      replayControls.appendChild(stepText);
+      replayContent.appendChild(stepText);
+
+      const stepState = document.createElement('div');
+      stepState.className = 'pgReplayStepState';
+
+      const readResourceMap = (v) => {
+        if (!v || typeof v !== 'object') return null;
+        const out = {};
+        let touched = false;
+        for (const k of RESOURCE_KEYS) {
+          const n = Number(v[k]);
+          if (Number.isFinite(n)) {
+            out[k] = Math.max(0, Math.floor(n));
+            touched = true;
+          }
+        }
+        return touched ? out : null;
+      };
+
+      const stepData = (step && step.data && typeof step.data === 'object') ? step.data : null;
+      const bankFromStep = readResourceMap(stepData?.bank || stepData?.bankResources || stepData?.bankAfter || stepData?.bankBefore);
+      const bankFallback = readResourceMap(st?.bank) || { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+      const bankRes = bankFromStep || bankFallback;
+
+      const bankCard = document.createElement('div');
+      bankCard.className = 'pgReplayResCard';
+      const bankTitle = document.createElement('div');
+      bankTitle.className = 'pgReplayResTitle';
+      bankTitle.textContent = 'Bank Resources';
+      bankCard.appendChild(bankTitle);
+      const bankGrid = document.createElement('div');
+      bankGrid.className = 'pgReplayResGrid';
+      for (const rk of RESOURCE_KEYS) {
+        const item = document.createElement('div');
+        item.className = 'pgReplayResItem';
+        item.textContent = `${rk}: ${Math.max(0, Math.floor(Number(bankRes[rk] || 0)))}`;
+        bankGrid.appendChild(item);
+      }
+      bankCard.appendChild(bankGrid);
+      stepState.appendChild(bankCard);
+
+      const playerCard = document.createElement('div');
+      playerCard.className = 'pgReplayResCard';
+      const playerTitle = document.createElement('div');
+      playerTitle.className = 'pgReplayResTitle';
+      playerTitle.textContent = 'Player Resources';
+      playerCard.appendChild(playerTitle);
+      const playerGrid = document.createElement('div');
+      playerGrid.className = 'pgReplayResGrid';
+      const pResById = (stepData && stepData.playerResources && typeof stepData.playerResources === 'object') ? stepData.playerResources : null;
+      for (const p of players) {
+        const pStep = readResourceMap(pResById ? pResById[p.id] : null);
+        const pFinal = readResourceMap(p.resources);
+        const pRes = pStep || pFinal || { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+        const total = RESOURCE_KEYS.reduce((s, k) => s + Math.max(0, Number(pRes[k] || 0)), 0);
+        const item = document.createElement('button');
+        item.className = 'pgReplayResPlayerBtn' + (postgameState.replayActivePlayerId === p.id ? ' active' : '');
+        item.style.borderColor = p.color || '#888';
+        item.textContent = `${p.name} (${total})`;
+        item.addEventListener('click', () => {
+          postgameState.replayActivePlayerId = p.id;
+          postgameState.replayPlayerLocked = true;
+          renderPostgameTab('resources');
+        });
+        playerGrid.appendChild(item);
+      }
+      playerCard.appendChild(playerGrid);
+      stepState.appendChild(playerCard);
+
+      replayContent.appendChild(stepState);
+
+      const logWrap = document.createElement('div');
+      logWrap.className = 'pgReplayLog';
+      const logTitle = document.createElement('div');
+      logTitle.className = 'pgReplayResTitle';
+      logTitle.textContent = 'Game Log';
+      logWrap.appendChild(logTitle);
+      const start = Math.max(0, postgameState.replayIndex - 8);
+      const end = Math.min(replayLog.length - 1, postgameState.replayIndex + 8);
+      for (let i = start; i <= end; i += 1) {
+        const e = replayLog[i] || {};
+        const b = document.createElement('button');
+        b.className = 'pgReplayLogRow' + (i === postgameState.replayIndex ? ' active' : '');
+        b.textContent = `${i + 1}. ${e.text || '—'}`;
+        b.addEventListener('click', () => {
+          postgameState.replayIndex = i;
+          postgameState.replayPlayerLocked = false;
+          renderPostgameTab('resources');
+        });
+        logWrap.appendChild(b);
+      }
+      replayContent.appendChild(logWrap);
     }
 
     const chips = document.createElement('div');
@@ -2160,7 +2271,8 @@ return;
       });
       chips.appendChild(chip);
     }
-    replayControls.appendChild(chips);
+    replayContent.appendChild(chips);
+    try { makeDraggablePanel(replayControls, replayGrip, "hexsettlers_postgame_replay_pos_v1"); } catch(_) {}
     ui.pgTabBody.appendChild(replayControls);
 
     const secTop = makeSection('Resources Overview');
