@@ -233,6 +233,8 @@ function makeGameHistoryEntry(room, game, winnerId) {
     longestRoad: game.longestRoad || null,
     largestArmy: game.largestArmy || null,
     diceStats: game.diceStats || null,
+    // Persist the full in-game log so history can offer a step-by-step replay.
+    log: Array.isArray(game.log) ? game.log : [],
   });
 
   return {
