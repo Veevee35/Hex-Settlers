@@ -6553,7 +6553,7 @@ if (kind === 'choose_production_gold') {
     recordRoll(game, playerId, roll, d1, d2);
     pushLog(game, `${playerName(game, playerId)} rolled ${roll}.`, 'roll', { d1, d2, roll });
 
-    broadcastSfx(room, 'dice_roll');
+    broadcastSfx(room, 'dice_roll', { rollerId: playerId });
     if (roll === 7) broadcastSfx(room, 'robber_pirate');
 
 

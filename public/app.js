@@ -932,7 +932,8 @@
   const AUDIO_SFX_DEFS = [
     { key: 'turn_bell', label: 'Turn Bell' },
     { key: 'paired_turn', label: 'Paired Turn' },
-    { key: 'dice_roll', label: 'Dice Roll' },
+    { key: 'dice_roll_self', label: 'Your Dice Roll' },
+    { key: 'dice_roll_others', label: "Other Players' Dice Rolls" },
     { key: 'gold_field_production', label: 'Gold Field Production' },
     { key: 'robber_pirate', label: 'Robber / Pirate' },
     { key: 'structure', label: 'Build / Upgrade' },
@@ -4750,7 +4751,8 @@ function syncPostgameToState() {
   }
 
   const sfx = {
-    dice_roll: makeSfxPool('assets/sfx/dice_roll.wav', 0.9, 4),
+    dice_roll_self: makeSfxPool('assets/sfx/dice_roll.wav', 0.9, 2),
+    dice_roll_others: makeSfxPool('assets/sfx/dice_roll.wav', 0.9, 4),
     gold_field_production: makeSfxPool('assets/sfx/gold_field_production.wav', 0.9, 2),
     robber_pirate: makeSfxPool('assets/sfx/robber_pirate.wav', 0.9, 3),
     structure: makeSfxPool('assets/sfx/structure.wav', 0.85, 4),
@@ -4765,7 +4767,12 @@ function syncPostgameToState() {
     const merged = defaultAudioSfxLevels();
     const src = (levels && typeof levels === 'object') ? levels : {};
     for (const def of AUDIO_SFX_DEFS) {
-      merged[def.key] = normalizeAudioSfxPercent(src[def.key]);
+      const hasSavedLevel = Object.prototype.hasOwnProperty.call(src, def.key);
+      const isSplitDiceLevel = def.key === 'dice_roll_self' || def.key === 'dice_roll_others';
+      const savedLevel = hasSavedLevel
+        ? src[def.key]
+        : (isSplitDiceLevel && src.dice_roll != null ? src.dice_roll : AUDIO_SFX_DEFAULT_PCT);
+      merged[def.key] = normalizeAudioSfxPercent(savedLevel);
     }
     audioSfxLevels = merged;
 
@@ -4841,8 +4848,17 @@ function syncPostgameToState() {
   window.addEventListener('pointerdown', unlockSfxOnce, { once: true, passive: true });
   window.addEventListener('keydown', unlockSfxOnce, { once: true });
 
-  function playSfx(name) {
-    const key = String(name || '').toLowerCase();
+  function playSfx(name, metadata = null) {
+    let key = String(name || '').toLowerCase();
+    if (key === 'dice_roll') {
+      const announcedRollerId = String(metadata?.rollerId || '');
+      const inferredRollerId = String(state?.currentPlayerId || '');
+      const rollerId = announcedRollerId || inferredRollerId;
+      const localPlayerId = String(myPlayerId || '');
+      key = rollerId && localPlayerId && rollerId === localPlayerId
+        ? 'dice_roll_self'
+        : 'dice_roll_others';
+    }
     const snd = sfx[key];
     if (!snd) return;
     snd.play();
@@ -5183,7 +5199,7 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'sfx') {
-        playSfx(msg.name);
+        playSfx(msg.name, msg);
         return;
       }
 
