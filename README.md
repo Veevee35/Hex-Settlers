@@ -1,82 +1,77 @@
-# Hex Settlers (4‑Player Online)
+# Hex Settlers
 
-A lightweight, Catan‑style browser game with lobby codes + online multiplayer (WebSocket).
-Uses the provided hex tile art in `public/assets/`.
+Hex Settlers is a browser-based, server-authoritative hex strategy game. It supports account-backed online lobbies, classic and 5–6-player maps, multiple seafaring scenarios, spectators, game history, custom texture packs, and test/normal/expert/neural AI opponents.
 
-## What you need
-- Node.js 18+ installed on the host machine.
-- Your friends just need a modern browser. 
+## Run locally
 
-## Run locally (same Wi‑Fi / LAN)
-1) Open a terminal in this folder
-2) Install deps:
-   ```bash
-   npm install
-   ```
-3) Start the server:
-   ```bash
-   npm start
-   ```
-4) Open:
-   - Host: http://localhost:3000
-   - Friends on your LAN: http://YOUR_LAN_IP:3000 (e.g. http://192.168.1.25:3000)
+Requirements: Node.js 20 or newer.
 
-## Play over the internet
-You need the server reachable publicly.
-
-### Option A: Port forward (quick + DIY)
-- Forward TCP port **3000** on your router to the host computer.
-- Share your public IP: `http://YOUR_PUBLIC_IP:3000`
-
-### Option B: Tunnel (fastest, no router changes)
-Use a tunneling tool like `ngrok` or `cloudflared`:
-- Start the server (`npm start`)
-- Then run a tunnel to port 3000, and share the URL it prints.
-
-### Option C: Deploy to a Node host (recommended)
-Deploy this folder to any Node hosting provider (Render, Fly.io, Railway, etc.)
-- It’s a single Node server serving static files + WebSocket.
-
-## Electron desktop release deployment
-This repo now includes an Electron wrapper that opens the hosted Railway game URL:
-- `https://hexsettlers.up.railway.app/`
-
-### Build locally
 ```bash
-npm install
+npm ci
+npm run build
+npm start
+```
+
+Open `http://localhost:3000`. Other devices on the same network can use `http://YOUR_LAN_IP:3000` when local firewall rules permit it.
+
+For direct development against the JavaScript server, use `npm run start:legacy`. The production command starts the compiled TypeScript bootstrap, validates the environment, and then loads the same game server.
+
+## Verify a change
+
+```bash
+npm run check
+```
+
+The check builds the bootstrap, runs unit and end-to-end server tests, and syntax-checks both large JavaScript entry points. The integration coverage exercises registration, lobby creation/join, expert tuning, chat, game start, private hand filtering, browser-cookie authentication, clean shutdown, and restart recovery.
+
+## Runtime data
+
+Set `DATA_DIR` to keep mutable data outside the repository. Railway uses `RAILWAY_VOLUME_MOUNT_PATH` automatically when a volume is attached.
+
+| File | Contents |
+| --- | --- |
+| `users.json` | Account profiles, password hashes, hashed session tokens, and aggregate stats |
+| `game_history.json` | Completed-game metadata and postgame snapshots |
+| `active_rooms.json` | Recoverable lobby and active-game snapshots |
+| `neural_ai_model.json` | Neural AI parameters and training metadata |
+
+Writes are serialized and use atomic replacement. Clean shutdown flushes all four stores. Password hashing runs asynchronously, login attempts are rate-limited, browser sessions use HTTP-only same-site cookies, and ordinary WebSocket messages have a separate size limit from texture-pack uploads.
+
+## Configuration
+
+Copy `.env.example` into your hosting environment; the server does not load `.env` files by itself.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HOST` | `0.0.0.0` | Listen address |
+| `PORT` | `3000` | HTTP/WebSocket port |
+| `DATA_DIR` | repository root | Local persistence directory |
+| `HEX_TRUST_PROXY` | Railway-aware | Trust forwarded host, address, and TLS headers |
+| `HEX_ALLOWED_ORIGINS` | same host | Comma-separated additional WebSocket/API origins; `*` allows all |
+| `HEX_AUTH_ATTEMPTS_PER_MINUTE` | `12` | Password-auth limit per client address |
+| `HEX_WS_MAX_PAYLOAD` | `50331648` | Transport ceiling needed by large texture packs |
+| `AI_FAST` | off | Accelerated AI ticks for simulations only |
+
+Expert AI weights also have optional `EXPERT_AI_*` environment overrides; see the defaults near the bottom of `server.js`.
+
+## Project layout
+
+- `server.js` — authoritative rules engine, lobby protocol, AI, HTTP and WebSocket runtime
+- `server/` — tested security, persistence, protocol, configuration, rule-default, cookie, and room-snapshot modules
+- `public/` — browser client and game assets
+- `src/server.ts` — production bootstrap
+- `src/shared/protocol.ts` — shared protocol vocabulary for incremental typing
+- `scripts/` — playable-map simulations and expert/neural training utilities
+- `test/` — unit and live-server compatibility tests
+
+## Desktop releases
+
+The Electron wrapper opens the hosted game at `https://hexsettlers.up.railway.app/`.
+
+```bash
 npm run electron:dist -- --linux AppImage
 ```
-(Use `--win nsis` or `--mac dmg` on those platforms.)
 
-### Automated release deploy (GitHub Actions)
-Tag a version and push it:
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-The workflow `.github/workflows/electron-release.yml` builds Linux/Windows/macOS installers and publishes them to the GitHub Release for that tag.
+Use `--win nsis` or `--mac dmg` on those platforms. Pushing a `v*` tag triggers the release workflow for Linux, Windows, and macOS.
 
-## How to start a game
-1) Each player creates an account (or logs in) from the **Account** section in the lobby.
-2) One player clicks **Create Lobby**, then shares the 4‑letter room code.
-3) Friends click **Join Lobby** and enter the code.
-4) Host clicks **Start Game** once enough players have joined.
-
-## Controls (in game)
-- Setup: place settlement, then road (twice, snake order).
-- Main turns: Roll → Build (roads/settlements/cities) → End Turn.
-- If 7 is rolled: click a tile to move the robber, then choose a player to steal 1 random resource from (discarding for 7 is still not implemented).
-
-## Notes
-- Server keeps game state in memory; restarting the server ends active games.
-
-## Development cards
-- Buy Dev Card (cost: wool + grain + ore)
-- Knight: move the robber + steal (counts toward Largest Army)
-- Road Building: place up to 2 free roads this turn
-- Invention: take any 2 resources
-- Monopoly: take all of one resource type from all other players
-- Victory Point: play at any time on your turn for +1 VP (VP cards are the only dev card you can play the same turn you buy)
-
-## Missing rules
-- This is still an MVP “Catan‑style” ruleset: ports, player trading, and Longest Road are not implemented.
+See [README_RAILWAY.md](README_RAILWAY.md) for deployment and [README_TYPESCRIPT_MIGRATION.md](README_TYPESCRIPT_MIGRATION.md) for the migration boundary.

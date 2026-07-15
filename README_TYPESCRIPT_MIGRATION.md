@@ -1,33 +1,22 @@
-# Hex Settlers – Railway TypeScript Migration (Stage 1)
+# TypeScript migration status
 
-This package preserves your **current game features and texture pack** exactly as-is, while adding a **TypeScript bootstrap layer** for safer Railway deployment and future migration.
+The production entry point is `src/server.ts`, compiled to `dist/server.js`. It validates the hosting environment and loads the existing `server.js`, so the browser protocol and game engine remain unchanged during migration.
 
-## What changed
-- Added `src/server.ts` (TypeScript bootstrap)
-- Added `dist/server.js` (compiled bootstrap used at runtime)
-- Added `tsconfig.bootstrap.json`
-- `npm start` now launches `dist/server.js` (which validates env + loads legacy `server.js`)
-- `npm run start:legacy` still runs the original server directly
+Completed foundations:
 
-## Why this is useful
-A full feature-for-feature rewrite of both the 7k+ line client and 8k+ line server into another language is a large project.
-This keeps the game running now on Railway **without losing assets/features**, while creating a safer path to migrate the codebase in stages.
+- typed production bootstrap and validated payload configuration;
+- shared client/server message vocabulary in `src/shared/protocol.ts`;
+- extracted, unit-tested JavaScript modules for rules, security, protocol validation, persistence, HTTP cookies, runtime configuration, and active-room snapshots;
+- live compatibility tests around the legacy engine.
 
-## Best long-term language choice
-For this game (heavy browser UI + custom textures + realtime multiplayer), the strongest path is:
-- **TypeScript** for client and server (highest compatibility and lowest migration risk)
-- Optional later: **Rust** or **Go** for the authoritative rules engine/server core, while keeping a TypeScript UI
+The large rules engine and browser client are still JavaScript. The safest next migration is incremental: move one tested domain at a time behind the existing protocol, add precise payload types and runtime schemas, then migrate the browser networking boundary before UI/rendering code. Avoid a feature rewrite while the classic, seafaring, AI, replay, and texture systems remain coupled.
 
-## Railway deploy
-- Create/point Railway project to this folder/repo
-- Start command: `npm start`
-- Railway should detect Node automatically
-- Ensure `PORT` is provided by Railway (it usually is)
+Commands:
 
-## Next migration stages (recommended)
-1. Convert `server.js` into typed modules (`src/server/*`)
-2. Add shared protocol types (`src/shared/protocol.ts`) for client/server messages
-3. Migrate `public/app.js` into `src/client` TypeScript in slices (board, UI, networking, rules UI)
-4. Add runtime schema validation for WS messages (e.g., Zod/Valibot)
-5. Add persistence + replayable game-state snapshots/tests
+```bash
+npm run build
+npm run check
+npm run start:legacy
+```
 
+`npm start` always uses the compiled bootstrap. `npm run start:legacy` is a development escape hatch and runs the same authoritative server directly.

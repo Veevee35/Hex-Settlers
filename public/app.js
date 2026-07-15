@@ -962,16 +962,49 @@
     return `Games: ${gp}  Wins: ${w}  Losses: ${l}  Total VP: ${tvp}`;
   }
 
-  function setAuthState(user, token) {
+  function removePersistedAuthToken() {
+    authToken = null;
+    try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
+  }
+
+  function setAuthState(user, token, { clearToken = false } = {}) {
     authUser = user || null;
-    if (typeof token === 'string' && token.trim()) {
+    if (clearToken) {
+      removePersistedAuthToken();
+    } else if (typeof token === 'string' && token.trim()) {
       authToken = token.trim();
       try { localStorage.setItem(AUTH_TOKEN_KEY, authToken); } catch (_) {}
     } else if (!user) {
-      authToken = null;
-      try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
+      removePersistedAuthToken();
     }
     updateAuthUi();
+  }
+
+  async function authApi(action, body = {}) {
+    const response = await fetch(`/api/auth/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    });
+    let payload = {};
+    try { payload = await response.json(); } catch (_) {}
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'Authentication failed.');
+    return payload;
+  }
+
+  function reconnectForCookieAuth() {
+    websocketReconnectDelayMs = 0;
+    try {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
+      else connect();
+    } catch (_) { connect(); }
+  }
+
+  async function authenticateInBrowser(action, credentials) {
+    const result = await authApi(action, credentials);
+    setAuthState(result.user, null, { clearToken: true });
+    reconnectForCookieAuth();
   }
 
   function updateAuthUi() {
@@ -999,8 +1032,7 @@
 
   function clearAuthLocal() {
     authUser = null;
-    authToken = null;
-    try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
+    removePersistedAuthToken();
     updateAuthUi();
   }
 
@@ -4226,6 +4258,7 @@ function syncPostgameToState() {
 
   // Networking
   let ws = null;
+  let websocketReconnectDelayMs = 1200;
   let myPlayerId = null;
   let room = null;
   let state = null;
@@ -4902,12 +4935,18 @@ function refreshLobbyJoinLinkUi() {
     ws.addEventListener('open', () => {
       setConn(true, 'Connected');
       setError(null);
-      // Try auto-login with a saved token (allows login from any device/server instance).
+      // Migrate older localStorage sessions into an HTTP-only cookie. The
+      // WebSocket token path remains as a fallback for older deployed servers.
       pendingAutoRejoin = true;
       let t = null;
       try { t = localStorage.getItem(AUTH_TOKEN_KEY); } catch (_) { t = null; }
       if (t) {
-        send({ type: 'auth_token', token: t });
+        authApi('token', { token: t }).then(() => {
+          removePersistedAuthToken();
+          reconnectForCookieAuth();
+        }).catch(() => {
+          send({ type: 'auth_token', token: t });
+        });
       } else {
         updateAuthUi();
       }
@@ -4916,7 +4955,9 @@ function refreshLobbyJoinLinkUi() {
     ws.addEventListener('close', () => {
       setConn(false, 'Disconnected');
       // simple retry
-      setTimeout(connect, 1200);
+      const delay = websocketReconnectDelayMs;
+      websocketReconnectDelayMs = 1200;
+      setTimeout(connect, delay);
     });
 
     ws.addEventListener('message', (ev) => {
@@ -5071,7 +5112,11 @@ function refreshLobbyJoinLinkUi() {
       if (msg.type === 'auth_ok') {
         if (msg.user) {
           // Keep prior token if server didn't send one (e.g., display-name update)
-          setAuthState(msg.user, (typeof msg.token === 'string' && msg.token.trim()) ? msg.token : authToken);
+          setAuthState(
+            msg.user,
+            (typeof msg.token === 'string' && msg.token.trim()) ? msg.token : authToken,
+            { clearToken: !!msg.cookieAuth },
+          );
         } else {
           updateAuthUi();
         }
@@ -6521,26 +6566,29 @@ function refreshLobbyJoinLinkUi() {
   }
 
     // ---- Account / Auth ----
-  if (ui.registerBtn) ui.registerBtn.addEventListener('click', () => {
+  if (ui.registerBtn) ui.registerBtn.addEventListener('click', async () => {
     setError(null);
     const username = (ui.usernameInput?.value || '').trim();
     const password = (ui.passwordInput?.value || '').trim();
     const displayName = (ui.nameInput?.value || '').trim();
     if (!username || !password) { setError('Enter a username and password.'); return; }
-    send({ type: 'auth_register', username, password, displayName });
+    try { await authenticateInBrowser('register', { username, password, displayName }); }
+    catch (error) { setError(error.message || 'Register failed.'); }
   });
 
-  if (ui.loginBtn) ui.loginBtn.addEventListener('click', () => {
+  if (ui.loginBtn) ui.loginBtn.addEventListener('click', async () => {
     setError(null);
     const username = (ui.usernameInput?.value || '').trim();
     const password = (ui.passwordInput?.value || '').trim();
     const displayName = (ui.nameInput?.value || '').trim();
     if (!username || !password) { setError('Enter a username and password.'); return; }
-    send({ type: 'auth_login', username, password, displayName });
+    try { await authenticateInBrowser('login', { username, password, displayName }); }
+    catch (error) { setError(error.message || 'Login failed.'); }
   });
 
-  if (ui.logoutBtn) ui.logoutBtn.addEventListener('click', () => {
+  if (ui.logoutBtn) ui.logoutBtn.addEventListener('click', async () => {
     setError(null);
+    try { await authApi('logout'); } catch (_) {}
     clearAuthLocal();
     // Optional: drop room state
     room = null;
@@ -6548,6 +6596,7 @@ function refreshLobbyJoinLinkUi() {
     try { setLocalPanelLayoutOwnerKey(null); } catch (_) {}
     isHost = false;
     if (ui.roomBox) ui.roomBox.classList.add('hidden');
+    reconnectForCookieAuth();
   });
 
   if (ui.rejoinLastBtn) ui.rejoinLastBtn.addEventListener('click', () => {

@@ -5,6 +5,7 @@
 */
 
 declare const process: any;
+declare const __dirname: string;
 declare function require(name: string): any;
 
 type Env = Record<string, string | undefined>;
@@ -44,14 +45,6 @@ function installProcessGuards(): void {
   process.on('unhandledRejection', (reason: unknown) => {
     console.error('[bootstrap] unhandledRejection', reason);
   });
-  process.on('SIGTERM', () => {
-    console.warn('[bootstrap] SIGTERM received. Shutting down.');
-    process.exit(0);
-  });
-  process.on('SIGINT', () => {
-    console.warn('[bootstrap] SIGINT received. Shutting down.');
-    process.exit(0);
-  });
 }
 
 function configureRailwayEnv(): void {
@@ -62,8 +55,9 @@ function configureRailwayEnv(): void {
   process.env.PORT = String(port);
   process.env.HOST = host;
 
-  // Optional safety toggles (legacy server may ignore these; kept for future migration)
-  process.env.HEX_WS_MAX_PAYLOAD = String(asInt('HEX_WS_MAX_PAYLOAD', 512 * 1024, 1024, 10 * 1024 * 1024));
+  // Texture-pack publishing can legitimately exceed ordinary message limits.
+  // The server applies a separate 256 KiB cap to all non-texture messages.
+  process.env.HEX_WS_MAX_PAYLOAD = String(asInt('HEX_WS_MAX_PAYLOAD', 48 * 1024 * 1024, 1024, 64 * 1024 * 1024));
   process.env.HEX_LOG_VERBOSE = String(asBool('HEX_LOG_VERBOSE', false));
 }
 

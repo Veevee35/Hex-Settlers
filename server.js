@@ -12,7 +12,24 @@ const path = require('path');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 
-const PORT = process.env.PORT || 3000;
+const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
+const { restoreRoom, serializeRoom } = require('./server/active-rooms');
+const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
+const { parseClientMessage } = require('./server/protocol');
+const { clientAddress, isAllowedWebSocketOrigin, runtimeConfig, securityHeaders } = require('./server/runtime-config');
+const {
+  SlidingWindowRateLimiter,
+  derivePasswordHash,
+  hashSessionToken,
+  migrateLegacySessionToken,
+  sessionTokenMatches,
+  verifyPasswordHash,
+} = require('./server/security');
+const { DEFAULT_RULES, bankMaxForRules } = require('./server/game-rules');
+
+const APP_CONFIG = runtimeConfig(process.env);
+const PORT = APP_CONFIG.port;
+const HOST = APP_CONFIG.host;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MIME = {
@@ -59,8 +76,11 @@ try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
 // Accounts are stored on disk in users.json (DATA_DIR).
 // Passwords are salted + hashed (PBKDF2). Session tokens allow auto-login on refresh.
 const USERS_DB_PATH = path.join(DATA_DIR, 'users.json');
+const ACTIVE_ROOMS_PATH = path.join(DATA_DIR, 'active_rooms.json');
 const AUTH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const AUTH_TOKENS_MAX = 8;
+const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
+const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH);
 
 let USERS_DB = { version: 1, users: [] };
 let userSockets = new Map(); // userId -> ws (enforce one active connection per user)
@@ -71,6 +91,8 @@ let userSockets = new Map(); // userId -> ws (enforce one active connection per 
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
 const HISTORY_MAX_GAMES = 500;
 const NEURAL_AI_MODEL_PATH = path.join(DATA_DIR, 'neural_ai_model.json');
+const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH);
+const NEURAL_AI_MODEL_WRITER = new JsonFileWriter(NEURAL_AI_MODEL_PATH);
 
 let HISTORY_DB = { version: 1, games: [] };
 let NEURAL_AI_MODEL = null;
@@ -122,14 +144,12 @@ function loadNeuralAiModel() {
 }
 
 function saveNeuralAiModel() {
-  try {
-    const safe = NEURAL_AI_MODEL && typeof NEURAL_AI_MODEL === 'object'
-      ? NEURAL_AI_MODEL
-      : createDefaultNeuralAiModel();
-    fs.writeFileSync(NEURAL_AI_MODEL_PATH, JSON.stringify(safe, null, 2), 'utf-8');
-  } catch (e) {
+  const safe = NEURAL_AI_MODEL && typeof NEURAL_AI_MODEL === 'object'
+    ? NEURAL_AI_MODEL
+    : createDefaultNeuralAiModel();
+  return NEURAL_AI_MODEL_WRITER.write(safe).catch((e) => {
     console.error('[neural-ai] Failed to save model:', e && e.message ? e.message : e);
-  }
+  });
 }
 
 function loadHistoryDb() {
@@ -176,17 +196,15 @@ function loadHistoryDb() {
 }
 
 function saveHistoryDb() {
-  try {
-    // prune oldest
-    const games = Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : [];
-    if (games.length > HISTORY_MAX_GAMES) {
-      HISTORY_DB.games = games.slice(-HISTORY_MAX_GAMES);
-    }
-    const safe = { version: 1, games: HISTORY_DB.games || [] };
-    fs.writeFileSync(HISTORY_DB_PATH, JSON.stringify(safe, null, 2), 'utf-8');
-  } catch (e) {
-    console.error('[history] Failed to save game_history.json:', e && e.message ? e.message : e);
+  // prune oldest
+  const games = Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : [];
+  if (games.length > HISTORY_MAX_GAMES) {
+    HISTORY_DB.games = games.slice(-HISTORY_MAX_GAMES);
   }
+  const safe = { version: 1, games: HISTORY_DB.games || [] };
+  return HISTORY_WRITER.write(safe).catch((e) => {
+    console.error('[history] Failed to save game_history.json:', e && e.message ? e.message : e);
+  });
 }
 
 // Filter out corrupted/phantom history entries (e.g. created during dry-run simulations).
@@ -493,6 +511,18 @@ function loadUsersDb() {
           version: Number(parsed.version || 1),
           users: Array.isArray(parsed.users) ? parsed.users : [],
         };
+        let migrated = false;
+        for (const user of USERS_DB.users) {
+          if (!user || !Array.isArray(user.tokens)) continue;
+          for (const token of user.tokens) {
+            if (token && token.token && !token.tokenHash) {
+              token.tokenHash = hashSessionToken(token.token);
+              delete token.token;
+              migrated = true;
+            }
+          }
+        }
+        if (migrated) saveUsersDb();
       }
     }
   } catch (e) {
@@ -502,12 +532,10 @@ function loadUsersDb() {
 }
 
 function saveUsersDb() {
-  try {
-    const safe = { version: 1, users: USERS_DB.users || [] };
-    fs.writeFileSync(USERS_DB_PATH, JSON.stringify(safe, null, 2), 'utf-8');
-  } catch (e) {
+  const safe = { version: 1, users: USERS_DB.users || [] };
+  return USERS_WRITER.write(safe).catch((e) => {
     console.error('[users] Failed to save users.json:', e && e.message ? e.message : e);
-  }
+  });
 }
 
 function findUserById(id) {
@@ -520,15 +548,6 @@ function findUserByUsername(username) {
   const nu = normalizeUsername(username);
   if (!nu) return null;
   return (USERS_DB.users || []).find(u => u && normalizeUsername(u.username) === nu) || null;
-}
-
-function pbkdf2Hash(password, saltHex) {
-  const pw = String(password || '');
-  const salt = Buffer.from(String(saltHex || ''), 'hex');
-  // keep runtime reasonable; increase if desired
-  const iters = 120_000;
-  const dk = crypto.pbkdf2Sync(pw, salt, iters, 32, 'sha256');
-  return dk.toString('hex');
 }
 
 function safeUserPublic(u) {
@@ -562,8 +581,8 @@ function issueAuthToken(user) {
   const nowMs = now();
   if (!user.tokens || !Array.isArray(user.tokens)) user.tokens = [];
   // prune expired
-  user.tokens = user.tokens.filter(t => t && t.token && (t.expiresAt || 0) > nowMs);
-  user.tokens.unshift({ token, createdAt: nowMs, lastUsedAt: nowMs, expiresAt: nowMs + AUTH_TOKEN_TTL_MS });
+  user.tokens = user.tokens.filter(t => t && (t.tokenHash || t.token) && (t.expiresAt || 0) > nowMs);
+  user.tokens.unshift({ tokenHash: hashSessionToken(token), createdAt: nowMs, lastUsedAt: nowMs, expiresAt: nowMs + AUTH_TOKEN_TTL_MS });
   if (user.tokens.length > AUTH_TOKENS_MAX) user.tokens.length = AUTH_TOKENS_MAX;
   return token;
 }
@@ -574,16 +593,17 @@ function authenticateByToken(token) {
   const nowMs = now();
   for (const u of (USERS_DB.users || [])) {
     if (!u || !Array.isArray(u.tokens)) continue;
-    const rec = u.tokens.find(x => x && x.token === t);
+    const rec = u.tokens.find(x => x && sessionTokenMatches(x, t));
     if (!rec) continue;
     if ((rec.expiresAt || 0) <= nowMs) continue;
+    migrateLegacySessionToken(rec, t);
     rec.lastUsedAt = nowMs;
     return u;
   }
   return null;
 }
 
-function createUser({ username, password, displayName }) {
+async function createUser({ username, password, displayName }) {
   const vu = validateUsername(username);
   if (!vu.ok) return { ok: false, error: vu.error };
   const vp = validatePassword(password);
@@ -593,7 +613,9 @@ function createUser({ username, password, displayName }) {
 
   const id = crypto.randomUUID();
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = pbkdf2Hash(vp.value, salt);
+  const hash = await derivePasswordHash(vp.value, salt);
+  // Hashing is asynchronous, so repeat the uniqueness check before insertion.
+  if (findUserByUsername(un)) return { ok: false, error: 'Username already exists.' };
   const dn = cleanDisplayName(displayName) || vu.value.slice(0, 20);
 
   const user = {
@@ -607,22 +629,11 @@ function createUser({ username, password, displayName }) {
     lastLoginAt: 0,
   };
   USERS_DB.users.push(user);
-  saveUsersDb();
   return { ok: true, user };
 }
 
-function verifyPassword(user, password) {
-  if (!user || !user.pass || !user.pass.salt || !user.pass.hash) return false;
-  try {
-    const hash = pbkdf2Hash(password, user.pass.salt);
-    // constant-time compare
-    const a = Buffer.from(hash, 'hex');
-    const b = Buffer.from(String(user.pass.hash), 'hex');
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b);
-  } catch (_) {
-    return false;
-  }
+async function verifyPassword(user, password) {
+  return verifyPasswordHash(password, user && user.pass);
 }
 
 function setUserDisplayName(user, displayName) {
@@ -1763,28 +1774,6 @@ const DEV_CARD_TYPES = {
 
 const RESOURCE_KINDS = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
-const BANK_MAX_DEFAULT = 19;
-const BANK_MAX_56 = 24;
-
-function isClassic56MapModeRaw(raw) {
-  const mm = String(raw || 'classic').toLowerCase();
-  return mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6';
-}
-
-function normalizedMapModeRaw(raw) {
-  const mm = String(raw || 'classic').toLowerCase();
-  return isClassic56MapModeRaw(mm) ? 'classic56' : mm;
-}
-
-function bankMaxForRules(rules) {
-  const custom = Math.floor(Number(rules?.baseResourcesPerType ?? rules?.baseResourceCount));
-  if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
-  const mm = normalizedMapModeRaw(rules?.mapMode || 'classic');
-  if (mm === 'classic56') return BANK_MAX_56;
-  if (mm === 'seafarers' && isSeafarers56Scenario(rules?.seafarersScenario)) return BANK_MAX_56;
-  return BANK_MAX_DEFAULT;
-}
-
 function bankMaxForGame(game) {
   return bankMaxForRules(game?.rules || null);
 }
@@ -2165,20 +2154,6 @@ function filterStatsForViewer(stats, viewerId) {
 }
 
 // -------------------- Timers & Rules --------------------
-const DEFAULT_RULES = Object.freeze({
-  discardLimit: 7,
-  setupTurnMs: 60_000,   // initial placement phases
-  playTurnMs: 30_000,    // main action phase
-  // "micro" phases: roll / robber / steal / discard
-  // NOTE: the lobby UI and set_rules use microPhaseMs; keep both keys for compatibility.
-  microMs: 15_000,
-  microPhaseMs: 15_000,
-  mapMode: 'classic',
-  seafarersScenario: 'four_islands',
-  victoryPointsToWin: 10,
-  devDeckMode: 25,
-});
-
 function defaultVictoryPointsToWin(rules) {
   const mm = String(rules?.mapMode || 'classic').toLowerCase();
   if (mm !== 'seafarers') return 10;
@@ -7769,6 +7744,31 @@ function sendToRoomMember(room, playerId, payload) {
 
 const rooms = new Map(); // code -> room
 
+function activeRoomSnapshot() {
+  return { version: 1, rooms: Array.from(rooms.values()).map(serializeRoom).filter(Boolean) };
+}
+
+function scheduleActiveRoomsSave() {
+  return ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot()).catch((error) => {
+    console.error('[rooms] Failed to save active_rooms.json:', error && error.message ? error.message : error);
+  });
+}
+
+function loadActiveRooms() {
+  try {
+    if (!fs.existsSync(ACTIVE_ROOMS_PATH)) return;
+    const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
+    for (const record of (Array.isArray(parsed && parsed.rooms) ? parsed.rooms : [])) {
+      const room = restoreRoom(record, DEFAULT_RULES);
+      if (room) rooms.set(room.code, room);
+    }
+  } catch (error) {
+    console.error('[rooms] Failed to load active_rooms.json:', error && error.message ? error.message : error);
+  }
+}
+
+loadActiveRooms();
+
 function createRoom(hostUserId, hostName) {
   let code = randCode(4);
   while (rooms.has(code)) code = randCode(4);
@@ -7798,10 +7798,12 @@ function createRoom(hostUserId, hostName) {
     chatSeq: 1,
     aiSeq: 1,
     aiDifficulty: 'test',
+    expertAiTuning: null,
     sharedTexturePacks: Object.create(null),
     pendingLeaveRequests: Object.create(null),
   };
   rooms.set(code, room);
+  scheduleActiveRoomsSave();
   return room;
 }
 
@@ -7860,10 +7862,12 @@ function createRematchRoomFrom(prevRoom) {
     chatSeq: 1,
     aiSeq: 1,
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'test',
+    expertAiTuning: (prevRoom && prevRoom.expertAiTuning) ? { ...prevRoom.expertAiTuning } : null,
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
     pendingLeaveRequests: Object.create(null),
   };
   rooms.set(code, room);
+  scheduleActiveRoomsSave();
   return room;
 }
 
@@ -8081,6 +8085,7 @@ function broadcastRoom(room) {
   for (const [pid, ws] of room.sockets.entries()) {
     if (ws.readyState === WebSocket.OPEN) sendJson(ws, { type: 'room', room: snap });
   }
+  scheduleActiveRoomsSave();
 }
 
 function broadcastSfx(room, name, extra) {
@@ -8184,28 +8189,163 @@ function broadcastState(room) {
     const state = sanitizeStateFor(room.game, pid);
     sendJson(ws, { type: 'state', state });
   }
+  scheduleActiveRoomsSave();
 }
 
 
 function cleanupRooms() {
   const cutoff = now() - (1000 * 60 * 60 * 8); // 8 hours
+  let changed = false;
   for (const [code, room] of rooms.entries()) {
     const anyOpen = Array.from(room.sockets.values()).some(ws => ws.readyState === WebSocket.OPEN);
-    if (!anyOpen && room.createdAt < cutoff) rooms.delete(code);
+    if (!anyOpen && room.createdAt < cutoff) {
+      rooms.delete(code);
+      changed = true;
+    }
   }
+  if (changed) scheduleActiveRoomsSave();
 }
 
 // -------------------- HTTP static server --------------------
+
+const passwordAuthLimiter = new SlidingWindowRateLimiter({
+  maxAttempts: APP_CONFIG.authAttemptsPerMinute,
+  windowMs: 60_000,
+});
+
+function activateAuthenticatedSocket(ws, user) {
+  const prev = userSockets.get(user.id);
+  if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
+    sendJson(prev, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
+    try { prev.close(); } catch (_) {}
+  }
+  userSockets.set(user.id, ws);
+  ws._userId = user.id;
+  ws._username = user.username;
+  ws._authed = true;
+}
+
+function revokeAuthToken(user, token) {
+  if (!user || !Array.isArray(user.tokens) || !token) return;
+  user.tokens = user.tokens.filter((record) => !sessionTokenMatches(record, token));
+}
+
+function sendHttpJson(req, res, statusCode, payload, extraHeaders = {}) {
+  const body = JSON.stringify(payload);
+  res.writeHead(statusCode, {
+    ...securityHeaders({ isTls: requestIsTls(req, APP_CONFIG.trustProxy) }),
+    'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    ...extraHeaders,
+  });
+  res.end(body);
+}
+
+async function handleAuthHttp(req, res, urlPath) {
+  if (req.method !== 'POST') {
+    sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
+    return;
+  }
+  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' });
+    return;
+  }
+
+  const secure = requestIsTls(req, APP_CONFIG.trustProxy);
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (error) {
+    sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Invalid request.' });
+    return;
+  }
+
+  if (urlPath === '/api/auth/logout') {
+    const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+    const user = authenticateByToken(token);
+    if (user) {
+      revokeAuthToken(user, token);
+      await saveUsersDb();
+    }
+    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+    return;
+  }
+
+  if (urlPath === '/api/auth/session') {
+    const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+    const user = authenticateByToken(token);
+    if (!user) {
+      sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+      return;
+    }
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) });
+    return;
+  }
+
+  if (urlPath === '/api/auth/token') {
+    const token = String(body.token || '').trim();
+    const user = authenticateByToken(token);
+    if (!user) {
+      sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' });
+      return;
+    }
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    return;
+  }
+
+  if (urlPath !== '/api/auth/register' && urlPath !== '/api/auth/login') {
+    sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
+    return;
+  }
+
+  const address = clientAddress(req, APP_CONFIG.trustProxy);
+  const attempt = passwordAuthLimiter.consume(address);
+  if (!attempt.allowed) {
+    sendHttpJson(req, res, 429, { ok: false, error: 'Too many authentication attempts. Try again shortly.' }, {
+      'Retry-After': String(Math.max(1, Math.ceil(attempt.retryAfterMs / 1000))),
+    });
+    return;
+  }
+
+  let user;
+  if (urlPath === '/api/auth/register') {
+    const result = await createUser({ username: body.username, password: body.password, displayName: body.displayName || body.name || '' });
+    if (!result.ok) {
+      sendHttpJson(req, res, 400, { ok: false, error: result.error || 'Register failed.' });
+      return;
+    }
+    user = result.user;
+  } else {
+    user = findUserByUsername(body.username);
+    if (!user || !await verifyPassword(user, body.password)) {
+      sendHttpJson(req, res, 401, { ok: false, error: 'Invalid username or password.' });
+      return;
+    }
+    if (body.displayName || body.name) setUserDisplayName(user, body.displayName || body.name);
+  }
+
+  user.lastLoginAt = now();
+  const token = issueAuthToken(user);
+  await saveUsersDb();
+  passwordAuthLimiter.clear(address);
+  sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+}
 
 function safePath(p) {
   const rel = p.replace(/\0/g, '').replace(/\.\./g, '');
   return path.join(PUBLIC_DIR, rel);
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+    if (urlPath.startsWith('/api/auth/')) {
+      await handleAuthHttp(req, res, urlPath);
+      return;
+    }
     if (urlPath === '/') urlPath = '/index.html';
 
     // Block websocket path from static handling
@@ -8229,7 +8369,10 @@ const server = http.createServer((req, res) => {
         return;
       }
       const ext = path.extname(filePath).toLowerCase();
-      const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+      const headers = {
+        ...securityHeaders({ isTls: requestIsTls(req, APP_CONFIG.trustProxy) }),
+        'Content-Type': MIME[ext] || 'application/octet-stream',
+      };
       // Long-cache static binary assets locally (PNG/WAV) to avoid repeat fetches during gameplay.
       // Keep HTML/JS/CSS/SW non-cached so deploys update immediately.
       if (ext === '.png' || ext === '.wav' || ext === '.ico') {
@@ -8248,11 +8391,16 @@ const server = http.createServer((req, res) => {
   }
 });
 
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocket.Server({ noServer: true, maxPayload: APP_CONFIG.wsMaxPayloadBytes });
 
 server.on('upgrade', (req, socket, head) => {
   const urlPath = req.url.split('?')[0];
   if (urlPath !== '/ws') {
+    socket.destroy();
+    return;
+  }
+  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
   }
@@ -8261,21 +8409,39 @@ server.on('upgrade', (req, socket, head) => {
   });
 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   ws._playerId = null;
   ws._roomCode = null;
+  ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
 
   sendJson(ws, { type: 'hello', serverTime: now(), version: 1 });
 
-  ws.on('message', (data) => {
-    let msg = null;
-    try { msg = JSON.parse(String(data)); } catch { return; }
-    if (!msg || !msg.type) return;
+  const cookieToken = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+  const cookieUser = authenticateByToken(cookieToken);
+  if (cookieUser) {
+    activateAuthenticatedSocket(ws, cookieUser);
+    sendJson(ws, { type: 'auth_ok', user: safeUserPublic(cookieUser), token: null, cookieAuth: true });
+    saveUsersDb();
+  }
+
+  ws.on('message', async (data) => {
+    try {
+      const parsed = parseClientMessage(data);
+      if (!parsed.ok) {
+        sendJson(ws, { type: 'error', error: parsed.error });
+        return;
+      }
+      const msg = parsed.value;
 
     
     // ---- Auth (must happen before joining/creating rooms) ----
     if (msg.type === 'auth_register') {
-      const res = createUser({
+      const attempt = passwordAuthLimiter.consume(ws._clientAddress);
+      if (!attempt.allowed) {
+        sendJson(ws, { type: 'error', error: 'Too many authentication attempts. Try again shortly.' });
+        return;
+      }
+      const res = await createUser({
         username: msg.username,
         password: msg.password,
         displayName: msg.displayName || msg.name || '',
@@ -8284,44 +8450,31 @@ wss.on('connection', (ws) => {
       const user = res.user;
       user.lastLoginAt = now();
       const token = issueAuthToken(user);
-      saveUsersDb();
-
-      const prev = userSockets.get(user.id);
-      if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-        sendJson(prev, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
-        try { prev.close(); } catch (_) {}
-      }
-      userSockets.set(user.id, ws);
-
-      ws._userId = user.id;
-      ws._username = user.username;
-      ws._authed = true;
+      await saveUsersDb();
+      passwordAuthLimiter.clear(ws._clientAddress);
+      activateAuthenticatedSocket(ws, user);
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token });
       return;
     }
 
     if (msg.type === 'auth_login') {
+      const attempt = passwordAuthLimiter.consume(ws._clientAddress);
+      if (!attempt.allowed) {
+        sendJson(ws, { type: 'error', error: 'Too many authentication attempts. Try again shortly.' });
+        return;
+      }
       const user = findUserByUsername(msg.username);
       if (!user) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
-      if (!verifyPassword(user, msg.password)) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
+      if (!await verifyPassword(user, msg.password)) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
       if (msg.displayName || msg.name) {
         setUserDisplayName(user, msg.displayName || msg.name);
       }
       user.lastLoginAt = now();
       const token = issueAuthToken(user);
-      saveUsersDb();
-
-      const prev = userSockets.get(user.id);
-      if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-        sendJson(prev, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
-        try { prev.close(); } catch (_) {}
-      }
-      userSockets.set(user.id, ws);
-
-      ws._userId = user.id;
-      ws._username = user.username;
-      ws._authed = true;
+      await saveUsersDb();
+      passwordAuthLimiter.clear(ws._clientAddress);
+      activateAuthenticatedSocket(ws, user);
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token });
       return;
@@ -8330,17 +8483,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'auth_token') {
       const user = authenticateByToken(msg.token);
       if (!user) { sendJson(ws, { type: 'auth_required' }); return; }
-
-      const prev = userSockets.get(user.id);
-      if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-        sendJson(prev, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
-        try { prev.close(); } catch (_) {}
-      }
-      userSockets.set(user.id, ws);
-
-      ws._userId = user.id;
-      ws._username = user.username;
-      ws._authed = true;
+      activateAuthenticatedSocket(ws, user);
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token: String(msg.token || '').trim() });
       saveUsersDb();
@@ -8352,7 +8495,7 @@ wss.on('connection', (ws) => {
       const user = findUserById(ws._userId);
       if (!user) { sendJson(ws, { type: 'error', error: 'Account not found.' }); return; }
       setUserDisplayName(user, msg.displayName || msg.name || '');
-      saveUsersDb();
+      await saveUsersDb();
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token: null });
       return;
     }
@@ -9043,6 +9186,7 @@ if (msg.type === 'create_room') {
         next[k] = n;
       }
       room.expertAiTuning = { ...readExpertAiTuning(room), ...next };
+      scheduleActiveRoomsSave();
       sendJson(ws, { type: 'expert_ai_tuning_ok', tuning: room.expertAiTuning });
       return;
     }
@@ -9336,6 +9480,10 @@ if (msg.type === 'create_room') {
       sendJson(ws, { type: 'room', room: roomSnapshot(room) });
       sendRoomStateToSocket(room, ws, pid);
       return;
+    }
+    } catch (error) {
+      console.error('[ws] Failed to handle message:', error && error.message ? error.message : error);
+      sendJson(ws, { type: 'error', error: 'Server could not process that request.' });
     }
   });
 
@@ -10903,7 +11051,42 @@ setInterval(() => {
 }, 250);
 
 setInterval(cleanupRooms, 60_000);
+setInterval(() => passwordAuthLimiter.cleanup(), 60_000);
 
-server.listen(PORT, () => {
-  console.log(`Hex Settlers server running on http://localhost:${PORT}`);
+let shuttingDown = false;
+
+async function gracefulShutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  for (const client of wss.clients) {
+    try { client.close(1001, 'Server shutting down'); } catch (_) {}
+  }
+
+  scheduleActiveRoomsSave();
+  saveUsersDb();
+  saveHistoryDb();
+  saveNeuralAiModel();
+  await Promise.allSettled([
+    ACTIVE_ROOMS_WRITER.flush(),
+    USERS_WRITER.flush(),
+    HISTORY_WRITER.flush(),
+    NEURAL_AI_MODEL_WRITER.flush(),
+  ]);
+
+  await Promise.race([
+    new Promise((resolve) => server.close(resolve)),
+    new Promise((resolve) => setTimeout(resolve, 2_000)),
+  ]);
+  process.exit(0);
+}
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+process.on('message', (message) => {
+  if (message && message.type === 'shutdown') gracefulShutdown();
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`Hex Settlers server running on http://${HOST}:${PORT}`);
 });
