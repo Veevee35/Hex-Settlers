@@ -2479,8 +2479,8 @@ return;
 
     const overview = document.createElement('div');
     overview.className = 'pgResOverviewGrid';
-    const maxStackMagnitude = Math.max(1, ...resourceSummaries.map((summary) => (
-      RESOURCE_KEYS.reduce((total, key) => total + Math.abs(summary.netByResource[key]), 0)
+    const maxStackMagnitude = Math.max(1, ...resourceSummaries.flatMap((summary) => (
+      [summary.gainedTotal, summary.lostTotal]
     )));
     const resourceOrder = ['lumber', 'brick', 'wool', 'grain', 'ore'];
 
@@ -2491,45 +2491,63 @@ return;
 
       const total = document.createElement('div');
       total.className = `pgResPlayerNet ${summary.netTotal > 0 ? 'positive' : (summary.netTotal < 0 ? 'negative' : 'zero')}`;
-      total.textContent = `${summary.netTotal > 0 ? '+' : ''}${summary.netTotal}`;
+      total.textContent = `Net ${summary.netTotal > 0 ? '+' : ''}${summary.netTotal}`;
       total.title = `Gained ${summary.gainedTotal}; lost ${summary.lostTotal}`;
       column.appendChild(total);
 
-      const flow = document.createElement('div');
-      flow.className = 'pgResPlayerFlow';
-      flow.textContent = `+${summary.gainedTotal} gained · −${summary.lostTotal} lost`;
-      column.appendChild(flow);
+      const lanes = document.createElement('div');
+      lanes.className = 'pgResPlayerLanes';
+      const laneSpecs = [
+        { direction: 'gain', label: 'Gained', values: summary.gained, total: summary.gainedTotal, sign: '+' },
+        { direction: 'loss', label: 'Lost', values: summary.lost, total: summary.lostTotal, sign: '−' },
+      ];
+      for (const laneSpec of laneSpecs) {
+        const lane = document.createElement('div');
+        lane.className = `pgResPlayerLane ${laneSpec.direction}`;
 
-      const stack = document.createElement('div');
-      stack.className = 'pgResPlayerStack';
-      let blockCount = 0;
-      for (const key of resourceOrder) {
-        const value = safeNum(summary.netByResource[key]);
-        if (!value) continue;
-        blockCount += 1;
-        const block = document.createElement('div');
-        block.className = `pgResStackBlock ${key} ${value > 0 ? 'gain' : 'loss'}`;
-        const height = 34 + Math.round((Math.abs(value) / maxStackMagnitude) * 150);
-        block.style.height = `${height}px`;
-        block.title = `${RESOURCE_LABEL[key]}: ${value > 0 ? '+' : ''}${value}`;
+        const laneHeading = document.createElement('div');
+        laneHeading.className = 'pgResPlayerLaneHeading';
+        const laneLabel = document.createElement('span');
+        laneLabel.textContent = laneSpec.label;
+        const laneTotal = document.createElement('strong');
+        laneTotal.textContent = `${laneSpec.sign}${laneSpec.total}`;
+        laneHeading.appendChild(laneLabel);
+        laneHeading.appendChild(laneTotal);
+        lane.appendChild(laneHeading);
 
-        const image = document.createElement('img');
-        image.src = getTextureAssetUrl(`Ports/${key}.png`);
-        image.alt = RESOURCE_LABEL[key];
-        image.draggable = false;
-        const amount = document.createElement('span');
-        amount.textContent = `${value > 0 ? '+' : ''}${value}`;
-        block.appendChild(image);
-        block.appendChild(amount);
-        stack.appendChild(block);
+        const stack = document.createElement('div');
+        stack.className = 'pgResPlayerStack';
+        let blockCount = 0;
+        for (const key of resourceOrder) {
+          const value = safeNum(laneSpec.values[key]);
+          if (!value) continue;
+          blockCount += 1;
+          const block = document.createElement('div');
+          block.className = `pgResStackBlock ${key} ${laneSpec.direction}`;
+          const height = 34 + Math.round((value / maxStackMagnitude) * 110);
+          block.style.height = `${height}px`;
+          block.title = `${laneSpec.label} ${value} ${RESOURCE_LABEL[key]}`;
+
+          const image = document.createElement('img');
+          image.src = getTextureAssetUrl(`Ports/${key}.png`);
+          image.alt = RESOURCE_LABEL[key];
+          image.draggable = false;
+          const amount = document.createElement('span');
+          amount.textContent = `${laneSpec.sign}${value}`;
+          block.appendChild(image);
+          block.appendChild(amount);
+          stack.appendChild(block);
+        }
+        if (!blockCount) {
+          const empty = document.createElement('div');
+          empty.className = 'pgResStackEmpty';
+          empty.textContent = selectedCategories.length ? `No ${laneSpec.label.toLowerCase()} resources` : 'Choose categories above';
+          stack.appendChild(empty);
+        }
+        lane.appendChild(stack);
+        lanes.appendChild(lane);
       }
-      if (!blockCount) {
-        const empty = document.createElement('div');
-        empty.className = 'pgResStackEmpty';
-        empty.textContent = selectedCategories.length ? 'No changes' : 'Choose categories above';
-        stack.appendChild(empty);
-      }
-      column.appendChild(stack);
+      column.appendChild(lanes);
 
       const player = document.createElement('div');
       player.className = 'pgResPlayerFooter';

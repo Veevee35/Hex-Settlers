@@ -13,6 +13,7 @@ const {
 
 const projectRoot = path.resolve(__dirname, '..');
 const appJs = fs.readFileSync(path.join(projectRoot, 'public', 'app.js'), 'utf8');
+const stylesCss = fs.readFileSync(path.join(projectRoot, 'public', 'styles.css'), 'utf8');
 const serverJs = fs.readFileSync(path.join(projectRoot, 'server.js'), 'utf8');
 
 test('resource summary separates actual deltas by source and turn', () => {
@@ -65,6 +66,14 @@ test('resources overview exposes the ten requested toggles in order', () => {
   }
   assert.match(appJs, /button\.dataset\.resourceCategory = category\.key/);
   assert.match(appJs, /button\.setAttribute\('aria-pressed', String\(enabled\)\)/);
+});
+
+test('resources overview compares gained and lost resources in separate full-color lanes', () => {
+  assert.match(appJs, /\{ direction: 'gain', label: 'Gained', values: summary\.gained/);
+  assert.match(appJs, /\{ direction: 'loss', label: 'Lost', values: summary\.lost/);
+  assert.match(appJs, /image\.src = getTextureAssetUrl\(`Ports\/\$\{key\}\.png`\)/);
+  assert.match(stylesCss, /\.pgResPlayerLanes\s*\{[^}]*grid-template-columns:repeat\(2,/s);
+  assert.doesNotMatch(stylesCss, /\.pgResStackBlock img\s*\{[^}]*brightness\(0\)/s);
 });
 
 test('development purchases count as spent and Monopoly victims use their own loss source', () => {
