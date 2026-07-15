@@ -26,6 +26,11 @@ const {
   verifyPasswordHash,
 } = require('./server/security');
 const { DEFAULT_RULES, bankMaxForRules } = require('./server/game-rules');
+const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
+const { consumeDevelopmentCard } = require('./server/dev-cards');
+const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
+const { ensureReplay, recordReplayStep } = require('./server/replay');
+const { extendPlayerTurn } = require('./server/trade-time');
 
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
@@ -239,6 +244,10 @@ function makeGameHistoryEntry(room, game, winnerId) {
   const wid = String(winnerId || '');
   const w = players.find(p => p.id === wid) || null;
 
+  const completeLog = Array.isArray(game.replay?.log)
+    ? game.replay.log
+    : (Array.isArray(game.log) ? game.log : []);
+
   // keep snapshot limited to what postgame UI needs
   const snapshot = deepClone({
     phase: 'game-over',
@@ -251,8 +260,6 @@ function makeGameHistoryEntry(room, game, winnerId) {
     longestRoad: game.longestRoad || null,
     largestArmy: game.largestArmy || null,
     diceStats: game.diceStats || null,
-    // Persist the full in-game log so history can offer a step-by-step replay.
-    log: Array.isArray(game.log) ? game.log : [],
   });
 
   return {
@@ -266,6 +273,8 @@ function makeGameHistoryEntry(room, game, winnerId) {
     rules: deepClone(game.rules || null),
     players,
     snapshot,
+    log: deepClone(completeLog),
+    replay: deepClone(game.replay ? { ...game.replay, log: undefined, lastLogId: undefined } : null),
   };
 }
 
@@ -315,6 +324,7 @@ function listGameHistory(limit = 200) {
     winnerName: g.winnerName,
     rules: g.rules || null,
     players: g.players || [],
+    replaySteps: Math.max(0, Number(g.replay && Array.isArray(g.replay.steps) ? g.replay.steps.length : 0)),
   }));
 }
 
@@ -1477,6 +1487,13 @@ function shuffle(arr) {
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+function cloneGameForSimulation(game) {
+  if (!game) return null;
+  // Replays can become sizeable over a long game. They are historical output,
+  // not gameplay input, so do not copy them into short-lived legality/AI probes.
+  return deepClone({ ...game, replay: undefined });
 }
 
 function buildGeometry(radius = 2) {
@@ -2757,12 +2774,30 @@ function recomputeLongestRoad(game) {
     const len = computeLongestRoadForPlayer(game, p.id);
     lengths.set(p.id, len);
     p.longestRoadLen = len;
-    if (len > bestLen) bestLen = len;
+    if (!p.departed && len > bestLen) bestLen = len;
+  }
+
+  const departedResolution = resolveDepartedTitleChallenge({
+    players: game.players,
+    ownerId: game.longestRoad.playerId || null,
+    benchmark: game.longestRoad.length || 0,
+    minimum: 5,
+    scoreForPlayer: (player) => lengths.get(player.id) || 0,
+  });
+  if (departedResolution) {
+    const prevOwner = game.longestRoad.playerId;
+    game.longestRoad = { playerId: departedResolution.playerId, length: departedResolution.score };
+    if (departedResolution.surpassed) {
+      pushLog(game, `${playerName(game, departedResolution.playerId)} surpassed the departed holder and claimed Longest Road (${departedResolution.score}).`, 'system', {
+        kind: 'longest_road', from: prevOwner, to: departedResolution.playerId, length: departedResolution.score,
+      });
+    }
+    return;
   }
 
   const eligible = bestLen >= 5;
   const candidates = eligible
-    ? Array.from(lengths.entries()).filter(([, l]) => l === bestLen).map(([pid]) => pid)
+    ? Array.from(lengths.entries()).filter(([pid, l]) => l === bestLen && !playerById(game, pid)?.departed).map(([pid]) => pid)
     : [];
 
   const prevOwner = game.longestRoad.playerId || null;
@@ -2990,7 +3025,6 @@ function checkWin(room, state, pid) {
 
     if (!wasOver) {
       try { persistUserStatsFromGame(room, state, pid); } catch (_) {}
-      try { persistGameHistoryFromGame(room, state, pid); } catch (_) {}
       try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
     }
   }
@@ -5574,7 +5608,7 @@ function pickWinnerByTiebreak(game) {
 
   let best = null;
   for (const p of game.players) {
-    if (!p || !p.id) continue;
+    if (!p || !p.id || p.departed) continue;
 
     const b = countBuildingsForPlayer(game, p.id);
     const turnMs = totalTurnMsForPlayer(game, p.id);
@@ -5691,7 +5725,7 @@ function distributeResources(game, roll) {
       const b = game.geom.nodes[nid].building;
       if (!b) continue;
       const p = playerById(game, b.owner);
-      if (!p) continue;
+      if (!p || p.departed) continue;
 
       const want = (b.type === 'city') ? 2 : 1;
 
@@ -5844,7 +5878,8 @@ function pirateVictims(game, pirateTileId, thiefId) {
     if (!e.shipOwner) continue;
     if (e.shipOwner === thiefId) continue;
     const adj = game.geom.edgeAdjTiles?.[e.id] || [];
-    if (adj.includes(pirateTileId)) victims.add(e.shipOwner);
+    const owner = playerById(game, e.shipOwner);
+    if (owner && !owner.departed && resTotal(owner) > 0 && adj.includes(pirateTileId)) victims.add(e.shipOwner);
   }
   return Array.from(victims);
 }
@@ -5859,7 +5894,7 @@ function getRobberTileId(game) {
 
 // -------------------- Actions (authoritative) --------------------
 
-function applyAction(room, playerId, action) {
+function applyActionCore(room, playerId, action) {
   const game = room.game;
   if (!game) return { ok: false, error: 'No active game.' };
 
@@ -5871,7 +5906,8 @@ function applyAction(room, playerId, action) {
   const kind = action && action.kind;
   if (!kind) return { ok: false, error: 'Invalid action.' };
 
-  if (!playerById(game, playerId)) return { ok: false, error: 'Spectators cannot take game actions.' };
+  const actingPlayer = playerById(game, playerId);
+  if (!actingPlayer || actingPlayer.departed) return { ok: false, error: 'Spectators cannot take game actions.' };
 
   // Only current player may act (except trade responses and simultaneous discard selections)
   const outOfTurnOk =
@@ -6488,11 +6524,21 @@ if (ttdFarSideBonus) {
     const isVP = card.type === DEV_CARD_TYPES.VICTORY_POINT;
     if (!isVP && card.boughtTurn === game.turnNumber) return { ok: false, error: 'You cannot play a development card on the same turn you buy it.' };
     if (!isVP && p.devPlayedTurn === game.turnNumber) return { ok: false, error: 'You can only play 1 development card per turn.' };
+    if (!Object.values(DEV_CARD_TYPES).includes(card.type)) return { ok: false, error: 'Unknown development card.' };
+    if (card.type === DEV_CARD_TYPES.INVENTION) {
+      const choices = Array.isArray(action.choices) ? action.choices : [];
+      if (choices.length !== 2) return { ok: false, error: 'Choose exactly 2 resources.' };
+      if (choices.some((choice) => !RESOURCE_KINDS.includes(choice))) return { ok: false, error: 'Invalid resource choice.' };
+    }
+    if (card.type === DEV_CARD_TYPES.MONOPOLY && !RESOURCE_KINDS.includes(action.resourceKind)) {
+      return { ok: false, error: 'Choose a resource type.' };
+    }
 
     if (card.type === DEV_CARD_TYPES.VICTORY_POINT) {
       card.played = true;
       try { recordDevPlayed(game, playerId, card.type); } catch (_) {}
       p.vpDev = (p.vpDev || 0) + 1;
+      consumeDevelopmentCard(p, cardId);
       computeVP(game);
       game.message = `${playerName(game, playerId)} played a Victory Point card.`;
       pushLog(game, `${playerName(game, playerId)} played a Victory Point card.`, 'dev', { card: 'victory_point' });
@@ -6510,6 +6556,7 @@ if (ttdFarSideBonus) {
     if (card.type === DEV_CARD_TYPES.KNIGHT) {
       broadcastSfx(room, 'robber_pirate');
       p.army = (p.army || 0) + 1;
+      consumeDevelopmentCard(p, cardId);
       // Largest Army
       if (p.army >= 3) {
         if (!game.largestArmy || !game.largestArmy.playerId || p.army > (game.largestArmy.size || 0)) {
@@ -6533,6 +6580,7 @@ if (ttdFarSideBonus) {
     }
 
     if (card.type === DEV_CARD_TYPES.ROAD_BUILDING) {
+      consumeDevelopmentCard(p, cardId);
       game.special = { kind: 'free_roads', forPlayerId: playerId, remaining: 2 };
       game.message = `${playerName(game, playerId)} played Road Building. Place up to 2 roads for free.`;
       pushLog(game, `${playerName(game, playerId)} played Road Building.`, 'dev', { card: 'road_building' });
@@ -6546,6 +6594,7 @@ if (ttdFarSideBonus) {
         if (!RESOURCE_KINDS.includes(c)) return { ok: false, error: 'Invalid resource choice.' };
       }
       for (const c of choices) grantFromBankStats(game, playerId, p.resources, c, 1, 'dev');
+      consumeDevelopmentCard(p, cardId);
       game.message = `${playerName(game, playerId)} played Invention and took ${choices[0]} + ${choices[1]}.`;
       pushLog(game, `${playerName(game, playerId)} played Invention.`, 'dev', { card: 'invention' });
       return { ok: true };
@@ -6565,6 +6614,7 @@ if (ttdFarSideBonus) {
           total += n;
         }
       }
+      consumeDevelopmentCard(p, cardId);
       game.message = `${playerName(game, playerId)} played Monopoly on ${rk} and took ${total}.`;
       pushLog(game, `${playerName(game, playerId)} played Monopoly on ${rk}.`, 'dev', { card: 'monopoly', resourceKind: rk });
       return { ok: true };
@@ -6686,6 +6736,7 @@ if (kind === 'choose_production_gold') {
       const limit = (game.rules?.discardLimit ?? DEFAULT_RULES.discardLimit);
       const required = {};
       for (const p of game.players) {
+        if (!p || p.departed) continue;
         const req = discardRequired(p, limit);
         if (req > 0) required[p.id] = req;
       }
@@ -6818,7 +6869,9 @@ if (kind === 'choose_production_gold') {
     const tile = game.geom.tiles[tileId];
     for (const nid of tile.cornerNodeIds || []) {
       const b = game.geom.nodes[nid].building;
-      if (b && b.owner && b.owner !== playerId) victimsSet.add(b.owner);
+      if (!b || !b.owner || b.owner === playerId) continue;
+      const victim = playerById(game, b.owner);
+      if (victim && !victim.departed && resTotal(victim) > 0) victimsSet.add(b.owner);
     }
     const victims = Array.from(victimsSet);
 
@@ -7109,8 +7162,11 @@ if (kind === 'pirate_steal') {
     // Initialize response slots for all other players
     const responses = {};
     for (const p of game.players || []) {
-      if (p && p.id && p.id !== playerId) responses[p.id] = null; // null | 'accept' | 'reject'
+      if (p && p.id && !p.departed && p.id !== playerId && (game.turnOrder || []).includes(p.id)) {
+        responses[p.id] = null; // null | 'accept' | 'reject'
+      }
     }
+    if (!Object.keys(responses).length) return { ok: false, error: 'No active players are available to trade.' };
 
     const tradeId = game.tradeSeq++;
     game.pendingTrade = { id: tradeId, fromId: playerId, offer, request, responses, createdAt: now() };
@@ -7230,9 +7286,12 @@ if (kind === 'pirate_steal') {
     recordTrade(game, t.fromId, 'player');
     recordTrade(game, withPlayerId, 'player');
 
+    const turnBonusMs = extendPlayerTurn(game, t.fromId, 10_000, timerSegmentKey(game)) ? 10_000 : 0;
     game.pendingTrade = null;
     game.message = `${playerName(game, t.fromId)} traded with ${playerName(game, withPlayerId)}.`;
-    pushLog(game, `${playerName(game, t.fromId)} traded with ${playerName(game, withPlayerId)}.`, 'trade', { kind: 'accept', tradeId, withPlayerId });
+    pushLog(game, `${playerName(game, t.fromId)} traded with ${playerName(game, withPlayerId)}.${turnBonusMs ? ' +10 seconds.' : ''}`, 'trade', {
+      kind: 'accept', tradeId, withPlayerId, turnBonusMs,
+    });
     broadcastSfx(room, 'trade_success');
     return { ok: true };
   }
@@ -7245,7 +7304,7 @@ if (kind === 'pirate_steal') {
 
     const responses = {};
     for (const p of (game.players || [])) {
-      if (!p || !p.id) continue;
+      if (!p || !p.id || p.departed) continue;
       responses[p.id] = (p.id === playerId) ? 'accept' : null;
     }
 
@@ -7317,7 +7376,6 @@ if (kind === 'pirate_steal') {
 
     if (!wasOver) {
       try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
-      try { persistGameHistoryFromGame(room, game, winnerId); } catch (_) {}
       try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
     }
 
@@ -7411,6 +7469,20 @@ if (kind === 'pirate_steal') {
   }
 
   return { ok: false, error: 'Unknown action.' };
+}
+
+function applyAction(room, playerId, action) {
+  const game = room && room.game;
+  const captureReplay = !!(game && !room._dryRun && game.phase !== 'lobby');
+  if (captureReplay) ensureReplay(game);
+  const result = applyActionCore(room, playerId, action);
+  if (captureReplay && result && result.ok) {
+    recordReplayStep(game, { actorId: playerId, action });
+    if (game.phase === 'game-over' && game.winnerId) {
+      try { persistGameHistoryFromGame(room, game, game.winnerId); } catch (_) {}
+    }
+  }
+  return result;
 }
 
 // -------------------- Rooms + Networking --------------------
@@ -7547,11 +7619,29 @@ function gameUsesPairedTurns(game) {
 function recomputeLargestArmy(game) {
   if (!game) return;
   if (!game.largestArmy) game.largestArmy = { playerId: null, size: 0 };
+  const departedResolution = resolveDepartedTitleChallenge({
+    players: game.players,
+    ownerId: game.largestArmy.playerId || null,
+    benchmark: game.largestArmy.size || 0,
+    minimum: 3,
+    scoreForPlayer: (player) => player.army || 0,
+  });
+  if (departedResolution) {
+    const prevOwner = game.largestArmy.playerId;
+    game.largestArmy = { playerId: departedResolution.playerId, size: departedResolution.score };
+    if (departedResolution.surpassed) {
+      pushLog(game, `${playerName(game, departedResolution.playerId)} surpassed the departed holder and claimed Largest Army (${departedResolution.score}).`, 'system', {
+        kind: 'largest_army', from: prevOwner, to: departedResolution.playerId, size: departedResolution.score,
+      });
+    }
+    return;
+  }
   let best = 0;
   let nextOwner = null;
   let tie = false;
   const prevOwner = game.largestArmy.playerId || null;
   for (const p of (game.players || [])) {
+    if (!p || p.departed) continue;
     const size = Math.max(0, Math.floor(Number(p && p.army || 0)));
     if (size < 3) continue;
     if (size > best) {
@@ -7594,7 +7684,9 @@ function normalizeGameAfterPlayerRemoval(game, removedPid, removedWasCurrent) {
 
   if (game.thiefChoice && game.thiefChoice.playerId === pid) game.thiefChoice = null;
   if (game.special && game.special.forPlayerId === pid) game.special = null;
-  if (game.pendingTrade && (game.pendingTrade.fromId === pid || game.pendingTrade.toId === pid)) game.pendingTrade = null;
+  if (game.pendingTrade && game.pendingTrade.fromId === pid) game.pendingTrade = null;
+  else if (game.pendingTrade && game.pendingTrade.responses) delete game.pendingTrade.responses[pid];
+  if (game.endVote && game.endVote.responses) delete game.endVote.responses[pid];
   if (game.robberContext && game.robberContext.playerId === pid) game.robberContext = null;
   if (game.setup && game.setup.awaiting && game.setup.awaiting.playerId === pid) game.setup.awaiting = null;
 
@@ -7654,20 +7746,21 @@ function retirePlayerFromGame(game, playerId) {
   if (!existing) return false;
 
   const removedWasCurrent = (game.currentPlayerId === pid);
-
-  for (const n of (game?.geom?.nodes || [])) {
-    if (n && n.building && n.building.owner === pid) n.building = null;
-  }
-  for (const e of (game?.geom?.edges || [])) {
-    if (!e) continue;
-    if (e.roadOwner === pid) e.roadOwner = null;
-    if (e.shipOwner === pid) e.shipOwner = null;
-  }
-
-  game.players = (game.players || []).filter(p => p && p.id !== pid);
+  ensureReplay(game);
+  const returned = returnPlayerResourcesToBank(game, existing, RESOURCE_KINDS, bankReceive);
+  const losses = Object.create(null);
+  for (const [kind, amount] of Object.entries(returned)) losses[kind] = -amount;
+  if (Object.keys(losses).length) recordResourceDelta(game, pid, losses, 'other');
+  existing.departed = true;
+  existing.departedAt = now();
   game.turnOrder = (game.turnOrder || []).filter(id => id && id !== pid);
 
   normalizeGameAfterPlayerRemoval(game, pid, removedWasCurrent);
+  computeVP(game);
+  pushLog(game, `${existing.name || 'A player'} left the game. Their resources returned to the bank; their pieces remain, and held titles stay until surpassed.`, 'system', {
+    kind: 'player_departed', playerId: pid, returned,
+  });
+  recordReplayStep(game, { actorId: pid, action: { kind: 'leave_game' } });
   return true;
 }
 
@@ -8057,7 +8150,7 @@ function sendRoomStateToSocket(room, ws, pid) {
   if (room.game && room.game.phase !== 'lobby') {
     syncTradeTimerPause(room.game);
     syncTimer(room.game);
-    sendJson(ws, { type: 'state', state: sanitizeStateFor(room.game, pid) });
+    sendJson(ws, { type: 'state', state: stateForRoomSocket(room, ws, pid) });
     return;
   }
   ensurePreview(room, false);
@@ -8107,7 +8200,9 @@ function broadcastSfx(room, name, extra) {
 
 function sanitizeStateFor(game, viewerId) {
   // Per-player state view: keeps dev deck order hidden and other players' hands private.
-  const state = JSON.parse(JSON.stringify(game));
+  // Replay history is retrieved explicitly from game history; never broadcast it
+  // with every live state update.
+  const state = JSON.parse(JSON.stringify({ ...game, replay: undefined }));
   state.devDeckCount = (game.devDeck || []).length;
   delete state.devDeck;
 
@@ -8179,6 +8274,24 @@ function sanitizeStateFor(game, viewerId) {
   return state;
 }
 
+function stateForRoomSocket(room, ws, memberId) {
+  const game = room && room.game;
+  if (!game) return null;
+  if (roomRole(room, memberId) !== 'spectator') return sanitizeStateFor(game, memberId);
+  const activePlayers = (game.players || []).filter((player) => player && !player.departed && (game.turnOrder || []).includes(player.id));
+  let viewId = String(ws && ws._spectatorViewId || '');
+  if (!activePlayers.some((player) => player.id === viewId)) {
+    viewId = activePlayers.some((player) => player.id === game.currentPlayerId)
+      ? game.currentPlayerId
+      : (activePlayers[0] && activePlayers[0].id) || '';
+    if (ws) ws._spectatorViewId = viewId || null;
+  }
+  const state = sanitizeStateFor(game, viewId || memberId);
+  state.spectatorMode = true;
+  state.spectatorViewPlayerId = viewId || null;
+  return state;
+}
+
 function broadcastState(room) {
   if (!room.game) return;
   syncTradeTimerPause(room.game);
@@ -8186,7 +8299,7 @@ function broadcastState(room) {
 
   for (const [pid, ws] of room.sockets.entries()) {
     if (ws.readyState !== WebSocket.OPEN) continue;
-    const state = sanitizeStateFor(room.game, pid);
+    const state = stateForRoomSocket(room, ws, pid);
     sendJson(ws, { type: 'state', state });
   }
   scheduleActiveRoomsSave();
@@ -8412,6 +8525,7 @@ server.on('upgrade', (req, socket, head) => {
 wss.on('connection', (ws, req) => {
   ws._playerId = null;
   ws._roomCode = null;
+  ws._spectatorViewId = null;
   ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
 
   sendJson(ws, { type: 'hello', serverTime: now(), version: 1 });
@@ -8865,6 +8979,26 @@ if (msg.type === 'create_room') {
       ensurePreview(room, true);
       broadcastRoom(room);
       broadcastPreviewState(room);
+      return;
+    }
+
+    if (msg.type === 'set_spectator_view') {
+      if (!room.game || room.game.phase === 'lobby') {
+        sendJson(ws, { type: 'error', error: 'No active game to spectate.' });
+        return;
+      }
+      if (roomRole(room, pid) !== 'spectator') {
+        sendJson(ws, { type: 'error', error: 'Only spectators can select a player view.' });
+        return;
+      }
+      const targetId = String(msg.playerId || '').trim();
+      const target = playerById(room.game, targetId);
+      if (!target || target.departed || !(room.game.turnOrder || []).includes(targetId)) {
+        sendJson(ws, { type: 'error', error: 'Choose an active player to spectate.' });
+        return;
+      }
+      ws._spectatorViewId = targetId;
+      sendRoomStateToSocket(room, ws, pid);
       return;
     }
 
@@ -9361,6 +9495,8 @@ if (msg.type === 'create_room') {
       }
 
       const desired = (msg.paused == null) ? !room.game.paused : !!msg.paused;
+      const changed = desired !== !!room.game.paused;
+      if (changed) ensureReplay(room.game);
       if (desired && !room.game.paused) {
         pauseGame(room.game, pid);
         room.game.message = `Game paused by ${playerName(room.game, pid)}.`;
@@ -9370,6 +9506,8 @@ if (msg.type === 'create_room') {
         room.game.message = `Game resumed by ${playerName(room.game, pid)}.`;
         pushLog(room.game, `Game resumed by ${playerName(room.game, pid)}.`, 'system');
       }
+
+      if (changed) recordReplayStep(room.game, { actorId: pid, action: { kind: 'pause_game', paused: desired } });
 
       broadcastState(room);
       return;
@@ -9399,7 +9537,7 @@ if (msg.type === 'create_room') {
       const targets = [];
       for (let toEdgeId = 0; toEdgeId < (game.geom?.edges?.length || 0); toEdgeId++) {
         if (toEdgeId === fromEdgeId) continue;
-        const clonedGame = deepClone(game);
+        const clonedGame = cloneGameForSimulation(game);
         if (!clonedGame) continue;
         const tempRoom = { game: clonedGame, _dryRun: true };
         const r = applyAction(tempRoom, pid, { kind: 'move_ship', fromEdgeId, toEdgeId });
@@ -9443,7 +9581,7 @@ if (msg.type === 'create_room') {
 
       const options = [];
       for (const c of candidates) {
-        const clonedGame = deepClone(game);
+        const clonedGame = cloneGameForSimulation(game);
         if (!clonedGame) continue;
         // Dry-run simulation: used only to validate whether an action would be legal.
         // MUST NOT persist history or user stats.
@@ -9834,7 +9972,7 @@ function handleAI(room) {
 
   const aiCan = (pid, action) => {
     try {
-      const g = deepClone(game);
+      const g = cloneGameForSimulation(game);
       const tmp = { game: g, _dryRun: true };
       const r = applyAction(tmp, pid, action);
       return !!(r && r.ok);
@@ -10224,25 +10362,43 @@ function handleAI(room) {
     });
     if (!playable.length) return null;
 
-    const byPriority = [
-      DEV_CARD_TYPES.VICTORY_POINT,
-      DEV_CARD_TYPES.KNIGHT,
-      DEV_CARD_TYPES.MONOPOLY,
-      DEV_CARD_TYPES.INVENTION,
-      DEV_CARD_TYPES.ROAD_BUILDING,
-    ];
+    const difficulty = getAIDifficulty(pid);
+    const scored = playable.map((card) => {
+      let score = 0;
+      let action = { kind: 'play_dev_card', cardId: card.id };
+      if (card.type === DEV_CARD_TYPES.VICTORY_POINT) score = 1_000;
+      else if (card.type === DEV_CARD_TYPES.KNIGHT) {
+        const landIds = (game.geom.tiles || []).filter((tile) => tile && tile.type !== 'sea' && !tile.robber).map((tile) => tile.id);
+        const seaIds = isSeafarers ? (game.geom.tiles || []).filter((tile) => tile && tile.type === 'sea' && !tile.pirate).map((tile) => tile.id) : [];
+        const robberBest = bestScoredTarget(landIds, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)).score;
+        const pirateBest = bestScoredTarget(seaIds, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS)).score;
+        score = 28 + Math.max(0, robberBest, pirateBest);
+        if ((p.army || 0) + 1 >= 3 && (p.army || 0) + 1 > Number(game.largestArmy?.size || 0)) score += 180;
+      } else if (card.type === DEV_CARD_TYPES.MONOPOLY) {
+        const resourceKind = chooseMonopolyResource(pid);
+        const total = (game.players || []).reduce((sum, opponent) => opponent && opponent.id !== pid && !opponent.departed
+          ? sum + Math.max(0, Number(opponent.resources?.[resourceKind] || 0)) : sum, 0);
+        action = { ...action, resourceKind };
+        score = total >= 3 ? 35 + total * 14 : -20;
+      } else if (card.type === DEV_CARD_TYPES.INVENTION) {
+        const choices = chooseInventionChoices(pid);
+        const projected = { ...(p.resources || {}) };
+        for (const resource of choices) projected[resource] = (projected[resource] || 0) + 1;
+        action = { ...action, choices };
+        score = 32;
+        if (canAffordCost(projected, BUILD_COSTS.city) && listCityUpgrades(pid).length) score += 85;
+        else if (canAffordCost(projected, BUILD_COSTS.settlement) && listSettlementPlacements(pid).length) score += 70;
+        else if (canAffordCost(projected, DEV_CARD_COST)) score += 24;
+      } else if (card.type === DEV_CARD_TYPES.ROAD_BUILDING) {
+        const legalEdges = listRoadEdges(pid, true).length + listShipEdges(pid, true).length;
+        score = legalEdges >= 2 ? 65 : (legalEdges === 1 ? 25 : -20);
+      }
+      if (phase === 'main-await-roll' && card.type !== DEV_CARD_TYPES.KNIGHT && card.type !== DEV_CARD_TYPES.VICTORY_POINT) score -= 12;
+      if (difficulty === 'easy') score -= 15;
+      return { action, score };
+    }).sort((a, b) => b.score - a.score);
 
-    playable.sort((a, b) => byPriority.indexOf(a.type) - byPriority.indexOf(b.type));
-    const card = playable[0];
-    if (!card) return null;
-
-    if (card.type === DEV_CARD_TYPES.INVENTION) {
-      return { kind: 'play_dev_card', cardId: card.id, choices: chooseInventionChoices(pid) };
-    }
-    if (card.type === DEV_CARD_TYPES.MONOPOLY) {
-      return { kind: 'play_dev_card', cardId: card.id, resourceKind: chooseMonopolyResource(pid) };
-    }
-    return { kind: 'play_dev_card', cardId: card.id };
+    return scored.length && scored[0].score > 0 ? scored[0].action : null;
   };
 
   
@@ -10349,7 +10505,7 @@ function handleAI(room) {
   };
 
   const simulateAction = (pid, action) => {
-    const clonedGame = deepClone(game);
+    const clonedGame = cloneGameForSimulation(game);
     const tmpRoom = { game: clonedGame, _dryRun: true, aiDifficulty: room.aiDifficulty };
     const r = applyAction(tmpRoom, pid, action);
     if (r && r.ok) return clonedGame;
@@ -10746,7 +10902,6 @@ const wouldAcceptTrade = (pid, trade, diff) => {
   }
 
   if (phase === 'pirate-or-robber') {
-    // Choose a random valid tile: land => robber, sea => pirate.
     const land = [];
     const sea = [];
     const curR = getRobberTileId(game);
@@ -10757,15 +10912,16 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       if (tt.type === 'sea') { if (i !== curP) sea.push(i); }
       else { if (i !== curR) land.push(i); }
     }
-    shuffle(land);
-    shuffle(sea);
-    // Prefer robber if there is a land option.
-    if (land.length && aiCan(pid, { kind: 'move_robber', tileId: land[0] })) {
-      const r = applyAction(room, pid, { kind: 'move_robber', tileId: land[0] });
-      if (r && r.ok) { delay(220, 360); return true; }
-    }
-    if (sea.length && aiCan(pid, { kind: 'move_pirate', tileId: sea[0] })) {
-      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] });
+    const robberTarget = bestScoredTarget(land, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
+    const pirateTarget = bestScoredTarget(sea, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
+    const choices = [
+      { kind: 'move_robber', target: robberTarget },
+      { kind: 'move_pirate', target: pirateTarget },
+    ].filter((choice) => choice.target.id != null).sort((a, b) => b.target.score - a.target.score);
+    for (const choice of choices) {
+      const action = { kind: choice.kind, tileId: choice.target.id };
+      if (!aiCan(pid, action)) continue;
+      const r = applyAction(room, pid, action);
       if (r && r.ok) { delay(220, 360); return true; }
     }
     delay(220, 360);
@@ -10782,9 +10938,9 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       if (tt.type === 'sea') continue;
       cands.push(i);
     }
-    shuffle(cands);
-    if (cands.length) {
-      const r = applyAction(room, pid, { kind: 'move_robber', tileId: cands[0] });
+    const target = bestScoredTarget(cands, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
+    if (target.id != null) {
+      const r = applyAction(room, pid, { kind: 'move_robber', tileId: target.id });
       if (r && r.ok) { delay(220, 360); return true; }
     }
     delay(220, 360);
@@ -10792,8 +10948,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
   }
 
   if (phase === 'robber-steal' && game.robberSteal && Array.isArray(game.robberSteal.victims)) {
-    const victims = shuffle(game.robberSteal.victims.slice());
-    const victimId = victims[0] || null;
+    const victimId = richestVictim(game, game.robberSteal.victims, RESOURCE_KINDS);
     const r = applyAction(room, pid, { kind: 'robber_steal', victimId });
     if (r && r.ok) { delay(200, 340); return true; }
     delay(200, 340);
@@ -10810,9 +10965,9 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       if (tt.type !== 'sea') continue;
       cands.push(i);
     }
-    shuffle(cands);
-    if (cands.length) {
-      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: cands[0] });
+    const target = bestScoredTarget(cands, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
+    if (target.id != null) {
+      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: target.id });
       if (r && r.ok) { delay(220, 360); return true; }
     }
     delay(220, 360);
@@ -10820,8 +10975,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
   }
 
   if (phase === 'pirate-steal' && game.pirateSteal && Array.isArray(game.pirateSteal.victims)) {
-    const victims = shuffle(game.pirateSteal.victims.slice());
-    const victimId = victims[0] || null;
+    const victimId = richestVictim(game, game.pirateSteal.victims, RESOURCE_KINDS);
     const r = applyAction(room, pid, { kind: 'pirate_steal', victimId });
     if (r && r.ok) { delay(200, 340); return true; }
     delay(200, 340);

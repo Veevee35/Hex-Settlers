@@ -9,6 +9,7 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const { test } = require('node:test');
 const WebSocket = require('ws');
+const { materializeReplayFrame } = require('../server/replay');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
@@ -153,7 +154,7 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
   const guest = await Peer.connect(port);
   peers.push(guest);
   guest.send({ type: 'auth_register', username: `guest_${suffix}`, password: 'correct horse', displayName: 'Guest' });
-  await guest.waitFor((message) => message.type === 'auth_ok');
+  const guestAuth = await guest.waitFor((message) => message.type === 'auth_ok');
   guest.send({ type: 'join_room', code: hostJoined.room.code, name: 'Guest' });
   const guestJoined = await guest.waitFor((message) => message.type === 'joined');
   assert.equal(guestJoined.room.players.length, 2);
@@ -171,6 +172,43 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
   assert.equal(guestStateInHostView.resources, undefined);
   assert.equal(typeof guestStateInHostView.handCount, 'number');
   assert.equal(fs.existsSync(path.join(dataDir, 'users.json')), true);
+
+  guest.send({ type: 'request_leave_game' });
+  const leaveRequest = await host.waitFor((message) => message.type === 'leave_game_request');
+  assert.equal(leaveRequest.playerId, guestAuth.user.id);
+  host.send({ type: 'respond_leave_game', playerId: guestAuth.user.id, accepted: true });
+  await guest.waitFor((message) => message.type === 'leave_game_result' && message.accepted === true);
+
+  guest.send({ type: 'set_spectator_view', playerId: hostAuth.user.id });
+  const spectatorState = await guest.waitFor((message) =>
+    message.type === 'state' && message.state.spectatorViewPlayerId === hostAuth.user.id);
+  assert.equal(spectatorState.state.spectatorMode, true);
+  assert.ok(spectatorState.state.players.find((player) => player.id === hostAuth.user.id).resources);
+  const departedGuest = spectatorState.state.players.find((player) => player.id === guestAuth.user.id);
+  assert.equal(departedGuest.departed, true);
+  assert.equal(departedGuest.handCount, 0);
+
+  host.send({ type: 'game_action', action: { kind: 'propose_endgame' } });
+  const voteState = await host.waitFor((message) => message.type === 'state' && message.state.endVote?.id);
+  host.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: voteState.state.endVote.id, accept: true } });
+  await host.waitFor((message) => message.type === 'state' && message.state.phase === 'game-over');
+
+  host.send({ type: 'get_game_history', limit: 10 });
+  const history = await host.waitFor((message) => message.type === 'game_history_list');
+  const saved = history.games.find((game) => game.roomCode === hostJoined.room.code);
+  assert.ok(saved);
+  assert.ok(saved.replaySteps >= 3);
+  host.send({ type: 'get_game_history_entry', id: saved.id });
+  const historyEntry = await host.waitFor((message) => message.type === 'game_history_entry');
+  assert.ok(Array.isArray(historyEntry.game.log));
+  assert.ok(historyEntry.game.log.some((entry) => /left the game/i.test(entry.text)));
+  assert.ok(historyEntry.game.replay?.initial);
+  const finalReplayFrame = materializeReplayFrame(
+    historyEntry.game.replay,
+    historyEntry.game.replay.steps.length - 1,
+  );
+  assert.equal(finalReplayFrame.phase, 'game-over');
+  assert.equal(finalReplayFrame.players.find((player) => player.id === guestAuth.user.id).departed, true);
 });
 
 test('accounts, active rooms, expert tuning, and neural model survive a clean restart', { timeout: 20_000 }, async (t) => {

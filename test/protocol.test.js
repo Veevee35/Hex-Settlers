@@ -15,6 +15,7 @@ test('protocol accepts current gameplay, expert AI, and texture messages', () =>
     assert.equal(parsed.ok, true, type);
   }
   assert.ok(CLIENT_MESSAGE_TYPES.includes('set_expert_ai_tuning'));
+  assert.ok(CLIENT_MESSAGE_TYPES.includes('set_spectator_view'));
 });
 
 test('protocol rejects malformed, unknown, and oversized regular messages', () => {

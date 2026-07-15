@@ -382,6 +382,17 @@
       <section class="boardWrap">
         <canvas id="board" width="1200" height="900"></canvas>
 
+        <div id="historyReplayBar" class="historyReplayBar hidden">
+          <button id="historyReplayExitBtn" class="btn">Exit Replay</button>
+          <button id="historyReplayPrevBtn" class="btn">◀ Previous</button>
+          <div class="historyReplayStatus">
+            <strong id="historyReplayStep">Step —</strong>
+            <span id="historyReplayAction">—</span>
+          </div>
+          <button id="historyReplayNextBtn" class="btn">Next ▶</button>
+          <button id="historyReplayLogBtn" class="btn">Game Log</button>
+        </div>
+
         <div id="rightSidebar" class="rightSidebar hidden">
           <div id="rightSidebarResize" class="rightSidebarResize" title="Resize right panel"></div>
           <div id="rightSidebarInner" class="rightSidebarInner">

@@ -234,6 +234,13 @@ body.in-game .boardFooter{display:none;}
 }
 .resSummaryRow + .resSummaryRow{margin-top:8px;}
 .resSummaryRow.turnActive{border-color:rgba(74,163,255,.5); box-shadow:0 0 0 2px rgba(74,163,255,.16) inset;}
+.resSummaryRow.spectatorSelectable{cursor:pointer; transition:border-color .15s ease, background .15s ease;}
+.resSummaryRow.spectatorSelectable:hover{border-color:rgba(74,163,255,.75); background:rgba(74,163,255,.08);}
+.resSummaryRow.spectatorSelected{border-color:#4aa3ff; box-shadow:0 0 0 2px rgba(74,163,255,.28) inset;}
+.historyReplayBar{position:absolute; z-index:35; top:12px; left:50%; transform:translateX(-50%); display:flex; width:min(760px,calc(100% - 32px)); align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; padding:9px 10px; border:1px solid rgba(74,163,255,.55); border-radius:12px; background:rgba(8,16,28,.94); box-shadow:0 12px 32px rgba(0,0,0,.38);}
+.historyReplayBar.hidden{display:none!important;}
+.historyReplayStatus{display:flex; min-width:0; max-width:520px; flex:1 1 220px; flex-direction:column; gap:2px; color:var(--text);}
+.historyReplayStatus span{overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap;}
 .resSummaryMain{display:flex; align-items:center; gap:8px; min-width:0; width:100%;}
 .resSummaryName{font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:116px;}
 .resSummaryStats{display:flex; align-items:center; gap:8px; flex:1 1 auto; min-width:0; flex-wrap:wrap;}

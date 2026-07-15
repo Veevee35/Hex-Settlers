@@ -145,6 +145,13 @@
     countdownClock: $('countdownClock'),
     pauseBtn: $('pauseBtn'),
     pausedOverlay: $('pausedOverlay'),
+    historyReplayBar: $('historyReplayBar'),
+    historyReplayExitBtn: $('historyReplayExitBtn'),
+    historyReplayPrevBtn: $('historyReplayPrevBtn'),
+    historyReplayNextBtn: $('historyReplayNextBtn'),
+    historyReplayStep: $('historyReplayStep'),
+    historyReplayAction: $('historyReplayAction'),
+    historyReplayLogBtn: $('historyReplayLogBtn'),
     modal: $('modal'),
     modalBackdrop: $('modalBackdrop'),
     modalTitle: $('modalTitle'),
@@ -1511,6 +1518,124 @@ let historyState = {
   loadingBoard: false,
   openMode: 'summary',
 };
+
+let historyReplay = {
+  active: false,
+  entry: null,
+  index: 0,
+  liveState: null,
+  viewPlayerId: null,
+};
+
+const HISTORY_REPLAY_ALLOWED_MESSAGES = new Set([
+  'get_state', 'get_game_history', 'get_game_history_entry',
+  'get_player_leaderboard', 'get_texture_pack',
+]);
+
+function cloneReplayValue(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function applyHistoryReplayPatch(frame, operations) {
+  let root = cloneReplayValue(frame);
+  for (const operation of (operations || [])) {
+    const path = Array.isArray(operation.path) ? operation.path : [];
+    if (!path.length) {
+      root = operation.op === 'delete' ? undefined : cloneReplayValue(operation.value);
+      continue;
+    }
+    let target = root;
+    for (let index = 0; index < path.length - 1; index++) target = target[path[index]];
+    const key = path[path.length - 1];
+    if (operation.op === 'delete') {
+      if (Array.isArray(target)) target.splice(Number(key), 1);
+      else delete target[key];
+    } else target[key] = cloneReplayValue(operation.value);
+  }
+  return root;
+}
+
+function materializeHistoryReplayFrame(entry, frameIndex) {
+  const replay = entry && entry.replay;
+  if (!replay || !replay.initial) return null;
+  let frame = cloneReplayValue(replay.initial);
+  const steps = Array.isArray(replay.steps) ? replay.steps : [];
+  const patchCount = Math.max(0, Math.min(steps.length, Math.floor(Number(frameIndex || 0))));
+  for (let index = 0; index < patchCount; index++) frame = applyHistoryReplayPatch(frame, steps[index].patch);
+  const log = Array.isArray(replay.log)
+    ? replay.log
+    : (Array.isArray(entry.log) ? entry.log : (Array.isArray(entry.snapshot?.log) ? entry.snapshot.log : []));
+  const logCount = patchCount
+    ? Math.max(0, Number(steps[patchCount - 1]?.logCount || 0))
+    : Math.max(0, Number(replay.initialLogCount || 0));
+  frame.log = cloneReplayValue(log.slice(0, logCount));
+  frame.replayViewing = true;
+  return frame;
+}
+
+function historyReplayPerspectiveAvailable(player) {
+  return !!(player && !player.departed && (state?.turnOrder || []).includes(player.id));
+}
+
+function refreshHistoryReplayBar() {
+  if (!ui.historyReplayBar) return;
+  ui.historyReplayBar.classList.toggle('hidden', !historyReplay.active);
+  if (!historyReplay.active) return;
+  const steps = Array.isArray(historyReplay.entry?.replay?.steps) ? historyReplay.entry.replay.steps : [];
+  const frameCount = steps.length + 1;
+  if (ui.historyReplayStep) ui.historyReplayStep.textContent = `Step ${historyReplay.index + 1}/${frameCount}`;
+  const step = historyReplay.index > 0 ? steps[historyReplay.index - 1] : null;
+  const actor = step && (state?.players || []).find((player) => player && player.id === step.actorId);
+  const kind = String(step?.action?.kind || 'game_start').replaceAll('_', ' ');
+  const latestLog = Array.isArray(state?.log) && state.log.length ? state.log[state.log.length - 1]?.text : '';
+  if (ui.historyReplayAction) ui.historyReplayAction.textContent = latestLog || `${actor ? `${actor.name}: ` : ''}${kind}`;
+  if (ui.historyReplayPrevBtn) ui.historyReplayPrevBtn.disabled = historyReplay.index <= 0;
+  if (ui.historyReplayNextBtn) ui.historyReplayNextBtn.disabled = historyReplay.index >= frameCount - 1;
+}
+
+function showHistoryReplayFrame(index) {
+  if (!historyReplay.active || !historyReplay.entry) return;
+  const steps = Array.isArray(historyReplay.entry.replay?.steps) ? historyReplay.entry.replay.steps : [];
+  historyReplay.index = Math.max(0, Math.min(steps.length, Math.floor(Number(index || 0))));
+  state = materializeHistoryReplayFrame(historyReplay.entry, historyReplay.index);
+  if (!state) return;
+  if (!historyReplayPerspectiveAvailable((state.players || []).find((player) => player && player.id === historyReplay.viewPlayerId))) {
+    historyReplay.viewPlayerId = (state.players || []).find(historyReplayPerspectiveAvailable)?.id || null;
+  }
+  state.spectatorViewPlayerId = historyReplay.viewPlayerId;
+  state.spectatorMode = true;
+  updateButtons();
+  renderLobby();
+  render();
+  if (ui.logList && logPanelOpen) renderLogList(ui.logList);
+  refreshHistoryReplayBar();
+}
+
+function startHistoryReplay(entry) {
+  if (!entry?.replay?.initial || !Array.isArray(entry.replay.steps)) {
+    setError('A step-by-step replay is not available for this older game.');
+    return;
+  }
+  historyReplay = { active: true, entry, index: 0, liveState: state, viewPlayerId: null };
+  setHistoryVisible(false);
+  closePostgameSnapshot();
+  showHistoryReplayFrame(0);
+}
+
+function stopHistoryReplay() {
+  if (!historyReplay.active) return;
+  const liveState = historyReplay.liveState;
+  historyReplay = { active: false, entry: null, index: 0, liveState: null, viewPlayerId: null };
+  state = liveState;
+  refreshHistoryReplayBar();
+  if (state) {
+    updateButtons();
+    renderLobby();
+    render();
+  }
+  try { send({ type: 'get_state' }); } catch (_) {}
+  setHistoryVisible(true);
+}
 function clearPostgameTimers() {
   try { if (postgameState.splashTimer) clearTimeout(postgameState.splashTimer); } catch(_) {}
   postgameState.splashTimer = null;
@@ -2772,6 +2897,8 @@ function renderGamesHistoryTab() {
       const replayBtn = document.createElement('button');
       replayBtn.className = 'btn';
       replayBtn.textContent = 'Replay';
+      replayBtn.disabled = Math.max(0, Number(g.replaySteps || 0)) < 1;
+      if (replayBtn.disabled) replayBtn.title = 'This older game was saved before step-by-step replays were available.';
       replayBtn.addEventListener('click', () => {
         if (!g.id) return;
         historyState.openMode = 'replay';
@@ -5090,7 +5217,8 @@ function refreshLobbyJoinLinkUi() {
           if (snap.stats && !snap.stats.startedAt && g.startedAt) snap.stats.startedAt = g.startedAt;
         }
         const openMode = historyState.openMode || 'summary';
-        openPostgameSnapshot(snap, g, { tab: openMode === 'replay' ? 'resources' : 'summary' });
+        if (openMode === 'replay') startHistoryReplay(g);
+        else openPostgameSnapshot(snap, g, { tab: 'summary' });
         historyState.openMode = 'summary';
         return;
       }
@@ -5264,6 +5392,10 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'state') {
+        if (historyReplay.active) {
+          historyReplay.liveState = msg.state;
+          return;
+        }
         const prevState = state;
         state = msg.state;
         syncEndTurnWarnAudioState(prevState, state);
@@ -5325,6 +5457,10 @@ function refreshLobbyJoinLinkUi() {
 
   function send(obj) {
     if (!ws || ws.readyState !== 1) return;
+    if (historyReplay.active && !HISTORY_REPLAY_ALLOWED_MESSAGES.has(obj && obj.type)) {
+      setError('Exit the replay before changing the live game.');
+      return;
+    }
     ws.send(JSON.stringify(obj));
   }
 
@@ -7569,6 +7705,15 @@ if (ui.historyTabs) {
   });
 }
 
+if (ui.historyReplayExitBtn) ui.historyReplayExitBtn.addEventListener('click', stopHistoryReplay);
+if (ui.historyReplayPrevBtn) ui.historyReplayPrevBtn.addEventListener('click', () => showHistoryReplayFrame(historyReplay.index - 1));
+if (ui.historyReplayNextBtn) ui.historyReplayNextBtn.addEventListener('click', () => showHistoryReplayFrame(historyReplay.index + 1));
+if (ui.historyReplayLogBtn) ui.historyReplayLogBtn.addEventListener('click', () => {
+  logPanelOpen = !logPanelOpen;
+  if (ui.logCard) ui.logCard.classList.toggle('hidden', !logPanelOpen);
+  if (ui.logList && logPanelOpen) renderLogList(ui.logList);
+});
+
 // Post-game overlay controls
 if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.addEventListener('click', () => {
   if (postgameState.historyMode) {
@@ -7655,6 +7800,14 @@ if (ui.postgameTabs) {
   function myPlayer() {
     if (!state || !myPlayerId) return null;
     return (state.players || []).find(p => p.id === myPlayerId) || null;
+  }
+
+  function resourcePanelPlayer() {
+    if (!state) return null;
+    if ((historyReplay.active || amRoomSpectator()) && state.spectatorViewPlayerId) {
+      return (state.players || []).find((player) => player && player.id === state.spectatorViewPlayerId) || null;
+    }
+    return myPlayer();
   }
 
   // Interaction hit-testing cache (screen-space)
@@ -7754,7 +7907,7 @@ function ensureTimerUiInterval() {
     if (ui.devCard) ui.devCard.classList.toggle('hidden', !inGame);
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
-    const myTurn = inGame && !amSpectator && state.currentPlayerId === myPlayerId;
+    const myTurn = inGame && !historyReplay.active && !amSpectator && state.currentPlayerId === myPlayerId;
 
     // Global page state + HUD docking.
     try { document.body.classList.toggle('in-game', inGame); } catch (_) {}
@@ -7777,14 +7930,14 @@ function ensureTimerUiInterval() {
     // Host pause/resume (available during any player's turn)
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
     if (ui.pauseBtn) {
-      ui.pauseBtn.classList.toggle('hidden', !(inGame && isHostNow));
+      ui.pauseBtn.classList.toggle('hidden', !(inGame && isHostNow && !historyReplay.active));
       ui.pauseBtn.textContent = (state && state.paused) ? 'Resume' : 'Pause';
     }
 
     // Host-only room ID helper
     if (ui.idsBtn) {
-      ui.idsBtn.classList.toggle('hidden', !isHostNow);
-      ui.idsBtn.disabled = !isHostNow;
+      ui.idsBtn.classList.toggle('hidden', !isHostNow || historyReplay.active);
+      ui.idsBtn.disabled = !isHostNow || historyReplay.active;
     }
 
     // Local per-player audio + colorblind toggles (client-only)
@@ -7798,15 +7951,15 @@ function ensureTimerUiInterval() {
       ui.colorblindBtn.disabled = !inGame;
     }
     if (ui.leaveGameBtn) {
-      const canUseLeaveGame = !!(myPlayerId && room && room.hostId !== myPlayerId && phaseNow !== 'lobby');
+      const canUseLeaveGame = !!(!historyReplay.active && myPlayerId && room && room.hostId !== myPlayerId && phaseNow !== 'lobby');
       ui.leaveGameBtn.classList.toggle('hidden', !canUseLeaveGame);
       ui.leaveGameBtn.disabled = !canUseLeaveGame;
     }
 
     // Host-only end-game vote
     if (ui.endGameVoteBtn) {
-      ui.endGameVoteBtn.classList.toggle('hidden', !(inGame && isHostNow));
-      ui.endGameVoteBtn.disabled = !(inGame && isHostNow) || !!(state && state.endVote && state.endVote.id);
+      ui.endGameVoteBtn.classList.toggle('hidden', !(inGame && isHostNow && !historyReplay.active));
+      ui.endGameVoteBtn.disabled = !(inGame && isHostNow && !historyReplay.active) || !!(state && state.endVote && state.endVote.id);
     }
 
     const paused = inGame && !!(state && state.paused);
@@ -8044,6 +8197,19 @@ if (ui.moveShipBtn) {
         const row = document.createElement('div');
         row.className = 'resSummaryRow';
         if (p.id === state.currentPlayerId) row.classList.add('turnActive');
+        if ((historyReplay.active || amRoomSpectator()) && !p.departed && (state.turnOrder || []).includes(p.id)) {
+          row.classList.add('spectatorSelectable');
+          if (p.id === state.spectatorViewPlayerId) row.classList.add('spectatorSelected');
+          row.title = `View ${p.name}'s resources`;
+          row.addEventListener('click', () => {
+            if (historyReplay.active) {
+              historyReplay.viewPlayerId = p.id;
+              state.spectatorViewPlayerId = p.id;
+              renderResources();
+              renderDevCards();
+            } else send({ type: 'set_spectator_view', playerId: p.id });
+          });
+        }
 
         const main = document.createElement('div');
         main.className = 'resSummaryMain';
@@ -8068,10 +8234,10 @@ if (ui.moveShipBtn) {
         const stats = document.createElement('div');
         stats.className = 'resSummaryStats';
 
-        const handCount = (p.id === myPlayerId && p.resources)
+        const handCount = p.resources
           ? RES_KEYS.reduce((sum, k) => sum + Number(p.resources?.[k] || 0), 0)
           : Number(p.handCount || 0);
-        const devCount = (p.id === myPlayerId && Array.isArray(p.devCards))
+        const devCount = Array.isArray(p.devCards)
           ? p.devCards.length
           : Number(p.devCount || 0);
 
@@ -8131,7 +8297,7 @@ if (ui.moveShipBtn) {
 
     sideBox.appendChild(document.createElement('div')).className = 'rightSidebarSeparator';
 
-    const me = myPlayer();
+    const me = resourcePanelPlayer();
     if (!me || !me.resources) {
       const note = document.createElement('div');
       note.className = 'rightSidebarNote';
@@ -8150,6 +8316,11 @@ if (ui.moveShipBtn) {
       <span>KP: ${Math.max(0, Number(me.army || 0))}</span>
       <span>VP: ${Number(me.vp || 0)}</span>
     `;
+    if (historyReplay.active || amRoomSpectator()) {
+      const viewing = document.createElement('span');
+      viewing.textContent = `VIEWING: ${me.name || 'Player'}`;
+      meta.prepend(viewing);
+    }
     sideBox.appendChild(meta);
 
     const myResStrip = document.createElement('div');
@@ -8174,7 +8345,7 @@ if (ui.moveShipBtn) {
 
   function renderDevCards() {
     if (!state) return;
-    const me = myPlayer();
+    const me = resourcePanelPlayer();
     const box = ui.devHand;
     box.innerHTML = '';
 
@@ -8189,7 +8360,7 @@ if (ui.moveShipBtn) {
       return;
     }
 
-    const myTurn = state.currentPlayerId === myPlayerId;
+    const myTurn = !historyReplay.active && state.currentPlayerId === myPlayerId;
     const actionPhase = myTurn && state.phase === 'main-actions';
     const awaitRollPhase = myTurn && state.phase === 'main-await-roll';
     const preRollPlayable = new Set(['knight','road_building','invention','monopoly','victory_point']);
@@ -9761,7 +9932,7 @@ function handleProductionGoldPrompt() {
       const dy = Math.abs((e.clientY || 0) - mobileSyntheticClickSig.y);
       if (dt >= 0 && dt < 700 && dx < 18 && dy < 18) return;
     }
-    if (!state || !myPlayerId) return;
+    if (!state || !myPlayerId || historyReplay.active) return;
     if (state.paused) { setError('Game is paused.'); return; }
     hideBuildPopup();
     hideThiefMoveConfirmPopup();
@@ -10153,7 +10324,7 @@ function handleProductionGoldPrompt() {
     screenCache = { nodes: [], edges: [], tiles: [] };
 
     // Draw tiles
-    const activePlayerThiefMove = (state.currentPlayerId === myPlayerId) && (state.phase === 'pirate-or-robber' || state.phase === 'robber-move' || state.phase === 'pirate-move');
+    const activePlayerThiefMove = !historyReplay.active && (state.currentPlayerId === myPlayerId) && (state.phase === 'pirate-or-robber' || state.phase === 'robber-move' || state.phase === 'pirate-move');
     const thiefHighlightPhase = String(state.phase || '');
     const thiefPulse = 0.65 + 0.35 * Math.sin((Date.now() % 1200) / 1200 * Math.PI * 2);
 
@@ -10433,7 +10604,7 @@ function handleProductionGoldPrompt() {
     }
 
     // Setup helpers: subtle highlights for valid placements
-    const myTurn = (state.currentPlayerId === myPlayerId);
+    const myTurn = !historyReplay.active && (state.currentPlayerId === myPlayerId);
     if (myTurn) {
       const phase = state.phase;
 
