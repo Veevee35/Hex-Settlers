@@ -46,7 +46,9 @@ const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = requi
 const {
   applyResourceDelta: applyResourceStatsDelta,
   applyResourceOpportunityLoss,
+  blockedProductionByPlayer,
   ensurePlayerResourceStats,
+  ensureResourceStatsForPlayers,
 } = require('./server/resource-summary');
 
 const APP_CONFIG = runtimeConfig(process.env);
@@ -1951,6 +1953,9 @@ function initGameStats(game) {
 function ensureGameStats(game) {
   if (!game) return null;
   if (!game.stats) return initGameStats(game);
+  // Active rooms survive server restarts. Backfill resource source buckets for
+  // games saved by an older build so new statistics never become silent no-ops.
+  ensureResourceStatsForPlayers(game.stats, game.players);
   return game.stats;
 }
 
@@ -5543,11 +5548,11 @@ function distributeResources(game, roll) {
       // Blocked production is tracked as an opportunity loss. It is not an
       // actual hand delta, so it does not affect per-turn resource totals.
       if (resKind) {
-        for (const nid of (t.cornerNodeIds || [])) {
-          const b = game.geom.nodes[nid].building;
-          const p = b ? playerById(game, b.owner) : null;
-          if (!b || !p || p.departed) continue;
-          recordBlockedProduction(game, b.owner, { [resKind]: b.type === 'city' ? 2 : 1 });
+        const blocked = blockedProductionByPlayer(t, game.geom.nodes, resKind);
+        for (const [playerId, losses] of Object.entries(blocked)) {
+          const player = playerById(game, playerId);
+          if (!player || player.departed) continue;
+          recordBlockedProduction(game, playerId, losses);
         }
       }
       continue;

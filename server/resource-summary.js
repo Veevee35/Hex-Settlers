@@ -29,6 +29,38 @@ function ensurePlayerResourceStats(value = {}) {
   return stats;
 }
 
+function ensureResourceStatsForPlayers(stats, players = []) {
+  const target = stats && typeof stats === 'object' ? stats : {};
+  target.resources = target.resources && typeof target.resources === 'object' ? target.resources : {};
+  target.resources.byPlayer = target.resources.byPlayer && typeof target.resources.byPlayer === 'object'
+    ? target.resources.byPlayer
+    : {};
+
+  for (const player of (Array.isArray(players) ? players : [])) {
+    const playerId = String(player && player.id || '').trim();
+    if (!playerId) continue;
+    target.resources.byPlayer[playerId] = ensurePlayerResourceStats(target.resources.byPlayer[playerId]);
+  }
+  return target.resources;
+}
+
+function blockedProductionByPlayer(tile, nodes, resourceKind) {
+  const kind = String(resourceKind || '');
+  if (!tile || !tile.robber || !RESOURCE_KEYS.includes(kind)) return {};
+
+  const losses = {};
+  const nodeList = Array.isArray(nodes) ? nodes : [];
+  const corners = Array.isArray(tile.cornerNodeIds) ? tile.cornerNodeIds : [];
+  for (const nodeId of corners) {
+    const building = nodeList[nodeId] && nodeList[nodeId].building;
+    const playerId = String(building && building.owner || '').trim();
+    if (!playerId) continue;
+    if (!losses[playerId]) losses[playerId] = emptyResourceMap();
+    losses[playerId][kind] += building.type === 'city' ? 2 : 1;
+  }
+  return losses;
+}
+
 function sourceResourceMap(container, source) {
   const key = String(source || 'other');
   container[key] = ensureResourceMap(container[key]);
@@ -73,6 +105,8 @@ module.exports = {
   RESOURCE_LOSS_SOURCES,
   applyResourceDelta,
   applyResourceOpportunityLoss,
+  blockedProductionByPlayer,
   emptyResourceMap,
   ensurePlayerResourceStats,
+  ensureResourceStatsForPlayers,
 };

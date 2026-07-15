@@ -8,7 +8,9 @@ const {
   RESOURCE_LOSS_SOURCES,
   applyResourceDelta,
   applyResourceOpportunityLoss,
+  blockedProductionByPlayer,
   ensurePlayerResourceStats,
+  ensureResourceStatsForPlayers,
 } = require('../server/resource-summary');
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -35,6 +37,41 @@ test('blocked production is an opportunity loss without changing hand deltas', (
   assert.equal(stats.lostBySource.blocked.lumber, 2);
   assert.equal(stats.lost.lumber, 0);
   assert.deepEqual(stats.byTurn, {});
+});
+
+test('robber-blocked tiles count each adjacent settlement and city as lost production', () => {
+  const tile = { robber: true, cornerNodeIds: [0, 1, 2, 3] };
+  const nodes = [
+    { building: { owner: 'red', type: 'settlement' } },
+    { building: { owner: 'blue', type: 'city' } },
+    { building: { owner: 'red', type: 'city' } },
+    { building: null },
+  ];
+
+  assert.deepEqual(blockedProductionByPlayer(tile, nodes, 'grain'), {
+    red: { brick: 0, lumber: 0, wool: 0, grain: 3, ore: 0 },
+    blue: { brick: 0, lumber: 0, wool: 0, grain: 2, ore: 0 },
+  });
+  assert.deepEqual(blockedProductionByPlayer({ ...tile, robber: false }, nodes, 'grain'), {});
+});
+
+test('restored games backfill blocked-production buckets for every current player', () => {
+  const stats = {
+    resources: {
+      byPlayer: {
+        red: { gained: { grain: 4 }, lostBySource: { trade: { ore: 2 } } },
+      },
+    },
+  };
+
+  ensureResourceStatsForPlayers(stats, [{ id: 'red' }, { id: 'blue' }]);
+  assert.equal(stats.resources.byPlayer.red.gained.grain, 4);
+  assert.equal(stats.resources.byPlayer.red.lostBySource.trade.ore, 2);
+  assert.equal(stats.resources.byPlayer.red.lostBySource.blocked.grain, 0);
+  assert.equal(stats.resources.byPlayer.blue.lostBySource.blocked.grain, 0);
+
+  applyResourceOpportunityLoss(stats.resources.byPlayer.blue, { grain: 2 }, 'blocked');
+  assert.equal(stats.resources.byPlayer.blue.lostBySource.blocked.grain, 2);
 });
 
 test('legacy resource summaries gain the new loss buckets without losing old data', () => {
@@ -79,5 +116,6 @@ test('resources overview compares gained and lost resources in separate full-col
 test('development purchases count as spent and Monopoly victims use their own loss source', () => {
   assert.match(serverJs, /payCostStats\(game, playerId, p\.resources, DEV_CARD_COST, 'build'\)/);
   assert.match(serverJs, /recordResourceDelta\(game, op\.id, \{ \[rk\]: -n \}, 'monopoly'\)/);
-  assert.match(serverJs, /recordBlockedProduction\(game, b\.owner, \{ \[resKind\]: b\.type === 'city' \? 2 : 1 \}\)/);
+  assert.match(serverJs, /const blocked = blockedProductionByPlayer\(t, game\.geom\.nodes, resKind\)/);
+  assert.match(serverJs, /recordBlockedProduction\(game, playerId, losses\)/);
 });
