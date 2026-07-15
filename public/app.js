@@ -2122,127 +2122,122 @@ function renderPostgameTab(tab) {
     ctrl.appendChild(mkBtn('players', 'View Per Player'));
     ctrl.appendChild(mkBtn('prob', 'View Probability'));
 
-    const section = makeSection('Dice Rolls', ctrl);
-    section.classList.add('pgStyledSection');
+    const viewTitles = {
+      totals: 'Dice Rolls',
+      players: 'Dice Rolls by Player',
+      prob: 'Dice Rolls with Probability Overlay',
+    };
+    const section = makeSection(viewTitles[postgameState.diceView] || viewTitles.totals, ctrl);
+    section.classList.add('pgStyledSection', 'pgDiceSection');
     const byNum = stats?.rolls?.byNumber || st.diceStats || {};
     const total = Number.isFinite(stats?.rolls?.total)
       ? stats.rolls.total
       : Object.values(byNum).reduce((sum, value) => sum + safeNum(value), 0);
     const byPlayer = stats?.rolls?.byPlayer || {};
     const probs = {2:1/36,3:2/36,4:3/36,5:4/36,6:5/36,7:6/36,8:5/36,9:4/36,10:3/36,11:2/36,12:1/36};
-
-    const makeDiceIcon = (roll) => {
-      const icon = document.createElement('div');
-      icon.className = `pgDiceRollIcon${roll === 7 ? ' seven' : ''}`;
-      if (roll === 7) {
-        icon.textContent = '7';
-      } else {
-        const image = document.createElement('img');
-        image.src = getTextureAssetUrl(`Numbers/${roll}.png`);
-        image.alt = `Roll ${roll}`;
-        image.draggable = false;
-        icon.appendChild(image);
-      }
-      return icon;
-    };
-
-    if (postgameState.diceView === 'players') {
-      const cards = players.map((p) => {
-        const rolls = byPlayer[p.id] || {};
-        const playerTotal = diceTotalFor(rolls);
-        let mostCommon = 2;
-        for (let roll = 3; roll <= 12; roll++) {
-          if (safeNum(rolls[roll]) > safeNum(rolls[mostCommon])) mostCommon = roll;
-        }
-        const card = makePlayerOverviewCard(p, {
-          headline: playerTotal,
-          headlineLabel: 'Total rolls',
-          metrics: [
-            { icon: '7', label: 'Sevens', value: safeNum(rolls[7]), tone: safeNum(rolls[7]) ? 'negative' : '' },
-            { icon: '⚄', label: 'Most common', value: `${mostCommon} · ${safeNum(rolls[mostCommon])}` },
-            { icon: '%', label: 'Share of rolls', value: `${total ? ((playerTotal / total) * 100).toFixed(1) : '0.0'}%` },
-          ],
-        });
-        const distribution = document.createElement('div');
-        distribution.className = 'pgDicePlayerDistribution';
-        for (let roll = 2; roll <= 12; roll++) {
-          const cell = document.createElement('div');
-          if (roll === 7) cell.className = 'seven';
-          const label = document.createElement('span');
-          label.textContent = String(roll);
-          const value = document.createElement('strong');
-          value.textContent = String(safeNum(rolls[roll]));
-          cell.appendChild(label);
-          cell.appendChild(value);
-          distribution.appendChild(cell);
-        }
-        const footer = card.querySelector('.pgOverviewPlayerFooter');
-        card.insertBefore(distribution, footer);
-        return card;
-      });
-      appendOverviewGrid(section, cards);
-      ui.pgTabBody.appendChild(section);
-      addNote(`Total rolls: ${total}. Each player card shows their complete 2–12 distribution.`);
-      return;
-    }
-
-    const rollGrid = document.createElement('div');
-    rollGrid.className = 'pgDiceRollGrid';
+    const rolls = [];
     for (let roll = 2; roll <= 12; roll++) {
       let actual = safeNum(byNum[roll]);
       if (!actual) for (const p of players) actual += safeNum((byPlayer[p.id] || {})[roll]);
-      const card = document.createElement('article');
-      card.className = `pgDiceRollCard${roll === 7 ? ' seven' : ''}`;
-      card.appendChild(makeDiceIcon(roll));
+      rolls.push({ roll, actual, expected: total * (probs[roll] || 0) });
+    }
 
-      if (postgameState.diceView === 'prob') {
-        const expected = total * (probs[roll] || 0);
-        const diff = actual - expected;
-        const metrics = document.createElement('div');
-        metrics.className = 'pgDiceRollMetrics';
-        for (const item of [
-          { label: 'Actual', value: actual },
-          { label: 'Expected', value: expected.toFixed(1) },
-          { label: 'Difference', value: `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}`, tone: diff >= 0 ? 'positive' : 'negative' },
-        ]) {
-          const metric = document.createElement('div');
-          const label = document.createElement('span');
-          label.textContent = item.label;
-          const value = document.createElement('strong');
-          value.textContent = String(item.value);
-          if (item.tone) value.className = item.tone;
-          metric.appendChild(label);
-          metric.appendChild(value);
-          metrics.appendChild(metric);
-        }
-        card.appendChild(metrics);
-      } else {
-        const count = document.createElement('strong');
-        count.className = 'pgDiceRollCount';
-        count.textContent = String(actual);
-        const label = document.createElement('span');
-        label.className = 'pgDiceRollCountLabel';
-        label.textContent = `${total ? ((actual / total) * 100).toFixed(1) : '0.0'}% of rolls`;
-        card.appendChild(count);
-        card.appendChild(label);
-        const contribution = document.createElement('div');
-        contribution.className = 'pgDiceContributionBar';
+    const largestValue = Math.max(1, ...rolls.map((item) => (
+      postgameState.diceView === 'prob' ? Math.max(item.actual, item.expected) : item.actual
+    )));
+    const axisMax = Math.max(5, Math.ceil(largestValue / 5) * 5);
+    const chart = document.createElement('div');
+    chart.className = `pgDiceChart ${postgameState.diceView}`;
+    chart.setAttribute('role', 'img');
+    chart.setAttribute('aria-label', `${viewTitles[postgameState.diceView] || viewTitles.totals}, rolls 2 through 12`);
+    const chartArea = document.createElement('div');
+    chartArea.className = 'pgDiceChartArea';
+
+    for (let tick = 5; tick <= axisMax; tick += 5) {
+      const gridline = document.createElement('div');
+      gridline.className = 'pgDiceGridline';
+      gridline.style.bottom = `${(tick / axisMax) * 100}%`;
+      const tickLabel = document.createElement('span');
+      tickLabel.textContent = String(tick);
+      gridline.appendChild(tickLabel);
+      chartArea.appendChild(gridline);
+    }
+
+    const bars = document.createElement('div');
+    bars.className = 'pgDiceBars';
+    for (const item of rolls) {
+      const column = document.createElement('div');
+      column.className = 'pgDiceBarColumn';
+      const heightValue = postgameState.diceView === 'prob'
+        ? Math.max(item.actual, item.expected)
+        : item.actual;
+      const heightPercent = (heightValue / axisMax) * 100;
+      const bar = document.createElement('div');
+      bar.className = `pgDiceChartBar ${postgameState.diceView}`;
+      if (item.roll === 7) bar.classList.add('seven');
+      bar.style.height = `${heightPercent}%`;
+
+      if (postgameState.diceView === 'players') {
+        const playerTotal = players.reduce((sum, p) => sum + safeNum((byPlayer[p.id] || {})[item.roll]), 0);
         for (const p of players) {
-          const value = safeNum((byPlayer[p.id] || {})[roll]);
-          if (!value || !actual) continue;
+          const value = safeNum((byPlayer[p.id] || {})[item.roll]);
+          if (!value || !heightValue) continue;
           const segment = document.createElement('span');
-          segment.style.width = `${(value / actual) * 100}%`;
+          segment.className = 'pgDicePlayerSegment';
+          segment.style.height = `${(value / heightValue) * 100}%`;
           segment.style.background = p.color || '#777';
           segment.title = `${p.name}: ${value}`;
-          contribution.appendChild(segment);
+          bar.appendChild(segment);
         }
-        card.appendChild(contribution);
+        if (item.actual > playerTotal && heightValue) {
+          const remainder = document.createElement('span');
+          remainder.className = 'pgDicePlayerSegment unattributed';
+          remainder.style.height = `${((item.actual - playerTotal) / heightValue) * 100}%`;
+          remainder.title = `Unattributed: ${item.actual - playerTotal}`;
+          bar.appendChild(remainder);
+        }
+      } else if (postgameState.diceView === 'prob') {
+        const baseValue = Math.min(item.actual, item.expected);
+        const base = document.createElement('span');
+        base.className = 'pgDiceProbabilityBase';
+        base.style.height = `${heightValue ? (baseValue / heightValue) * 100 : 0}%`;
+        bar.appendChild(base);
+        if (item.actual !== item.expected && heightValue) {
+          const overlay = document.createElement('span');
+          overlay.className = `pgDiceProbabilityDelta ${item.actual > item.expected ? 'positive' : 'negative'}`;
+          overlay.style.height = `${(Math.abs(item.actual - item.expected) / heightValue) * 100}%`;
+          bar.appendChild(overlay);
+        }
       }
-      rollGrid.appendChild(card);
-    }
-    section.appendChild(rollGrid);
 
-    if (postgameState.diceView !== 'prob') {
+      const valueLabel = document.createElement('strong');
+      valueLabel.className = 'pgDiceBarValue';
+      valueLabel.style.bottom = `calc(${heightPercent}% + 4px)`;
+      if (postgameState.diceView === 'prob') {
+        const roundedDiff = Math.round(item.actual - item.expected);
+        if (roundedDiff) {
+          valueLabel.textContent = `${roundedDiff > 0 ? '+' : ''}${roundedDiff}`;
+          valueLabel.classList.add(roundedDiff > 0 ? 'positive' : 'negative');
+        } else {
+          valueLabel.classList.add('hiddenValue');
+        }
+      } else {
+        valueLabel.textContent = String(item.actual);
+      }
+
+      const rollLabel = document.createElement('span');
+      rollLabel.className = 'pgDiceBarRoll';
+      rollLabel.textContent = String(item.roll);
+      column.appendChild(bar);
+      column.appendChild(valueLabel);
+      column.appendChild(rollLabel);
+      bars.appendChild(column);
+    }
+    chartArea.appendChild(bars);
+    chart.appendChild(chartArea);
+    section.appendChild(chart);
+
+    if (postgameState.diceView === 'players') {
       const legend = document.createElement('div');
       legend.className = 'pgLegend pgDiceLegend';
       for (const p of players) {
@@ -2260,9 +2255,9 @@ function renderPostgameTab(tab) {
       section.appendChild(legend);
     }
     ui.pgTabBody.appendChild(section);
-    addNote(postgameState.diceView === 'prob'
-      ? 'Expected values use the standard 2d6 distribution.'
-      : `Total rolls: ${total}. The colored strip on each number shows each player's contribution.`);
+    if (postgameState.diceView === 'prob') addNote('Gray shows the expected 2d6 distribution. Red caps show the signed difference between actual and expected rolls.');
+    else if (postgameState.diceView === 'players') addNote(`Total rolls: ${total}. Each bar is stacked by the player who rolled it.`);
+    else addNote(`Total rolls: ${total}.`);
     return;
   }
 
@@ -8615,6 +8610,7 @@ function ensureTimerUiInterval() {
     const phaseNow = currentRoomPhase();
     const inGame = !!state && state.phase !== 'lobby';
     const amSpectator = inGame && amRoomSpectator();
+    if (ui.toolsCard) ui.toolsCard.classList.toggle('hidden', !inGame);
 
     // Hide in-game HUD cards during lobby.
     if (ui.turnCard) ui.turnCard.classList.toggle('hidden', !inGame);

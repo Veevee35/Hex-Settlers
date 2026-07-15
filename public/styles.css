@@ -1343,108 +1343,158 @@ select.input{
 .pgMatchHighlight strong{overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap;}
 
 /* Dice overview */
-.pgDiceRollGrid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));
-  gap:9px;
-}
-.pgDiceRollCard{
-  min-height:164px;
-  display:flex;
+.pgDiceSection > .pgSectionHead{
   flex-direction:column;
-  align-items:center;
-  justify-content:flex-start;
-  padding:11px 9px 10px;
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:15px;
-  background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(0,0,0,.12));
-  overflow:hidden;
+  justify-content:center;
+  gap:5px;
+  margin-bottom:0;
+  text-align:center;
 }
-.pgDiceRollCard.seven{
-  border-color:rgba(231,91,91,.32);
-  background:linear-gradient(180deg, rgba(181,55,55,.10), rgba(0,0,0,.12));
-}
-.pgDiceRollIcon{
-  width:60px;
-  height:60px;
-  display:grid;
-  place-items:center;
-  margin-bottom:5px;
-}
-.pgDiceRollIcon img{
-  width:58px;
-  height:58px;
-  object-fit:contain;
-  filter:drop-shadow(0 5px 8px rgba(0,0,0,.50));
-}
-.pgDiceRollIcon.seven{
-  width:52px;
-  height:52px;
-  margin:4px 0 9px;
-  border:2px solid #ff7878;
-  border-radius:999px;
-  background:rgba(170,44,44,.18);
-  color:#ff8a8a;
-  font-family:var(--mono);
-  font-size:24px;
+.pgDiceSection .pgSectionTitle{font-size:13px; color:rgba(255,255,255,.72);}
+.pgDiceSection .pgSubTabs{gap:3px;}
+.pgDiceSection .pgSubTab{
+  padding:7px 8px;
+  border-color:transparent;
+  border-radius:4px;
+  background:transparent;
+  color:#b9cad4;
+  font-size:12px;
   font-weight:1000;
-  box-shadow:0 5px 12px rgba(0,0,0,.34);
+  text-transform:uppercase;
 }
-.pgDiceRollCount{font-family:var(--mono); font-size:22px; line-height:1;}
-.pgDiceRollCountLabel{margin-top:3px; color:var(--muted); font-family:var(--mono); font-size:8px;}
-.pgDiceContributionBar{
+.pgDiceSection .pgSubTab:hover{color:#fff; background:rgba(255,255,255,.035);}
+.pgDiceSection .pgSubTab.active{
+  border-color:#fff;
+  background:rgba(255,255,255,.045);
+  color:#fff;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.22);
+}
+.pgDiceChart{
   width:100%;
-  height:9px;
+  overflow-x:auto;
+  padding:8px 0 2px;
+}
+.pgDiceChartArea{
+  position:relative;
+  height:clamp(320px, 48vh, 470px);
+  min-width:660px;
+  margin:16px 8px 30px 36px;
+}
+.pgDiceChartArea::after{
+  content:'';
+  position:absolute;
+  inset:auto 0 0;
+  z-index:1;
+  border-top:1px solid rgba(255,255,255,.10);
+}
+.pgDiceGridline{
+  position:absolute;
+  left:0;
+  right:0;
+  z-index:0;
+  border-top:1px dashed rgba(255,255,255,.13);
+}
+.pgDiceGridline span{
+  position:absolute;
+  right:calc(100% + 8px);
+  top:-7px;
+  color:rgba(255,255,255,.50);
+  font-family:var(--mono);
+  font-size:9px;
+  font-weight:900;
+}
+.pgDiceBars{
+  position:absolute;
+  inset:0;
+  z-index:2;
+  display:grid;
+  grid-template-columns:repeat(11, minmax(38px, 1fr));
+  align-items:stretch;
+}
+.pgDiceBarColumn{
+  position:relative;
+  min-width:0;
+  height:100%;
+}
+.pgDiceChartBar{
+  position:absolute;
+  left:1px;
+  right:1px;
+  bottom:0;
+  min-height:0;
   display:flex;
-  margin-top:auto;
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:999px;
-  background:rgba(255,255,255,.035);
+  flex-direction:column-reverse;
+  align-items:stretch;
+  border:1px solid rgba(255,255,255,.26);
+  border-bottom:0;
   overflow:hidden;
 }
-.pgDiceContributionBar span{height:100%;}
-.pgDiceLegend{justify-content:center; margin:12px 0 0;}
-.pgDiceRollMetrics{
+.pgDiceChartBar.totals{
+  background:linear-gradient(180deg, #aaa, #747474);
+}
+.pgDiceChartBar.totals.seven{background:linear-gradient(180deg, #8e8e8e, #5f5f5f);}
+.pgDiceChartBar.players{background:rgba(255,255,255,.025);}
+.pgDicePlayerSegment{
+  display:block;
   width:100%;
-  display:grid;
-  grid-template-columns:repeat(3, minmax(0, 1fr));
-  gap:3px;
-  margin-top:auto;
+  flex:0 0 auto;
+  border-top:1px solid rgba(255,255,255,.44);
+  box-shadow:inset 0 1px 0 rgba(0,0,0,.14);
 }
-.pgDiceRollMetrics div{
-  min-width:0;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:2px;
-  padding:5px 2px;
-  border-radius:7px;
-  background:rgba(255,255,255,.03);
+.pgDicePlayerSegment.unattributed{background:linear-gradient(180deg, #aaa, #7d7d7d);}
+.pgDiceChartBar.prob{
+  border-color:rgba(255,255,255,.16);
+  background:transparent;
 }
-.pgDiceRollMetrics span{color:var(--muted); font-family:var(--mono); font-size:6px; text-transform:uppercase;}
-.pgDiceRollMetrics strong{font-family:var(--mono); font-size:9px;}
-.pgDiceRollMetrics strong.positive{color:#75ff88;}
-.pgDiceRollMetrics strong.negative{color:#ff7979;}
-.pgDicePlayerDistribution{
-  display:grid;
-  grid-template-columns:repeat(11, minmax(0, 1fr));
-  gap:2px;
-  margin-top:8px;
+.pgDiceProbabilityBase{
+  display:block;
+  width:100%;
+  flex:0 0 auto;
+  background:linear-gradient(180deg, #aaa, #747474);
 }
-.pgDicePlayerDistribution div{
-  min-width:0;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:2px;
-  padding:4px 1px;
-  border:1px solid rgba(255,255,255,.07);
-  border-radius:5px;
-  background:rgba(255,255,255,.025);
+.pgDiceChartBar.prob.seven .pgDiceProbabilityBase{background:linear-gradient(180deg, #8e8e8e, #5f5f5f);}
+.pgDiceProbabilityDelta{
+  display:block;
+  width:100%;
+  flex:0 0 auto;
+  border-top:1px solid #ff7777;
+  border-bottom:1px solid rgba(255,105,105,.72);
 }
-.pgDicePlayerDistribution div.seven{border-color:rgba(231,91,91,.25); background:rgba(181,55,55,.07);}
-.pgDicePlayerDistribution span{color:var(--muted); font-family:var(--mono); font-size:6px;}
-.pgDicePlayerDistribution strong{font-family:var(--mono); font-size:8px;}
+.pgDiceProbabilityDelta.positive{
+  background:linear-gradient(180deg, rgba(255,116,116,.96), rgba(220,92,92,.42));
+}
+.pgDiceProbabilityDelta.negative{
+  background:repeating-linear-gradient(135deg, rgba(105,27,27,.12) 0 6px, rgba(238,76,76,.20) 6px 8px);
+  border-left:1px dashed rgba(255,101,101,.84);
+  border-right:1px dashed rgba(255,101,101,.84);
+}
+.pgDiceBarValue{
+  position:absolute;
+  left:50%;
+  z-index:4;
+  transform:translateX(-50%);
+  color:#fff;
+  font-family:var(--mono);
+  font-size:12px;
+  font-weight:1000;
+  line-height:1;
+  text-shadow:0 2px 5px rgba(0,0,0,.85);
+  white-space:nowrap;
+}
+.pgDiceBarValue.positive{color:#fff;}
+.pgDiceBarValue.negative{color:#fff;}
+.pgDiceBarValue.hiddenValue{visibility:hidden;}
+.pgDiceBarRoll{
+  position:absolute;
+  top:calc(100% + 8px);
+  left:50%;
+  transform:translateX(-50%);
+  color:rgba(255,255,255,.76);
+  font-family:var(--mono);
+  font-size:11px;
+  font-weight:1000;
+}
+.pgDiceLegend{justify-content:center; margin:0 0 4px;}
 
 /* Dev-card focus */
 .pgDevFocusSection{
@@ -1851,7 +1901,7 @@ select.input{
   .pgResPlayerColumn{min-height:350px;}
   .pgOverviewPlayerGrid{grid-template-columns:1fr;}
   .pgMatchHighlights{grid-template-columns:1fr;}
-  .pgDiceRollGrid{grid-template-columns:repeat(2, minmax(0, 1fr));}
+  .pgDiceChartArea{height:330px; min-width:620px;}
   .pgDevTypeGrid{grid-template-columns:repeat(2, minmax(0, 1fr));}
   .pgDevTypeCard{grid-template-columns:44px 1fr;}
   .pgDevTypeCard > img{width:44px; height:58px;}

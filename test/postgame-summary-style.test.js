@@ -18,12 +18,20 @@ test('all postgame summary tabs use the shared player-card visual system', () =>
   assert.match(stylesCss, /\.pgOverviewPlayerCard\s*\{/);
 });
 
-test('dice keeps all three views and presents rolls as visual cards', () => {
+test('dice keeps all three views and presents rolls as aligned bar charts', () => {
   assert.match(appJs, /mkBtn\('totals', 'View Totals'\)/);
   assert.match(appJs, /mkBtn\('players', 'View Per Player'\)/);
   assert.match(appJs, /mkBtn\('prob', 'View Probability'\)/);
-  assert.match(appJs, /rollGrid\.className = 'pgDiceRollGrid'/);
-  assert.match(appJs, /getTextureAssetUrl\(`Numbers\/\$\{roll\}\.png`\)/);
+  assert.match(appJs, /chart\.className = `pgDiceChart \$\{postgameState\.diceView\}`/);
+  assert.match(stylesCss, /grid-template-columns:repeat\(11,/);
+  assert.match(appJs, /segment\.className = 'pgDicePlayerSegment'/);
+  assert.match(appJs, /overlay\.className = `pgDiceProbabilityDelta/);
+  assert.match(stylesCss, /\.pgDiceProbabilityDelta\.negative\s*\{[^}]*repeating-linear-gradient/s);
+});
+
+test('the Game Tools box is hidden in the lobby but remains available in game', () => {
+  assert.match(appJs, /ui\.toolsCard\.classList\.toggle\('hidden', !inGame\)/);
+  assert.match(appJs, /ui\.toolsCard\.classList\.add\('hudBar', 'hudTopLeft'\)/);
 });
 
 test('development-card summaries use full-color game artwork and retain focus controls', () => {
@@ -34,4 +42,3 @@ test('development-card summaries use full-color game artwork and retain focus co
   assert.match(appJs, /typeGrid\.className = 'pgDevTypeGrid'/);
   assert.doesNotMatch(stylesCss, /\.pgOverviewMetricIcon img\s*\{[^}]*brightness\(0\)/s);
 });
-
