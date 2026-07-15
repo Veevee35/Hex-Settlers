@@ -28,6 +28,7 @@ const {
 const {
   DEFAULT_RULES,
   bankMaxForRules,
+  microActionDurationMs,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,
   seafarersExplorationPointsEnabled,
@@ -1428,7 +1429,7 @@ function awardFogDiscovery(game, playerId, tileId) {
     }
 
     game.special = { kind: 'discovery_gold', id: game.discoverySeq++, forPlayerId: playerId, tileId };
-    game.message = `Gold Field discovered. ${playerName(game, playerId)} must choose a resource.`;
+    game.message = `Gold Field discovered. ${playerName(game, playerId)} has ${microActionSeconds(game)} seconds to choose a resource.`;
     pushLog(game, `${playerName(game, playerId)} discovered a Gold Field.`, 'discover', { tileId, tileType: 'gold' });
     return { kind: 'gold' };
   }
@@ -2212,6 +2213,12 @@ function isPairedTurnPlayerTwoStage(game) {
 
 function timerSegmentKey(game) {
   if (!game) return '';
+  // Fog discovery can interrupt setup or main actions without changing the phase.
+  // Include the prompt/player id so the choice gets its own micro-action timer.
+  if (game.special?.kind === 'discovery_gold') {
+    const sp = game.special;
+    return `discovery-gold:${sp.forPlayerId || ''}:${Number(sp.id || 0)}`;
+  }
   // Main-actions can occur twice in a paired turn (P1 then P2) without changing phase.
   // Include stage/current player so P2 always gets a fresh timer.
   if (game.phase === 'main-actions') {
@@ -2219,7 +2226,7 @@ function timerSegmentKey(game) {
     return `main-actions:${game.currentPlayerId || ''}:${stage}`;
   }
   // Gold Field production uses the same phase for multiple sequential players.
-  // Include the prompt/player id so each chooser gets a fresh 10-second timer.
+  // Include the prompt/player id so each chooser gets a fresh micro-action timer.
   if (game.phase === 'production-gold') {
     const sp = game.special || {};
     return `production-gold:${sp.forPlayerId || ''}:${Number(sp.id || 0)}`;
@@ -2229,7 +2236,8 @@ function timerSegmentKey(game) {
 
 function phaseDurationMs(game, phase) {
   const rules = game?.rules || DEFAULT_RULES;
-  const micro = (rules.microPhaseMs ?? rules.microMs ?? DEFAULT_RULES.microMs);
+  const micro = microActionDurationMs(rules);
+  if (game?.special?.kind === 'discovery_gold') return micro;
   switch (phase) {
     case 'cartographer-draft':
       return rules.setupTurnMs;
@@ -2245,7 +2253,7 @@ function phaseDurationMs(game, phase) {
       if (isPairedTurnPlayerTwoStage(game)) return 30_000;
       return rules.playTurnMs;
     case 'production-gold':
-      return 10_000;
+      return micro;
     case 'discard':
       return micro;
     case 'pirate-or-robber':
@@ -2261,6 +2269,10 @@ function phaseDurationMs(game, phase) {
     default:
       return 0;
   }
+}
+
+function microActionSeconds(game) {
+  return Math.max(1, Math.ceil(microActionDurationMs(game?.rules) / 1000));
 }
 
 function syncTimer(game) {
@@ -6540,7 +6552,7 @@ if (kind === 'choose_production_gold') {
     sp.amount = Math.max(1, Math.floor(Number(next.amount || 1)));
     sp.tileIds = Array.isArray(next.tileIds) ? next.tileIds.slice() : [];
     sp.id = (game.discoverySeq = (game.discoverySeq || 1), game.discoverySeq++);
-    game.message = `${playerName(game, sp.forPlayerId)} has 10 seconds to choose ${sp.amount} resource${sp.amount === 1 ? '' : 's'} for Gold Field production (roll ${sp.roll}).`;
+    game.message = `${playerName(game, sp.forPlayerId)} has ${microActionSeconds(game)} seconds to choose ${sp.amount} resource${sp.amount === 1 ? '' : 's'} for Gold Field production (roll ${sp.roll}).`;
     return { ok: true };
   }
 
@@ -6612,7 +6624,7 @@ if (kind === 'choose_production_gold') {
 
       if (game.special && game.special.kind === 'production_gold' && game.special.forPlayerId) {
         game.phase = 'production-gold';
-        game.message = `${playerName(game, playerId)} rolled ${roll}. ${playerName(game, game.special.forPlayerId)} has 10 seconds to choose ${game.special.amount} resource${game.special.amount === 1 ? '' : 's'} from Gold Field production.`;
+        game.message = `${playerName(game, playerId)} rolled ${roll}. ${playerName(game, game.special.forPlayerId)} has ${microActionSeconds(game)} seconds to choose ${game.special.amount} resource${game.special.amount === 1 ? '' : 's'} from Gold Field production.`;
       } else {
         game.phase = 'main-actions';
         game.message = `${playerName(game, playerId)} rolled ${roll}. Build or end turn.`;
@@ -9510,6 +9522,19 @@ function handleTimeout(room) {
     playerId: playerId || null,
   }, fn);
 
+  // Fog Island Gold Field discovery gets the same standalone micro-action timer
+  // as other short choices, even though it does not change the current phase.
+  if (game.special?.kind === 'discovery_gold' && game.special.forPlayerId) {
+    const pid = game.special.forPlayerId;
+    const resourceKind = randomGoldChoicesFromBank(game, 1)[0];
+    const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'choose_discovery', resourceKind }));
+    if (r && r.ok) {
+      syncTimer(game);
+      return true;
+    }
+    return false;
+  }
+
   // Cartographer manual draft auto-placement (timeout)
   if (phase === 'cartographer-draft') {
     const pid = game.currentPlayerId;
@@ -9600,7 +9625,7 @@ function handleTimeout(room) {
     return true;
   }
 
-  // Auto-resolve timed Gold Field production choices (10s each, outside the roller's turn clock).
+  // Auto-resolve timed Gold Field production choices (one micro-action timer each).
   if (phase === 'production-gold') {
     const sp = game.special;
     if (!(sp && sp.kind === 'production_gold' && sp.forPlayerId)) {

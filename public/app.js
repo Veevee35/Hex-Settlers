@@ -8418,7 +8418,8 @@ function updateTimerInfo() {
     return;
   }
   const phaseKey = String((state && state.phase) || '');
-  const phaseLabel = (phaseKey === 'production-gold') ? 'gold choice' : phaseKey;
+  const isGoldChoice = phaseKey === 'production-gold' || (state && state.special && state.special.kind === 'discovery_gold');
+  const phaseLabel = isGoldChoice ? 'gold choice' : phaseKey;
   const left = timerSecondsLeft();
   const sec = left == null ? '—' : String(Math.ceil(left));
   ui.timerInfo.classList.remove('hidden');
@@ -8430,7 +8431,7 @@ function updateTimerInfo() {
     const timeEl = ui.countdownClock.querySelector('.clockTime');
     const metaEl = ui.countdownClock.querySelector('.clockMeta');
     if (timeEl) timeEl.textContent = formatClock(left);
-    const timedPlayerId = (phaseKey === 'production-gold' && state && state.special && state.special.kind === 'production_gold' && state.special.forPlayerId)
+    const timedPlayerId = (isGoldChoice && state && state.special && state.special.forPlayerId)
       ? state.special.forPlayerId
       : state.currentPlayerId;
     const who = (state.players || []).find(p => p.id === timedPlayerId)?.name || '—';
@@ -8444,7 +8445,7 @@ function updateTimerInfo() {
     } catch (_) {}
     const timerStatus = state.paused
       ? 'Paused'
-      : (phaseKey === 'production-gold' ? 'Gold choice' : 'Turn');
+      : (isGoldChoice ? 'Gold choice' : 'Turn');
     const meta = `${timerStatus}: ${who}${pairTag} · ${phaseLabel}`;
     if (metaEl) metaEl.textContent = meta;
   }
@@ -10211,6 +10212,12 @@ function handlePirateStealPrompt() {
 
 let lastDiscoveryGoldPromptId = 0;
 
+function configuredMicroActionSeconds() {
+  const rules = (state && state.rules) || {};
+  const ms = Number(rules.microPhaseMs ?? rules.microMs ?? 15000);
+  return Math.max(1, Math.ceil((Number.isFinite(ms) ? ms : 15000) / 1000));
+}
+
 function handleDiscoveryGoldPrompt() {
   if (!state || !myPlayerId) return;
   const sp = state.special;
@@ -10231,6 +10238,13 @@ function handleDiscoveryGoldPrompt() {
   top.style.marginBottom = '10px';
   top.textContent = 'Gold Field discovered! Choose 1 resource to take from the bank:';
   wrap.appendChild(top);
+
+  const sub = document.createElement('div');
+  sub.style.opacity = '0.85';
+  sub.style.fontSize = '12px';
+  sub.style.marginBottom = '10px';
+  sub.textContent = `You have ${configuredMicroActionSeconds()} seconds before the game auto-picks.`;
+  wrap.appendChild(sub);
 
   const row = document.createElement('div');
   row.style.display = 'flex';
@@ -10293,8 +10307,8 @@ function handleProductionGoldPrompt() {
   sub.style.fontSize = '12px';
   sub.style.marginBottom = '10px';
   sub.textContent = (sp.roll != null)
-    ? `Triggered by roll ${sp.roll}. You have 10 seconds before the game auto-picks.`
-    : 'You have 10 seconds before the game auto-picks.';
+    ? `Triggered by roll ${sp.roll}. You have ${configuredMicroActionSeconds()} seconds before the game auto-picks.`
+    : `You have ${configuredMicroActionSeconds()} seconds before the game auto-picks.`;
   wrap.appendChild(sub);
 
   const picksLabel = document.createElement('div');

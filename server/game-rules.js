@@ -54,6 +54,12 @@ function seafarersDesertsSeparateLandMasses(rules) {
     scenario === 'test_builder' || scenario === 'test_builder_56';
 }
 
+function microActionDurationMs(rules) {
+  const raw = Number(rules?.microPhaseMs ?? rules?.microMs ?? DEFAULT_RULES.microMs);
+  if (!Number.isFinite(raw)) return DEFAULT_RULES.microMs;
+  return Math.max(5_000, Math.min(300_000, Math.floor(raw)));
+}
+
 function bankMaxForRules(rules) {
   const custom = Math.floor(Number(rules && (rules.baseResourcesPerType ?? rules.baseResourceCount)));
   if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
@@ -70,6 +76,7 @@ module.exports = {
   bankMaxForRules,
   isClassic56MapModeRaw,
   isSeafarers56Scenario,
+  microActionDurationMs,
   normalizedMapModeRaw,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,

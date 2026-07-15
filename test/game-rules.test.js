@@ -5,6 +5,7 @@ const test = require('node:test');
 const {
   DEFAULT_RULES,
   bankMaxForRules,
+  microActionDurationMs,
   normalizedMapModeRaw,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,
@@ -24,6 +25,14 @@ test('default rules preserve the established game defaults', () => {
     victoryPointsToWin: 10,
     devDeckMode: 25,
   });
+});
+
+test('micro actions use the configured timer, with 15 seconds on Normal', () => {
+  assert.equal(microActionDurationMs(DEFAULT_RULES), 15_000);
+  assert.equal(microActionDurationMs({ microPhaseMs: 7_500 }), 7_500);
+  assert.equal(microActionDurationMs({ microPhaseMs: 30_000 }), 30_000);
+  assert.equal(microActionDurationMs({ microMs: 15_000 }), 15_000);
+  assert.equal(microActionDurationMs({ microPhaseMs: 'invalid' }), 15_000);
 });
 
 test('bank sizing keeps classic, 5-6 player, seafarers, and custom behavior', () => {
