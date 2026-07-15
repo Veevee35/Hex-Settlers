@@ -12,6 +12,7 @@ const DEFAULT_RULES = Object.freeze({
   mapMode: 'classic',
   seafarersScenario: 'four_islands',
   explorationPointsEnabled: true,
+  friendlyRobber: false,
   victoryPointsToWin: 10,
   devDeckMode: 25,
 });

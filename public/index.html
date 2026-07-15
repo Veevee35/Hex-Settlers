@@ -140,6 +140,13 @@
           <label class="label">Discard limit</label>
           <input id="discardLimitInput" class="input" type="number" min="3" max="30" value="7" />
 
+          <label class="label">Robber rules</label>
+          <label class="row" style="justify-content:flex-start; gap:10px; cursor:pointer;">
+            <input id="friendlyRobberToggle" type="checkbox" />
+            <span>Friendly Robber mode</span>
+          </label>
+          <div class="smallNote">Prevents the robber from being placed on any tile beside an active player with 2 victory points or fewer.</div>
+
           <label class="label">Timer speed</label>
           <select id="timerSpeedSelect" class="input">
             <option value="fast">Fast (½ time)</option>

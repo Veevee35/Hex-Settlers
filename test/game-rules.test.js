@@ -22,6 +22,7 @@ test('default rules preserve the established game defaults', () => {
     mapMode: 'classic',
     seafarersScenario: 'four_islands',
     explorationPointsEnabled: true,
+    friendlyRobber: false,
     victoryPointsToWin: 10,
     devDeckMode: 25,
   });

@@ -39,6 +39,7 @@ const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = re
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
+const { friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 const { edgeTouchesSeaForShip } = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
@@ -6684,17 +6685,27 @@ if (kind === 'choose_production_gold') {
 
   if (kind === 'move_robber') {
     if (game.phase !== 'robber-move' && game.phase !== 'pirate-or-robber') return { ok: false, error: 'Not moving robber now.' };
+    if (game.phase === 'pirate-or-robber' && (game.rules?.mapMode || 'classic') !== 'seafarers') {
+      return { ok: false, error: 'Pirate/robber choice is only available in Seafarers mode.' };
+    }
+    const rawTileId = Number(action.tileId);
+    if (!Number.isFinite(rawTileId)) return { ok: false, error: 'Bad tile.' };
+    const tileId = Math.floor(rawTileId);
+    const tt = game.geom.tiles?.[tileId];
+    if (!tt) return { ok: false, error: 'Bad tile.' };
+    if (tt.type === 'sea') return { ok: false, error: 'Robber cannot be placed on the sea.' };
+    const current = getRobberTileId(game);
+    if (current != null && tileId === current) return { ok: false, error: 'Robber must move to a different tile.' };
+    const protectedIds = friendlyRobberProtectedPlayerIds(game, tileId);
+    if (protectedIds.length > 0) {
+      const protectedNames = protectedIds.map((id) => playerName(game, id)).join(', ');
+      return { ok: false, error: `Friendly Robber protects this tile because ${protectedNames} ${protectedIds.length === 1 ? 'has' : 'have'} 2 VP or fewer.` };
+    }
     if (game.phase === 'pirate-or-robber') {
-      if ((game.rules?.mapMode || 'classic') !== 'seafarers') return { ok: false, error: 'Pirate/robber choice is only available in Seafarers mode.' };
-      // Implicit choice (no separate choose step)
+      // Commit the implicit choice only after validating the destination.
       game.thiefChoice = null;
       pushLog(game, `${playerName(game, playerId)} chose to move the robber.`, 'info');
     }
-    const tileId = action.tileId;
-    const tt = game.geom.tiles?.[tileId];
-    if (tt && tt.type === 'sea') return { ok: false, error: 'Robber cannot be placed on the sea.' };
-    const current = getRobberTileId(game);
-    if (current != null && tileId === current) return { ok: false, error: 'Robber must move to a different tile.' };
     if (!setRobber(game, tileId)) return { ok: false, error: 'Bad tile.' };
 
     const tileInfo = game.geom.tiles[tileId];
@@ -9032,6 +9043,12 @@ if (msg.type === 'create_room') {
         next.explorationPointsEnabled = true;
       }
 
+      if (typeof r.friendlyRobber === 'boolean') {
+        next.friendlyRobber = r.friendlyRobber;
+      } else if (typeof next.friendlyRobber !== 'boolean') {
+        next.friendlyRobber = false;
+      }
+
       const mm = String(r.mapMode ?? next.mapMode ?? 'classic').toLowerCase();
       next.mapMode = (mm === 'seafarers') ? 'seafarers'
         : (mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6')
@@ -9730,7 +9747,7 @@ function handleTimeout(room) {
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const t = game.geom.tiles[i];
       if (i === current) continue;
-      if (t.type === 'sea') continue;
+      if (!robberCanOccupyTile(game, i)) continue;
       cands.push(i);
     }
     const shuffled = shuffle(cands);
@@ -9755,7 +9772,7 @@ function handleTimeout(room) {
       if (!t) continue;
       if (pirateCanOccupyTile(game.rules, t, game.geom)) {
         if (i !== currentPirate) sea.push(i);
-      } else if (t.type !== 'sea' && i !== currentRobber) {
+      } else if (i !== currentRobber && robberCanOccupyTile(game, i)) {
         land.push(i);
       }
     }
@@ -10257,7 +10274,7 @@ function handleAI(room) {
       let action = { kind: 'play_dev_card', cardId: card.id };
       if (card.type === DEV_CARD_TYPES.VICTORY_POINT) score = 1_000;
       else if (card.type === DEV_CARD_TYPES.KNIGHT) {
-        const landIds = (game.geom.tiles || []).filter((tile) => tile && tile.type !== 'sea' && !tile.robber).map((tile) => tile.id);
+        const landIds = (game.geom.tiles || []).filter((tile) => tile && !tile.robber && robberCanOccupyTile(game, tile.id)).map((tile) => tile.id);
         const seaIds = isSeafarers ? (game.geom.tiles || []).filter((tile) => tile && tile.type === 'sea' && !tile.pirate).map((tile) => tile.id) : [];
         const robberBest = bestScoredTarget(landIds, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)).score;
         const pirateBest = bestScoredTarget(seaIds, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS)).score;
@@ -10799,7 +10816,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       const tt = game.geom.tiles[i];
       if (!tt) continue;
       if (pirateCanOccupyTile(game.rules, tt, game.geom)) { if (i !== curP) sea.push(i); }
-      else if (tt.type !== 'sea') { if (i !== curR) land.push(i); }
+      else if (i !== curR && robberCanOccupyTile(game, i)) land.push(i);
     }
     const robberTarget = bestScoredTarget(land, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
     const pirateTarget = bestScoredTarget(sea, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
@@ -10824,7 +10841,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       const tt = game.geom.tiles[i];
       if (!tt) continue;
       if (i === cur) continue;
-      if (tt.type === 'sea') continue;
+      if (!robberCanOccupyTile(game, i)) continue;
       cands.push(i);
     }
     const target = bestScoredTarget(cands, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));

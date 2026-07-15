@@ -72,6 +72,7 @@
     lobbyCard: $('lobbyCard'),
     setupCard: $('setupCard'),
     discardLimitInput: $('discardLimitInput'),
+    friendlyRobberToggle: $('friendlyRobberToggle'),
     timerSpeedSelect: $('timerSpeedSelect'),
     baseResourceCountSelect: $('baseResourceCountSelect'),
     mapModeSelect: $('mapModeSelect'),
@@ -6367,6 +6368,9 @@ function refreshLobbyJoinLinkUi() {
       seafarersScenario56: scenarioKey,
     }), 1, 40);
     const discardLimit = selectedInt(ui.discardLimitInput, 7, 3, 30);
+    const friendlyRobber = ui.friendlyRobberToggle
+      ? !!ui.friendlyRobberToggle.checked
+      : activeRules.friendlyRobber === true;
     const explorationPointsEnabled = ui.explorationPointsToggle
       ? !!ui.explorationPointsToggle.checked
       : activeRules.explorationPointsEnabled !== false;
@@ -6393,6 +6397,7 @@ function refreshLobbyJoinLinkUi() {
       victoryTarget,
       baseResources,
       discardLimit,
+      friendlyRobber,
       explorationPointsEnabled,
       devDeckSize,
       devDeckDescription,
@@ -6482,6 +6487,7 @@ function refreshLobbyJoinLinkUi() {
       ['Win target', `${guide.victoryTarget} VP`],
       ['Bank', `${guide.baseResources} of each resource`],
       ['Discard limit', String(guide.discardLimit)],
+      ['Friendly Robber', guide.friendlyRobber ? 'Enabled' : 'Disabled'],
       ...(guide.isSeafarers ? [['Exploration VP', guide.explorationPointsEnabled ? 'Enabled' : 'Disabled']] : []),
       ['Timers', `${guide.speedLabel}: ${guide.setupSeconds}s / ${guide.playSeconds}s / ${guide.microSeconds}s`],
       ['Dev deck', `${guide.devDeckSize} cards`],
@@ -6589,6 +6595,7 @@ function refreshLobbyJoinLinkUi() {
     const thieves = makeRulesGuideSection(ui.rulesPageContent, 'rules-thieves', guide.isSeafarers ? 'Robber and pirate' : 'Robber', guide.isSeafarers ? 'A 7 or Knight creates a choice between the land robber and sea pirate.' : 'The robber controls land production and stealing.');
     appendRulesGuideList(thieves, [
       'The robber must move to a different land tile. That tile produces nothing until the robber moves again.',
+      ...(guide.friendlyRobber ? ['Friendly Robber is enabled: the robber cannot move onto a tile beside an active player with 2 victory points or fewer.'] : []),
       'After moving the robber, choose an eligible opponent with a building beside the destination and steal 1 random resource if they have one.',
       ...(guide.isSeafarers ? [
         'The pirate must move to a different sea tile. It blocks building or moving ships on adjacent edges.',
@@ -7286,6 +7293,10 @@ function refreshLobbyJoinLinkUi() {
       ui.discardLimitInput.value = r.discardLimit ?? 7;
       ui.discardLimitInput.disabled = !isHost;
     }
+    if (ui.friendlyRobberToggle) {
+      ui.friendlyRobberToggle.checked = r.friendlyRobber === true;
+      ui.friendlyRobberToggle.disabled = !isHost;
+    }
     if (ui.timerSpeedSelect) {
       const factor = (r.setupTurnMs || 60000) / 60000;
       const preset = factor <= 0.75 ? 'fast' : (factor >= 1.5 ? 'slow' : 'normal');
@@ -7401,7 +7412,8 @@ function refreshLobbyJoinLinkUi() {
       const explorationLabel = (mmL === 'seafarers' || mmL === 'seafarers56')
         ? ` • Exploration VP: ${r.explorationPointsEnabled === false ? 'off' : 'on'}`
         : '';
-      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Discard limit: ${r.discardLimit ?? 7}${explorationLabel} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
+      const friendlyRobberLabel = ` • Friendly Robber: ${r.friendlyRobber === true ? 'on' : 'off'}`;
+      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Discard limit: ${r.discardLimit ?? 7}${friendlyRobberLabel}${explorationLabel} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
     const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
@@ -7628,6 +7640,7 @@ if (ui.copyMyIdBtn) {
       victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
       devDeckMode: (devDeckMode === 13 || devDeckMode === 25 || devDeckMode === 38) ? devDeckMode : undefined,
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
+      friendlyRobber: ui.friendlyRobberToggle ? !!ui.friendlyRobberToggle.checked : false,
       explorationPointsEnabled: ui.explorationPointsToggle ? !!ui.explorationPointsToggle.checked : true,
       // Only used if mapMode === 'seafarers'
       seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),
@@ -10674,6 +10687,33 @@ function handleProductionGoldPrompt() {
     return Array.from(set);
   }
 
+  function friendlyRobberProtectedPlayersForTileClient(tileId) {
+    if (!state || state.rules?.friendlyRobber !== true) return [];
+    const tile = state.geom?.tiles?.[tileId];
+    if (!tile) return [];
+    const protectedPlayers = new Map();
+    for (const nodeId of (tile.cornerNodeIds || [])) {
+      const building = state.geom?.nodes?.[nodeId]?.building;
+      if (!building || !building.owner) continue;
+      const player = (state.players || []).find((candidate) => candidate && candidate.id === building.owner);
+      if (!player || player.departed || Math.max(0, Number(player.vp || 0)) > 2) continue;
+      protectedPlayers.set(player.id, player);
+    }
+    return Array.from(protectedPlayers.values());
+  }
+
+  function friendlyRobberTileBlockedClient(tileId) {
+    return friendlyRobberProtectedPlayersForTileClient(tileId).length > 0;
+  }
+
+  function rejectFriendlyRobberTileClient(tileId) {
+    const protectedPlayers = friendlyRobberProtectedPlayersForTileClient(tileId);
+    if (!protectedPlayers.length) return false;
+    const names = protectedPlayers.map((player) => player.name || 'Player').join(', ');
+    setError(`Friendly Robber protects this tile because ${names} ${protectedPlayers.length === 1 ? 'has' : 'have'} 2 VP or fewer.`);
+    return true;
+  }
+
   // Click on board
   ui.canvas.addEventListener('click', (e) => {
     // Ignore delayed native click after synthetic mobile tap dispatch.
@@ -10771,6 +10811,7 @@ function handleProductionGoldPrompt() {
             setError('Robber must move to a different tile.');
             return;
           }
+          if (rejectFriendlyRobberTileClient(tid)) return;
           promptThiefMoveConfirm({ kind: 'move_robber', tileId: tid }, e.clientX, e.clientY);
         }
       }
@@ -10783,6 +10824,7 @@ function handleProductionGoldPrompt() {
           setError('Robber must move to a different tile.');
           return;
         }
+        if (rejectFriendlyRobberTileClient(tid)) return;
         promptThiefMoveConfirm({ kind: 'move_robber', tileId: tid }, e.clientX, e.clientY);
       }
       return;
@@ -11149,7 +11191,7 @@ function handleProductionGoldPrompt() {
 
       if (activePlayerThiefMove) {
         const isSeaTile = t.type === 'sea';
-        const canRobberHere = (!isSeaTile && !t.robber);
+        const canRobberHere = (!isSeaTile && !t.robber && !friendlyRobberTileBlockedClient(t.id));
         const canPirateHere = (isSeaTile && !(t.fog && !t.revealed) && !t.pirate);
         let showChoice = false;
         if (thiefHighlightPhase === 'pirate-or-robber') showChoice = (canRobberHere || canPirateHere);
