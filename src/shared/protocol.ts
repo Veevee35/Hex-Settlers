@@ -8,7 +8,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'query_ship_move_targets', 'rejoin_room', 'rematch_room', 'request_leave_game',
   'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning',
   'set_player_color', 'set_rules', 'set_spectator_mode', 'set_spectator_view', 'set_texture_pack',
-  'start_game', 'texture_pack_publish', 'trade_timer_pause',
+  'start_game', 'texture_pack_publish',
 ] as const;
 
 export type ClientMessageType = typeof CLIENT_MESSAGE_TYPES[number];

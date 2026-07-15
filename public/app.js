@@ -4454,7 +4454,6 @@ function syncPostgameToState() {
   let timerUiInterval = null;
   let modalLocked = false;
   let modalType = null;
-  let playerTradeTimerPauseRequested = false;
   let activeToolModal = null; // 'log' | 'dice' | 'chat'
   let chatRefs = null;
   let lastDiscardPromptId = 0;
@@ -4848,7 +4847,6 @@ function syncPostgameToState() {
   function endTurnWarnStateKey(st) {
     try {
       if (!st || st.paused) return '';
-      if (st.timerHold && typeof st.timerHold.remainingMs === 'number') return '';
       const t = st.timer;
       const endsAt = Number(t?.endsAt || 0);
       if (!t || !endsAt) return '';
@@ -5331,7 +5329,6 @@ function refreshLobbyJoinLinkUi() {
         room = msg.room;
         ensureStructureSpritesReady();
         isHost = !!(myPlayerId && room && room.hostId === myPlayerId);
-        if (modalType !== 'playerTradeCompose') playerTradeTimerPauseRequested = false;
         ui.roomBox.classList.remove('hidden');
         ui.roomCode.textContent = room.code;
         refreshLobbyJoinLinkUi();
@@ -5399,11 +5396,6 @@ function refreshLobbyJoinLinkUi() {
         const prevState = state;
         state = msg.state;
         syncEndTurnWarnAudioState(prevState, state);
-        try {
-          if (modalType !== 'playerTradeCompose' && playerTradeTimerPauseRequested) {
-            playerTradeTimerPauseRequested = false;
-          }
-        } catch (_) {}
         // Any state change should clear click-to-build UI and transient hover/confirm state.
         hideBuildPopup();
         hideNodeConfirmPopup();
@@ -5463,14 +5455,6 @@ function refreshLobbyJoinLinkUi() {
     }
     ws.send(JSON.stringify(obj));
   }
-
-  function setPlayerTradeTimerPause(active) {
-    const want = !!active;
-    if (playerTradeTimerPauseRequested === want) return;
-    playerTradeTimerPauseRequested = want;
-    send({ type: 'trade_timer_pause', active: want });
-  }
-
 
   // Paired-turn notification (Classic 5–6 & Seafarers 5–6): played only for the active paired player (Player 2).
   let lastPairedTurnKey = null;
@@ -5578,11 +5562,6 @@ function refreshLobbyJoinLinkUi() {
           send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: v.id, accept: false } });
         }
       }
-    } catch (_) {}
-
-    // Closing the player-trade compose modal should resume the turn timer.
-    try {
-      if (modalType === 'playerTradeCompose') setPlayerTradeTimerPause(false);
     } catch (_) {}
 
     ui.modal.classList.add('hidden');
@@ -7820,9 +7799,6 @@ function timerSecondsLeft() {
   if (state && state.paused && state.pause && typeof state.pause.remainingMs === 'number') {
     return Math.max(0, Number(state.pause.remainingMs) / 1000);
   }
-  if (state && state.timerHold && typeof state.timerHold.remainingMs === 'number') {
-    return Math.max(0, Number(state.timerHold.remainingMs) / 1000);
-  }
   const t = state && state.timer;
   if (!t || !t.endsAt) return null;
   const left = (Number(t.endsAt) - serverNowMs()) / 1000;
@@ -7852,8 +7828,7 @@ function updateTimerInfo() {
   const left = timerSecondsLeft();
   const sec = left == null ? '—' : String(Math.ceil(left));
   ui.timerInfo.classList.remove('hidden');
-  const timerHeld = !!(state && state.timerHold && typeof state.timerHold.remainingMs === 'number');
-  ui.timerInfo.textContent = `${(state.paused || timerHeld) ? '⏸' : '⏱'} ${sec}s · ${phaseLabel}`;
+  ui.timerInfo.textContent = `${state.paused ? '⏸' : '⏱'} ${sec}s · ${phaseLabel}`;
 
   // Right-side clock (all players)
   if (ui.countdownClock) {
@@ -7873,10 +7848,9 @@ function updateTimerInfo() {
         pairTag = ` · ${state.paired.stage === 'p2' ? 'P2' : 'P1'}`;
       }
     } catch (_) {}
-    const timerHeld = !!(state && state.timerHold && typeof state.timerHold.remainingMs === 'number');
     const timerStatus = state.paused
       ? 'Paused'
-      : (timerHeld ? 'Trade paused' : (phaseKey === 'production-gold' ? 'Gold choice' : 'Turn'));
+      : (phaseKey === 'production-gold' ? 'Gold choice' : 'Turn');
     const meta = `${timerStatus}: ${who}${pairTag} · ${phaseLabel}`;
     if (metaEl) metaEl.textContent = meta;
   }
@@ -9121,7 +9095,6 @@ if (ui.moveShipBtn) {
     }
 
     modalType = 'playerTradeCompose';
-    setPlayerTradeTimerPause(true);
     openModal({
       title: reviseOfTradeId ? 'Revise Trade' : 'Player Trade',
       bodyNode: wrap,
