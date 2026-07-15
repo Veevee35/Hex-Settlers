@@ -1012,12 +1012,25 @@
     return payload;
   }
 
+  function scheduleWebsocketReconnect(delayMs) {
+    if (websocketReconnectTimer !== null) clearTimeout(websocketReconnectTimer);
+    const delay = Math.max(0, Number(delayMs) || 0);
+    websocketReconnectTimer = setTimeout(() => {
+      websocketReconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
   function reconnectForCookieAuth() {
     websocketReconnectDelayMs = 0;
+    const activeSocket = ws;
+    // Retire this socket before opening its replacement. Its eventual close
+    // event must not schedule a second connection and start a reconnect loop.
+    ws = null;
     try {
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
-      else connect();
-    } catch (_) { connect(); }
+      if (activeSocket && (activeSocket.readyState === WebSocket.OPEN || activeSocket.readyState === WebSocket.CONNECTING)) activeSocket.close();
+    } catch (_) {}
+    scheduleWebsocketReconnect(0);
   }
 
   async function authenticateInBrowser(action, credentials) {
@@ -4410,6 +4423,7 @@ function syncPostgameToState() {
   // Networking
   let ws = null;
   let websocketReconnectDelayMs = 1200;
+  let websocketReconnectTimer = null;
   let myPlayerId = null;
   let room = null;
   let state = null;
@@ -5092,11 +5106,22 @@ function refreshLobbyJoinLinkUi() {
 
 
   function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    if (websocketReconnectTimer !== null) {
+      clearTimeout(websocketReconnectTimer);
+      websocketReconnectTimer = null;
+    }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws`;
-    ws = new WebSocket(url);
+    const socket = new WebSocket(url);
+    ws = socket;
 
-    ws.addEventListener('open', () => {
+    socket.addEventListener('open', () => {
+      if (ws !== socket) {
+        try { socket.close(); } catch (_) {}
+        return;
+      }
+      websocketReconnectDelayMs = 1200;
       setConn(true, 'Connected');
       setError(null);
       // Migrate older localStorage sessions into an HTTP-only cookie. The
@@ -5116,15 +5141,17 @@ function refreshLobbyJoinLinkUi() {
       }
     });
 
-    ws.addEventListener('close', () => {
+    socket.addEventListener('close', () => {
+      if (ws !== socket) return;
+      ws = null;
       setConn(false, 'Disconnected');
-      // simple retry
       const delay = websocketReconnectDelayMs;
       websocketReconnectDelayMs = 1200;
-      setTimeout(connect, delay);
+      scheduleWebsocketReconnect(delay);
     });
 
-    ws.addEventListener('message', (ev) => {
+    socket.addEventListener('message', (ev) => {
+      if (ws !== socket) return;
       let msg = null;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (!msg || !msg.type) return;
@@ -5492,7 +5519,10 @@ function refreshLobbyJoinLinkUi() {
       setError('Exit the replay before changing the live game.');
       return;
     }
-    ws.send(JSON.stringify(obj));
+    try { ws.send(JSON.stringify(obj)); }
+    catch (_) {
+      try { ws.close(); } catch (_) {}
+    }
   }
 
   // Paired-turn notification (Classic 5–6 & Seafarers 5–6): played only for the active paired player (Player 2).
@@ -8533,7 +8563,9 @@ function ensureTimerUiInterval() {
 
     const paused = inGame && !!(state && state.paused);
 
-    if (paused) {
+    // Lobby room messages can arrive before their preview state. Keep every
+    // action disabled until state is available instead of reading through null.
+    if (!inGame || paused) {
       ui.rollBtn.disabled = true;
       ui.endBtn.disabled = true;
       if (ui.rollDockBtn) ui.rollDockBtn.disabled = true;

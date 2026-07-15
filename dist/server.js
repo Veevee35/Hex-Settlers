@@ -32,14 +32,6 @@ function ensurePathExists(label, p) {
         throw new Error(`[bootstrap] Missing ${label}: ${p}`);
     }
 }
-function installProcessGuards() {
-    process.on('uncaughtException', (err) => {
-        console.error('[bootstrap] uncaughtException', err);
-    });
-    process.on('unhandledRejection', (reason) => {
-        console.error('[bootstrap] unhandledRejection', reason);
-    });
-}
 function configureRailwayEnv() {
     const port = asInt('PORT', 3000, 1, 65535);
     const host = (process.env.HOST || '0.0.0.0').trim() || '0.0.0.0';
@@ -67,7 +59,6 @@ function logStartupBanner() {
 }
 function main() {
     configureRailwayEnv();
-    installProcessGuards();
     verifyProjectLayout();
     logStartupBanner();
     // Hand off to the full legacy implementation (all current features/assets preserved).

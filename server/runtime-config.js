@@ -64,6 +64,7 @@ function runtimeConfig(env = process.env) {
     authAttemptsPerMinute: integerEnv(env, 'HEX_AUTH_ATTEMPTS_PER_MINUTE', 12, 2, 120),
     allowedOrigins: commaSeparatedSet(env.HEX_ALLOWED_ORIGINS),
     trustProxy: booleanEnv(env, 'HEX_TRUST_PROXY', !!env.RAILWAY_ENVIRONMENT),
+    verboseLogging: booleanEnv(env, 'HEX_LOG_VERBOSE', false),
   });
 }
 

@@ -30,19 +30,36 @@ function clearSessionCookie({ secure = false } = {}) { return sessionCookie('', 
 
 function readJsonBody(request, maxBytes = 16 * 1024) {
   return new Promise((resolve, reject) => {
-    let total = 0; let tooLarge = false; const chunks = [];
+    let total = 0; let tooLarge = false; let settled = false; const chunks = [];
+    const resolveOnce = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const rejectOnce = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
     request.on('data', (chunk) => {
+      if (settled) return;
       total += chunk.length;
       if (total > maxBytes) { tooLarge = true; chunks.length = 0; return; }
       if (!tooLarge) chunks.push(chunk);
     });
     request.on('end', () => {
-      if (tooLarge) { const error = new Error('Request body is too large.'); error.statusCode = 413; reject(error); return; }
-      if (!chunks.length) return resolve({});
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-      catch (_) { const error = new Error('Invalid JSON body.'); error.statusCode = 400; reject(error); }
+      if (settled) return;
+      if (tooLarge) { const error = new Error('Request body is too large.'); error.statusCode = 413; rejectOnce(error); return; }
+      if (!chunks.length) return resolveOnce({});
+      try { resolveOnce(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch (_) { const error = new Error('Invalid JSON body.'); error.statusCode = 400; rejectOnce(error); }
     });
-    request.on('error', reject);
+    request.on('aborted', () => {
+      const error = new Error('Request was aborted.');
+      error.statusCode = 400;
+      rejectOnce(error);
+    });
+    request.on('error', rejectOnce);
   });
 }
 

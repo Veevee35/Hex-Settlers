@@ -40,4 +40,11 @@ test('JSON body reader parses valid data and rejects invalid or oversized bodies
   large.emit('data', Buffer.from('123'));
   large.emit('end');
   await assert.rejects(pendingLarge, (error) => error.statusCode === 413);
+
+  const aborted = new EventEmitter();
+  const pendingAborted = readJsonBody(aborted, 64);
+  aborted.emit('data', Buffer.from('{"name":'));
+  aborted.emit('aborted');
+  aborted.emit('end');
+  await assert.rejects(pendingAborted, (error) => error.statusCode === 400 && /aborted/i.test(error.message));
 });

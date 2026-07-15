@@ -7723,6 +7723,7 @@ function createRoom(hostUserId, hostName) {
     code,
     hostId,
     createdAt: now(),
+    lastActiveAt: now(),
     players: [{
       id: hostId,
       name: safeName,
@@ -7794,6 +7795,7 @@ function createRematchRoomFrom(prevRoom) {
     code,
     hostId: finalHostId,
     createdAt: now(),
+    lastActiveAt: now(),
     players,
     spectators,
     sockets: new Map(),
@@ -8025,6 +8027,7 @@ function roomSnapshot(room) {
 }
 
 function broadcastRoom(room) {
+  room.lastActiveAt = now();
   const snap = roomSnapshot(room);
   for (const [pid, ws] of room.sockets.entries()) {
     if (ws.readyState === WebSocket.OPEN) sendJson(ws, { type: 'room', room: snap });
@@ -8129,6 +8132,7 @@ function stateForRoomSocket(room, ws, memberId) {
 
 function broadcastState(room) {
   if (!room.game) return;
+  room.lastActiveAt = now();
   clearLegacyTradeTimerPause(room.game);
   syncTimer(room.game);
 
@@ -8146,7 +8150,8 @@ function cleanupRooms() {
   let changed = false;
   for (const [code, room] of rooms.entries()) {
     const anyOpen = Array.from(room.sockets.values()).some(ws => ws.readyState === WebSocket.OPEN);
-    if (!anyOpen && room.createdAt < cutoff) {
+    const lastActiveAt = Math.max(Number(room.createdAt || 0), Number(room.lastActiveAt || 0));
+    if (!anyOpen && lastActiveAt < cutoff) {
       rooms.delete(code);
       changed = true;
     }
@@ -8162,6 +8167,7 @@ const passwordAuthLimiter = new SlidingWindowRateLimiter({
 });
 
 function activateAuthenticatedSocket(ws, user) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !user) return false;
   const prev = userSockets.get(user.id);
   if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
     sendJson(prev, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
@@ -8171,6 +8177,7 @@ function activateAuthenticatedSocket(ws, user) {
   ws._userId = user.id;
   ws._username = user.username;
   ws._authed = true;
+  return true;
 }
 
 function revokeAuthToken(user, token) {
@@ -8330,8 +8337,23 @@ const server = http.createServer(async (req, res) => {
         headers['Pragma'] = 'no-cache';
         headers['Expires'] = '0';
       }
-      res.writeHead(200, headers);
-      fs.createReadStream(filePath).pipe(res);
+      const stream = fs.createReadStream(filePath);
+      stream.on('open', () => {
+        if (res.destroyed) {
+          stream.destroy();
+          return;
+        }
+        res.writeHead(200, headers);
+        stream.pipe(res);
+      });
+      stream.on('error', (error) => {
+        if (!res.headersSent) {
+          res.writeHead(error && error.code === 'ENOENT' ? 404 : 500);
+          res.end(error && error.code === 'ENOENT' ? 'Not found' : 'Server error');
+        } else {
+          res.destroy(error);
+        }
+      });
     });
   } catch (e) {
     res.writeHead(500);
@@ -8367,11 +8389,18 @@ wss.on('connection', (ws, req) => {
 
   const cookieToken = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
   const cookieUser = authenticateByToken(cookieToken);
-  if (cookieUser) {
-    activateAuthenticatedSocket(ws, cookieUser);
+  if (cookieUser && activateAuthenticatedSocket(ws, cookieUser)) {
     sendJson(ws, { type: 'auth_ok', user: safeUserPublic(cookieUser), token: null, cookieAuth: true });
     saveUsersDb();
   }
+
+  // A transport error should close only this peer. Without an error listener,
+  // EventEmitter would promote routine connection failures into process errors.
+  ws.on('error', (error) => {
+    if (APP_CONFIG.verboseLogging) {
+      console.warn('[ws] Connection error:', error && error.message ? error.message : error);
+    }
+  });
 
   ws.on('message', async (data) => {
     try {
@@ -8401,7 +8430,7 @@ wss.on('connection', (ws, req) => {
       const token = issueAuthToken(user);
       await saveUsersDb();
       passwordAuthLimiter.clear(ws._clientAddress);
-      activateAuthenticatedSocket(ws, user);
+      if (!activateAuthenticatedSocket(ws, user)) return;
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token });
       return;
@@ -8423,7 +8452,7 @@ wss.on('connection', (ws, req) => {
       const token = issueAuthToken(user);
       await saveUsersDb();
       passwordAuthLimiter.clear(ws._clientAddress);
-      activateAuthenticatedSocket(ws, user);
+      if (!activateAuthenticatedSocket(ws, user)) return;
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token });
       return;
@@ -8432,7 +8461,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'auth_token') {
       const user = authenticateByToken(msg.token);
       if (!user) { sendJson(ws, { type: 'auth_required' }); return; }
-      activateAuthenticatedSocket(ws, user);
+      if (!activateAuthenticatedSocket(ws, user)) return;
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token: String(msg.token || '').trim() });
       saveUsersDb();
@@ -11049,7 +11078,7 @@ function expertAiVpGainWeightForSeat(game, pid, tuning) {
   return Number(tuning?.vpGainWeight || EXPERT_AI_TUNING_DEFAULTS.vpGainWeight);
 }
 
-setInterval(() => {
+const aiTickInterval = setInterval(() => {
   for (const room of rooms.values()) {
     if (!room.game) continue;
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
@@ -11061,7 +11090,7 @@ setInterval(() => {
 
 // Robustness: while an end-game vote is active, periodically rebroadcast state so
 // clients that were busy in another modal or temporarily stalled still receive it.
-setInterval(() => {
+const endVoteRebroadcastInterval = setInterval(() => {
   for (const room of rooms.values()) {
     const g = room && room.game;
     if (!g || g.phase === 'lobby' || g.phase === 'game-over') continue;
@@ -11073,14 +11102,20 @@ setInterval(() => {
   }
 }, 250);
 
-setInterval(cleanupRooms, 60_000);
-setInterval(() => passwordAuthLimiter.cleanup(), 60_000);
+const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
+const authLimiterCleanupInterval = setInterval(() => passwordAuthLimiter.cleanup(), 60_000);
 
 let shuttingDown = false;
+let shutdownExitCode = 0;
 
-async function gracefulShutdown() {
+async function gracefulShutdown(exitCode = 0) {
+  shutdownExitCode = Math.max(shutdownExitCode, Number(exitCode) === 0 ? 0 : 1);
   if (shuttingDown) return;
   shuttingDown = true;
+
+  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
+    clearInterval(interval);
+  }
 
   for (const client of wss.clients) {
     try { client.close(1001, 'Server shutting down'); } catch (_) {}
@@ -11098,17 +11133,32 @@ async function gracefulShutdown() {
   ]);
 
   await Promise.race([
-    new Promise((resolve) => server.close(resolve)),
+    new Promise((resolve) => {
+      if (!server.listening) { resolve(); return; }
+      server.close(() => resolve());
+    }),
     new Promise((resolve) => setTimeout(resolve, 2_000)),
   ]);
-  process.exit(0);
+  process.exit(shutdownExitCode);
 }
 
-process.on('SIGINT', gracefulShutdown);
-process.on('SIGTERM', gracefulShutdown);
+function fatalShutdown(kind, error) {
+  console.error(`[server] ${kind}:`, error && error.stack ? error.stack : error);
+  gracefulShutdown(1).catch((shutdownError) => {
+    console.error('[server] Fatal shutdown failed:', shutdownError);
+    process.exit(1);
+  });
+}
+
+process.on('SIGINT', () => { void gracefulShutdown(0); });
+process.on('SIGTERM', () => { void gracefulShutdown(0); });
 process.on('message', (message) => {
-  if (message && message.type === 'shutdown') gracefulShutdown();
+  if (message && message.type === 'shutdown') void gracefulShutdown(0);
 });
+process.on('uncaughtException', (error) => fatalShutdown('Uncaught exception', error));
+process.on('unhandledRejection', (error) => fatalShutdown('Unhandled rejection', error));
+server.on('error', (error) => fatalShutdown('HTTP server error', error));
+wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 
 server.listen(PORT, HOST, () => {
   console.log(`Hex Settlers server running on http://${HOST}:${PORT}`);

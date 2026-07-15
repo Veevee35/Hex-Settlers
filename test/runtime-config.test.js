@@ -5,11 +5,12 @@ const test = require('node:test');
 const { clientAddress, isAllowedWebSocketOrigin, runtimeConfig, securityHeaders } = require('../server/runtime-config');
 
 test('runtime config validates environment values and Railway proxy defaults', () => {
-  const config = runtimeConfig({ PORT: '4123', HOST: '127.0.0.1', HEX_WS_MAX_PAYLOAD: '999', RAILWAY_ENVIRONMENT: 'production' });
+  const config = runtimeConfig({ PORT: '4123', HOST: '127.0.0.1', HEX_WS_MAX_PAYLOAD: '999', HEX_LOG_VERBOSE: 'true', RAILWAY_ENVIRONMENT: 'production' });
   assert.equal(config.port, 4123);
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.wsMaxPayloadBytes, 48 * 1024 * 1024);
   assert.equal(config.trustProxy, true);
+  assert.equal(config.verboseLogging, true);
 });
 
 test('origin checking allows same-host or explicitly configured origins', () => {

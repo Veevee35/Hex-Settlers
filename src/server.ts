@@ -38,15 +38,6 @@ function ensurePathExists(label: string, p: string): void {
   }
 }
 
-function installProcessGuards(): void {
-  process.on('uncaughtException', (err: unknown) => {
-    console.error('[bootstrap] uncaughtException', err);
-  });
-  process.on('unhandledRejection', (reason: unknown) => {
-    console.error('[bootstrap] unhandledRejection', reason);
-  });
-}
-
 function configureRailwayEnv(): void {
   const port = asInt('PORT', 3000, 1, 65535);
   const host = ((process.env as Env).HOST || '0.0.0.0').trim() || '0.0.0.0';
@@ -79,7 +70,6 @@ function logStartupBanner(): void {
 
 function main(): void {
   configureRailwayEnv();
-  installProcessGuards();
   verifyProjectLayout();
   logStartupBanner();
 
