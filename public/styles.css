@@ -1246,6 +1246,19 @@ select.input{
   object-fit:contain;
   filter:drop-shadow(0 2px 4px rgba(0,0,0,.55));
 }
+.pgOverviewMetricIcon.pieceArt{
+  background:transparent;
+  overflow:hidden;
+}
+.pgOverviewPieceArt{
+  display:block;
+  width:100%;
+  height:100%;
+  border-radius:inherit;
+  background-repeat:no-repeat;
+  background-size:200% 200%;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.55));
+}
 .pgOverviewMetricCopy{
   min-width:0;
   display:flex;

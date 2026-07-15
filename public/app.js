@@ -1916,7 +1916,17 @@ function renderPostgameTab(tab) {
 
     const icon = document.createElement('span');
     icon.className = 'pgOverviewMetricIcon';
-    if (metric.asset) {
+    if (metric.piece) {
+      icon.classList.add('pieceArt');
+      const piece = document.createElement('span');
+      piece.className = 'pgOverviewPieceArt';
+      const colorIndex = playerColorIndex(metric.color);
+      const source = resolveLegacyTextureUrl(STRUCT_IMG_SRC[colorIndex] || STRUCT_IMG_SRC[0]);
+      const position = tokenBgPosPct(metric.piece);
+      piece.style.backgroundImage = `url('${source}')`;
+      piece.style.backgroundPosition = `${position.x}% ${position.y}%`;
+      icon.appendChild(piece);
+    } else if (metric.asset) {
       const image = document.createElement('img');
       image.src = getTextureAssetUrl(metric.asset);
       image.alt = metric.label || '';
@@ -2028,11 +2038,11 @@ function renderPostgameTab(tab) {
         ribbon: p.id === winnerId ? '★ Winner' : '',
         winner: p.id === winnerId,
         metrics: [
-          { icon: '⌂', label: 'Settlement VP', value: settlementVP },
-          { icon: '▰', label: 'City VP', value: cityVP },
+          { piece: 'settlement', color: p.color, label: 'Settlement VP', value: settlementVP },
+          { piece: 'city', color: p.color, label: 'City VP', value: cityVP },
+          { piece: 'road', color: p.color, label: 'Roads', value: safeNum(pc.roads) },
+          { piece: 'ship', color: p.color, label: 'Ships', value: safeNum(pc.ships) },
           { icon: '◈', label: 'Exploration VP', value: explorationVP, title: `${safeNum(p.newIslandVP)} island / ${safeNum(p.ttdFarSideVP)} desert` },
-          { icon: '▲', label: 'Ships', value: safeNum(pc.ships) },
-          { icon: '━', label: 'Roads', value: safeNum(pc.roads) },
           { asset: 'Dev Cards/Knight.png', label: 'Knights Played', value: knightsPlayed },
           { icon: '!', label: 'Stolen From', value: stolenFrom, tone: stolenFrom ? 'negative' : '' },
           { icon: '♜', label: 'Steals', value: steals },

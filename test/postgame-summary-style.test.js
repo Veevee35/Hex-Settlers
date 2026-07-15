@@ -29,14 +29,18 @@ test('summary player cards contain only the requested eight breakdown metrics', 
   assert.deepEqual(labels, [
     'Settlement VP',
     'City VP',
-    'Exploration VP',
-    'Ships',
     'Roads',
+    'Ships',
+    'Exploration VP',
     'Knights Played',
     'Stolen From',
     'Steals',
   ]);
   assert.match(summary, /const explorationVP = safeNum\(p\.newIslandVP\) \+ safeNum\(p\.ttdFarSideVP\)/);
+  for (const piece of ['settlement', 'city', 'road', 'ship']) {
+    assert.match(summary, new RegExp(`piece: '${piece}', color: p\\.color`));
+  }
+  assert.match(appJs, /piece\.style\.backgroundPosition = `\$\{position\.x\}% \$\{position\.y\}%`/);
 });
 
 test('game overview uses larger cards, metric boxes, and readable text', () => {
