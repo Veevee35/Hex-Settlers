@@ -43,6 +43,11 @@ const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 const { edgeTouchesSeaForShip } = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
 const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = require('./server/land-masses');
+const {
+  applyResourceDelta: applyResourceStatsDelta,
+  applyResourceOpportunityLoss,
+  ensurePlayerResourceStats,
+} = require('./server/resource-summary');
 
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
@@ -1883,13 +1888,6 @@ function emptyDiceStats() {
 
 
 // -------------------- Game Stats (post-game breakdown) --------------------
-const STAT_RESOURCE_SOURCES_GAIN = ['setup','production','discover','trade','steal','dev','other'];
-const STAT_RESOURCE_SOURCES_LOSS = ['build','trade','steal','discard','dev','other'];
-
-function _emptyResMap() {
-  return { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
-}
-
 function initGameStats(game) {
   const nowMs = Date.now();
   const stats = {
@@ -1932,16 +1930,7 @@ function initGameStats(game) {
     stats.rolls.byPlayer[pid] = emptyDiceStats();
     stats.turnTimes.byPlayer[pid] = { totalMs: 0, turns: 0, avgMs: 0 };
 
-    const res = {
-      gained: _emptyResMap(),
-      lost: _emptyResMap(),
-      gainedBySource: {},
-      lostBySource: {},
-      byTurn: {},
-    };
-    for (const src of STAT_RESOURCE_SOURCES_GAIN) res.gainedBySource[src] = _emptyResMap();
-    for (const src of STAT_RESOURCE_SOURCES_LOSS) res.lostBySource[src] = _emptyResMap();
-    stats.resources.byPlayer[pid] = res;
+    stats.resources.byPlayer[pid] = ensurePlayerResourceStats({});
 
     stats.builds.byPlayer[pid] = { road: 0, ship: 0, ship_move: 0, settlement: 0, city: 0 };
     stats.trades.byPlayer[pid] = { bank: 0, player: 0 };
@@ -2037,30 +2026,15 @@ function recordResourceDelta(game, playerId, delta, source) {
   if (!st) return;
   const pr = st.resources?.byPlayer?.[playerId];
   if (!pr || !delta) return;
-  const src = String(source || 'other');
-
-  
-
-  // Per-turn net delta tracking (signed). Uses game.turnNumber as the turn index.
   const t = (game && Number.isFinite(game.turnNumber)) ? game.turnNumber : 0;
-  if (!pr.byTurn) pr.byTurn = {};
-  if (!pr.byTurn[t]) pr.byTurn[t] = _emptyResMap();
+  applyResourceStatsDelta(pr, delta, source, t);
+}
 
-
-  for (const k of RESOURCE_KINDS) {
-    const v = Number(delta[k] || 0);
-    if (!v) continue;
-    if (v > 0) {
-      pr.gained[k] = (pr.gained[k] || 0) + v;
-      pr.gainedBySource[src][k] = (pr.gainedBySource[src][k] || 0) + v;
-    } else {
-      const n = -v;
-      pr.lost[k] = (pr.lost[k] || 0) + n;
-      pr.lostBySource[src][k] = (pr.lostBySource[src][k] || 0) + n;
-    }
-    // Net delta for this turn (signed)
-    pr.byTurn[t][k] = (pr.byTurn[t][k] || 0) + v;
-  }
+function recordBlockedProduction(game, playerId, losses) {
+  const st = ensureGameStats(game);
+  const pr = st?.resources?.byPlayer?.[playerId];
+  if (!pr) return;
+  applyResourceOpportunityLoss(pr, losses, 'blocked');
 }
 
 function payCostStats(game, playerId, res, cost, source) {
@@ -5561,11 +5535,23 @@ function distributeResources(game, roll) {
 
   for (const t of tiles) {
     if (t.number !== roll) continue;
-    if (t.robber) continue;
-
     const isGold = String(t.type || '').toLowerCase() === 'gold';
     const resKind = isGold ? null : RESOURCE_MAP[t.type];
     if (!isGold && !resKind) continue;
+
+    if (t.robber) {
+      // Blocked production is tracked as an opportunity loss. It is not an
+      // actual hand delta, so it does not affect per-turn resource totals.
+      if (resKind) {
+        for (const nid of (t.cornerNodeIds || [])) {
+          const b = game.geom.nodes[nid].building;
+          const p = b ? playerById(game, b.owner) : null;
+          if (!b || !p || p.departed) continue;
+          recordBlockedProduction(game, b.owner, { [resKind]: b.type === 'city' ? 2 : 1 });
+        }
+      }
+      continue;
+    }
 
     const corners = t.cornerNodeIds || [];
     for (const nid of corners) {
@@ -6332,7 +6318,7 @@ if (ttdFarSideBonus) {
     if (!canAfford(p.resources, DEV_CARD_COST)) return { ok: false, error: 'Not enough resources.' };
     if (!game.devDeck || game.devDeck.length === 0) return { ok: false, error: 'The development deck is empty.' };
 
-    payCostStats(game, playerId, p.resources, DEV_CARD_COST, 'dev');
+    payCostStats(game, playerId, p.resources, DEV_CARD_COST, 'build');
     const cardType = game.devDeck.pop();
     const card = { id: game.devSeq++, type: cardType, boughtTurn: game.turnNumber, played: false };
     p.devCards.push(card);
@@ -6457,7 +6443,7 @@ if (ttdFarSideBonus) {
         const n = op.resources?.[rk] || 0;
         if (n > 0) {
           op.resources[rk] = 0;
-          recordResourceDelta(game, op.id, { [rk]: -n }, 'dev');
+          recordResourceDelta(game, op.id, { [rk]: -n }, 'monopoly');
           grantStats(game, playerId, p.resources, rk, n, 'dev');
           total += n;
         }

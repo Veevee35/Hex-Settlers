@@ -1508,6 +1508,23 @@
   ensureInGameLogScaleControl();
 
 // -------------------- Post-game overlay (splash + stats) --------------------
+const POSTGAME_RESOURCE_CATEGORIES = Object.freeze([
+  { key: 'gain_dice', direction: 'gain', icon: '⚄', label: 'Resources gained from dice rolls', sources: ['production'] },
+  { key: 'gain_steal', direction: 'gain', icon: '♜', label: 'Resources gained from robber and pirate', sources: ['steal'] },
+  { key: 'gain_dev', direction: 'gain', icon: '✦', label: 'Resources gained from Monopolies and Years of Plenty', sources: ['dev'] },
+  { key: 'gain_trade', direction: 'gain', icon: '⇄', label: 'Resources gained from trading', sources: ['trade'] },
+  { key: 'loss_spent', direction: 'loss', icon: '⌂', label: 'Spent resources', sources: ['build'] },
+  { key: 'loss_seven', direction: 'loss', icon: '7', label: 'Resources lost to 7 rolls', sources: ['discard'] },
+  { key: 'loss_blocked', direction: 'loss', icon: '⊘', label: 'Resources lost to blocked production', sources: ['blocked'] },
+  { key: 'loss_trade', direction: 'loss', icon: '⇄', label: 'Resources lost to trading', sources: ['trade'] },
+  { key: 'loss_steal', direction: 'loss', icon: '♜', label: 'Resources lost to stealing', sources: ['steal'] },
+  { key: 'loss_monopoly', direction: 'loss', icon: 'M', label: 'Resources lost from Monopolies', sources: ['monopoly'], legacySources: ['dev'] },
+]);
+
+function defaultPostgameResourceCategories() {
+  return Object.fromEntries(POSTGAME_RESOURCE_CATEGORIES.map((category) => [category.key, true]));
+}
+
 let postgameState = {
   active: false,
   hidden: false,
@@ -1528,6 +1545,7 @@ let postgameState = {
   replayIndex: -1,
   replayActivePlayerId: null,
   replayPlayerLocked: false,
+  resourceCategoryEnabled: defaultPostgameResourceCategories(),
 };
 
 
@@ -2343,39 +2361,190 @@ return;
       chips.appendChild(chip);
     }
     replayControls.appendChild(chips);
-    ui.pgTabBody.appendChild(replayControls);
-
-    const secTop = makeSection('Resources Overview');
 
     const resByPlayer = (stats && stats.resources && stats.resources.byPlayer) ? stats.resources.byPlayer : null;
+    if (!postgameState.resourceCategoryEnabled || typeof postgameState.resourceCategoryEnabled !== 'object') {
+      postgameState.resourceCategoryEnabled = defaultPostgameResourceCategories();
+    }
 
-    const rowsRaw = players.map(p => {
-      const rs = resByPlayer ? (resByPlayer[p.id] || null) : null;
-      const gained = rs ? sumRes(rs.gained) : 0;
-      const lost = rs ? sumRes(rs.lost) : 0;
-      const net = gained - lost;
-      const finalHand = sumRes(p.resources || {});
-      return { p, gained, lost, net, finalHand };
+    const selectedCategories = POSTGAME_RESOURCE_CATEGORIES.filter((category) => postgameState.resourceCategoryEnabled[category.key]);
+    const categoryMapFor = (resourceStats, category) => {
+      const out = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0]));
+      if (!resourceStats) return out;
+      const buckets = category.direction === 'gain' ? resourceStats.gainedBySource : resourceStats.lostBySource;
+      for (const source of category.sources || []) {
+        const map = buckets && buckets[source];
+        if (!map) continue;
+        for (const key of RESOURCE_KEYS) out[key] += safeNum(map[key]);
+      }
+      // Older saved matches used "dev" for both card purchases and Monopoly
+      // losses. Only use that legacy bucket when no explicit Monopoly data exists.
+      if (category.legacySources && sumRes(out) === 0) {
+        for (const source of category.legacySources) {
+          const map = buckets && buckets[source];
+          if (!map) continue;
+          for (const key of RESOURCE_KEYS) out[key] += safeNum(map[key]);
+        }
+      }
+      return out;
+    };
+
+    const resourceSummaries = players.map((player) => {
+      const resourceStats = resByPlayer ? (resByPlayer[player.id] || null) : null;
+      const gained = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0]));
+      const lost = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0]));
+      for (const category of selectedCategories) {
+        const values = categoryMapFor(resourceStats, category);
+        const target = category.direction === 'gain' ? gained : lost;
+        for (const key of RESOURCE_KEYS) target[key] += safeNum(values[key]);
+      }
+      const netByResource = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, gained[key] - lost[key]]));
+      return {
+        player,
+        gained,
+        lost,
+        netByResource,
+        gainedTotal: sumRes(gained),
+        lostTotal: sumRes(lost),
+        netTotal: sumRes(netByResource),
+      };
     });
 
-    const maxGain = Math.max(1, ...rowsRaw.map(r => r.gained));
-    const maxLost = Math.max(1, ...rowsRaw.map(r => r.lost));
-    const maxFinal = Math.max(1, ...rowsRaw.map(r => r.finalHand));
+    const secTop = makeSection('Resources Overview');
+    const categoryPanel = document.createElement('div');
+    categoryPanel.className = 'pgResCategoryPanel';
 
-    const headers = ['Player','Gained','Lost','Net','Final Hand'];
-    const rows = rowsRaw.map(r => {
-      const netTxt = (r.net >= 0 ? '+' : '') + r.net;
-      const netCol = (r.net >= 0) ? '#4aa3ff' : '#ff6a6a';
-      return [
-        playerCell(r.p),
-        barNode(r.gained, maxGain, r.p.color, r.gained, { alignRight: true }),
-        barNode(r.lost, maxLost, r.p.color, r.lost, { alignRight: true, alpha: 0.12 }),
-        barNode(Math.abs(r.net), Math.max(1, ...rowsRaw.map(x => Math.abs(x.net))), netCol, netTxt, { alignRight: true, alpha: 0.14 }),
-        barNode(r.finalHand, maxFinal, r.p.color, r.finalHand, { alignRight: true, alpha: 0.10 }),
-      ];
-    });
+    const categoryHeading = document.createElement('div');
+    categoryHeading.className = 'pgResCategoryHeading';
+    const categoryTitle = document.createElement('div');
+    categoryTitle.className = 'pgResCategoryTitle';
+    categoryTitle.textContent = 'Resources Gained & Lost';
+    const categoryMeta = document.createElement('div');
+    categoryMeta.className = 'pgResCategoryMeta';
+    categoryMeta.textContent = `${selectedCategories.length} of ${POSTGAME_RESOURCE_CATEGORIES.length} categories selected`;
+    categoryHeading.appendChild(categoryTitle);
+    categoryHeading.appendChild(categoryMeta);
+    categoryPanel.appendChild(categoryHeading);
 
-    secTop.appendChild(makeTable(headers, rows));
+    const categoryGrid = document.createElement('div');
+    categoryGrid.className = 'pgResCategoryGrid';
+    for (const category of POSTGAME_RESOURCE_CATEGORIES) {
+      const enabled = !!postgameState.resourceCategoryEnabled[category.key];
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `pgResCategoryToggle ${category.direction}${enabled ? ' active' : ''}`;
+      button.dataset.resourceCategory = category.key;
+      button.setAttribute('aria-label', category.label);
+      button.setAttribute('aria-pressed', String(enabled));
+      button.title = category.label;
+
+      const icon = document.createElement('span');
+      icon.className = 'pgResCategoryIcon';
+      icon.textContent = category.icon;
+      const label = document.createElement('span');
+      label.className = 'pgResCategoryLabel';
+      label.textContent = category.label;
+      button.appendChild(icon);
+      button.appendChild(label);
+      button.addEventListener('click', () => {
+        postgameState.resourceCategoryEnabled[category.key] = !enabled;
+        renderPostgameTab('resources');
+      });
+      categoryGrid.appendChild(button);
+    }
+    categoryPanel.appendChild(categoryGrid);
+
+    const categoryActions = document.createElement('div');
+    categoryActions.className = 'pgResCategoryActions';
+    const setAllCategories = (value) => {
+      for (const category of POSTGAME_RESOURCE_CATEGORIES) postgameState.resourceCategoryEnabled[category.key] = value;
+      renderPostgameTab('resources');
+    };
+    const allButton = document.createElement('button');
+    allButton.type = 'button';
+    allButton.className = 'pgResCategoryAction';
+    allButton.textContent = 'Select all';
+    allButton.disabled = selectedCategories.length === POSTGAME_RESOURCE_CATEGORIES.length;
+    allButton.addEventListener('click', () => setAllCategories(true));
+    const noneButton = document.createElement('button');
+    noneButton.type = 'button';
+    noneButton.className = 'pgResCategoryAction';
+    noneButton.textContent = 'Clear all';
+    noneButton.disabled = selectedCategories.length === 0;
+    noneButton.addEventListener('click', () => setAllCategories(false));
+    categoryActions.appendChild(allButton);
+    categoryActions.appendChild(noneButton);
+    categoryPanel.appendChild(categoryActions);
+    secTop.appendChild(categoryPanel);
+
+    const overview = document.createElement('div');
+    overview.className = 'pgResOverviewGrid';
+    const maxStackMagnitude = Math.max(1, ...resourceSummaries.map((summary) => (
+      RESOURCE_KEYS.reduce((total, key) => total + Math.abs(summary.netByResource[key]), 0)
+    )));
+    const resourceOrder = ['lumber', 'brick', 'wool', 'grain', 'ore'];
+
+    for (const summary of resourceSummaries) {
+      const column = document.createElement('article');
+      column.className = 'pgResPlayerColumn';
+      column.style.setProperty('--pg-player-color', summary.player.color || '#777');
+
+      const total = document.createElement('div');
+      total.className = `pgResPlayerNet ${summary.netTotal > 0 ? 'positive' : (summary.netTotal < 0 ? 'negative' : 'zero')}`;
+      total.textContent = `${summary.netTotal > 0 ? '+' : ''}${summary.netTotal}`;
+      total.title = `Gained ${summary.gainedTotal}; lost ${summary.lostTotal}`;
+      column.appendChild(total);
+
+      const flow = document.createElement('div');
+      flow.className = 'pgResPlayerFlow';
+      flow.textContent = `+${summary.gainedTotal} gained · −${summary.lostTotal} lost`;
+      column.appendChild(flow);
+
+      const stack = document.createElement('div');
+      stack.className = 'pgResPlayerStack';
+      let blockCount = 0;
+      for (const key of resourceOrder) {
+        const value = safeNum(summary.netByResource[key]);
+        if (!value) continue;
+        blockCount += 1;
+        const block = document.createElement('div');
+        block.className = `pgResStackBlock ${key} ${value > 0 ? 'gain' : 'loss'}`;
+        const height = 34 + Math.round((Math.abs(value) / maxStackMagnitude) * 150);
+        block.style.height = `${height}px`;
+        block.title = `${RESOURCE_LABEL[key]}: ${value > 0 ? '+' : ''}${value}`;
+
+        const image = document.createElement('img');
+        image.src = getTextureAssetUrl(`Ports/${key}.png`);
+        image.alt = RESOURCE_LABEL[key];
+        image.draggable = false;
+        const amount = document.createElement('span');
+        amount.textContent = `${value > 0 ? '+' : ''}${value}`;
+        block.appendChild(image);
+        block.appendChild(amount);
+        stack.appendChild(block);
+      }
+      if (!blockCount) {
+        const empty = document.createElement('div');
+        empty.className = 'pgResStackEmpty';
+        empty.textContent = selectedCategories.length ? 'No changes' : 'Choose categories above';
+        stack.appendChild(empty);
+      }
+      column.appendChild(stack);
+
+      const player = document.createElement('div');
+      player.className = 'pgResPlayerFooter';
+      const swatch = document.createElement('span');
+      swatch.className = 'pgResPlayerSwatch';
+      swatch.style.background = summary.player.color || '#777';
+      const name = document.createElement('span');
+      name.textContent = summary.player.name;
+      player.appendChild(swatch);
+      player.appendChild(name);
+      column.appendChild(player);
+      overview.appendChild(column);
+    }
+
+    secTop.appendChild(overview);
     ui.pgTabBody.appendChild(secTop);
 
     if (!resByPlayer) {
@@ -2384,6 +2553,7 @@ return;
     }
 
     const secTurn = makeSection('Per Turn Resource Deltas');
+    secTurn.appendChild(replayControls);
 
     // Prefer the dice history to define the displayed turns (main game turns).
     const rollHist = (stats && stats.rolls && Array.isArray(stats.rolls.history)) ? stats.rolls.history : [];
@@ -2756,6 +2926,7 @@ function enterPostgame() {
 
   postgameState.active = true;
   postgameState.hidden = false;
+  postgameState.resourceCategoryEnabled = defaultPostgameResourceCategories();
   if (ui.pgShowBtn) ui.pgShowBtn.classList.add('hidden');
 
   setPostgameVisible(true);
@@ -3114,6 +3285,7 @@ function openPostgameSnapshot(snapshot, entry = null, opts = {}) {
   postgameState.replayIndex = postgameState.replayLog.length ? 0 : -1;
   postgameState.replayActivePlayerId = null;
   postgameState.replayPlayerLocked = false;
+  postgameState.resourceCategoryEnabled = defaultPostgameResourceCategories();
 
   if (ui.pgShowBtn) ui.pgShowBtn.classList.add('hidden');
   if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.textContent = 'Back';
