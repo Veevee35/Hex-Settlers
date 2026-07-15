@@ -1206,23 +1206,6 @@ select.input{
   font-weight:900;
   white-space:nowrap;
 }
-.pgOverviewBadges{
-  display:flex;
-  justify-content:center;
-  gap:5px;
-  flex-wrap:wrap;
-  margin:-3px 0 8px;
-}
-.pgOverviewBadges span{
-  padding:3px 6px;
-  border:1px solid color-mix(in srgb, var(--pg-player-color) 38%, rgba(255,255,255,.08));
-  border-radius:999px;
-  background:color-mix(in srgb, var(--pg-player-color) 9%, transparent);
-  color:color-mix(in srgb, var(--pg-player-color) 66%, #fff);
-  font-family:var(--mono);
-  font-size:7px;
-  font-weight:900;
-}
 .pgOverviewMetricGrid{
   display:grid;
   grid-template-columns:repeat(2, minmax(0, 1fr));

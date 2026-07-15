@@ -1964,17 +1964,6 @@ function renderPostgameTab(tab) {
     }
     card.appendChild(head);
 
-    if (Array.isArray(options.badges) && options.badges.length) {
-      const badges = document.createElement('div');
-      badges.className = 'pgOverviewBadges';
-      for (const badgeText of options.badges) {
-        const badge = document.createElement('span');
-        badge.textContent = badgeText;
-        badges.appendChild(badge);
-      }
-      card.appendChild(badges);
-    }
-
     const metrics = document.createElement('div');
     metrics.className = 'pgOverviewMetricGrid';
     for (const metric of (options.metrics || [])) metrics.appendChild(makeOverviewMetric(metric));
@@ -2014,31 +2003,20 @@ function renderPostgameTab(tab) {
   if (postgameState.tab === 'summary') {
     const section = makeSection('Game Overview');
     section.classList.add('pgStyledSection');
-    const lrPid = st.longestRoad?.playerId || null;
-    const laPid = st.largestArmy?.playerId || null;
-    const turnsByPlayer = stats?.turnTimes?.byPlayer || {};
-    const tradesByPlayer = stats?.trades?.byPlayer || {};
     const devByPlayer = stats?.dev?.byPlayer || {};
     const actionsByPlayer = stats?.actions?.byPlayer || {};
     const thieves = stats?.thieves || null;
 
     const cards = players.map((p) => {
       const pc = computePieceCounts(st, p.id);
-      const tt = turnsByPlayer[p.id] || {};
-      const tr = tradesByPlayer[p.id] || {};
       const dv = devByPlayer[p.id] || {};
       const ac = actionsByPlayer[p.id] || {};
-      const buildingVP = safeNum(pc.settlements) + safeNum(pc.cities) * 2;
-      const devVP = safeNum(p.vpDev);
-      const islandVP = safeNum(p.newIslandVP);
-      const desertVP = safeNum(p.ttdFarSideVP);
-      const badgeVP = (p.id === lrPid ? 2 : 0) + (p.id === laPid ? 2 : 0);
-      const calculatedVP = buildingVP + devVP + islandVP + desertVP + badgeVP;
+      const settlementVP = safeNum(pc.settlements);
+      const cityVP = safeNum(pc.cities) * 2;
+      const explorationVP = safeNum(p.newIslandVP) + safeNum(p.ttdFarSideVP);
+      const hasKnightBreakdown = dv.playedByType && Object.prototype.hasOwnProperty.call(dv.playedByType, 'knight');
+      const knightsPlayed = hasKnightBreakdown ? safeNum(dv.playedByType.knight) : safeNum(p.army);
       const shownVP = safeNum(p.vp);
-      const scoreDelta = shownVP - calculatedVP;
-      const badges = [];
-      if (p.id === lrPid) badges.push('Longest Road');
-      if (p.id === laPid) badges.push('Largest Army');
       const steals = safeNum(ac.robberSteals) + safeNum(ac.pirateSteals);
       const stolenFrom = thieves ? (
         safeNum(thieves.robber?.stolenFromByPlayer?.[p.id]) +
@@ -2049,26 +2027,15 @@ function renderPostgameTab(tab) {
         headlineLabel: p.id === winnerId ? 'Final score · Winner' : 'Final score',
         ribbon: p.id === winnerId ? '★ Winner' : '',
         winner: p.id === winnerId,
-        badges,
         metrics: [
-          { icon: '⌂', label: 'Building VP', value: buildingVP },
-          { asset: 'Dev Cards/VictoryPoint.png', label: 'Dev VP', value: devVP },
-          { icon: '◈', label: 'Island VP', value: islandVP },
-          { icon: '◇', label: 'Desert VP', value: desertVP },
-          { icon: '★', label: 'Badge VP', value: badgeVP },
-          { icon: scoreDelta ? 'Δ' : '✓', label: 'Score check', value: scoreDelta ? `${scoreDelta > 0 ? '+' : ''}${scoreDelta}` : 'Exact', tone: scoreDelta ? 'warning' : 'positive' },
-          { icon: '⌂', label: 'Settlements', value: safeNum(pc.settlements) },
-          { icon: '▰', label: 'Cities', value: safeNum(pc.cities) },
-          { icon: '━', label: 'Roads', value: safeNum(pc.roads) },
+          { icon: '⌂', label: 'Settlement VP', value: settlementVP },
+          { icon: '▰', label: 'City VP', value: cityVP },
+          { icon: '◈', label: 'Exploration VP', value: explorationVP, title: `${safeNum(p.newIslandVP)} island / ${safeNum(p.ttdFarSideVP)} desert` },
           { icon: '▲', label: 'Ships', value: safeNum(pc.ships) },
-          { icon: '♞', label: 'Army', value: safeNum(p.army) },
-          { icon: '↻', label: 'Turns', value: safeNum(tt.turns) },
-          { icon: '◷', label: 'Avg turn', value: fmtMs(safeNum(tt.avgMs)) },
-          { icon: '⇄', label: 'Trades', value: safeNum(tr.bank) + safeNum(tr.player), title: `${safeNum(tr.bank)} bank / ${safeNum(tr.player)} player` },
-          { icon: '✦', label: 'Dev bought', value: safeNum(dv.bought) },
+          { icon: '━', label: 'Roads', value: safeNum(pc.roads) },
+          { asset: 'Dev Cards/Knight.png', label: 'Knights Played', value: knightsPlayed },
+          { icon: '!', label: 'Stolen From', value: stolenFrom, tone: stolenFrom ? 'negative' : '' },
           { icon: '♜', label: 'Steals', value: steals },
-          { icon: '!', label: 'Stolen from', value: stolenFrom, tone: stolenFrom ? 'negative' : '' },
-          { icon: '7', label: 'Discards', value: safeNum(ac.discards), tone: safeNum(ac.discards) ? 'negative' : '' },
         ],
       });
     });

@@ -18,6 +18,27 @@ test('all postgame summary tabs use the shared player-card visual system', () =>
   assert.match(stylesCss, /\.pgOverviewPlayerCard\s*\{/);
 });
 
+test('summary player cards contain only the requested eight breakdown metrics', () => {
+  const summaryStart = appJs.indexOf('// -------------------- SUMMARY --------------------');
+  const diceStart = appJs.indexOf('// -------------------- DICE --------------------');
+  const summary = appJs.slice(summaryStart, diceStart);
+  const metricsStart = summary.indexOf('metrics: [');
+  const metricsEnd = summary.indexOf('],', metricsStart);
+  const metrics = summary.slice(metricsStart, metricsEnd);
+  const labels = [...metrics.matchAll(/label: '([^']+)'/g)].map((match) => match[1]);
+  assert.deepEqual(labels, [
+    'Settlement VP',
+    'City VP',
+    'Exploration VP',
+    'Ships',
+    'Roads',
+    'Knights Played',
+    'Stolen From',
+    'Steals',
+  ]);
+  assert.match(summary, /const explorationVP = safeNum\(p\.newIslandVP\) \+ safeNum\(p\.ttdFarSideVP\)/);
+});
+
 test('dice keeps all three views and presents rolls as aligned bar charts', () => {
   assert.match(appJs, /mkBtn\('totals', 'View Totals'\)/);
   assert.match(appJs, /mkBtn\('players', 'View Per Player'\)/);
