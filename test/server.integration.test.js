@@ -154,6 +154,57 @@ function assertPirateStartsOnVisibleSea(state) {
   }
 }
 
+function matchingTileComponents(geom, predicate) {
+  const eligible = new Set((geom.tiles || []).filter(predicate).map((tile) => tile.id));
+  const components = [];
+  const seen = new Set();
+  for (const tileId of eligible) {
+    if (seen.has(tileId)) continue;
+    const component = new Set();
+    const stack = [tileId];
+    seen.add(tileId);
+    while (stack.length) {
+      const current = stack.pop();
+      component.add(current);
+      for (const neighbor of (geom.tileNeighbors[current] || [])) {
+        if (!eligible.has(neighbor) || seen.has(neighbor)) continue;
+        seen.add(neighbor);
+        stack.push(neighbor);
+      }
+    }
+    components.push(component);
+  }
+  return components;
+}
+
+function assertScenarioPortRegionalCoverage(state, { expectedOuterIslands, expectedDesertSections = 0 } = {}) {
+  const geom = state.geom;
+  const expectedKinds = geom.ports.length === 11
+    ? ['brick', 'generic', 'generic', 'generic', 'generic', 'generic', 'generic', 'grain', 'lumber', 'ore', 'wool']
+    : ['brick', 'generic', 'generic', 'generic', 'generic', 'grain', 'lumber', 'ore', 'wool'];
+  assert.deepEqual(geom.ports.map((port) => port.kind).sort(), expectedKinds, `${state.previewKey} port types`);
+
+  const landComponents = matchingTileComponents(geom, (tile) => tile.type !== 'sea');
+  const mainland = landComponents.reduce((largest, component) => (
+    !largest || component.size > largest.size ? component : largest
+  ), null);
+  const outerIslands = landComponents.filter((component) => component !== mainland);
+  assert.equal(outerIslands.length, expectedOuterIslands, `${state.previewKey} outer island count`);
+  for (const island of outerIslands) {
+    const islandPorts = geom.ports.filter((port) => island.has(port.landTileId));
+    assert.equal(islandPorts.length, 1, `${state.previewKey} has one port on outer island ${Array.from(island).join(',')}`);
+  }
+
+  if (expectedDesertSections) {
+    const sections = matchingTileComponents(geom, (tile) => tile.type === 'desert');
+    assert.equal(sections.length, expectedDesertSections, `${state.previewKey} desert section count`);
+    for (const section of sections) {
+      const sectionPorts = geom.ports.filter((port) => section.has(port.landTileId));
+      assert.equal(sectionPorts.length, 1, `${state.previewKey} has one port on desert section ${Array.from(section).join(',')}`);
+    }
+  }
+}
+
 test('every map and scenario preview keeps ports valid and completed Seafarers maps start with a pirate', { timeout: 20_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-ports-'));
@@ -198,6 +249,13 @@ test('every map and scenario preview keeps ports valid and completed Seafarers m
     const preview = await host.waitFor((message) =>
       message.type === 'state' && String(message.state.previewKey || '').startsWith(option.previewKey));
     assertPortsUseNonAdjacentShorelineEdges(preview.state, option.ports);
+    if (option.scenario === 'heading_for_new_shores') {
+      assertScenarioPortRegionalCoverage(preview.state, { expectedOuterIslands: 3 });
+    } else if (option.scenario === 'through_the_desert') {
+      assertScenarioPortRegionalCoverage(preview.state, { expectedOuterIslands: 3, expectedDesertSections: 1 });
+    } else if (option.scenario === 'through_the_desert_56') {
+      assertScenarioPortRegionalCoverage(preview.state, { expectedOuterIslands: 4, expectedDesertSections: 1 });
+    }
     const deferredDraft = option.scenario === 'cartographer_4_manual' || option.scenario === 'cartographer_56_manual';
     if (option.mapMode === 'seafarers' && !deferredDraft) {
       assertPirateStartsOnVisibleSea(preview.state);

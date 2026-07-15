@@ -6013,6 +6013,7 @@ function refreshLobbyJoinLinkUi() {
       setup: [
         'Both starting settlements must be placed on the designated starting island.',
         'Gold Field intersections cannot be used for starting settlements.',
+        'One port is placed on each outer island and each desert shoreline section; the remaining ports stay on the starting mainland.',
       ],
       rules: [
         'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
@@ -6026,6 +6027,7 @@ function refreshLobbyJoinLinkUi() {
       setup: [
         'Five or six players place both starting settlements in the allowed starting area and may follow each with a connected road or ship.',
         'Gold Field intersections cannot be used for starting settlements.',
+        'One port is placed on each outer island and each desert shoreline section; the remaining ports stay on the starting mainland.',
       ],
       rules: [
         'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
@@ -6066,7 +6068,8 @@ function refreshLobbyJoinLinkUi() {
       summary: 'Build from the main island toward valuable outer islands and their Gold Fields.',
       setup: [
         'Both starting settlements must be placed on the main island.',
-        'Ports remain on the main island; the outer islands contain Gold Fields.',
+        'One port is placed on each outer island; the remaining ports stay on the main island.',
+        'The outer islands contain Gold Fields.',
       ],
       rules: [
         'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',

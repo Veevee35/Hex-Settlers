@@ -4912,43 +4912,9 @@ function generatePorts(geom, portCount = 9, opts = null) {
 
 
 
-function largestNonSeaComponentTileIds(geom) {
-  // Returns the tile-id set for the largest connected component of NON-SEA tiles.
-  // (Includes deserts for connectivity, but ports may still exclude deserts separately.)
+function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = null, opts = null) {
   const tiles = geom?.tiles || [];
-  const neigh = geom?.tileNeighbors || {};
-  const eligible = new Set();
-  for (const t of tiles) {
-    if (!t) continue;
-    // Treat unrevealed fog as sea (even if a hidden land is stored).
-    if (t.fog && !t.revealed) continue;
-    if (t.type === 'sea') continue;
-    eligible.add(t.id);
-  }
-  const seen = new Set();
-  let best = [];
-  for (const id of eligible) {
-    if (seen.has(id)) continue;
-    const stack = [id];
-    const comp = [];
-    seen.add(id);
-    while (stack.length) {
-      const cur = stack.pop();
-      comp.push(cur);
-      const nbs = neigh[cur] || [];
-      for (const nb of nbs) {
-        if (!eligible.has(nb) || seen.has(nb)) continue;
-        seen.add(nb);
-        stack.push(nb);
-      }
-    }
-    if (comp.length > best.length) best = comp;
-  }
-  return new Set(best);
-}
-
-function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = null) {
-  const tiles = geom?.tiles || [];
+  const allowDesert = !!opts?.allowDesert;
   const out = [];
   for (const e of (geom?.edges || [])) {
     const adj = geom?.edgeAdjTiles?.[e.id] || [];
@@ -4971,7 +4937,7 @@ function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = n
     if (!tL) continue;
     if (!mainlandTileIds || !mainlandTileIds.has(landId)) continue;
     if (tL.type === 'sea') continue;
-    if (tL.type === 'desert') continue; // never place ports on deserts
+    if (!allowDesert && tL.type === 'desert') continue;
     if (allowedLandKeys) {
       const k = `${tL.q},${tL.r}`;
       if (!allowedLandKeys.has(k)) continue;
@@ -4981,35 +4947,108 @@ function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = n
   return out;
 }
 
-function nonSeaTileComponents(geom) {
+function matchingTileComponents(geom, predicate) {
   const tiles = geom?.tiles || [];
   const neigh = geom?.tileNeighbors || {};
   const eligible = new Set();
-  for (const t of tiles) {
-    if (!t) continue;
-    if ((t.fog && !t.revealed) || t.type === 'sea') continue;
-    eligible.add(t.id);
+  for (const tile of tiles) {
+    if (tile && predicate(tile)) eligible.add(tile.id);
   }
-  const comps = [];
+
+  const components = [];
   const seen = new Set();
   for (const id of eligible) {
     if (seen.has(id)) continue;
-    const set = new Set();
+    const component = new Set();
     const stack = [id];
     seen.add(id);
     while (stack.length) {
-      const cur = stack.pop();
-      set.add(cur);
-      const nbs = neigh[cur] || [];
-      for (const nb of nbs) {
-        if (!eligible.has(nb) || seen.has(nb)) continue;
-        seen.add(nb);
-        stack.push(nb);
+      const current = stack.pop();
+      component.add(current);
+      for (const neighbor of (neigh[current] || [])) {
+        if (!eligible.has(neighbor) || seen.has(neighbor)) continue;
+        seen.add(neighbor);
+        stack.push(neighbor);
       }
     }
-    if (set.size) comps.push(set);
+    components.push(component);
   }
-  return comps;
+  return components;
+}
+
+function selectPortEdgesWithRequiredGroups(geom, requiredEdgeGroups, remainingEdgeIds, totalCount) {
+  const groups = (requiredEdgeGroups || [])
+    .map((edgeIds) => shuffle(Array.from(new Set(edgeIds || []))))
+    .sort((a, b) => a.length - b.length);
+  const remainingCount = totalCount - groups.length;
+  if (remainingCount < 0 || groups.some((group) => !group.length)) return null;
+
+  const edgeById = new Map((geom?.edges || []).map((edge) => [edge.id, edge]));
+  const remaining = Array.from(new Set(remainingEdgeIds || []));
+
+  function search(groupIndex, selected, usedNodes) {
+    if (groupIndex >= groups.length) {
+      const available = remaining.filter((edgeId) => {
+        const edge = edgeById.get(edgeId);
+        return edge && !usedNodes.has(edge.a) && !usedNodes.has(edge.b);
+      });
+      const rest = selectRandomNonAdjacentEdgeIds(geom.edges, available, remainingCount);
+      return rest.length === remainingCount ? selected.concat(rest) : null;
+    }
+
+    for (const edgeId of groups[groupIndex]) {
+      const edge = edgeById.get(edgeId);
+      if (!edge || usedNodes.has(edge.a) || usedNodes.has(edge.b)) continue;
+      const nextUsed = new Set(usedNodes);
+      nextUsed.add(edge.a);
+      nextUsed.add(edge.b);
+      const result = search(groupIndex + 1, selected.concat(edgeId), nextUsed);
+      if (result) return result;
+    }
+    return null;
+  }
+
+  return search(0, [], new Set());
+}
+
+function nonSeaTileComponents(geom) {
+  return matchingTileComponents(geom, (tile) => !(tile.fog && !tile.revealed) && tile.type !== 'sea');
+}
+
+function generatePortsSeafarersWithRegionalCoverage(geom, count, opts = null) {
+  const landComponents = nonSeaTileComponents(geom).filter((component) => component.size);
+  if (!landComponents.length) return null;
+
+  let mainland = landComponents[0];
+  for (const component of landComponents) {
+    if (component.size > mainland.size) mainland = component;
+  }
+
+  const outerIslands = landComponents.filter((component) => component !== mainland);
+  const requiredEdgeGroups = outerIslands.map((component) => (
+    candidateMainlandPortEdgeIds(geom, component, null)
+  ));
+
+  if (opts?.includeDesertSections) {
+    const desertSections = matchingTileComponents(geom, (tile) => tile.type === 'desert');
+    for (const section of desertSections) {
+      requiredEdgeGroups.push(candidateMainlandPortEdgeIds(geom, section, null, { allowDesert: true }));
+    }
+  }
+
+  const remainingEdgeIds = candidateMainlandPortEdgeIds(
+    geom,
+    mainland,
+    opts?.mainlandAllowedKeys || null,
+  );
+  const selectedEdgeIds = selectPortEdgesWithRequiredGroups(
+    geom,
+    requiredEdgeGroups,
+    remainingEdgeIds,
+    count,
+  );
+  if (!selectedEdgeIds || selectedEdgeIds.length !== count) return null;
+  return generatePorts(geom, count, { edgeIds: selectedEdgeIds });
 }
 
 function generatePortsSeafarersSixIslandsBalanced(geom, count = 11) {
@@ -5074,21 +5113,27 @@ function generatePortsSeafarers(geom, scenario = 'four_islands') {
     if (ports && ports.length === count) return ports;
   }
 
-  // Through the Desert: ports must be on the MAINLAND only (no ports on small islands or on desert tiles).
+  // Through the Desert: put one port on every outer island and every contiguous desert shoreline section.
+  // Keep the remaining ports on the starting mainland.
   if (s === 'through_the_desert' || s === 'through_the_desert_56') {
-    const mainland = largestNonSeaComponentTileIds(geom);
-    // Additionally, all port locations must be on the shore of the "pink" mainland start region.
-    // (This matches the provided templates: no ports on outer islands or desert shoreline.)
     const allowed = (s === 'through_the_desert_56') ? TTD56_START_PINK_KEYS : TTD_PINK_KEYS;
-    const edgeIds = candidateMainlandPortEdgeIds(geom, mainland, allowed);
-    if (edgeIds && edgeIds.length) return generatePorts(geom, count, { edgeIds });
+    const ports = generatePortsSeafarersWithRegionalCoverage(geom, count, {
+      mainlandAllowedKeys: allowed,
+      includeDesertSections: true,
+    });
+    if (!ports || ports.length !== count) {
+      throw new Error(`Unable to place ${count} Through the Desert ports with the required regional coverage.`);
+    }
+    return ports;
   }
 
-  // Heading for New Shores: lock ALL ports to the main island (largest landmass), never on outer islands.
+  // Heading for New Shores: put one port on every outer island and keep the rest on the main island.
   if (s === 'heading_for_new_shores') {
-    const mainland = largestNonSeaComponentTileIds(geom);
-    const edgeIds = candidateMainlandPortEdgeIds(geom, mainland, null);
-    if (edgeIds && edgeIds.length) return generatePorts(geom, count, { edgeIds });
+    const ports = generatePortsSeafarersWithRegionalCoverage(geom, count);
+    if (!ports || ports.length !== count) {
+      throw new Error(`Unable to place ${count} Heading for New Shores ports with the required island coverage.`);
+    }
+    return ports;
   }
 
   return generatePorts(geom, count);
