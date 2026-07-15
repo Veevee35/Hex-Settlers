@@ -241,6 +241,11 @@ body.in-game .boardFooter{display:none;}
 .historyReplayBar.hidden{display:none!important;}
 .historyReplayStatus{display:flex; min-width:0; max-width:520px; flex:1 1 220px; flex-direction:column; gap:2px; color:var(--text);}
 .historyReplayStatus span{overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap;}
+.historyReplayTimeline{display:grid; grid-template-columns:auto minmax(100px,1fr) auto; align-items:center; flex:1 0 100%; width:100%; gap:10px; padding:1px 4px 2px;}
+.historyReplayTimelineLabel{color:var(--muted); font-family:var(--mono); font-size:10px; font-weight:700; white-space:nowrap;}
+.historyReplaySlider{width:100%; min-width:0; height:22px; margin:0; accent-color:var(--accent); cursor:pointer; touch-action:none;}
+.historyReplaySlider:disabled{cursor:not-allowed; opacity:.45;}
+.historyReplaySlider:focus-visible{outline:2px solid rgba(74,163,255,.8); outline-offset:3px; border-radius:999px;}
 .resSummaryMain{display:flex; align-items:center; gap:8px; min-width:0; width:100%;}
 .resSummaryName{font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:116px;}
 .resSummaryStats{display:flex; align-items:center; gap:8px; flex:1 1 auto; min-width:0; flex-wrap:wrap;}

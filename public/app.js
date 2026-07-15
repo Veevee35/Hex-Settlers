@@ -163,6 +163,8 @@
     historyReplayStep: $('historyReplayStep'),
     historyReplayAction: $('historyReplayAction'),
     historyReplayLogBtn: $('historyReplayLogBtn'),
+    historyReplaySlider: $('historyReplaySlider'),
+    historyReplayTimelineEnd: $('historyReplayTimelineEnd'),
     modal: $('modal'),
     modalBackdrop: $('modalBackdrop'),
     modalTitle: $('modalTitle'),
@@ -1569,6 +1571,8 @@ let historyReplay = {
   liveState: null,
   viewPlayerId: null,
 };
+let historyReplayScrubFrame = null;
+let historyReplayScrubIndex = null;
 
 const HISTORY_REPLAY_ALLOWED_MESSAGES = new Set([
   'get_state', 'get_game_history', 'get_game_history_entry',
@@ -1631,9 +1635,44 @@ function refreshHistoryReplayBar() {
   const actor = step && (state?.players || []).find((player) => player && player.id === step.actorId);
   const kind = String(step?.action?.kind || 'game_start').replaceAll('_', ' ');
   const latestLog = Array.isArray(state?.log) && state.log.length ? state.log[state.log.length - 1]?.text : '';
-  if (ui.historyReplayAction) ui.historyReplayAction.textContent = latestLog || `${actor ? `${actor.name}: ` : ''}${kind}`;
+  const actionText = latestLog || `${actor ? `${actor.name}: ` : ''}${kind}`;
+  if (ui.historyReplayAction) ui.historyReplayAction.textContent = actionText;
   if (ui.historyReplayPrevBtn) ui.historyReplayPrevBtn.disabled = historyReplay.index <= 0;
   if (ui.historyReplayNextBtn) ui.historyReplayNextBtn.disabled = historyReplay.index >= frameCount - 1;
+  if (ui.historyReplaySlider) {
+    ui.historyReplaySlider.min = '0';
+    ui.historyReplaySlider.max = String(steps.length);
+    ui.historyReplaySlider.value = String(historyReplay.index);
+    ui.historyReplaySlider.disabled = steps.length === 0;
+    const position = historyReplay.index === 0 ? 'Game start' : `Action ${historyReplay.index} of ${steps.length}`;
+    ui.historyReplaySlider.setAttribute('aria-valuetext', `${position}: ${actionText}`);
+  }
+  if (ui.historyReplayTimelineEnd) {
+    ui.historyReplayTimelineEnd.textContent = `${steps.length} action${steps.length === 1 ? '' : 's'}`;
+  }
+}
+
+function cancelHistoryReplayScrub() {
+  if (historyReplayScrubFrame != null && typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(historyReplayScrubFrame);
+  }
+  historyReplayScrubFrame = null;
+  historyReplayScrubIndex = null;
+}
+
+function scheduleHistoryReplayFrame(index) {
+  const maxIndex = Array.isArray(historyReplay.entry?.replay?.steps) ? historyReplay.entry.replay.steps.length : 0;
+  historyReplayScrubIndex = Math.max(0, Math.min(maxIndex, Math.floor(Number(index || 0))));
+  if (historyReplayScrubFrame != null) return;
+
+  const showPendingFrame = () => {
+    historyReplayScrubFrame = null;
+    const nextIndex = historyReplayScrubIndex;
+    historyReplayScrubIndex = null;
+    if (nextIndex != null) showHistoryReplayFrame(nextIndex);
+  };
+  if (typeof requestAnimationFrame === 'function') historyReplayScrubFrame = requestAnimationFrame(showPendingFrame);
+  else showPendingFrame();
 }
 
 function showHistoryReplayFrame(index) {
@@ -1659,6 +1698,7 @@ function startHistoryReplay(entry) {
     setError('A step-by-step replay is not available for this older game.');
     return;
   }
+  cancelHistoryReplayScrub();
   historyReplay = { active: true, entry, index: 0, liveState: state, viewPlayerId: null };
   setHistoryVisible(false);
   closePostgameSnapshot();
@@ -1667,6 +1707,7 @@ function startHistoryReplay(entry) {
 
 function stopHistoryReplay() {
   if (!historyReplay.active) return;
+  cancelHistoryReplayScrub();
   const liveState = historyReplay.liveState;
   historyReplay = { active: false, entry: null, index: 0, liveState: null, viewPlayerId: null };
   state = liveState;
@@ -8396,8 +8437,17 @@ if (ui.historyTabs) {
 }
 
 if (ui.historyReplayExitBtn) ui.historyReplayExitBtn.addEventListener('click', stopHistoryReplay);
-if (ui.historyReplayPrevBtn) ui.historyReplayPrevBtn.addEventListener('click', () => showHistoryReplayFrame(historyReplay.index - 1));
-if (ui.historyReplayNextBtn) ui.historyReplayNextBtn.addEventListener('click', () => showHistoryReplayFrame(historyReplay.index + 1));
+if (ui.historyReplayPrevBtn) ui.historyReplayPrevBtn.addEventListener('click', () => {
+  cancelHistoryReplayScrub();
+  showHistoryReplayFrame(historyReplay.index - 1);
+});
+if (ui.historyReplayNextBtn) ui.historyReplayNextBtn.addEventListener('click', () => {
+  cancelHistoryReplayScrub();
+  showHistoryReplayFrame(historyReplay.index + 1);
+});
+if (ui.historyReplaySlider) ui.historyReplaySlider.addEventListener('input', () => {
+  scheduleHistoryReplayFrame(ui.historyReplaySlider.value);
+});
 if (ui.historyReplayLogBtn) ui.historyReplayLogBtn.addEventListener('click', () => {
   logPanelOpen = !logPanelOpen;
   if (ui.logCard) ui.logCard.classList.toggle('hidden', !logPanelOpen);
