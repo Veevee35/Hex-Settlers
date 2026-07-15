@@ -100,9 +100,66 @@ let userSockets = new Map(); // userId -> ws (enforce one active connection per 
 // Each entry includes a compact metadata header + a postgame snapshot (stats + players + rules) for viewing later.
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
 const HISTORY_MAX_GAMES = 500;
-const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH);
 
 let HISTORY_DB = { version: 1, games: [] };
+let NEURAL_AI_MODEL = null;
+
+function createDefaultNeuralAiModel() {
+  // Tiny MLP: 12 normalized inputs -> 8 hidden -> 1 output.
+  // Biases start with a strong VP preference so the policy is useful before training.
+  const inputSize = 12;
+  const hiddenSize = 8;
+  const mkRow = (n, scale = 0.12) => Array.from({ length: n }, () => (Math.random() * 2 - 1) * scale);
+  const w1 = Array.from({ length: hiddenSize }, () => mkRow(inputSize));
+  const b1 = mkRow(hiddenSize, 0.05);
+  const w2 = mkRow(hiddenSize, 0.1);
+  const b2 = 0.2;
+
+  // Seed extra emphasis on VP-ish features (indexes 0/1/2/3 in feature vector below).
+  for (let h = 0; h < hiddenSize; h++) {
+    w1[h][0] += 0.5;
+    w1[h][1] += 0.4;
+    w1[h][2] += 0.25;
+    w1[h][3] += 0.2;
+    w2[h] += 0.15;
+  }
+
+  return {
+    version: 1,
+    trainedGames: 0,
+    meta: { inputSize, hiddenSize },
+    params: { w1, b1, w2, b2 },
+  };
+}
+
+function loadNeuralAiModel() {
+  try {
+    if (!fs.existsSync(NEURAL_AI_MODEL_PATH)) {
+      NEURAL_AI_MODEL = createDefaultNeuralAiModel();
+      saveNeuralAiModel();
+      return;
+    }
+    const raw = fs.readFileSync(NEURAL_AI_MODEL_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.params) throw new Error('invalid model');
+    NEURAL_AI_MODEL = parsed;
+  } catch (e) {
+    console.error('[neural-ai] Failed to load model, resetting:', e && e.message ? e.message : e);
+    NEURAL_AI_MODEL = createDefaultNeuralAiModel();
+    saveNeuralAiModel();
+  }
+}
+
+function saveNeuralAiModel() {
+  try {
+    const safe = NEURAL_AI_MODEL && typeof NEURAL_AI_MODEL === 'object'
+      ? NEURAL_AI_MODEL
+      : createDefaultNeuralAiModel();
+    fs.writeFileSync(NEURAL_AI_MODEL_PATH, JSON.stringify(safe, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[neural-ai] Failed to save model:', e && e.message ? e.message : e);
+  }
+}
 
 function loadHistoryDb() {
   try {
@@ -209,6 +266,8 @@ function makeGameHistoryEntry(room, game, winnerId) {
     longestRoad: game.longestRoad || null,
     largestArmy: game.largestArmy || null,
     diceStats: game.diceStats || null,
+    // Persist the full in-game log so history can offer a step-by-step replay.
+    log: Array.isArray(game.log) ? game.log : [],
   });
 
   return {
@@ -637,6 +696,8 @@ function setUserDisplayName(user, displayName) {
 loadUsersDb();
 
 loadHistoryDb();
+
+loadNeuralAiModel();
 
 // Repair any inflated user stats caused by older builds (stats should match *valid* history).
 rebuildUserStatsFromHistory();
@@ -2836,6 +2897,127 @@ function persistUserStatsFromGame(room, game, winnerId) {
   } catch (_) {}
 }
 
+
+
+function missingFor(res, cost) {
+  const miss = {};
+  let total = 0;
+  for (const k of RESOURCE_KINDS) {
+    const need = Math.max(0, Math.floor(Number(cost?.[k] || 0)) - Math.floor(Number(res?.[k] || 0)));
+    if (need > 0) { miss[k] = need; total += need; }
+  }
+  return { miss, total };
+}
+
+function neuralTanh(x) {
+  const n = Number(x) || 0;
+  if (n > 20) return 1;
+  if (n < -20) return -1;
+  const e2 = Math.exp(2 * n);
+  return (e2 - 1) / (e2 + 1);
+}
+
+function neuralFeaturesFromState(state, pid) {
+  const p = playerById(state, pid);
+  if (!p) return Array(12).fill(0);
+  computeVP(state);
+  const vpTarget = Math.max(3, Math.floor(Number(state?.rules?.victoryPointsToWin || 10)));
+  const vp = Math.max(0, Number(p.vp || 0));
+  const vpToWin = Math.max(0, vpTarget - vp);
+  const res = p.resources || {};
+  const resTotal = RESOURCE_KINDS.reduce((n, k) => n + Math.max(0, Number(res[k] || 0)), 0);
+  const missCity = missingFor(res, BUILD_COSTS.city).total;
+  const missSettle = missingFor(res, BUILD_COSTS.settlement).total;
+  const missDev = missingFor(res, DEV_CARD_COST).total;
+
+  const nodes = state?.geom?.nodes || [];
+  const edges = state?.geom?.edges || [];
+  const citySpots = nodes.reduce((n, node) => n + ((node?.building?.owner === pid && node?.building?.type === 'settlement') ? 1 : 0), 0);
+  const roads = edges.reduce((n, e) => n + ((e?.roadOwner === pid || e?.shipOwner === pid) ? 1 : 0), 0);
+
+  const devUnplayed = (p.devCards || []).filter(c => c && !c.played).length;
+
+  return [
+    vp / vpTarget,
+    (vpTarget - vpToWin) / vpTarget,
+    1 - Math.min(1, vpToWin / vpTarget),
+    Math.max(0, (vp - 6) / vpTarget),
+    Math.min(1, resTotal / 12),
+    1 - Math.min(1, missCity / 5),
+    1 - Math.min(1, missSettle / 4),
+    1 - Math.min(1, missDev / 3),
+    Math.min(1, citySpots / 5),
+    Math.min(1, roads / 15),
+    Math.min(1, devUnplayed / 4),
+    1,
+  ];
+}
+
+function neuralModelPredict(features) {
+  const m = NEURAL_AI_MODEL && NEURAL_AI_MODEL.params ? NEURAL_AI_MODEL : createDefaultNeuralAiModel();
+  const prm = m.params;
+  const hidden = [];
+  for (let i = 0; i < prm.w1.length; i++) {
+    let z = Number(prm.b1[i] || 0);
+    const row = prm.w1[i] || [];
+    for (let j = 0; j < features.length; j++) z += Number(row[j] || 0) * Number(features[j] || 0);
+    hidden.push(neuralTanh(z));
+  }
+  let out = Number(prm.b2 || 0);
+  for (let i = 0; i < hidden.length; i++) out += Number(prm.w2[i] || 0) * hidden[i];
+  return { hidden, out: neuralTanh(out) };
+}
+
+function neuralActionValue(state, pid, fallback = 0) {
+  const feat = neuralFeaturesFromState(state, pid);
+  const pred = neuralModelPredict(feat).out;
+  return pred * 1200 + Number(fallback || 0);
+}
+
+function trainNeuralAiFromFinishedGame(game) {
+  try {
+    if (!game || game._neuralTrained) return;
+    if (String(game.phase || '').toLowerCase() !== 'game-over') return;
+    if (!Array.isArray(game.players) || game.players.length < 2) return;
+    const winnerId = String(game.winnerId || '').trim();
+    if (!winnerId) return;
+
+    if (!NEURAL_AI_MODEL || !NEURAL_AI_MODEL.params) NEURAL_AI_MODEL = createDefaultNeuralAiModel();
+    const prm = NEURAL_AI_MODEL.params;
+    const lr = 0.035;
+
+    for (const gp of game.players) {
+      const pid = String(gp?.id || '').trim();
+      if (!pid) continue;
+      const target = (pid === winnerId) ? 1 : -1;
+      const x = neuralFeaturesFromState(game, pid);
+      const { hidden, out } = neuralModelPredict(x);
+      const err = out - target;
+      const dOut = (1 - out * out) * err;
+
+      for (let i = 0; i < prm.w2.length; i++) {
+        prm.w2[i] = Number(prm.w2[i] || 0) - lr * dOut * Number(hidden[i] || 0);
+      }
+      prm.b2 = Number(prm.b2 || 0) - lr * dOut;
+
+      for (let i = 0; i < prm.w1.length; i++) {
+        const h = Number(hidden[i] || 0);
+        const dHidden = (1 - h * h) * Number(prm.w2[i] || 0) * dOut;
+        for (let j = 0; j < x.length; j++) {
+          prm.w1[i][j] = Number(prm.w1[i][j] || 0) - lr * dHidden * Number(x[j] || 0);
+        }
+        prm.b1[i] = Number(prm.b1[i] || 0) - lr * dHidden;
+      }
+    }
+
+    NEURAL_AI_MODEL.trainedGames = Math.max(0, Number(NEURAL_AI_MODEL.trainedGames || 0)) + 1;
+    game._neuralTrained = true;
+    saveNeuralAiModel();
+  } catch (e) {
+    console.error('[neural-ai] Failed to train model from game:', e && e.message ? e.message : e);
+  }
+}
+
 function checkWin(room, state, pid) {
   const p = playerById(state, pid);
   if (!p) return;
@@ -2860,6 +3042,7 @@ function checkWin(room, state, pid) {
     if (!wasOver) {
       try { persistUserStatsFromGame(room, state, pid); } catch (_) {}
       try { persistGameHistoryFromGame(room, state, pid); } catch (_) {}
+      try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
     }
   }
 }
@@ -5247,10 +5430,26 @@ function pushLog(game, text, kind = 'info', data = null) {
   if (!game) return;
   game.log = game.log || [];
   game.logSeq = game.logSeq || 1;
-  const entry = { id: game.logSeq++, ts: now(), kind, text: String(text || ''), data };
+  const auto = (game._autoLogContext && typeof game._autoLogContext === 'object')
+    ? { ...game._autoLogContext }
+    : null;
+  const entry = { id: game.logSeq++, ts: now(), kind, text: String(text || ''), data, auto };
   game.log.push(entry);
   const MAX = 300;
   if (game.log.length > MAX) game.log.splice(0, game.log.length - MAX);
+}
+
+function withAutoLogContext(game, context, fn) {
+  if (!game || typeof fn !== 'function') return null;
+  const hadPrev = Object.prototype.hasOwnProperty.call(game, '_autoLogContext');
+  const prev = game._autoLogContext;
+  game._autoLogContext = (context && typeof context === 'object') ? { ...context } : context;
+  try {
+    return fn();
+  } finally {
+    if (hadPrev) game._autoLogContext = prev;
+    else delete game._autoLogContext;
+  }
 }
 
 function displayTurnNumber(game) {
@@ -7170,6 +7369,7 @@ if (kind === 'pirate_steal') {
     if (!wasOver) {
       try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
       try { persistGameHistoryFromGame(room, game, winnerId); } catch (_) {}
+      try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
     }
 
     return { ok: true };
@@ -9032,9 +9232,10 @@ if (msg.type === 'create_room') {
       }
 
       const raw = String(msg.difficulty || msg.mode || 'test').toLowerCase().trim();
-      const allowed = new Set(['test', 'easy', 'medium', 'hard', 'catanatron', 'expert']);
+      const allowed = new Set(['test', 'easy', 'medium', 'hard', 'catanatron', 'expert', 'neural_net', 'neural-net', 'neural']);
       let diff = allowed.has(raw) ? raw : 'test';
       if (diff === 'expert') diff = 'catanatron';
+      if (diff === 'neural-net' || diff === 'neural') diff = 'neural_net';
 
       room.aiDifficulty = diff;
       // Apply to lobby players
@@ -9052,6 +9253,22 @@ if (msg.type === 'create_room') {
       broadcastRoom(room);
       if (room.game && room.game.phase !== 'lobby') broadcastState(room);
       else broadcastPreviewState(room);
+      return;
+    }
+
+    if (msg.type === 'set_expert_ai_tuning') {
+      if (pid !== room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Only host can tune expert AI.' });
+        return;
+      }
+      const next = {};
+      for (const [k, v] of Object.entries(msg.tuning || {})) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) continue;
+        next[k] = n;
+      }
+      room.expertAiTuning = { ...readExpertAiTuning(room), ...next };
+      sendJson(ws, { type: 'expert_ai_tuning_ok', tuning: room.expertAiTuning });
       return;
     }
 
@@ -9387,6 +9604,10 @@ function handleTimeout(room) {
   if (now() < game.timer.endsAt) return false;
 
   const phase = game.phase;
+  const runAutoTimeoutAction = (playerId, fn) => withAutoLogContext(game, {
+    kind: 'timeout',
+    playerId: playerId || null,
+  }, fn);
 
   // Cartographer manual draft auto-placement (timeout)
   if (phase === 'cartographer-draft') {
@@ -9405,7 +9626,7 @@ function handleTimeout(room) {
     }
     shuffle(cands);
     if (cands.length) {
-      applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
+      runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType }));
       syncTimer(game);
       return true;
     }
@@ -9432,7 +9653,7 @@ function handleTimeout(room) {
     }
     shuffle(cands);
     if (cands.length) {
-      const r = applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType }));
       if (r && r.ok) { delay(180, 320); return true; }
     }
     delay(180, 320);
@@ -9456,7 +9677,7 @@ function handleTimeout(room) {
     }
     const shuffled = shuffle(nodeIds);
     for (const nid of shuffled) {
-      const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'place_settlement', nodeId: nid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9471,7 +9692,7 @@ function handleTimeout(room) {
     const cand = nid != null ? (game.geom.nodeEdges[nid] || []) : [];
     const edgeIds = shuffle(cand.filter(eid => !game.geom.edges[eid].roadOwner));
     for (const eid of edgeIds) {
-      const r = applyAction(room, pid, { kind: 'place_road', edgeId: eid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'place_road', edgeId: eid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9492,7 +9713,7 @@ function handleTimeout(room) {
     const pid = sp.forPlayerId;
     const amount = Math.max(1, Math.floor(Number(sp.amount || 1)));
     const choices = randomGoldChoicesFromBank(game, amount);
-    const r = applyAction(room, pid, { kind: 'choose_production_gold', choices });
+    const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'choose_production_gold', choices }));
     if (r && r.ok) {
       syncTimer(game);
       return true;
@@ -9504,7 +9725,7 @@ function handleTimeout(room) {
   if (phase === 'main-await-roll') {
     const pid = game.currentPlayerId;
     if (!pid) return false;
-    applyAction(room, pid, { kind: 'roll_dice' });
+    runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'roll_dice' }));
     syncTimer(game);
     return true;
   }
@@ -9524,14 +9745,14 @@ function handleTimeout(room) {
         if (!p) continue;
         const req = required[pid] || 0;
         const cards = randomDiscardMap(p, req);
-        applyAction(room, pid, { kind: 'discard_cards', cards });
+        runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'discard_cards', cards }));
       }
 
       // If something went sideways, force-exit discard.
       if (game.phase === 'discard') {
         game.discard = null;
         if ((game.rules?.mapMode || 'classic') === 'seafarers') {
-          startThiefChoice(game, 'roll7', game.currentPlayerId);
+          runAutoTimeoutAction(game.currentPlayerId, () => startThiefChoice(game, 'roll7', game.currentPlayerId));
         } else {
           game.phase = 'robber-move';
           game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
@@ -9542,7 +9763,7 @@ function handleTimeout(room) {
       if (game.phase === 'discard') {
         game.discard = null;
         if ((game.rules?.mapMode || 'classic') === 'seafarers') {
-          startThiefChoice(game, 'roll7', game.currentPlayerId);
+          runAutoTimeoutAction(game.currentPlayerId, () => startThiefChoice(game, 'roll7', game.currentPlayerId));
         } else {
           game.phase = 'robber-move';
           game.message = `Time expired. Discards auto-completed. ${playerName(game, game.currentPlayerId)} move the robber, then steal 1 random resource.`;
@@ -9568,7 +9789,7 @@ function handleTimeout(room) {
     }
     const shuffled = shuffle(cands);
     for (const tid of shuffled) {
-      const r = applyAction(room, pid, { kind: 'move_robber', tileId: tid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_robber', tileId: tid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9594,8 +9815,8 @@ function handleTimeout(room) {
     }
     shuffle(land);
     shuffle(sea);
-    if (land.length) applyAction(room, pid, { kind: 'move_robber', tileId: land[0] });
-    else if (sea.length) applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] });
+    if (land.length) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_robber', tileId: land[0] }));
+    else if (sea.length) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] }));
     syncTimer(game);
     return true;
   }
@@ -9613,7 +9834,7 @@ function handleTimeout(room) {
     }
     const shuffled = shuffle(cands);
     for (const tid of shuffled) {
-      const r = applyAction(room, pid, { kind: 'move_pirate', tileId: tid });
+      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_pirate', tileId: tid }));
       if (r && r.ok) break;
     }
     syncTimer(game);
@@ -9626,7 +9847,7 @@ function handleTimeout(room) {
     if (!pid) return false;
     const victims = game.robberSteal?.victims || [];
     const victimId = bestVictimByResources(game, victims);
-    if (victimId) applyAction(room, pid, { kind: 'robber_steal', victimId });
+    if (victimId) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'robber_steal', victimId }));
     else {
       game.robberContext = null;
       game.thiefChoice = null;
@@ -9646,7 +9867,7 @@ function handleTimeout(room) {
     if (!pid) return false;
     const victims = game.pirateSteal?.victims || [];
     const victimId = bestVictimByResources(game, victims);
-    if (victimId) applyAction(room, pid, { kind: 'pirate_steal', victimId });
+    if (victimId) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'pirate_steal', victimId }));
     else {
       const ctx = game.robberContext;
       const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
@@ -9667,7 +9888,7 @@ function handleTimeout(room) {
   if (phase === 'main-actions') {
     const pid = game.currentPlayerId;
     if (!pid) return false;
-    applyAction(room, pid, { kind: 'end_turn' });
+    runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'end_turn' }));
     syncTimer(game);
     return true;
   }
@@ -9701,7 +9922,13 @@ function handleAI(room) {
     } catch (_) { return false; }
   };
 
+  const aiFastMode = String(process.env.AI_FAST || '').toLowerCase() === '1';
+
   const delay = (msMin, msMax) => {
+    if (aiFastMode) {
+      game.ai.nextAt = now();
+      return;
+    }
     const a = Math.max(0, Math.floor(msMin || 0));
     const b = Math.max(a, Math.floor(msMax || a));
     game.ai.nextAt = now() + (a + Math.floor(Math.random() * (b - a + 1)));
@@ -9711,13 +9938,14 @@ function handleAI(room) {
     const p = playerById(game, pid);
     const raw = String((p && p.aiDifficulty) || game.aiDifficulty || room.aiDifficulty || 'test').toLowerCase();
     if (raw === 'catanatron' || raw === 'expert' || raw === 'expert_ai' || raw === 'expert ai') return 'catanatron';
-    if (raw === 'easy' || raw === 'medium' || raw === 'hard' || raw === 'test') return raw;
+    if (raw === 'easy' || raw === 'medium' || raw === 'hard' || raw === 'test' || raw === 'neural_net') return raw;
     // accept legacy labels
     if (raw.includes('catanatron')) return 'catanatron';
+    if (raw.includes('neural')) return 'neural_net';
     return 'test';
   };
 
-  const aiBudgetFor = (diff) => (diff === 'catanatron') ? 5 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
+  const aiBudgetFor = (diff) => (diff === 'catanatron' || diff === 'neural_net') ? 8 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
 
   const DICE_PIPS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
@@ -10008,6 +10236,96 @@ function handleAI(room) {
     return { kind: 'bank_trade', giveKind: best.giveKind, takeKind: best.takeKind, takeQty: 1 };
   };
 
+  const chooseInventionChoices = (pid) => {
+    const p = playerById(game, pid);
+    if (!p) return ['grain', 'ore'];
+
+    const priority = [];
+    const pushMissing = (cost) => {
+      const miss = missingFor(p.resources || {}, cost).miss;
+      for (const rk of RESOURCE_KINDS) {
+        const n = Math.max(0, Number(miss?.[rk] || 0));
+        for (let i = 0; i < n; i++) priority.push(rk);
+      }
+    };
+
+    // Prefer closing city/settlement/dev-card gaps first.
+    pushMissing(BUILD_COSTS.city);
+    pushMissing(BUILD_COSTS.settlement);
+    pushMissing(DEV_CARD_COST);
+
+    const byScarcity = RESOURCE_KINDS.slice().sort((a, b) => (p.resources?.[a] || 0) - (p.resources?.[b] || 0));
+    for (const rk of byScarcity) priority.push(rk);
+
+    const picks = [];
+    for (const rk of priority) {
+      if (RESOURCE_KINDS.includes(rk)) picks.push(rk);
+      if (picks.length >= 2) break;
+    }
+    while (picks.length < 2) picks.push(byScarcity[0] || 'grain');
+    return picks.slice(0, 2);
+  };
+
+  const chooseMonopolyResource = (pid) => {
+    let bestKind = 'grain';
+    let bestTotal = -1;
+    for (const rk of RESOURCE_KINDS) {
+      let total = 0;
+      for (const op of (game.players || [])) {
+        if (!op || op.id === pid) continue;
+        total += Number(op.resources?.[rk] || 0);
+      }
+      if (total > bestTotal) {
+        bestTotal = total;
+        bestKind = rk;
+      }
+    }
+    return bestKind;
+  };
+
+  const chooseDevPlayAction = (pid, phase) => {
+    const p = playerById(game, pid);
+    if (!p) return null;
+    const cards = (p.devCards || []).filter(c => c && !c.played);
+    if (!cards.length) return null;
+
+    const playable = cards.filter((card) => {
+      if (!card) return false;
+      const isVP = card.type === DEV_CARD_TYPES.VICTORY_POINT;
+      if (!isVP && card.boughtTurn === game.turnNumber) return false;
+      if (!isVP && p.devPlayedTurn === game.turnNumber) return false;
+      if (phase === 'main-await-roll') {
+        return card.type === DEV_CARD_TYPES.KNIGHT
+          || card.type === DEV_CARD_TYPES.ROAD_BUILDING
+          || card.type === DEV_CARD_TYPES.INVENTION
+          || card.type === DEV_CARD_TYPES.MONOPOLY
+          || card.type === DEV_CARD_TYPES.VICTORY_POINT;
+      }
+      return phase === 'main-actions';
+    });
+    if (!playable.length) return null;
+
+    const byPriority = [
+      DEV_CARD_TYPES.VICTORY_POINT,
+      DEV_CARD_TYPES.KNIGHT,
+      DEV_CARD_TYPES.MONOPOLY,
+      DEV_CARD_TYPES.INVENTION,
+      DEV_CARD_TYPES.ROAD_BUILDING,
+    ];
+
+    playable.sort((a, b) => byPriority.indexOf(a.type) - byPriority.indexOf(b.type));
+    const card = playable[0];
+    if (!card) return null;
+
+    if (card.type === DEV_CARD_TYPES.INVENTION) {
+      return { kind: 'play_dev_card', cardId: card.id, choices: chooseInventionChoices(pid) };
+    }
+    if (card.type === DEV_CARD_TYPES.MONOPOLY) {
+      return { kind: 'play_dev_card', cardId: card.id, resourceKind: chooseMonopolyResource(pid) };
+    }
+    return { kind: 'play_dev_card', cardId: card.id };
+  };
+
   
   // --- Catanatron-inspired Expert mode (one-step lookahead) ---
   const playerResourceIncomeState = (state, pid) => {
@@ -10050,6 +10368,8 @@ function handleAI(room) {
     if (!p) return -1e12;
 
     const vp = p.vp || 0;
+    const vpTarget = Math.max(3, Math.floor(Number(state?.rules?.victoryPointsToWin || 10)));
+    const vpToWin = Math.max(0, vpTarget - vp);
     const res = p.resources || {};
     const resTotal = RESOURCE_KINDS.reduce((s, k) => s + (res[k] || 0), 0);
 
@@ -10062,16 +10382,51 @@ function handleAI(room) {
     const missSet = missingFor(res, BUILD_COSTS.settlement).total;
     const missDev = missingFor(res, DEV_CARD_COST).total;
 
+    const hasCitySpot = (state?.geom?.nodes || []).some(n => {
+      const b = n?.building;
+      return !!(b && b.owner === pid && b.type === 'settlement');
+    });
+
+    const hasSettleSpot = (() => {
+      const nodes = state?.geom?.nodes || [];
+      const boardHasSeaState = (state?.geom?.tiles || []).some(t => t && t.type === 'sea');
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        if (!node || node.building) continue;
+        if (!settlementDistanceOk(state, i)) continue;
+        if (boardHasSeaState) {
+          const adj = state?.geom?.nodeAdjTiles?.[i] || [];
+          if (!adj.some(tid => (state?.geom?.tiles?.[tid]?.type || '') !== 'sea')) continue;
+        }
+        const edges = state?.geom?.nodeEdges?.[i] || [];
+        let connected = false;
+        for (const eid of edges) {
+          const e = state?.geom?.edges?.[eid];
+          if (!e) continue;
+          if (e.roadOwner === pid || (isSeafarers && e.shipOwner === pid)) { connected = true; break; }
+        }
+        if (connected) return true;
+      }
+      return false;
+    })();
+
+    let immediateVpPotential = 0;
+    if (hasCitySpot && canAffordCost(res, BUILD_COSTS.city)) immediateVpPotential += 1.8;
+    if (hasSettleSpot && canAffordCost(res, BUILD_COSTS.settlement)) immediateVpPotential += 1.6;
+
     const discardRisk = Math.max(0, resTotal - 7);
+    const closingPressure = (vpToWin <= 3) ? (4 - vpToWin) : 0;
 
     // Big emphasis on VP, then production, then hand efficiency.
     return (vp * 1000)
       + (incomeTotal * 18)
       + (resTotal * 4)
       + (devUnplayed * 12)
+      + (immediateVpPotential * 32)
+      + (closingPressure * 14)
       - (Math.min(missCity, missSet) * 6)
       - (missDev * 2)
-      - (discardRisk * 3);
+      - (discardRisk * 2);
   };
 
   const simulateAction = (pid, action) => {
@@ -10086,6 +10441,8 @@ function handleAI(room) {
     const p = playerById(game, pid);
     if (!p) return null;
 
+    const tuning = readExpertAiTuning(room);
+    computeVP(game);
     const baseValue = stateValueFor(game, pid);
     let best = null;
 
@@ -10125,7 +10482,7 @@ function handleAI(room) {
     }
 
     // Bank trades (up to 2 per turn in expert mode).
-    const maxTrades = 2;
+    const maxTrades = 3;
     if ((mem.tradeCount || 0) < maxTrades) {
       const targets = [BUILD_COSTS.city, BUILD_COSTS.settlement, DEV_CARD_COST];
       for (const t of targets) {
@@ -10139,12 +10496,124 @@ function handleAI(room) {
       if (act.kind === 'bank_trade' && (mem.tradeCount || 0) >= 2) continue;
       const sim = simulateAction(pid, act);
       if (!sim) continue;
-      const v = stateValueFor(sim, pid);
-      if (!best || v > best.v) best = { act, v };
+      const before = playerById(game, pid);
+      const after = playerById(sim, pid);
+      const beforeVp = before ? (before.vp || 0) : 0;
+      const afterVp = after ? (after.vp || 0) : 0;
+      const vpGain = Math.max(0, afterVp - beforeVp);
+
+      let score = stateValueFor(sim, pid);
+      // Aggressively prioritize immediate VP gain in expert mode.
+      const seatVpGainWeight = expertAiVpGainWeightForSeat(game, pid, tuning);
+      score += vpGain * seatVpGainWeight;
+      if ((act.kind === 'upgrade_city' || act.kind === 'place_settlement') && vpGain > 0) score += tuning.vpBuildBonus;
+      if (act.kind === 'place_road' || act.kind === 'place_ship') {
+        const beforeSettleSpots = listSettlementPlacements(pid).length;
+        const afterSettleSpots = (() => {
+          const nodes = sim?.geom?.nodes || [];
+          const boardHasSeaState = (sim?.geom?.tiles || []).some(t => t && t.type === 'sea');
+          let c = 0;
+          for (let i = 0; i < nodes.length; i++) {
+            const node = nodes[i];
+            if (!node || node.building) continue;
+            if (!settlementDistanceOk(sim, i)) continue;
+            if (boardHasSeaState) {
+              const adj = sim?.geom?.nodeAdjTiles?.[i] || [];
+              if (!adj.some(tid => (sim?.geom?.tiles?.[tid]?.type || '') !== 'sea')) continue;
+            }
+            const edges = sim?.geom?.nodeEdges?.[i] || [];
+            let connected = false;
+            for (const eid of edges) {
+              const e = sim?.geom?.edges?.[eid];
+              if (!e) continue;
+              if (e.roadOwner === pid || (isSeafarers && e.shipOwner === pid)) { connected = true; break; }
+            }
+            if (connected) c++;
+          }
+          return c;
+        })();
+        if (afterSettleSpots > beforeSettleSpots) score += tuning.newSettlementSpotBase + (afterSettleSpots - beforeSettleSpots) * tuning.newSettlementSpotStep;
+      }
+      if (act.kind === 'bank_trade' && vpGain === 0) score -= tuning.neutralTradePenalty;
+
+      if (!best || score > best.v) best = { act, v: score };
     }
 
-    // Require an actual improvement; otherwise no-op.
-    if (!best || best.v <= baseValue + 0.5) return null;
+    // Avoid pointless churn on neutral bank trades, but otherwise keep building pressure.
+    if (!best) return null;
+    if (best.act.kind === 'bank_trade') {
+      if (best.v <= baseValue + tuning.bankTradeMinGain) return null;
+      return best.act;
+    }
+    if (best.v <= baseValue + tuning.minActionGain) return null;
+    return best.act;
+  };
+
+  const chooseBestActionNeuralNet = (pid, preferExplore, mem) => {
+    const p = playerById(game, pid);
+    if (!p) return null;
+
+    computeVP(game);
+    const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid));
+    let best = null;
+    const candidates = [];
+
+    if (canAfford(p.resources, BUILD_COSTS.city)) {
+      const cityNodes = listCityUpgrades(pid)
+        .map(id => ({ id, score: nodeStrategicScore(pid, id) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8)
+        .map(o => ({ kind: 'upgrade_city', nodeId: o.id }));
+      candidates.push(...cityNodes);
+    }
+
+    if (canAfford(p.resources, BUILD_COSTS.settlement)) {
+      const setNodes = listSettlementPlacements(pid).slice(0, 10).map(o => ({ kind: 'place_settlement', nodeId: o.id }));
+      candidates.push(...setNodes);
+    }
+
+    if (isSeafarers && canAfford(p.resources, BUILD_COSTS.ship)) {
+      const shipEdges = listShipEdges(pid, preferExplore).slice(0, 10).map(edgeId => ({ kind: 'place_ship', edgeId }));
+      candidates.push(...shipEdges);
+    }
+
+    if (canAfford(p.resources, BUILD_COSTS.road)) {
+      const roadEdges = listRoadEdges(pid, preferExplore).slice(0, 10).map(edgeId => ({ kind: 'place_road', edgeId }));
+      candidates.push(...roadEdges);
+    }
+
+    if (canAfford(p.resources, DEV_CARD_COST) && (game.devDeck || []).length > 0) {
+      candidates.push({ kind: 'buy_dev_card' });
+    }
+
+    if ((mem.tradeCount || 0) < 3) {
+      const targets = [BUILD_COSTS.city, BUILD_COSTS.settlement, DEV_CARD_COST];
+      for (const t of targets) {
+        const bt = chooseBankTradeToEnable(pid, t);
+        if (bt) candidates.push(bt);
+      }
+    }
+
+    for (const act of candidates) {
+      if (act.kind === 'bank_trade' && (mem.tradeCount || 0) >= 2) continue;
+      const sim = simulateAction(pid, act);
+      if (!sim) continue;
+      const before = playerById(game, pid);
+      const after = playerById(sim, pid);
+      const vpGain = Math.max(0, Number(after?.vp || 0) - Number(before?.vp || 0));
+
+      let score = neuralActionValue(sim, pid, stateValueFor(sim, pid));
+      score += vpGain * 250;
+      if (act.kind === 'upgrade_city' || act.kind === 'place_settlement') score += 50;
+      if ((act.kind === 'place_road' || act.kind === 'place_ship') && listSettlementPlacements(pid).length < 1) score += 25;
+      if (act.kind === 'bank_trade' && vpGain === 0) score -= 18;
+
+      if (!best || score > best.v) best = { act, v: score };
+    }
+
+    if (!best) return null;
+    if (best.act.kind === 'bank_trade' && best.v <= baseValue + 0.05) return null;
+    if (best.v <= baseValue - 10) return null;
     return best.act;
   };
 const wouldAcceptTrade = (pid, trade, diff) => {
@@ -10346,6 +10815,11 @@ const wouldAcceptTrade = (pid, trade, diff) => {
   }
 
   if (phase === 'main-await-roll') {
+    const devAct = chooseDevPlayAction(pid, 'main-await-roll');
+    if (devAct && aiCan(pid, devAct)) {
+      const r = applyAction(room, pid, devAct);
+      if (r && r.ok) { delay(200, 340); return true; }
+    }
     const r = applyAction(room, pid, { kind: 'roll_dice' });
     if (r && r.ok) { delay(200, 340); return true; }
     delay(200, 340);
@@ -10475,9 +10949,10 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     }
 
     const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
+    const hasFreeRoads = !!(game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === pid && Number(game.special.remaining || 0) > 0);
 
-    // Expert (Catanatron-inspired): try a one-step lookahead action chooser first.
-    if (diff === 'catanatron') {
+    // Expert/Neural: try one-step lookahead chooser first.
+    if (diff === 'catanatron' || diff === 'neural_net') {
       if (mem.actions >= budget) {
         const r = applyAction(room, pid, { kind: 'end_turn' });
         if (r && r.ok) { delay(220, 360); return true; }
@@ -10485,7 +10960,9 @@ const wouldAcceptTrade = (pid, trade, diff) => {
         return false;
       }
 
-      const bestAct = chooseBestActionCatanatron(pid, preferExplore, mem);
+      const bestAct = (diff === 'neural_net')
+        ? chooseBestActionNeuralNet(pid, preferExplore, mem)
+        : chooseBestActionCatanatron(pid, preferExplore, mem);
       if (bestAct) {
         const r = applyAction(room, pid, bestAct);
         if (r && r.ok) {
@@ -10496,6 +10973,15 @@ const wouldAcceptTrade = (pid, trade, diff) => {
         }
       }
       // If lookahead doesn't find a clear win, fall through to the normal heuristic.
+    }
+
+    // 0) Play a development card when available.
+    {
+      const devAct = chooseDevPlayAction(pid, 'main-actions');
+      if (devAct && aiCan(pid, devAct)) {
+        const r = applyAction(room, pid, devAct);
+        if (r && r.ok) { mem.actions++; delay(220, 360); return true; }
+      }
     }
 
     // 1) Try immediate VP upgrades.
@@ -10524,7 +11010,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     }
 
     // 2) Bank trades (limited per turn).
-    const maxTrades = (diff === 'catanatron') ? 2 : ((diff === 'medium' || diff === 'hard') ? 1 : 0);
+    const maxTrades = (diff === 'catanatron' || diff === 'neural_net') ? 2 : ((diff === 'medium' || diff === 'hard') ? 1 : 0);
     if (maxTrades > 0 && (mem.tradeCount || 0) < maxTrades) {
       let target = null;
       if (listCityUpgrades(pid).length) target = BUILD_COSTS.city;
@@ -10555,7 +11041,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       }
     }
 
-    if (canAfford(p.resources, BUILD_COSTS.road)) {
+    if (hasFreeRoads || canAfford(p.resources, BUILD_COSTS.road)) {
       const roadEdges = listRoadEdges(pid, preferExplore);
       if (roadEdges.length) {
         const edgeId = roadEdges[0];
@@ -10590,6 +11076,37 @@ const wouldAcceptTrade = (pid, trade, diff) => {
 }
 
 // Timer loop: server-authoritative timeouts (no per-tick broadcasts; clients count down locally)
+const AI_TICK_MS = (String(process.env.AI_FAST || '').toLowerCase() === '1') ? 10 : 250;
+
+const EXPERT_AI_TUNING_DEFAULTS = Object.freeze({
+  vpGainWeight: Number(process.env.EXPERT_AI_VP_GAIN_WEIGHT || 220),
+  vpBuildBonus: Number(process.env.EXPERT_AI_VP_BUILD_BONUS || 70),
+  newSettlementSpotBase: Number(process.env.EXPERT_AI_NEW_SPOT_BASE || 40),
+  newSettlementSpotStep: Number(process.env.EXPERT_AI_NEW_SPOT_STEP || 6),
+  neutralTradePenalty: Number(process.env.EXPERT_AI_NEUTRAL_TRADE_PENALTY || 16),
+  minActionGain: Number(process.env.EXPERT_AI_MIN_ACTION_GAIN || -8),
+  bankTradeMinGain: Number(process.env.EXPERT_AI_BANK_TRADE_MIN_GAIN || 0.05),
+});
+
+function readExpertAiTuning(room) {
+  const src = (room && room.expertAiTuning && typeof room.expertAiTuning === 'object') ? room.expertAiTuning : {};
+  const out = { ...EXPERT_AI_TUNING_DEFAULTS };
+  for (const [k, v] of Object.entries(src)) {
+    const n = Number(v);
+    if (Number.isFinite(n)) out[k] = n;
+  }
+  return out;
+}
+
+function expertAiVpGainWeightForSeat(game, pid, tuning) {
+  const order = Array.isArray(game?.turnOrder) ? game.turnOrder : [];
+  const idx = Math.max(0, order.indexOf(pid));
+  const seatKey = `seat${idx + 1}VpGainWeight`;
+  const seatWeight = Number(tuning?.[seatKey]);
+  if (Number.isFinite(seatWeight) && seatWeight > 0) return seatWeight;
+  return Number(tuning?.vpGainWeight || EXPERT_AI_TUNING_DEFAULTS.vpGainWeight);
+}
+
 setInterval(() => {
   for (const room of rooms.values()) {
     if (!room.game) continue;
@@ -10597,7 +11114,7 @@ setInterval(() => {
     const changed = handleTimeout(room) || handleAI(room);
     if (changed) broadcastState(room);
   }
-}, 250);
+}, AI_TICK_MS);
 
 
 // Robustness: while an end-game vote is active, periodically rebroadcast state so

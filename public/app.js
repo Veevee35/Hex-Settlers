@@ -1491,6 +1491,12 @@ let postgameState = {
   // When viewing history, we render postgame UI from a stored snapshot instead of the live state.
   snapshot: null,
   historyMode: false,
+
+  // History replay state
+  replayLog: [],
+  replayIndex: -1,
+  replayActivePlayerId: null,
+  replayPlayerLocked: false,
 };
 
 
@@ -1504,6 +1510,7 @@ let historyState = {
   sortDir: 'desc',
   loadingGames: false,
   loadingBoard: false,
+  openMode: 'summary',
 };
 function clearPostgameTimers() {
   try { if (postgameState.splashTimer) clearTimeout(postgameState.splashTimer); } catch(_) {}
@@ -2117,6 +2124,190 @@ return;
 
   // -------------------- RESOURCES --------------------
   if (postgameState.tab === 'resources') {
+    const inferReplayPlayerId = (entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const d = (entry.data && typeof entry.data === 'object') ? entry.data : null;
+      const cands = [d?.playerId, d?.forPlayerId, d?.toId, d?.fromId, d?.ownerId, entry.playerId];
+      for (const c of cands) {
+        const id = String(c || '').trim();
+        if (id) return id;
+      }
+      return null;
+    };
+
+    const replayLog = Array.isArray(postgameState.replayLog) ? postgameState.replayLog : [];
+    if (!postgameState.replayActivePlayerId && players[0]) postgameState.replayActivePlayerId = players[0].id;
+
+    const replayControls = document.createElement('div');
+    replayControls.className = 'pgReplayControls panelScalable';
+
+    const replayTop = document.createElement('div');
+    replayTop.className = 'pgReplayFloatTop';
+    const replayGrip = document.createElement('div');
+    replayGrip.className = 'dragGrip';
+    replayGrip.textContent = '⋮⋮';
+    replayTop.appendChild(replayGrip);
+    const replayTitle = document.createElement('div');
+    replayTitle.className = 'pgReplayFloatTitle';
+    replayTitle.textContent = 'Replay Controls';
+    replayTop.appendChild(replayTitle);
+    const replayScaleHost = document.createElement('div');
+    replayScaleHost.className = 'panelScaleHost';
+    replayScaleHost.appendChild(makeToolScaleControl('postgame_replay_tab', replayControls, { title: 'Scale replay controls tab' }));
+    replayTop.appendChild(replayScaleHost);
+    replayControls.appendChild(replayTop);
+
+    const replayContent = document.createElement('div');
+    replayContent.className = 'pgReplayControlsBody panelScaleContent';
+    replayControls.appendChild(replayContent);
+
+    if (replayLog.length) {
+      const maxI = replayLog.length - 1;
+      if (postgameState.replayIndex < 0 || postgameState.replayIndex > maxI) postgameState.replayIndex = 0;
+
+      const step = replayLog[postgameState.replayIndex] || null;
+      const stepPid = inferReplayPlayerId(step);
+      if (stepPid && (!postgameState.replayPlayerLocked || !postgameState.replayActivePlayerId)) postgameState.replayActivePlayerId = stepPid;
+
+      const nav = document.createElement('div');
+      nav.className = 'pgReplayNav';
+      const mkNav = (txt, delta) => {
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = txt;
+        b.disabled = (delta < 0) ? (postgameState.replayIndex <= 0) : (postgameState.replayIndex >= maxI);
+        b.addEventListener('click', () => {
+          postgameState.replayIndex = Math.max(0, Math.min(maxI, postgameState.replayIndex + delta));
+          postgameState.replayPlayerLocked = false;
+          renderPostgameTab('resources');
+        });
+        return b;
+      };
+      nav.appendChild(mkNav('◀ Prev', -1));
+      nav.appendChild(mkNav('Next ▶', 1));
+
+      const stepMeta = document.createElement('div');
+      stepMeta.className = 'pgReplayMeta';
+      stepMeta.textContent = `Step ${postgameState.replayIndex + 1}/${replayLog.length}`;
+      nav.appendChild(stepMeta);
+      replayContent.appendChild(nav);
+
+      const stepText = document.createElement('div');
+      stepText.className = 'pgReplayText';
+      const t = step && step.ts ? fmtDateTime(step.ts) : '—';
+      stepText.textContent = `${t} · ${step && step.text ? step.text : '—'}`;
+      replayContent.appendChild(stepText);
+
+      const stepState = document.createElement('div');
+      stepState.className = 'pgReplayStepState';
+
+      const readResourceMap = (v) => {
+        if (!v || typeof v !== 'object') return null;
+        const out = {};
+        let touched = false;
+        for (const k of RESOURCE_KEYS) {
+          const n = Number(v[k]);
+          if (Number.isFinite(n)) {
+            out[k] = Math.max(0, Math.floor(n));
+            touched = true;
+          }
+        }
+        return touched ? out : null;
+      };
+
+      const stepData = (step && step.data && typeof step.data === 'object') ? step.data : null;
+      const bankFromStep = readResourceMap(stepData?.bank || stepData?.bankResources || stepData?.bankAfter || stepData?.bankBefore);
+      const bankFallback = readResourceMap(st?.bank) || { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+      const bankRes = bankFromStep || bankFallback;
+
+      const bankCard = document.createElement('div');
+      bankCard.className = 'pgReplayResCard';
+      const bankTitle = document.createElement('div');
+      bankTitle.className = 'pgReplayResTitle';
+      bankTitle.textContent = 'Bank Resources';
+      bankCard.appendChild(bankTitle);
+      const bankGrid = document.createElement('div');
+      bankGrid.className = 'pgReplayResGrid';
+      for (const rk of RESOURCE_KEYS) {
+        const item = document.createElement('div');
+        item.className = 'pgReplayResItem';
+        item.textContent = `${rk}: ${Math.max(0, Math.floor(Number(bankRes[rk] || 0)))}`;
+        bankGrid.appendChild(item);
+      }
+      bankCard.appendChild(bankGrid);
+      stepState.appendChild(bankCard);
+
+      const playerCard = document.createElement('div');
+      playerCard.className = 'pgReplayResCard';
+      const playerTitle = document.createElement('div');
+      playerTitle.className = 'pgReplayResTitle';
+      playerTitle.textContent = 'Player Resources';
+      playerCard.appendChild(playerTitle);
+      const playerGrid = document.createElement('div');
+      playerGrid.className = 'pgReplayResGrid';
+      const pResById = (stepData && stepData.playerResources && typeof stepData.playerResources === 'object') ? stepData.playerResources : null;
+      for (const p of players) {
+        const pStep = readResourceMap(pResById ? pResById[p.id] : null);
+        const pFinal = readResourceMap(p.resources);
+        const pRes = pStep || pFinal || { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+        const total = RESOURCE_KEYS.reduce((s, k) => s + Math.max(0, Number(pRes[k] || 0)), 0);
+        const item = document.createElement('button');
+        item.className = 'pgReplayResPlayerBtn' + (postgameState.replayActivePlayerId === p.id ? ' active' : '');
+        item.style.borderColor = p.color || '#888';
+        item.textContent = `${p.name} (${total})`;
+        item.addEventListener('click', () => {
+          postgameState.replayActivePlayerId = p.id;
+          postgameState.replayPlayerLocked = true;
+          renderPostgameTab('resources');
+        });
+        playerGrid.appendChild(item);
+      }
+      playerCard.appendChild(playerGrid);
+      stepState.appendChild(playerCard);
+
+      replayContent.appendChild(stepState);
+
+      const logWrap = document.createElement('div');
+      logWrap.className = 'pgReplayLog';
+      const logTitle = document.createElement('div');
+      logTitle.className = 'pgReplayResTitle';
+      logTitle.textContent = 'Game Log';
+      logWrap.appendChild(logTitle);
+      const start = Math.max(0, postgameState.replayIndex - 8);
+      const end = Math.min(replayLog.length - 1, postgameState.replayIndex + 8);
+      for (let i = start; i <= end; i += 1) {
+        const e = replayLog[i] || {};
+        const b = document.createElement('button');
+        b.className = 'pgReplayLogRow' + (i === postgameState.replayIndex ? ' active' : '');
+        b.textContent = `${i + 1}. ${e.text || '—'}`;
+        b.addEventListener('click', () => {
+          postgameState.replayIndex = i;
+          postgameState.replayPlayerLocked = false;
+          renderPostgameTab('resources');
+        });
+        logWrap.appendChild(b);
+      }
+      replayContent.appendChild(logWrap);
+    }
+
+    const chips = document.createElement('div');
+    chips.className = 'pgReplayPlayers';
+    for (const p of players) {
+      const chip = document.createElement('button');
+      chip.className = 'pgReplayPlayerChip' + (postgameState.replayActivePlayerId === p.id ? ' active' : '');
+      chip.textContent = p.name;
+      chip.style.borderColor = p.color || '#888';
+      chip.addEventListener('click', () => {
+        postgameState.replayActivePlayerId = p.id;
+        postgameState.replayPlayerLocked = true;
+        renderPostgameTab('resources');
+      });
+      chips.appendChild(chip);
+    }
+    replayContent.appendChild(chips);
+    try { makeDraggablePanel(replayControls, replayGrip, "hexsettlers_postgame_replay_pos_v1"); } catch(_) {}
+    ui.pgTabBody.appendChild(replayControls);
+
     const secTop = makeSection('Resources Overview');
 
     const resByPlayer = (stats && stats.resources && stats.resources.byPlayer) ? stats.resources.byPlayer : null;
@@ -2270,10 +2461,13 @@ return;
       return card;
     };
 
+    const timelinePlayers = players.filter(p => p.id === postgameState.replayActivePlayerId);
+    const shownPlayers = timelinePlayers.length ? timelinePlayers : players;
+
     const headersT = [
       'Turn',
       'Roll',
-      ...players.map(p => thPlayer(p)),
+      ...shownPlayers.map(p => thPlayer(p)),
     ];
 
     const rowsT = turns.map(t => {
@@ -2297,7 +2491,7 @@ return;
       return [
         turnNode,
         rollNode,
-        ...players.map(p => resTurnCard(p.id, t)),
+        ...shownPlayers.map(p => resTurnCard(p.id, t)),
       ];
     });
 
@@ -2305,6 +2499,15 @@ return;
     tbl.classList.add('pgResTurnTable');
     secTurn.appendChild(tbl);
     ui.pgTabBody.appendChild(secTurn);
+
+    const activeP = players.find(p => p.id === postgameState.replayActivePlayerId) || null;
+    if (activeP) {
+      const current = document.createElement('div');
+      current.className = 'pgCurrentPlayerBadge';
+      current.textContent = `Current: ${activeP.name}`;
+      current.style.borderColor = activeP.color || '#888';
+      ui.pgTabBody.appendChild(current);
+    }
 
     addNote('Each cell shows (total, delta) for every resource on that turn. Green = gained, red = spent/lost.');
     return;
@@ -2679,14 +2882,25 @@ function renderGamesHistoryTab() {
 
       const actions = document.createElement('div');
       actions.className = 'historyActions';
+      const replayBtn = document.createElement('button');
+      replayBtn.className = 'btn';
+      replayBtn.textContent = 'Replay';
+      replayBtn.addEventListener('click', () => {
+        if (!g.id) return;
+        historyState.openMode = 'replay';
+        try { send({ type: 'get_game_history_entry', id: g.id }); } catch(_) {}
+      });
+
       const viewBtn = document.createElement('button');
       viewBtn.className = 'btn primary';
       viewBtn.textContent = 'View Summary';
       viewBtn.addEventListener('click', () => {
         if (!g.id) return;
+        historyState.openMode = 'summary';
         try { send({ type: 'get_game_history_entry', id: g.id }); } catch(_) {}
       });
 
+      actions.appendChild(replayBtn);
       actions.appendChild(viewBtn);
 
       card.appendChild(meta);
@@ -2849,7 +3063,7 @@ function renderLeaderboardTab() {
   ui.historyBody.appendChild(wrap);
 }
 
-function openPostgameSnapshot(snapshot) {
+function openPostgameSnapshot(snapshot, entry = null, opts = {}) {
   if (!snapshot) return;
   clearPostgameTimers();
 
@@ -2857,6 +3071,10 @@ function openPostgameSnapshot(snapshot) {
   postgameState.historyMode = true;
   postgameState.hidden = false;
   postgameState.active = true;
+  postgameState.replayLog = Array.isArray(entry && entry.log) ? entry.log.slice() : [];
+  postgameState.replayIndex = postgameState.replayLog.length ? 0 : -1;
+  postgameState.replayActivePlayerId = null;
+  postgameState.replayPlayerLocked = false;
 
   if (ui.pgShowBtn) ui.pgShowBtn.classList.add('hidden');
   if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.textContent = 'Back';
@@ -2866,12 +3084,16 @@ function openPostgameSnapshot(snapshot) {
   setPostgamePanelVisible(true);
 
   refreshPostgameHeader();
-  renderPostgameTab('summary');
+  renderPostgameTab(opts.tab || 'summary');
 }
 
 function closePostgameSnapshot() {
   postgameState.snapshot = null;
   postgameState.historyMode = false;
+  postgameState.replayLog = [];
+  postgameState.replayIndex = -1;
+  postgameState.replayActivePlayerId = null;
+  postgameState.replayPlayerLocked = false;
   clearPostgameTimers();
   setPostgameVisible(false);
   if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.textContent = 'Main Menu';
@@ -4980,7 +5202,9 @@ function refreshLobbyJoinLinkUi() {
           if (snap.stats && !snap.stats.endedAt && g.endedAt) snap.stats.endedAt = g.endedAt;
           if (snap.stats && !snap.stats.startedAt && g.startedAt) snap.stats.startedAt = g.startedAt;
         }
-        openPostgameSnapshot(snap);
+        const openMode = historyState.openMode || 'summary';
+        openPostgameSnapshot(snap, g, { tab: openMode === 'replay' ? 'resources' : 'summary' });
+        historyState.openMode = 'summary';
         return;
       }
 
@@ -5614,6 +5838,15 @@ function refreshLobbyJoinLinkUi() {
     ts.textContent = `[${formatTs(entry.ts, { withSeconds: true })}]`;
     row.appendChild(ts);
 
+    if (entry && entry.auto && entry.auto.kind === 'timeout') {
+      const autoIcon = document.createElement('span');
+      autoIcon.className = 'logAutoIcon';
+      autoIcon.textContent = '🤖';
+      autoIcon.title = 'Auto-played after timer expired';
+      autoIcon.setAttribute('aria-label', 'Auto-played after timer expired');
+      row.appendChild(autoIcon);
+    }
+
     // Rich production rows: show per-player gains with resource icons.
     if (entry && entry.kind === 'production' && entry.data && entry.data.gains) {
       const data = entry.data;
@@ -6195,8 +6428,8 @@ function refreshLobbyJoinLinkUi() {
         ui.aiDifficultySelect.disabled = !canManageAI;
         const rawDiff = String(room?.aiDifficulty || 'test').toLowerCase();
         let diff = 'test';
-        if (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard' || rawDiff === 'catanatron' || rawDiff === 'expert') {
-          diff = (rawDiff === 'expert') ? 'catanatron' : rawDiff;
+        if (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard' || rawDiff === 'catanatron' || rawDiff === 'expert' || rawDiff === 'neural_net' || rawDiff === 'neural') {
+          diff = (rawDiff === 'expert') ? 'catanatron' : ((rawDiff === 'neural') ? 'neural_net' : rawDiff);
         }
         ui.aiDifficultySelect.value = diff;
       }

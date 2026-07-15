@@ -86,7 +86,31 @@ The server serves the browser application and WebSocket endpoint from one port. 
 The Electron wrapper opens `https://hexsettlers.up.railway.app/`. Build an installer with:
 
 ```bash
-npm run electron:dist -- --win nsis
+git tag v1.0.0
+git push origin v1.0.0
 ```
+The workflow `.github/workflows/electron-release.yml` builds Linux/Windows/macOS installers and publishes them to the GitHub Release for that tag.
 
-Use `--mac dmg` or `--linux AppImage` for other platforms. Pushing a `v*` tag runs `.github/workflows/electron-release.yml` and publishes installers to the GitHub release.
+## How to start a game
+1) One player clicks **Create Lobby**, then shares the 4‑letter room code.
+2) Friends click **Join Lobby** and enter the code.
+3) Host clicks **Start Game** once 2–4 players have joined.
+
+## Controls (in game)
+- Setup: place settlement, then road (twice, snake order).
+- Main turns: Roll → Build (roads/settlements/cities) → End Turn.
+- If 7 is rolled: click a tile to move the robber, then choose a player to steal 1 random resource from (discarding for 7 is still not implemented).
+
+## Notes
+- Server keeps game state in memory; restarting the server ends active games.
+
+## Development cards
+- Buy Dev Card (cost: wool + grain + ore)
+- Knight: move the robber + steal (counts toward Largest Army)
+- Road Building: place up to 2 free roads this turn
+- Invention: take any 2 resources
+- Monopoly: take all of one resource type from all other players
+- Victory Point: play at any time on your turn for +1 VP (VP cards are the only dev card you can play the same turn you buy)
+
+## Missing rules
+- This is still an MVP “Catan‑style” ruleset: ports, player trading, and Longest Road are not implemented.
