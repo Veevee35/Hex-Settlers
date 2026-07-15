@@ -31,7 +31,7 @@ const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
-const { pirateCanOccupyTile, startingPirateTileIds } = require('./server/pirate-rules');
+const { pirateCanOccupyTile, placeRandomPirate } = require('./server/pirate-rules');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 
 const APP_CONFIG = runtimeConfig(process.env);
@@ -3358,13 +3358,9 @@ function startSeafarersRobberAndPirate(allTiles, preferDesertIds = null, opts = 
   }
 
   // Pirate: random sea tile.
-  const seaIds = startingPirateTileIds(allTiles, {
+  placeRandomPirate(allTiles, {
     excludeUnrevealedFog: !!opts?.excludeUnrevealedFog,
   });
-  if (seaIds.length) {
-    const pid = seaIds[Math.floor(Math.random() * seaIds.length)];
-    allTiles[pid].pirate = true;
-  }
 }
 
 function generateBoardSeafarersFourIslands(geom) {
@@ -4737,11 +4733,7 @@ function assignCartographer4NumbersRobberPirateAndPorts(game) {
     startSeafarersRobberAndPirate(tiles, []);
   }
 
-  const seaIds = tiles.filter(t => t && t.type === 'sea').map(t => t.id);
-  if (seaIds.length) {
-    const pid = seaIds[Math.floor(Math.random() * seaIds.length)];
-    if (tiles[pid]) tiles[pid].pirate = true;
-  }
+  placeRandomPirate(tiles);
 
   game.geom.ports = generatePortsSeafarers(game.geom, is56 ? 'cartographer_56_random' : 'cartographer_4_random');
 }
@@ -4808,20 +4800,29 @@ function generateBoardSeafarersTestBuilder(geom) {
 
 
 
+function finalizeGeneratedSeafarersPirate(tiles, scenario) {
+  placeRandomPirate(tiles, {
+    excludeUnrevealedFog: isFogIslandScenario(scenario),
+  });
+  return tiles;
+}
+
 function generateBoardSeafarers(geom, scenario = 'four_islands', opts = null) {
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-  if (s === 'through_the_desert') return generateBoardSeafarersThroughTheDesert(geom);
-  if (s === 'through_the_desert_56') return generateBoardSeafarersThroughTheDesert56(geom);
-  if (s === 'fog_island') return generateBoardSeafarersFogIsland(geom);
-  if (s === 'fog_island_56') return generateBoardSeafarersFogIsland56(geom);
-  if (s === 'heading_for_new_shores') return generateBoardSeafarersHeadingForNewShores(geom);
-  if (s === 'cartographer_4_random' || s === 'cartographer_4') return generateBoardSeafarersCartographer4(geom);
-  if (s === 'cartographer_4_manual') return generateBoardSeafarersCartographer4ManualDraft(geom);
-  if (s === 'cartographer_56_random' || s === 'cartographer_56') return generateBoardSeafarersCartographer56(geom, Math.floor(Number(opts?.playerCount || 6)));
-  if (s === 'cartographer_56_manual') return generateBoardSeafarersCartographer4ManualDraft(geom);
-  if (s === 'six_islands') return generateBoardSeafarersSixIslands(geom);
-  if (s === 'test_builder') return generateBoardSeafarersTestBuilder(geom);
-  return generateBoardSeafarersFourIslands(geom);
+  let tiles = null;
+  if (s === 'through_the_desert') tiles = generateBoardSeafarersThroughTheDesert(geom);
+  else if (s === 'through_the_desert_56') tiles = generateBoardSeafarersThroughTheDesert56(geom);
+  else if (s === 'fog_island') tiles = generateBoardSeafarersFogIsland(geom);
+  else if (s === 'fog_island_56') tiles = generateBoardSeafarersFogIsland56(geom);
+  else if (s === 'heading_for_new_shores') tiles = generateBoardSeafarersHeadingForNewShores(geom);
+  else if (s === 'cartographer_4_random' || s === 'cartographer_4') tiles = generateBoardSeafarersCartographer4(geom);
+  else if (s === 'cartographer_4_manual') tiles = generateBoardSeafarersCartographer4ManualDraft(geom);
+  else if (s === 'cartographer_56_random' || s === 'cartographer_56') tiles = generateBoardSeafarersCartographer56(geom, Math.floor(Number(opts?.playerCount || 6)));
+  else if (s === 'cartographer_56_manual') tiles = generateBoardSeafarersCartographer4ManualDraft(geom);
+  else if (s === 'six_islands') tiles = generateBoardSeafarersSixIslands(geom);
+  else if (s === 'test_builder') tiles = generateBoardSeafarersTestBuilder(geom);
+  else tiles = generateBoardSeafarersFourIslands(geom);
+  return finalizeGeneratedSeafarersPirate(tiles, s);
 }
 
 // -------------------- Ports (Harbors) --------------------

@@ -149,7 +149,7 @@ function assertPirateStartsOnKnownSea(state) {
   assert.equal(!!(pirateTiles[0].fog && !pirateTiles[0].revealed), false, `${state.previewKey} pirate does not start in fog`);
 }
 
-test('every map and scenario preview keeps ports randomized on non-adjacent shoreline edges', { timeout: 20_000 }, async (t) => {
+test('every map and scenario preview keeps ports valid and completed Seafarers maps start with a pirate', { timeout: 20_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-ports-'));
   const server = await startServer(port, dataDir);
@@ -193,7 +193,8 @@ test('every map and scenario preview keeps ports randomized on non-adjacent shor
     const preview = await host.waitFor((message) =>
       message.type === 'state' && String(message.state.previewKey || '').startsWith(option.previewKey));
     assertPortsUseNonAdjacentShorelineEdges(preview.state, option.ports);
-    if (option.scenario === 'fog_island' || option.scenario === 'fog_island_56') {
+    const deferredDraft = option.scenario === 'cartographer_4_manual' || option.scenario === 'cartographer_56_manual';
+    if (option.mapMode === 'seafarers' && !deferredDraft) {
       assertPirateStartsOnKnownSea(preview.state);
     }
   }

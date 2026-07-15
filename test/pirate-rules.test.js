@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
-const { pirateCanOccupyTile, startingPirateTileIds } = require('../server/pirate-rules');
+const { pirateCanOccupyTile, placeRandomPirate, startingPirateTileIds } = require('../server/pirate-rules');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appJs = fs.readFileSync(path.join(projectRoot, 'public', 'app.js'), 'utf8');
@@ -37,6 +37,23 @@ test('the fog restriction is scoped to Fog Island rules', () => {
     pirateCanOccupyTile({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }, hiddenFogSea),
     true,
   );
+});
+
+test('map finalization replaces missing or duplicate pirates with exactly one random sea placement', () => {
+  const tiles = [
+    { id: 0, type: 'forest', pirate: true },
+    { id: 1, type: 'sea', pirate: true },
+    { id: 2, type: 'sea', pirate: false },
+  ];
+
+  assert.equal(placeRandomPirate(tiles, null, () => 0.99), 2);
+  assert.deepEqual(tiles.filter((tile) => tile.pirate).map((tile) => tile.id), [2]);
+});
+
+test('map finalization keeps Fog Island pirates off unrevealed fog', () => {
+  const tiles = [hiddenFogSea, { ...revealedFogSea }, { ...knownSea }].map((tile) => ({ ...tile }));
+  assert.equal(placeRandomPirate(tiles, { excludeUnrevealedFog: true }, () => 0), 2);
+  assert.deepEqual(tiles.filter((tile) => tile.pirate).map((tile) => tile.id), [2]);
 });
 
 test('gameplay and client targeting use the Fog Island pirate restriction', () => {
