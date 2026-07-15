@@ -2002,7 +2002,7 @@ function renderPostgameTab(tab) {
   // -------------------- SUMMARY --------------------
   if (postgameState.tab === 'summary') {
     const section = makeSection('Game Overview');
-    section.classList.add('pgStyledSection');
+    section.classList.add('pgStyledSection', 'pgGameOverviewSection');
     const devByPlayer = stats?.dev?.byPlayer || {};
     const actionsByPlayer = stats?.actions?.byPlayer || {};
     const thieves = stats?.thieves || null;

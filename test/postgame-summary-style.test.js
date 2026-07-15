@@ -39,6 +39,14 @@ test('summary player cards contain only the requested eight breakdown metrics', 
   assert.match(summary, /const explorationVP = safeNum\(p\.newIslandVP\) \+ safeNum\(p\.ttdFarSideVP\)/);
 });
 
+test('game overview uses larger cards, metric boxes, and readable text', () => {
+  assert.match(appJs, /section\.classList\.add\('pgStyledSection', 'pgGameOverviewSection'\)/);
+  assert.match(stylesCss, /\.pgGameOverviewSection \.pgOverviewPlayerGrid\s*\{[^}]*minmax\(280px,/s);
+  assert.match(stylesCss, /\.pgGameOverviewSection \.pgOverviewMetric\s*\{[^}]*min-height:64px/s);
+  assert.match(stylesCss, /\.pgGameOverviewSection \.pgOverviewMetricLabel\{font-size:9px/);
+  assert.match(stylesCss, /\.pgGameOverviewSection \.pgOverviewMetricValue\{font-size:14px/);
+});
+
 test('dice keeps all three views and presents rolls as aligned bar charts', () => {
   assert.match(appJs, /mkBtn\('totals', 'View Totals'\)/);
   assert.match(appJs, /mkBtn\('players', 'View Per Player'\)/);
