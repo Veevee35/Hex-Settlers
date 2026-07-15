@@ -79,6 +79,13 @@ test('Test Builder exposes tile and typed-port tools for both board sizes', () =
   assert.match(appJs, /scenario === 'test_builder' \|\| scenario === 'test_builder_56'/);
 });
 
+test('all Seafarers scenarios expose the exploration victory-point toggle', () => {
+  assert.match(indexHtml, /id="explorationPointsRow"/);
+  assert.match(indexHtml, /id="explorationPointsToggle"[^>]*type="checkbox"[^>]*checked/);
+  assert.match(appJs, /explorationPointsEnabled: ui\.explorationPointsToggle \? !!ui\.explorationPointsToggle\.checked : true/);
+  assert.match(appJs, /Exploration victory points are disabled for this game/);
+});
+
 test('Cartographer placement highlights treat outer land edges as open ocean', () => {
   assert.match(appJs, /function rulesTreatOuterBoundaryAsSeaForShipsClient\(\)/);
   assert.match(appJs, /rawAdj\.length === 1 && rulesTreatOuterBoundaryAsSeaForShipsClient\(\)/);

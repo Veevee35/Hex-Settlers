@@ -308,6 +308,7 @@ test('Test Builder supports custom port painting on both Seafarers board sizes',
   }
 
   const fourPlayer = await selectBuilderScenario('test_builder');
+  assert.equal(fourPlayer.rules.explorationPointsEnabled, true);
   const fourPlayerTileCount = fourPlayer.geom.tiles.length;
   const fourPlayerEdge = firstShorelineEdge(fourPlayer);
   assert.ok(fourPlayerEdge);
@@ -329,7 +330,10 @@ test('Test Builder supports custom port painting on both Seafarers board sizes',
     && message.state.previewKey === 'seafarers:test_builder'
     && message.state.geom.ports.length === 0);
 
-  const fiveSixPlayer = await selectBuilderScenario('test_builder_56');
+  host.send({ type: 'set_rules', rules: { mapMode: 'seafarers', seafarersScenario: 'test_builder_56', explorationPointsEnabled: false } });
+  const fiveSixPlayer = (await host.waitFor((message) => message.type === 'state'
+    && message.state.previewKey === 'seafarers:test_builder_56'
+    && message.state.rules.explorationPointsEnabled === false)).state;
   assert.ok(fiveSixPlayer.geom.tiles.length > fourPlayerTileCount, '5–6 Test Builder uses the larger frame');
   const fiveSixEdge = firstShorelineEdge(fiveSixPlayer);
   assert.ok(fiveSixEdge);
@@ -345,6 +349,7 @@ test('Test Builder supports custom port painting on both Seafarers board sizes',
   host.send({ type: 'start_game' });
   const started = (await host.waitFor((message) => message.type === 'state' && message.state.phase !== 'lobby')).state;
   assert.equal(started.rules.seafarersScenario, 'test_builder_56');
+  assert.equal(started.rules.explorationPointsEnabled, false);
   assert.equal(started.players.length, 5);
   assert.equal(started.geom.tiles.length, fiveSixPlayer.geom.tiles.length);
   assert.equal(started.geom.ports.length, 1);

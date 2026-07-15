@@ -81,6 +81,8 @@
     mapScenarioSelect: $('mapScenarioSelect'),
     scenario56Row: $('scenario56Row'),
     mapScenario56Select: $('mapScenario56Select'),
+    explorationPointsRow: $('explorationPointsRow'),
+    explorationPointsToggle: $('explorationPointsToggle'),
     testBuilderRow: $('testBuilderRow'),
     testToolSelect: $('testToolSelect'),
     testBrushSelect: $('testBrushSelect'),
@@ -6155,6 +6157,7 @@ function refreshLobbyJoinLinkUi() {
         'The host can reset to a blank board before starting. This is the only map that allows a one-player game.',
       ],
       rules: [
+        'When exploration points are enabled, the first settlement on each new island or desert-separated land mass after setup awards 2 bonus victory points.',
         'After the custom board is locked, normal Seafarers placement, ship, pirate, Gold Field, trade, and development-card rules apply wherever the painted terrain permits them.',
         'This sandbox uses the lobby’s selected victory target, timers, bank size, discard limit, and development deck.',
       ],
@@ -6168,6 +6171,7 @@ function refreshLobbyJoinLinkUi() {
         'The host can reset the large frame to a blank board before the five- or six-player game starts.',
       ],
       rules: [
+        'When exploration points are enabled, the first settlement on each new island or desert-separated land mass after setup awards 2 bonus victory points.',
         'After the custom board is locked, normal Seafarers placement, ship, pirate, Gold Field, trade, and development-card rules apply wherever the painted terrain permits them.',
         'Paired-turn 5–6-player rules apply, and Player 2 may trade only with the bank.',
         'This sandbox uses the lobby’s selected victory target, timers, bank size, discard limit, and development deck.',
@@ -6205,6 +6209,9 @@ function refreshLobbyJoinLinkUi() {
       seafarersScenario56: scenarioKey,
     }), 1, 40);
     const discardLimit = selectedInt(ui.discardLimitInput, 7, 3, 30);
+    const explorationPointsEnabled = ui.explorationPointsToggle
+      ? !!ui.explorationPointsToggle.checked
+      : activeRules.explorationPointsEnabled !== false;
     const devDeckSize = selectedInt(ui.devDeckModeSelect, 25, 13, 38);
     const devDeckDescription = devDeckSize === 38
       ? '38 cards: 21 Knights, 3 Road Building, 3 Invention, 3 Monopoly, 8 Victory Point'
@@ -6228,6 +6235,7 @@ function refreshLobbyJoinLinkUi() {
       victoryTarget,
       baseResources,
       discardLimit,
+      explorationPointsEnabled,
       devDeckSize,
       devDeckDescription,
       speedLabel,
@@ -6316,6 +6324,7 @@ function refreshLobbyJoinLinkUi() {
       ['Win target', `${guide.victoryTarget} VP`],
       ['Bank', `${guide.baseResources} of each resource`],
       ['Discard limit', String(guide.discardLimit)],
+      ...(guide.isSeafarers ? [['Exploration VP', guide.explorationPointsEnabled ? 'Enabled' : 'Disabled']] : []),
       ['Timers', `${guide.speedLabel}: ${guide.setupSeconds}s / ${guide.playSeconds}s / ${guide.microSeconds}s`],
       ['Dev deck', `${guide.devDeckSize} cards`],
       ['Turn style', guide.isPaired ? 'Paired 5–6-player turns' : 'Standard turns'],
@@ -6445,12 +6454,17 @@ function refreshLobbyJoinLinkUi() {
       appendRulesGuideList(map, guide.scenario.setup);
       map.appendChild(rulesGuideNode('h3', 'rulesGuideSubheading', 'Special rules'));
       appendRulesGuideList(map, guide.scenario.rules);
+      if (!guide.explorationPointsEnabled) {
+        appendRulesGuideCallout(map, 'Game Setup override', 'Exploration victory points are disabled. Ignore any new-island, desert-region, or other exploration-point awards described by this scenario.', 'accent');
+      }
       map.appendChild(rulesGuideNode('h3', 'rulesGuideSubheading', 'Common Seafarers rules'));
       appendRulesGuideList(map, [
         'Ships cost 1 lumber and 1 wool, travel on sea/coastal edges, and count with roads toward Longest Road.',
         'The pirate blocks adjacent ship placement and movement. Knights and a rolled 7 allow the active player to choose robber or pirate.',
         'Gold Fields award resources chosen by the receiving player.',
-        'Unless this scenario says otherwise, the first settlement a player builds on each new island after setup awards 2 bonus victory points.',
+        guide.explorationPointsEnabled
+          ? 'Unless this scenario says otherwise, the first settlement a player builds on each new island after setup awards 2 bonus victory points.'
+          : 'Exploration victory points are disabled for this game.',
       ]);
     } else if (guide.isPaired) {
       appendRulesGuideList(map, [
@@ -6571,6 +6585,7 @@ function refreshLobbyJoinLinkUi() {
     addRow('Map', mapMode);
     addRow('Scenario', scenario);
     addRow('Victory Condition', `${vpToWin} VP`);
+    if (mmRaw === 'seafarers') addRow('Exploration Points', rules.explorationPointsEnabled === false ? 'Disabled' : 'Enabled');
     const ddMode = Math.floor(Number(rules.devDeckMode ?? 25));
     const ddSpec = (ddMode === 38)
       ? '38 cards (21K / 3RB / 3Inv / 3Mon / 8VP)'
@@ -7142,6 +7157,12 @@ function refreshLobbyJoinLinkUi() {
     if (ui.scenario56Row) ui.scenario56Row.classList.toggle('hidden', mmNow !== 'seafarers56');
     if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mmNow !== 'classic56');
     if (ui.sixIslandsNote) ui.sixIslandsNote.classList.toggle('hidden', mmNow !== 'seafarers56');
+    const isSeafarersSetup = mmNow === 'seafarers' || mmNow === 'seafarers56';
+    if (ui.explorationPointsRow) ui.explorationPointsRow.classList.toggle('hidden', !isSeafarersSetup);
+    if (ui.explorationPointsToggle) {
+      ui.explorationPointsToggle.checked = r.explorationPointsEnabled !== false;
+      ui.explorationPointsToggle.disabled = !isHost || !isSeafarersSetup;
+    }
     if (ui.mapScenarioSelect) {
       // Only meaningful when mapMode === 'seafarers'.
       ui.mapScenarioSelect.value = (mmNow === 'seafarers') ? (r.seafarersScenario || 'four_islands') : 'four_islands';
@@ -7219,7 +7240,10 @@ function refreshLobbyJoinLinkUi() {
       const vpWin = Math.floor(Number(r.victoryPointsToWin ?? r.victoryTarget ?? defaultVictoryPointsFor(r)));
       const ddMode = Math.floor(Number(r.devDeckMode ?? 25));
       const ddCards = (ddMode === 13 || ddMode === 25 || ddMode === 38) ? ddMode : 25;
-      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Discard limit: ${r.discardLimit ?? 7} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
+      const explorationLabel = (mmL === 'seafarers' || mmL === 'seafarers56')
+        ? ` • Exploration VP: ${r.explorationPointsEnabled === false ? 'off' : 'on'}`
+        : '';
+      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Discard limit: ${r.discardLimit ?? 7}${explorationLabel} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
     const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
@@ -7357,6 +7381,9 @@ if (ui.copyMyIdBtn) {
       if (ui.sixIslandsNote) {
         ui.sixIslandsNote.classList.toggle('hidden', mm !== 'seafarers56');
       }
+      const isSeafarersSetup = mm === 'seafarers' || mm === 'seafarers56';
+      if (ui.explorationPointsRow) ui.explorationPointsRow.classList.toggle('hidden', !isSeafarersSetup);
+      if (ui.explorationPointsToggle) ui.explorationPointsToggle.disabled = !isSeafarersSetup || (room && room.hostId !== myPlayerId);
       if (ui.mapScenarioSelect) ui.mapScenarioSelect.disabled = (mm !== 'seafarers') || (room && room.hostId !== myPlayerId);
       if (ui.mapScenario56Select) ui.mapScenario56Select.disabled = (mm !== 'seafarers56') || (room && room.hostId !== myPlayerId);
 
@@ -7443,6 +7470,7 @@ if (ui.copyMyIdBtn) {
       victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
       devDeckMode: (devDeckMode === 13 || devDeckMode === 25 || devDeckMode === 38) ? devDeckMode : undefined,
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
+      explorationPointsEnabled: ui.explorationPointsToggle ? !!ui.explorationPointsToggle.checked : true,
       // Only used if mapMode === 'seafarers'
       seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),
     };

@@ -8,6 +8,7 @@ const {
   normalizedMapModeRaw,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,
+  seafarersExplorationPointsEnabled,
 } = require('../server/game-rules');
 
 test('default rules preserve the established game defaults', () => {
@@ -19,6 +20,7 @@ test('default rules preserve the established game defaults', () => {
     microPhaseMs: 15_000,
     mapMode: 'classic',
     seafarersScenario: 'four_islands',
+    explorationPointsEnabled: true,
     victoryPointsToWin: 10,
     devDeckMode: 25,
   });
@@ -52,4 +54,14 @@ test('Cartographer and Scattered Tiles award normal new-land-mass exploration po
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island_56' }), false);
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'classic', seafarersScenario: 'cartographer_4_random' }), false);
   assert.equal(seafarersDesertsSeparateLandMasses({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }), false);
+  assert.equal(seafarersExplorationPointsEnabled({ explorationPointsEnabled: false }), false);
+  assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'four_islands', explorationPointsEnabled: false }), false);
+});
+
+test('Test Builder treats both sea and desert as exploration boundaries', () => {
+  for (const seafarersScenario of ['test_builder', 'test_builder_56']) {
+    const rules = { mapMode: 'seafarers', seafarersScenario };
+    assert.equal(seafarersAwardsNewIslandBonus(rules), true, seafarersScenario);
+    assert.equal(seafarersDesertsSeparateLandMasses(rules), true, seafarersScenario);
+  }
 });

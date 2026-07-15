@@ -11,6 +11,7 @@ const DEFAULT_RULES = Object.freeze({
   microPhaseMs: 15_000,
   mapMode: 'classic',
   seafarersScenario: 'four_islands',
+  explorationPointsEnabled: true,
   victoryPointsToWin: 10,
   devDeckMode: 25,
 });
@@ -36,15 +37,21 @@ function isSeafarers56Scenario(raw) {
 
 function seafarersAwardsNewIslandBonus(rules) {
   if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
+  if (!seafarersExplorationPointsEnabled(rules)) return false;
   const scenario = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
   return scenario !== 'fog_island' && scenario !== 'fog_island_56';
+}
+
+function seafarersExplorationPointsEnabled(rules) {
+  return rules?.explorationPointsEnabled !== false;
 }
 
 function seafarersDesertsSeparateLandMasses(rules) {
   if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
   const scenario = String(rules?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
   return scenario === 'cartographer_4_manual' || scenario === 'cartographer_4_random' || scenario === 'cartographer_4' ||
-    scenario === 'cartographer_56_manual' || scenario === 'cartographer_56_random' || scenario === 'cartographer_56';
+    scenario === 'cartographer_56_manual' || scenario === 'cartographer_56_random' || scenario === 'cartographer_56' ||
+    scenario === 'test_builder' || scenario === 'test_builder_56';
 }
 
 function bankMaxForRules(rules) {
@@ -66,4 +73,5 @@ module.exports = {
   normalizedMapModeRaw,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,
+  seafarersExplorationPointsEnabled,
 };

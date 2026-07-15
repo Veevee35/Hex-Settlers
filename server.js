@@ -30,6 +30,7 @@ const {
   bankMaxForRules,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,
+  seafarersExplorationPointsEnabled,
 } = require('./server/game-rules');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
@@ -5316,7 +5317,10 @@ function startGame(room) {
   // Carry over room-level chat (lobby + game)
   game.chat = room.chat || [];
 
-  pushLog(game, `Game started. Win: ${game.rules.victoryPointsToWin} VP • Discard limit: ${game.rules.discardLimit}.`, 'system');
+  const explorationStatus = (game.rules?.mapMode === 'seafarers')
+    ? ` • Exploration VP: ${seafarersExplorationPointsEnabled(game.rules) ? 'on' : 'off'}`
+    : '';
+  pushLog(game, `Game started. Win: ${game.rules.victoryPointsToWin} VP • Discard limit: ${game.rules.discardLimit}${explorationStatus}.`, 'system');
 
   // Randomize turn order (and starting player)
   const order = room.players.map(p => p.id);
@@ -5920,7 +5924,7 @@ function applyActionCore(room, playerId, action) {
     }
 
 
-if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions') {
+if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions' && seafarersExplorationPointsEnabled(game.rules)) {
   const scen = seafarersScenarioKey(game);
   const p = playerById(game, playerId);
   if (p) {
@@ -8989,6 +8993,12 @@ if (msg.type === 'create_room') {
       if (Number.isFinite(baseRes)) next.baseResourcesPerType = Math.max(1, Math.min(40, baseRes));
 
       next.devDeckMode = normalizeDevDeckMode(r.devDeckMode ?? next.devDeckMode);
+
+      if (typeof r.explorationPointsEnabled === 'boolean') {
+        next.explorationPointsEnabled = r.explorationPointsEnabled;
+      } else if (typeof next.explorationPointsEnabled !== 'boolean') {
+        next.explorationPointsEnabled = true;
+      }
 
       const mm = String(r.mapMode ?? next.mapMode ?? 'classic').toLowerCase();
       next.mapMode = (mm === 'seafarers') ? 'seafarers'
