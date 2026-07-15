@@ -59,6 +59,13 @@
     texturePackStatus: $('texturePackStatus'),
     rejoinIdInput: $('rejoinIdInput'),
     createBtn: $('createBtn'),
+    lobbyRulesBtn: $('lobbyRulesBtn'),
+    rulesPage: $('rulesPage'),
+    rulesPageCloseBtn: $('rulesPageCloseBtn'),
+    rulesPageTitle: $('rulesPageTitle'),
+    rulesPageSubtitle: $('rulesPageSubtitle'),
+    rulesPageNav: $('rulesPageNav'),
+    rulesPageContent: $('rulesPageContent'),
     joinBtn: $('joinBtn'),
     rejoinBtn: $('rejoinBtn'),
     startBtn: $('startBtn'),
@@ -5957,6 +5964,495 @@ function refreshLobbyJoinLinkUi() {
     list.scrollTop = list.scrollHeight;
   }
 
+  const LOBBY_RULES_SCENARIOS = Object.freeze({
+    four_islands: {
+      label: 'Four Islands',
+      summary: 'Expand from your starting island group and establish settlements across the sea.',
+      setup: [
+        'Use normal Seafarers snake-order setup. Each setup settlement is followed by a connected road or ship.',
+        'Starting positions are spread across the scenario’s island groups.',
+      ],
+      rules: [
+        'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
+        'A player can earn the bonus again by reaching another island on which they did not already have a building.',
+        'Roads and ships both count toward the combined Longest Road route.',
+      ],
+    },
+    six_islands: {
+      label: 'Six Islands',
+      summary: 'A larger Seafarers map for five or six players, with paired action turns.',
+      setup: [
+        'Five or six players complete normal snake-order Seafarers setup, placing a road or ship after each settlement.',
+        'The bank starts with the selected 5–6-player supply and the board uses the expanded port layout.',
+      ],
+      rules: [
+        'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
+        'Paired-turn rules apply: Player 1 rolls and acts, then Player 2 receives an action-only turn and may trade only with the bank.',
+        'Player 2 is the third remaining player to the left of Player 1. Play then advances to the next Player 1.',
+      ],
+    },
+    through_the_desert: {
+      label: 'Through the Desert',
+      summary: 'Begin on the main island, then cross the desert or sail to new land for bonus points.',
+      setup: [
+        'Both starting settlements must be placed on the designated starting island.',
+        'Gold Field intersections cannot be used for starting settlements.',
+      ],
+      rules: [
+        'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
+        'The first settlement a player establishes beyond the desert during the main game grants a one-time 2-point bonus.',
+        'The new-island bonus and beyond-the-desert bonus are separate and can both contribute to a player’s score when their conditions are met.',
+      ],
+    },
+    through_the_desert_56: {
+      label: 'Through the Desert',
+      summary: 'The expanded desert scenario adds multiple regions to explore and uses paired action turns.',
+      setup: [
+        'Five or six players place both starting settlements in the allowed starting area and may follow each with a connected road or ship.',
+        'Gold Field intersections cannot be used for starting settlements.',
+      ],
+      rules: [
+        'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
+        'Eligible desert regions can each be claimed for a 2-point exploration bonus. A single settlement can claim at most one region bonus.',
+        'Paired-turn rules apply: Player 1 rolls and acts, then Player 2 receives an action-only turn and may trade only with the bank.',
+      ],
+    },
+    fog_island: {
+      label: 'Fog Island',
+      summary: 'Sail from the known starting islands and reveal the hidden center one tile at a time.',
+      setup: [
+        'Both starting settlements must be placed on the revealed starting islands.',
+        'Unrevealed fog is treated as sea until it is explored.',
+      ],
+      rules: [
+        'Placing or moving a road or ship beside fog reveals exactly one adjacent hidden tile. Exploration must begin from a revealed edge of the map.',
+        'Revealing a normal resource tile grants the explorer 1 matching resource if the bank has one. Revealing a Gold Field prompts a resource choice; revealing sea grants nothing.',
+        'Fog Island does not award the normal 2-point new-island settlement bonus.',
+      ],
+    },
+    fog_island_56: {
+      label: 'Fog Island',
+      summary: 'The expanded hidden-map scenario combines fog exploration with paired action turns.',
+      setup: [
+        'Five or six players place both starting settlements on the revealed starting islands.',
+        'Unrevealed fog is treated as sea until it is explored.',
+      ],
+      rules: [
+        'Placing or moving a road or ship beside fog reveals exactly one adjacent hidden tile, starting from a revealed edge.',
+        'A revealed resource tile grants 1 matching resource if available; Gold prompts a choice; sea grants nothing.',
+        'There is no new-island settlement bonus. Paired-turn rules apply, and Player 2 may trade only with the bank.',
+      ],
+    },
+    heading_for_new_shores: {
+      label: 'Heading for New Shores',
+      summary: 'Build from the main island toward valuable outer islands and their Gold Fields.',
+      setup: [
+        'Both starting settlements must be placed on the main island.',
+        'Ports remain on the main island; the outer islands contain Gold Fields.',
+      ],
+      rules: [
+        'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
+        'Gold Fields produce a resource of the receiving player’s choice instead of a fixed resource.',
+        'Ships provide the routes needed to reach the outer islands, subject to the pirate’s blocking rules.',
+      ],
+    },
+    cartographer_4_manual: {
+      label: 'Cartographer',
+      summary: 'Players construct the board from personal tile inventories before normal setup begins.',
+      setup: [
+        'Before settlement setup, players take turns placing one tile from their available inventory into a legal map position.',
+        'After the tile draft, number tokens, robber, pirate, and ports are randomized; normal Seafarers settlement setup then begins.',
+      ],
+      rules: [
+        'Tile placement is part of the game: use it to shape future production, coastlines, routes, and access to ports.',
+        'Cartographer does not award the normal 2-point new-island settlement bonus.',
+        'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules still apply.',
+      ],
+    },
+    cartographer_56_manual: {
+      label: 'Cartographer',
+      summary: 'Five or six players draft the expanded board, then play it using paired action turns.',
+      setup: [
+        'Before settlement setup, players take turns placing one tile from their inventory into a legal map position.',
+        'After the draft, number tokens, robber, pirate, and ports are randomized; normal expanded Seafarers setup follows.',
+      ],
+      rules: [
+        'Cartographer does not award the normal 2-point new-island settlement bonus.',
+        'Paired-turn rules apply after setup, and Player 2 may trade only with the bank.',
+        'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules still apply.',
+      ],
+    },
+    cartographer_4_random: {
+      label: 'Scattered Tiles',
+      summary: 'Begin on a randomized Seafarers board and adapt to its coastlines and resource distribution.',
+      setup: [
+        'The server randomizes the board before normal Seafarers snake-order settlement setup begins.',
+        'Each setup settlement is followed by a connected road or ship.',
+      ],
+      rules: [
+        'Scattered Tiles does not award the normal 2-point new-island settlement bonus.',
+        'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules apply.',
+      ],
+    },
+    cartographer_56_random: {
+      label: 'Scattered Tiles',
+      summary: 'An expanded randomized Seafarers board for five or six players.',
+      setup: [
+        'The server randomizes the board before normal expanded Seafarers settlement setup begins.',
+        'Each setup settlement is followed by a connected road or ship.',
+      ],
+      rules: [
+        'Scattered Tiles does not award the normal 2-point new-island settlement bonus.',
+        'Paired-turn rules apply after setup, and Player 2 may trade only with the bank.',
+        'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules apply.',
+      ],
+    },
+    test_builder: {
+      label: 'Test Builder',
+      summary: 'A solo-capable sandbox for painting a custom Seafarers board before starting.',
+      setup: [
+        'The host selects a tile type and optional number, then paints the preview map. Sea and desert tiles ignore number selections.',
+        'The host can reset to a blank board before starting. This is the only map that allows a one-player game.',
+      ],
+      rules: [
+        'After the custom board is locked, normal Seafarers placement, ship, pirate, Gold Field, trade, and development-card rules apply wherever the painted terrain permits them.',
+        'This sandbox uses the lobby’s selected victory target, timers, bank size, discard limit, and development deck.',
+      ],
+    },
+  });
+
+  function lobbyRulesSelectedContext() {
+    const activeRules = (state && state.rules) ? state.rules : ((room && room.rules) ? room.rules : {});
+    const mapMode = String(ui.mapModeSelect?.value || uiMapModeFromRules(activeRules) || 'classic').toLowerCase();
+    const isSeafarers = mapMode === 'seafarers' || mapMode === 'seafarers56';
+    const isPaired = mapMode === 'classic56' || mapMode === 'seafarers56';
+    const scenarioKey = mapMode === 'seafarers56'
+      ? String(ui.mapScenario56Select?.value || activeRules.seafarersScenario || 'six_islands').toLowerCase()
+      : String(ui.mapScenarioSelect?.value || activeRules.seafarersScenario || 'four_islands').toLowerCase();
+    const scenario = isSeafarers ? (LOBBY_RULES_SCENARIOS[scenarioKey] || LOBBY_RULES_SCENARIOS.four_islands) : null;
+
+    function selectedInt(control, fallback, min, max) {
+      const value = Math.floor(Number(control?.value ?? fallback));
+      if (!Number.isFinite(value)) return fallback;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    const speed = String(ui.timerSpeedSelect?.value || 'normal').toLowerCase();
+    const speedFactor = speed === 'fast' ? 0.5 : (speed === 'slow' ? 2 : 1);
+    const speedLabel = speed === 'fast' ? 'Fast' : (speed === 'slow' ? 'Slow' : 'Normal');
+    const victoryTarget = selectedInt(ui.victoryPointsSelect, defaultVictoryPointsFor({
+      mapMode,
+      seafarersScenario: scenarioKey,
+      seafarersScenario56: scenarioKey,
+    }), 3, 30);
+    const baseResources = selectedInt(ui.baseResourceCountSelect, defaultBaseResourcesFor({
+      mapMode,
+      seafarersScenario: scenarioKey,
+      seafarersScenario56: scenarioKey,
+    }), 1, 40);
+    const discardLimit = selectedInt(ui.discardLimitInput, 7, 3, 30);
+    const devDeckSize = selectedInt(ui.devDeckModeSelect, 25, 13, 38);
+    const devDeckDescription = devDeckSize === 38
+      ? '38 cards: 21 Knights, 3 Road Building, 3 Invention, 3 Monopoly, 8 Victory Point'
+      : (devDeckSize === 13
+        ? '13 cards: 7 Knights, 1 Road Building, 1 Invention, 1 Monopoly, 3 Victory Point'
+        : '25 cards: 14 Knights, 2 Road Building, 2 Invention, 2 Monopoly, 5 Victory Point');
+    const mapLabel = mapMode === 'classic56'
+      ? 'Classic 5–6 Player'
+      : (mapMode === 'seafarers56'
+        ? `Seafarers 5–6 — ${scenario.label}`
+        : (mapMode === 'seafarers' ? `Seafarers — ${scenario.label}` : 'Classic'));
+
+    return {
+      mapMode,
+      mapLabel,
+      isSeafarers,
+      isPaired,
+      scenarioKey,
+      scenario,
+      playerRange: mapMode === 'classic56' || mapMode === 'seafarers56' ? '5–6' : (scenarioKey === 'test_builder' && isSeafarers ? '1–4' : '2–4'),
+      victoryTarget,
+      baseResources,
+      discardLimit,
+      devDeckSize,
+      devDeckDescription,
+      speedLabel,
+      setupSeconds: Math.round(60 * speedFactor),
+      playSeconds: Math.round(30 * speedFactor),
+      microSeconds: Math.round(15 * speedFactor),
+    };
+  }
+
+  function rulesGuideNode(tag, className, textValue) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (textValue != null) node.textContent = textValue;
+    return node;
+  }
+
+  function appendRulesGuideList(parent, items, ordered = false) {
+    const list = rulesGuideNode(ordered ? 'ol' : 'ul', 'rulesGuideList');
+    for (const item of items) list.appendChild(rulesGuideNode('li', '', item));
+    parent.appendChild(list);
+    return list;
+  }
+
+  function appendRulesGuideParagraph(parent, textValue, className = '') {
+    parent.appendChild(rulesGuideNode('p', className, textValue));
+  }
+
+  function makeRulesGuideSection(parent, id, title, intro = '') {
+    const section = rulesGuideNode('section', 'rulesGuideSection');
+    section.id = id;
+    section.appendChild(rulesGuideNode('h2', '', title));
+    if (intro) appendRulesGuideParagraph(section, intro, 'rulesGuideLead');
+    parent.appendChild(section);
+    return section;
+  }
+
+  function appendRulesGuideCallout(parent, title, textValue, tone = '') {
+    const callout = rulesGuideNode('div', `rulesGuideCallout${tone ? ` ${tone}` : ''}`);
+    callout.appendChild(rulesGuideNode('div', 'rulesGuideCalloutTitle', title));
+    callout.appendChild(rulesGuideNode('div', 'rulesGuideCalloutText', textValue));
+    parent.appendChild(callout);
+  }
+
+  function renderLobbyRulesPage() {
+    if (!ui.rulesPageContent || !ui.rulesPageNav) return;
+    const guide = lobbyRulesSelectedContext();
+    ui.rulesPageTitle.textContent = `${guide.mapLabel} Rules`;
+    ui.rulesPageSubtitle.textContent = `${guide.playerRange} players • First to ${guide.victoryTarget} victory points • ${guide.speedLabel} timers`;
+    ui.rulesPageContent.innerHTML = '';
+    ui.rulesPageNav.innerHTML = '';
+
+    const navTitle = rulesGuideNode('div', 'rulesPageNavTitle', 'On this page');
+    ui.rulesPageNav.appendChild(navTitle);
+    const navList = rulesGuideNode('div', 'rulesPageNavList');
+    ui.rulesPageNav.appendChild(navList);
+    const sections = [
+      ['rules-overview', 'Current game'],
+      ['rules-objective', 'Objective & scoring'],
+      ['rules-setup', 'Game setup'],
+      ['rules-turn', 'Turn process'],
+      ['rules-production', 'Production & rolling 7'],
+      ['rules-building', 'Building & placement'],
+      ['rules-trading', 'Trading'],
+      ['rules-dev-cards', 'Development cards'],
+      ['rules-thieves', guide.isSeafarers ? 'Robber & pirate' : 'Robber'],
+      ['rules-titles', 'Longest Road & Largest Army'],
+      ['rules-map', 'Selected map rules'],
+      ['rules-timers', 'Timers'],
+      ['rules-tools', 'Players, tools & history'],
+    ];
+    for (const [id, label] of sections) {
+      const link = rulesGuideNode('a', 'rulesPageNavLink', label);
+      link.href = `#${id}`;
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      navList.appendChild(link);
+    }
+
+    const overview = makeRulesGuideSection(ui.rulesPageContent, 'rules-overview', 'Current game selection', 'This handbook follows the options currently selected in Game Setup. Selected lobby values override scenario defaults.');
+    const stats = rulesGuideNode('div', 'rulesGuideStats');
+    const statItems = [
+      ['Map', guide.mapLabel],
+      ['Players', guide.playerRange],
+      ['Win target', `${guide.victoryTarget} VP`],
+      ['Bank', `${guide.baseResources} of each resource`],
+      ['Discard limit', String(guide.discardLimit)],
+      ['Timers', `${guide.speedLabel}: ${guide.setupSeconds}s / ${guide.playSeconds}s / ${guide.microSeconds}s`],
+      ['Dev deck', `${guide.devDeckSize} cards`],
+      ['Turn style', guide.isPaired ? 'Paired 5–6-player turns' : 'Standard turns'],
+    ];
+    for (const [label, value] of statItems) {
+      const card = rulesGuideNode('div', 'rulesGuideStat');
+      card.appendChild(rulesGuideNode('div', 'rulesGuideStatLabel', label));
+      card.appendChild(rulesGuideNode('div', 'rulesGuideStatValue', value));
+      stats.appendChild(card);
+    }
+    overview.appendChild(stats);
+
+    const objective = makeRulesGuideSection(ui.rulesPageContent, 'rules-objective', 'Objective and victory points', `Be the first player to reach ${guide.victoryTarget} victory points.`);
+    appendRulesGuideList(objective, [
+      'Settlement: 1 victory point.',
+      'City: 2 victory points total; upgrading replaces the settlement’s 1 point.',
+      'Longest Road: 2 victory points while held.',
+      'Largest Army: 2 victory points while held.',
+      'Victory Point development card: 1 victory point when played.',
+      ...(guide.isSeafarers ? ['Scenario bonuses: points are awarded only as described in Selected map rules below.'] : []),
+    ]);
+    appendRulesGuideCallout(objective, 'Winning', 'The server recalculates victory points after scoring actions and ends the game as soon as a player reaches the selected target.');
+
+    const setup = makeRulesGuideSection(ui.rulesPageContent, 'rules-setup', 'Game setup', 'Players establish two starting settlements and routes before normal turns begin.');
+    appendRulesGuideList(setup, [
+      'First round: players act in seating order, placing 1 settlement and then a connected route.',
+      'Second round: the order reverses, so the last player places first and the first player places last.',
+      `In ${guide.isSeafarers ? 'Seafarers, each setup route may be a road or ship' : 'Classic, each setup route is a road'}.`,
+      'After placing the second settlement, collect 1 matching resource for each adjacent standard producing land tile, subject to bank supply. Gold Fields do not grant a setup resource.',
+      'Starting settlements must obey the distance rule and any restrictions listed for the selected map.',
+      'When setup finishes, the first player begins the first normal turn.',
+    ], true);
+
+    const turn = makeRulesGuideSection(ui.rulesPageContent, 'rules-turn', 'Turn process', guide.isPaired ? 'Expanded maps use a full Player 1 turn followed by an action-only Player 2 turn.' : 'A normal turn has a roll followed by an action phase.');
+    appendRulesGuideList(turn, [
+      ...(guide.isSeafarers ? ['Before rolling, the active player may play an eligible development card or make their one permitted end-ship move.'] : ['Before rolling, the active player may play an eligible development card.']),
+      'Roll both dice. Resolve production, or resolve discards and the robber/pirate when the total is 7.',
+      'During the action phase, perform legal actions in any order: build, trade, buy development cards, play an eligible development card, or move a ship if that move was not already used.',
+      'Select End Turn when finished. Any unresolved required choice must be completed before play advances.',
+    ], true);
+    if (guide.isPaired) {
+      appendRulesGuideCallout(turn, 'Paired turns', 'Player 1 rolls and takes a full action phase. If the game has not ended, the third remaining player to Player 1’s left becomes Player 2 and receives an action-only phase with no roll or production. Player 2 may trade with the bank but not with other players. Play then advances to the next Player 1.', 'accent');
+    }
+
+    const production = makeRulesGuideSection(ui.rulesPageContent, 'rules-production', 'Production and rolling 7', 'A producing tile pays the owners of adjacent settlements and cities when its number is rolled.');
+    appendRulesGuideList(production, [
+      'A settlement receives 1 matching resource; a city receives 2. The desert and sea do not produce.',
+      'If the bank cannot provide the required cards, it pays only what the game can legally distribute from the remaining supply.',
+      ...(guide.isSeafarers ? ['A Gold Field lets each eligible player choose the resource they receive. Each pending Gold choice uses the micro-phase timer.'] : []),
+      `On a 7, every player holding more than ${guide.discardLimit} resource cards discards half their hand, rounded down.`,
+      `After all required discards, the roller moves the ${guide.isSeafarers ? 'robber or pirate' : 'robber'} and may steal 1 random resource from an eligible adjacent opponent.`,
+    ]);
+
+    const building = makeRulesGuideSection(ui.rulesPageContent, 'rules-building', 'Building costs and placement', 'Pay resources to the bank, then choose a highlighted legal location.');
+    const costs = rulesGuideNode('div', 'rulesGuideCosts');
+    const costItems = [
+      ['Road', '1 brick + 1 lumber', 'Extends your land network.'],
+      ...(guide.isSeafarers ? [['Ship', '1 lumber + 1 wool', 'Extends your route along sea or coastal edges.']] : []),
+      ['Settlement', '1 brick + 1 lumber + 1 wool + 1 grain', 'Build on an empty legal intersection connected to your route.'],
+      ['City', '2 grain + 3 ore', 'Upgrade one of your settlements; cities cannot be placed directly.'],
+      ['Development card', '1 wool + 1 grain + 1 ore', 'Draw the top card from the selected deck.'],
+    ];
+    for (const [name, cost, note] of costItems) {
+      const card = rulesGuideNode('div', 'rulesGuideCost');
+      card.appendChild(rulesGuideNode('h3', '', name));
+      card.appendChild(rulesGuideNode('div', 'rulesGuideCostValue', cost));
+      card.appendChild(rulesGuideNode('div', 'rulesGuideCostNote', note));
+      costs.appendChild(card);
+    }
+    building.appendChild(costs);
+    appendRulesGuideList(building, [
+      'Settlements must be at least two edges away from every other settlement or city.',
+      'A new settlement must connect to one of your roads or ships unless it is being placed during setup.',
+      'Roads must use legal land/coastal edges and connect to your route or building network.',
+      ...(guide.isSeafarers ? [
+        'Ships must use sea/coastal edges and connect to your ship or building network. The pirate blocks placement on adjacent edges.',
+        'Once per turn, before or after rolling, you may move one open end ship to another legal connected edge. A ship enclosed inside a route cannot be moved, and the pirate blocks movement into or out of adjacent edges.',
+      ] : []),
+    ]);
+
+    const trading = makeRulesGuideSection(ui.rulesPageContent, 'rules-trading', 'Trading', 'Trading is available during the action phase after the roll.');
+    appendRulesGuideList(trading, [
+      'Bank trade: exchange 4 cards of one resource for 1 card of your choice.',
+      'Generic port: exchange 3 cards of one resource for 1 card of your choice.',
+      'Resource port: exchange 2 cards of the pictured resource for 1 card of your choice.',
+      'Player trade: propose the resources you will give and receive. Another player may accept while the offer remains open.',
+      'After a successful player trade, 10 seconds are added to the initiating player’s current turn.',
+      'The turn timer continues while any trade window is open.',
+      ...(guide.isPaired ? ['Player 2’s action-only turn permits bank and port trades but not player-to-player trades.'] : []),
+    ]);
+
+    const devCards = makeRulesGuideSection(ui.rulesPageContent, 'rules-dev-cards', 'Development cards', guide.devDeckDescription + '.');
+    appendRulesGuideList(devCards, [
+      'A newly purchased non-Victory-Point card cannot be played on the same turn it was bought.',
+      'A player may play at most 1 non-Victory-Point development card per turn. Eligible cards may be played before rolling.',
+      `Knight: counts toward Largest Army and moves the ${guide.isSeafarers ? 'robber or pirate' : 'robber'}, followed by an eligible random steal.`,
+      'Road Building: place up to 2 roads for free. It does not place ships.',
+      'Invention: choose exactly 2 resources to take from the bank.',
+      'Monopoly: name 1 resource and take every card of that resource held by the other players.',
+      'Victory Point: adds 1 revealed victory point and may be played immediately, including on the purchase turn.',
+      'Every played development card is consumed and removed from the player’s Resources tab.',
+    ]);
+
+    const thieves = makeRulesGuideSection(ui.rulesPageContent, 'rules-thieves', guide.isSeafarers ? 'Robber and pirate' : 'Robber', guide.isSeafarers ? 'A 7 or Knight creates a choice between the land robber and sea pirate.' : 'The robber controls land production and stealing.');
+    appendRulesGuideList(thieves, [
+      'The robber must move to a different land tile. That tile produces nothing until the robber moves again.',
+      'After moving the robber, choose an eligible opponent with a building beside the destination and steal 1 random resource if they have one.',
+      ...(guide.isSeafarers ? [
+        'The pirate must move to a different sea tile. It blocks building or moving ships on adjacent edges.',
+        'After moving the pirate, choose an eligible opponent with a ship beside the destination and steal 1 random resource if they have one.',
+      ] : []),
+      'If no eligible opponent has a resource, the move completes without a steal.',
+    ]);
+
+    const titles = makeRulesGuideSection(ui.rulesPageContent, 'rules-titles', 'Longest Road and Largest Army', 'Each title is worth 2 victory points while it is held.');
+    appendRulesGuideList(titles, [
+      `Longest Road requires a continuous route of at least 5 of your ${guide.isSeafarers ? 'roads and ships' : 'roads'}. An edge cannot be counted twice, and an opponent’s settlement or city blocks continuation through that intersection.`,
+      'Largest Army requires at least 3 played Knights.',
+      'To take either title from its current holder, a player must strictly exceed the holder’s recorded route length or army size; tying the holder is not enough.',
+      'If there is a tie without an eligible current holder, the title remains unclaimed until one player has the unique best qualifying total.',
+      'If a title holder leaves, the departed player remains the recorded holder and keeps its 2 points in the game state until a remaining player uniquely and strictly surpasses the recorded total.',
+    ]);
+
+    const map = makeRulesGuideSection(ui.rulesPageContent, 'rules-map', 'Selected map rules', guide.isSeafarers ? guide.scenario.summary : (guide.isPaired ? 'The expanded Classic board supports five or six players and uses paired action turns.' : 'Classic uses the standard land-only board, robber, roads, settlements, cities, ports, and development cards.'));
+    if (guide.isSeafarers) {
+      map.appendChild(rulesGuideNode('h3', 'rulesGuideSubheading', 'Scenario setup'));
+      appendRulesGuideList(map, guide.scenario.setup);
+      map.appendChild(rulesGuideNode('h3', 'rulesGuideSubheading', 'Special rules'));
+      appendRulesGuideList(map, guide.scenario.rules);
+      map.appendChild(rulesGuideNode('h3', 'rulesGuideSubheading', 'Common Seafarers rules'));
+      appendRulesGuideList(map, [
+        'Ships cost 1 lumber and 1 wool, travel on sea/coastal edges, and count with roads toward Longest Road.',
+        'The pirate blocks adjacent ship placement and movement. Knights and a rolled 7 allow the active player to choose robber or pirate.',
+        'Gold Fields award resources chosen by the receiving player.',
+        'Unless this scenario says otherwise, the first settlement a player builds on each new island after setup awards 2 bonus victory points.',
+      ]);
+    } else if (guide.isPaired) {
+      appendRulesGuideList(map, [
+        'The expanded board requires five or six players, uses the larger bank default and 11 ports, and has no ships, pirate, Gold Fields, or island bonuses.',
+        'Player 1 rolls and takes a full action phase. Player 2 then takes an action-only phase and may trade only with the bank.',
+        'All other Classic production, robber, building, port, development-card, title, and victory rules apply.',
+      ]);
+    } else {
+      appendRulesGuideList(map, [
+        'Classic supports two to four players and uses land routes only.',
+        'There are no ships, pirate, Gold Fields, fog tiles, exploration bonuses, or paired turns.',
+        'The default victory target is 10, but this game uses the selected target shown above.',
+      ]);
+    }
+
+    const timers = makeRulesGuideSection(ui.rulesPageContent, 'rules-timers', 'Timers and automatic resolution', `${guide.speedLabel} timing is selected for this lobby.`);
+    appendRulesGuideList(timers, [
+      `Setup placement: ${guide.setupSeconds} seconds for each required settlement or route placement.`,
+      `Normal turn: ${guide.playSeconds} seconds.`,
+      `Micro phase: ${guide.microSeconds} seconds for short required choices such as discarding, stealing, or choosing Gold Field resources.`,
+      'The server automatically resolves or skips an expired choice when possible so the game can continue.',
+      'Opening a trade window does not pause the turn timer.',
+      'A completed player-to-player trade adds 10 seconds to the initiating player’s turn.',
+    ]);
+
+    const tools = makeRulesGuideSection(ui.rulesPageContent, 'rules-tools', 'Players, game tools, and history', 'The interface keeps information and recovery tools available throughout the game.');
+    appendRulesGuideList(tools, [
+      'Resources shows the bank, public counts, pieces, played Knights, titles, and your exact hand. A spectator may click a player there to view that active player’s exact resources and development cards.',
+      'Game Log records rolls, builds, trades, cards, scoring, and other actions. Dice Stats summarizes roll totals; Chat, Audio, and Colorblind controls are available from Game Tools.',
+      'The host can pause and resume the game. Ending an active game early requires the remaining players’ unanimous vote.',
+      'If a player leaves, all resources in their hand return to the bank. Their roads, ships, settlements, and cities remain on the map and continue to block or connect exactly where they were built.',
+      'A departed Longest Road or Largest Army holder remains the title holder until a remaining player satisfies the strict surpassing rule described above.',
+      'Use Rejoin Last Room after a disconnect. Spectators do not take turns and may follow the game without occupying an active player seat.',
+      'Completed games appear in Game History. Each game provides a step-by-step replay with the saved game log; during replay, click a player in Resources to inspect the active player view for that step.',
+    ]);
+
+    ui.rulesPageContent.scrollTop = 0;
+  }
+
+  function openLobbyRulesPage() {
+    if (!ui.rulesPage) return;
+    renderLobbyRulesPage();
+    ui.rulesPage.classList.remove('hidden');
+    ui.rulesPage.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('rules-page-open');
+    window.setTimeout(() => ui.rulesPageCloseBtn?.focus(), 0);
+  }
+
+  function closeLobbyRulesPage() {
+    if (!ui.rulesPage) return;
+    ui.rulesPage.classList.add('hidden');
+    ui.rulesPage.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('rules-page-open');
+    ui.lobbyRulesBtn?.focus();
+  }
+
   function openRulesModal() {
     activeToolModal = 'rules';
 
@@ -6723,6 +7219,15 @@ function refreshLobbyJoinLinkUi() {
   });
 
   // ---- Lobby ----
+  if (ui.lobbyRulesBtn) ui.lobbyRulesBtn.addEventListener('click', openLobbyRulesPage);
+  if (ui.rulesPageCloseBtn) ui.rulesPageCloseBtn.addEventListener('click', closeLobbyRulesPage);
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && ui.rulesPage && !ui.rulesPage.classList.contains('hidden')) {
+      event.preventDefault();
+      closeLobbyRulesPage();
+    }
+  });
+
   ui.createBtn.addEventListener('click', () => {
     setError(null);
     if (!authUser) { setError('Log in first.'); return; }

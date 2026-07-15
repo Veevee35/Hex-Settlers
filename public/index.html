@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=699eda26" />
+  <link rel="stylesheet" href="styles.css?v=699eda27" />
 </head>
 <body>
   <div id="app">
@@ -45,8 +45,9 @@
 
           <div class="divider"></div>
 
-          <div class="row">
+          <div class="row lobbyPrimaryActions">
             <button id="createBtn" class="btn primary">Create Lobby</button>
+            <button id="lobbyRulesBtn" class="btn" type="button">Rules</button>
           </div>
 
           <div class="divider"></div>
@@ -478,6 +479,25 @@
   </div>
 
 
+  <section id="rulesPage" class="rulesPage hidden" aria-labelledby="rulesPageTitle" aria-hidden="true">
+    <div class="rulesPageShell">
+      <header class="rulesPageHeader">
+        <div class="rulesPageHeading">
+          <div class="rulesPageEyebrow">Hex Settlers handbook</div>
+          <h1 id="rulesPageTitle">Game Rules</h1>
+          <p id="rulesPageSubtitle">Rules for the currently selected map.</p>
+        </div>
+        <button id="rulesPageCloseBtn" class="btn primary rulesPageCloseBtn" type="button">Back to Lobby</button>
+      </header>
+
+      <div class="rulesPageLayout">
+        <nav id="rulesPageNav" class="rulesPageNav" aria-label="Rules contents"></nav>
+        <main id="rulesPageContent" class="rulesPageContent"></main>
+      </div>
+    </div>
+  </section>
+
+
 
   <div id="historyOverlay" class="historyOverlay hidden">
     <div class="historyPanel">
@@ -512,6 +532,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=699eda25"></script>
+  <script src="app.js?v=699eda27"></script>
 </body>
 </html>
