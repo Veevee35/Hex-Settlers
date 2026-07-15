@@ -33,6 +33,7 @@ const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
+const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
 
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
@@ -1306,7 +1307,12 @@ function seafarersScenarioKey(game) {
 
 function isSeafarers56Scenario(s) {
   const scen = String(s || '').toLowerCase().replace(/-/g,'_');
-  return scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56';
+  return scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56' || scen === 'test_builder_56';
+}
+
+function isTestBuilderScenarioKey(s) {
+  const scen = String(s || '').toLowerCase().replace(/-/g,'_');
+  return scen === 'test_builder' || scen === 'test_builder_56';
 }
 
 function isCartographer4ScenarioKey(s) {
@@ -4816,7 +4822,7 @@ function generateBoardSeafarers(geom, scenario = 'four_islands', opts = null) {
   else if (s === 'cartographer_56_random' || s === 'cartographer_56') tiles = generateBoardSeafarersCartographer56(geom, Math.floor(Number(opts?.playerCount || 6)));
   else if (s === 'cartographer_56_manual') tiles = generateBoardSeafarersCartographer4ManualDraft(geom);
   else if (s === 'six_islands') tiles = generateBoardSeafarersSixIslands(geom);
-  else if (s === 'test_builder') tiles = generateBoardSeafarersTestBuilder(geom);
+  else if (isTestBuilderScenarioKey(s)) tiles = generateBoardSeafarersTestBuilder(geom);
   else tiles = generateBoardSeafarersFourIslands(geom);
   return finalizeGeneratedSeafarersPirate(geom, tiles, s);
 }
@@ -5416,7 +5422,7 @@ function startGame(room) {
       game.geom = buildGeometryFromAxials(generateSixIslandsAxials());
     }
       game.geom.tiles = generateBoardSeafarers(game.geom, scen, { playerCount: game.players.length });
-      game.geom.ports = (String(scen).toLowerCase() === 'test_builder') ? [] : generatePortsSeafarers(game.geom, scen);
+      game.geom.ports = isTestBuilderScenarioKey(scen) ? [] : generatePortsSeafarers(game.geom, scen);
     } else if ((mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) {
       // Classic 5–6 Player: larger landmass + 11 ports.
       game.geom = buildGeometryClassic56();
@@ -7920,6 +7926,8 @@ function mapPreviewKey(rules, playerCount = null) {
         ? 'fog_island_56'
       : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
         ? 'test_builder'
+      : (rawScen === 'test_builder_56' || rawScen === 'test-builder-56' || rawScen === 'test56' || rawScen === 'builder56')
+        ? 'test_builder_56'
         : (rawScen === 'cartographer_4_manual' || rawScen === 'cartographer-4-manual' || rawScen === 'cartographer_manual' || rawScen === 'manual_cartographer')
           ? 'cartographer_4_manual'
         : (rawScen === 'cartographer_4_random' || rawScen === 'cartographer-4-random' || rawScen === 'cartographer_random' || rawScen === 'random_cartographer' || rawScen === 'cartographer_4' || rawScen === 'cartographer-4' || rawScen === 'cartographer4')
@@ -7975,7 +7983,7 @@ function generatePreviewGeom(rules, room = null) {
       geom.ports = [];
     } else {
       geom.tiles = generateBoardSeafarers(geom, scen, { playerCount: previewPlayerCount });
-      geom.ports = (scen === 'test_builder') ? [] : generatePortsSeafarers(geom, scen);
+      geom.ports = isTestBuilderScenarioKey(scen) ? [] : generatePortsSeafarers(geom, scen);
     }
     return geom;
   }
@@ -9051,6 +9059,8 @@ if (msg.type === 'create_room') {
             ? 'heading_for_new_shores'
           : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
             ? 'test_builder'
+          : (rawScen === 'test_builder_56' || rawScen === 'test-builder-56' || rawScen === 'test56' || rawScen === 'builder56')
+            ? 'test_builder_56'
           : (rawScen === 'cartographer_4_manual' || rawScen === 'cartographer-4-manual' || rawScen === 'cartographer_manual' || rawScen === 'manual_cartographer')
             ? 'cartographer_4_manual'
           : (rawScen === 'cartographer_4_random' || rawScen === 'cartographer-4-random' || rawScen === 'cartographer_random' || rawScen === 'random_cartographer' || rawScen === 'cartographer_4' || rawScen === 'cartographer-4' || rawScen === 'cartographer4')
@@ -9236,7 +9246,7 @@ if (msg.type === 'create_room') {
       const rules = room.rules || DEFAULT_RULES;
       const mm = String(rules.mapMode || 'classic').toLowerCase();
       const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase();
-      if (mm !== 'seafarers' || scen !== 'test_builder') {
+      if (mm !== 'seafarers' || !isTestBuilderScenarioKey(scen)) {
         sendJson(ws, { type: 'error', error: 'Map editing is only available in Seafarers → Test Builder.' });
         return;
       }
@@ -9299,6 +9309,36 @@ if (msg.type === 'create_room') {
         if (seaIds.length) geom.tiles[seaIds[Math.floor(Math.random() * seaIds.length)]].pirate = true;
       }
 
+      normalizeTestBuilderPorts(geom);
+
+      room.preview.at = now();
+      broadcastPreviewState(room);
+      return;
+    }
+
+    if (msg.type === 'edit_preview_port') {
+      if (pid !== room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Only host can edit the test map.' });
+        return;
+      }
+      if (room.game && room.game.phase !== 'lobby') {
+        sendJson(ws, { type: 'error', error: 'Cannot edit once the game starts.' });
+        return;
+      }
+      const rules = room.rules || DEFAULT_RULES;
+      const mm = String(rules.mapMode || 'classic').toLowerCase();
+      const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase();
+      if (mm !== 'seafarers' || !isTestBuilderScenarioKey(scen)) {
+        sendJson(ws, { type: 'error', error: 'Port editing is only available in Seafarers Test Builder.' });
+        return;
+      }
+      ensurePreview(room, false);
+      const geom = room.preview && room.preview.geom;
+      const result = editTestBuilderPort(geom, msg.edgeId, msg.portKind);
+      if (!result.ok) {
+        sendJson(ws, { type: 'error', error: result.error });
+        return;
+      }
       room.preview.at = now();
       broadcastPreviewState(room);
       return;

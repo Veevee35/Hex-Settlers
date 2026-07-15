@@ -82,8 +82,10 @@
     scenario56Row: $('scenario56Row'),
     mapScenario56Select: $('mapScenario56Select'),
     testBuilderRow: $('testBuilderRow'),
+    testToolSelect: $('testToolSelect'),
     testBrushSelect: $('testBrushSelect'),
     testNumberSelect: $('testNumberSelect'),
+    testPortSelect: $('testPortSelect'),
     testResetBtn: $('testResetBtn'),
     victoryPointsSelect: $('victoryPointsSelect'),
     devDeckModeSelect: $('devDeckModeSelect'),
@@ -3165,14 +3167,14 @@ function syncPostgameToState() {
     const mm = mmRaw;
     if (mm === 'classic56' || mm === 'seafarers56') return 24;
     const scen = String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random')) return 24;
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56')) return 24;
     return 19;
   }
 
   function uiMapModeFromRules(rules) {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random')) return 'seafarers56';
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56')) return 'seafarers56';
     return rules?.mapMode || 'classic';
   }
 
@@ -3180,7 +3182,19 @@ function syncPostgameToState() {
     const mm = String(rulesOrSelection?.mapMode || 'classic').toLowerCase();
     if (mm === 'seafarers56') return true;
     const scen = String(rulesOrSelection?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    return (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random'));
+    return (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56'));
+  }
+
+  function uiIsTestBuilderScenario(rulesOrSelection) {
+    const scenario = String(rulesOrSelection?.seafarersScenario || rulesOrSelection?.seafarersScenario56 || '').toLowerCase().replace(/-/g, '_');
+    return scenario === 'test_builder' || scenario === 'test_builder_56';
+  }
+
+  function syncTestBuilderToolModeUi() {
+    const portMode = String(ui.testToolSelect?.value || 'tile') === 'port';
+    ui.testBrushSelect?.classList.toggle('hidden', portMode);
+    ui.testNumberSelect?.classList.toggle('hidden', portMode);
+    ui.testPortSelect?.classList.toggle('hidden', !portMode);
   }
 
   // -------------------- Structure sprites (settlement/city/road/ship) --------------------
@@ -6132,11 +6146,26 @@ function refreshLobbyJoinLinkUi() {
       label: 'Test Builder',
       summary: 'A solo-capable sandbox for painting a custom Seafarers board before starting.',
       setup: [
-        'The host selects a tile type and optional number, then paints the preview map. Sea and desert tiles ignore number selections.',
+        'The host paints tile types and optional numbers, or selects port types and places them on shoreline edges. Sea and desert tiles ignore number selections.',
+        'Placed ports cannot share a corner and are removed automatically if later tile painting makes their edge invalid.',
         'The host can reset to a blank board before starting. This is the only map that allows a one-player game.',
       ],
       rules: [
         'After the custom board is locked, normal Seafarers placement, ship, pirate, Gold Field, trade, and development-card rules apply wherever the painted terrain permits them.',
+        'This sandbox uses the lobby’s selected victory target, timers, bank size, discard limit, and development deck.',
+      ],
+    },
+    test_builder_56: {
+      label: 'Test Builder',
+      summary: 'A large-frame sandbox for designing a custom 5–6-player Seafarers board before starting.',
+      setup: [
+        'The host paints tile types and optional numbers, or selects port types and places them on shoreline edges. Sea and desert tiles ignore number selections.',
+        'Placed ports cannot share a corner and are removed automatically if later tile painting makes their edge invalid.',
+        'The host can reset the large frame to a blank board before the five- or six-player game starts.',
+      ],
+      rules: [
+        'After the custom board is locked, normal Seafarers placement, ship, pirate, Gold Field, trade, and development-card rules apply wherever the painted terrain permits them.',
+        'Paired-turn 5–6-player rules apply, and Player 2 may trade only with the bank.',
         'This sandbox uses the lobby’s selected victory target, timers, bank size, discard limit, and development deck.',
       ],
     },
@@ -6510,7 +6539,7 @@ function refreshLobbyJoinLinkUi() {
               ? 'Cartographer'
             : (scenRaw === 'cartographer_4_random' || scenRaw === 'cartographer-4-random' || scenRaw === 'cartographer_random' || scenRaw === 'random_cartographer' || scenRaw === 'cartographer_4' || scenRaw === 'cartographer-4' || scenRaw === 'cartographer4' || scenRaw === 'cartographer' || scenRaw === 'cartographer_56_random' || scenRaw === 'cartographer-56-random' || scenRaw === 'cartographer56_random' || scenRaw === 'scattered_tiles_56' || scenRaw === 'scattered_tiles56' || scenRaw === 'scattered_56')
               ? 'Scattered Tiles'
-              : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder')
+              : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder' || scenRaw === 'test_builder_56' || scenRaw === 'test-builder-56')
                 ? 'Test Builder'
                 : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
                     ? 'Six Islands'
@@ -6961,7 +6990,7 @@ function refreshLobbyJoinLinkUi() {
             : 'classic';
         const allowSolo = (mm === 'seafarers') && String(room?.rules?.seafarersScenario || '').toLowerCase() === 'test_builder';
         const scen = String(room?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-        const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random'));
+        const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56'));
         const minPlayers = (mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2));
         const maxPlayers = (mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4);
         const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;
@@ -7116,21 +7145,21 @@ function refreshLobbyJoinLinkUi() {
     }
     if (ui.mapScenario56Select) {
       const scen56 = (mmNow === 'seafarers56') ? String(r.seafarersScenario || 'six_islands').toLowerCase() : 'six_islands';
-      ui.mapScenario56Select.value = (scen56 === 'through_the_desert_56')
-        ? 'through_the_desert_56'
-        : ((scen56 === 'fog_island_56') ? 'fog_island_56'
-          : ((scen56 === 'cartographer_56_manual') ? 'cartographer_56_manual'
-            : ((scen56 === 'cartographer_56_random') ? 'cartographer_56_random' : 'six_islands')));
+      const allowed56 = new Set(['six_islands', 'through_the_desert_56', 'fog_island_56', 'cartographer_56_manual', 'cartographer_56_random', 'test_builder_56']);
+      ui.mapScenario56Select.value = allowed56.has(scen56) ? scen56 : 'six_islands';
       ui.mapScenario56Select.disabled = !isHost || (mmNow !== 'seafarers56');
     }
 
-    // Test Builder (Solo) map painting UI (host-only)
+    // Test Builder map and port painting UI (host-only)
     const scenNow = String(r.seafarersScenario || 'four_islands').toLowerCase();
-    const showTestBuilder = (mmNow === 'seafarers' && scenNow === 'test_builder');
+    const showTestBuilder = (mmNow === 'seafarers' || mmNow === 'seafarers56') && uiIsTestBuilderScenario(r);
     if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTestBuilder || gameStarted);
+    if (ui.testToolSelect) ui.testToolSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testBrushSelect) ui.testBrushSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testNumberSelect) ui.testNumberSelect.disabled = !isHost || !showTestBuilder || gameStarted;
+    if (ui.testPortSelect) ui.testPortSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testResetBtn) ui.testResetBtn.disabled = !isHost || !showTestBuilder || gameStarted;
+    syncTestBuilderToolModeUi();
 
     // Victory points to win
     if (ui.victoryPointsSelect) {
@@ -7169,7 +7198,7 @@ function refreshLobbyJoinLinkUi() {
       const mmUi = uiMapModeFromRules(r);
       const mmL = String(mmUi || 'classic').toLowerCase();
       const scen = (mmL === 'seafarers56')
-        ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56') || (r.seafarersScenario === 'cartographer_56_manual') || (r.seafarersScenario === 'cartographer_56_random')) ? r.seafarersScenario : 'six_islands')
+        ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56') || (r.seafarersScenario === 'cartographer_56_manual') || (r.seafarersScenario === 'cartographer_56_random') || (r.seafarersScenario === 'test_builder_56')) ? r.seafarersScenario : 'six_islands')
         : (r.seafarersScenario || 'four_islands');
       const scenLabel = (scen === 'through_the_desert') ? 'Through the Desert'
         : (scen === 'through_the_desert_56') ? 'Through the Desert'
@@ -7177,7 +7206,7 @@ function refreshLobbyJoinLinkUi() {
           : (scen === 'heading_for_new_shores' ? 'Heading for New Shores'
             : (scen === 'cartographer_4_manual' || scen === 'cartographer_56_manual' ? 'Cartographer'
             : (scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_random' ? 'Scattered Tiles'
-              : (scen === 'test_builder' ? 'Test Builder'
+              : (scen === 'test_builder' || scen === 'test_builder_56' ? 'Test Builder'
                 : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))))));
       const is56 = (mmL === 'classic56' || mmL === 'classic_5_6' || mmL === 'classic-5-6' || mmL === 'classic5_6' || mmL === 'classic5-6');
       const mapLabel = (mmL === 'seafarers56') ? `seafarers 5–6 (${scenLabel.toLowerCase()}, paired turns)`
@@ -7327,8 +7356,8 @@ if (ui.copyMyIdBtn) {
       if (ui.mapScenarioSelect) ui.mapScenarioSelect.disabled = (mm !== 'seafarers') || (room && room.hostId !== myPlayerId);
       if (ui.mapScenario56Select) ui.mapScenario56Select.disabled = (mm !== 'seafarers56') || (room && room.hostId !== myPlayerId);
 
-      // Test Builder UI only appears for seafarers:test_builder
-      const showTest = (mm === 'seafarers' && ui.mapScenarioSelect && String(ui.mapScenarioSelect.value).toLowerCase() === 'test_builder');
+      const selectedTestScenario = (mm === 'seafarers56') ? ui.mapScenario56Select?.value : ui.mapScenarioSelect?.value;
+      const showTest = (mm === 'seafarers' || mm === 'seafarers56') && uiIsTestBuilderScenario({ seafarersScenario: selectedTestScenario });
       if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTest);
 
       // If the host hasn't manually set a win target yet, auto-fill the scenario default.
@@ -7366,6 +7395,10 @@ if (ui.copyMyIdBtn) {
     ui.mapScenario56Select.addEventListener('change', () => {
       if (!ui.victoryPointsSelect) return;
       const mm = (ui.mapModeSelect ? (ui.mapModeSelect.value || 'classic') : 'classic');
+      if (ui.testBuilderRow) {
+        const showTest = (mm === 'seafarers56' && uiIsTestBuilderScenario({ seafarersScenario: ui.mapScenario56Select.value }));
+        ui.testBuilderRow.classList.toggle('hidden', !showTest);
+      }
       if (mm !== 'seafarers56') return;
       if (!vpTouched) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario56: ui.mapScenario56Select.value }));
       if (ui.baseResourceCountSelect && !baseResourceCountTouched) ui.baseResourceCountSelect.value = String(defaultBaseResourcesFor({ mapMode: mm, seafarersScenario56: ui.mapScenario56Select.value }));
@@ -7377,6 +7410,9 @@ if (ui.copyMyIdBtn) {
   }
   if (ui.baseResourceCountSelect) {
     ui.baseResourceCountSelect.addEventListener('change', () => { baseResourceCountTouched = true; });
+  }
+  if (ui.testToolSelect) {
+    ui.testToolSelect.addEventListener('change', syncTestBuilderToolModeUi);
   }
 
   // Lobby setup
@@ -10441,18 +10477,27 @@ function handleProductionGoldPrompt() {
 
     if (!screenCache) return;
 
-    // Test Builder (Solo) map painting in lobby (host only)
+    // Test Builder tile and port painting in lobby (host only)
     if (state && state.phase === 'lobby' && room && room.hostId === myPlayerId) {
       const rr = room.rules || state.rules || {};
       const mm = String(rr.mapMode || 'classic').toLowerCase();
       const scen = String(rr.seafarersScenario || 'four_islands').toLowerCase();
-      if (mm === 'seafarers' && scen === 'test_builder') {
-        const tid = pickTile(x, y);
-        if (tid != null) {
-          const tileType = (ui.testBrushSelect && ui.testBrushSelect.value) ? ui.testBrushSelect.value : 'sea';
-          const nstr = (ui.testNumberSelect && ui.testNumberSelect.value) ? ui.testNumberSelect.value : '';
-          const num = nstr ? parseInt(nstr, 10) : null;
-          send({ type: 'edit_preview_tile', tileId: tid, tileType, number: num });
+      if (mm === 'seafarers' && uiIsTestBuilderScenario(rr)) {
+        const tool = String(ui.testToolSelect?.value || 'tile');
+        if (tool === 'port') {
+          const edgeId = pickEdge(x, y);
+          if (edgeId != null) {
+            const portKind = String(ui.testPortSelect?.value || 'generic');
+            send({ type: 'edit_preview_port', edgeId, portKind });
+          }
+        } else {
+          const tid = pickTile(x, y);
+          if (tid != null) {
+            const tileType = (ui.testBrushSelect && ui.testBrushSelect.value) ? ui.testBrushSelect.value : 'sea';
+            const nstr = (ui.testNumberSelect && ui.testNumberSelect.value) ? ui.testNumberSelect.value : '';
+            const num = nstr ? parseInt(nstr, 10) : null;
+            send({ type: 'edit_preview_tile', tileId: tid, tileType, number: num });
+          }
         }
         return;
       }
@@ -10757,7 +10802,7 @@ function handleProductionGoldPrompt() {
     const mm = String(rules.mapMode || '').toLowerCase();
     if (mm !== 'seafarers') return false;
     const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
-    if (scen === 'test_builder' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56') return false;
+    if (scen === 'test_builder' || scen === 'test_builder_56' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56') return false;
     if (String(t.type || '').toLowerCase() !== 'sea') return false;
     const nbs = (state.geom.tileNeighbors && Array.isArray(state.geom.tileNeighbors[t.id])) ? state.geom.tileNeighbors[t.id] : null;
     if (!nbs) return false;

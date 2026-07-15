@@ -9,8 +9,8 @@ const {
   parseClientMessage,
 } = require('../server/protocol');
 
-test('protocol accepts current gameplay, expert AI, and texture messages', () => {
-  for (const type of ['game_action', 'set_expert_ai_tuning', 'texture_pack_publish']) {
+test('protocol accepts current gameplay, Test Builder, expert AI, and texture messages', () => {
+  for (const type of ['game_action', 'edit_preview_port', 'set_expert_ai_tuning', 'texture_pack_publish']) {
     const parsed = parseClientMessage(JSON.stringify({ type }));
     assert.equal(parsed.ok, true, type);
   }

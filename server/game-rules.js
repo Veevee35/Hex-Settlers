@@ -30,7 +30,8 @@ function isSeafarers56Scenario(raw) {
   const value = String(raw || '').toLowerCase().replace(/-/g, '_');
   return value === 'six_islands' || value === 'through_the_desert_56' ||
     value === 'fog_island_56' || value === 'cartographer_56_manual' ||
-    value === 'cartographer_56_random' || value === 'cartographer_56';
+    value === 'cartographer_56_random' || value === 'cartographer_56' ||
+    value === 'test_builder_56';
 }
 
 function bankMaxForRules(rules) {

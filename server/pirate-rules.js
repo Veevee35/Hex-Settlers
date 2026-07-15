@@ -2,6 +2,7 @@
 
 const VISIBLE_OUTER_SEA_SCENARIOS = new Set([
   'test_builder',
+  'test_builder_56',
   'cartographer_4_manual', 'cartographer_4_random', 'cartographer_4',
   'cartographer_56_manual', 'cartographer_56_random', 'cartographer_56',
 ]);

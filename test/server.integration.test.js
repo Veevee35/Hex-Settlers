@@ -148,7 +148,7 @@ function assertPirateStartsOnVisibleSea(state) {
   assert.equal(pirateTiles[0].type, 'sea', `${state.previewKey} pirate starts at sea`);
   assert.equal(!!(pirateTiles[0].fog && !pirateTiles[0].revealed), false, `${state.previewKey} pirate does not start in fog`);
   const scenario = String(state?.rules?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
-  const showsOuterBorder = scenario === 'test_builder' || scenario.startsWith('cartographer_');
+  const showsOuterBorder = scenario === 'test_builder' || scenario === 'test_builder_56' || scenario.startsWith('cartographer_');
   if (!showsOuterBorder) {
     assert.equal(state.geom.tileNeighbors[pirateTiles[0].id].length, 6, `${state.previewKey} pirate starts on a rendered tile`);
   }
@@ -244,6 +244,7 @@ test('every map and scenario preview keeps ports valid and completed Seafarers m
     { mapMode: 'seafarers', scenario: 'cartographer_56_manual', previewKey: 'seafarers:cartographer_56_manual', ports: 0 },
     { mapMode: 'seafarers', scenario: 'cartographer_56_random', previewKey: 'seafarers:cartographer_56_random', ports: 11 },
     { mapMode: 'seafarers', scenario: 'test_builder', previewKey: 'seafarers:test_builder', ports: 0 },
+    { mapMode: 'seafarers', scenario: 'test_builder_56', previewKey: 'seafarers:test_builder_56', ports: 0 },
   ];
 
   for (const option of mapOptions) {
@@ -275,6 +276,79 @@ test('every map and scenario preview keeps ports valid and completed Seafarers m
       assertPirateStartsOnVisibleSea(preview.state);
     }
   }
+});
+
+test('Test Builder supports custom port painting on both Seafarers board sizes', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-builder-'));
+  const server = await startServer(port, dataDir);
+  const host = await Peer.connect(port);
+  t.after(async () => {
+    host.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const suffix = Date.now().toString(36).slice(-8);
+  host.send({ type: 'auth_register', username: `builder_${suffix}`, password: 'builder ports', displayName: 'Builder' });
+  await host.waitFor((message) => message.type === 'auth_ok');
+  host.send({ type: 'create_room', displayName: 'Builder' });
+  await host.waitFor((message) => message.type === 'joined');
+
+  async function selectBuilderScenario(scenario) {
+    host.send({ type: 'set_rules', rules: { mapMode: 'seafarers', seafarersScenario: scenario } });
+    return (await host.waitFor((message) => message.type === 'state' && message.state.previewKey === `seafarers:${scenario}`)).state;
+  }
+
+  function firstShorelineEdge(state) {
+    return state.geom.edges.find((edge) => {
+      const types = (state.geom.edgeAdjTiles[edge.id] || []).map((tileId) => state.geom.tiles[tileId]?.type);
+      return types.length === 2 && types.includes('sea') && types.some((type) => type !== 'sea');
+    });
+  }
+
+  const fourPlayer = await selectBuilderScenario('test_builder');
+  const fourPlayerTileCount = fourPlayer.geom.tiles.length;
+  const fourPlayerEdge = firstShorelineEdge(fourPlayer);
+  assert.ok(fourPlayerEdge);
+
+  host.send({ type: 'edit_preview_port', edgeId: fourPlayerEdge.id, portKind: 'generic' });
+  const genericPortState = (await host.waitFor((message) => message.type === 'state'
+    && message.state.previewKey === 'seafarers:test_builder'
+    && message.state.geom.ports?.[0]?.kind === 'generic')).state;
+  assertPortsUseNonAdjacentShorelineEdges(genericPortState, 1);
+
+  host.send({ type: 'edit_preview_port', edgeId: fourPlayerEdge.id, portKind: 'ore' });
+  const orePortState = (await host.waitFor((message) => message.type === 'state'
+    && message.state.previewKey === 'seafarers:test_builder'
+    && message.state.geom.ports?.[0]?.kind === 'ore')).state;
+  assert.equal(orePortState.geom.ports[0].kind, 'ore');
+
+  host.send({ type: 'edit_preview_port', edgeId: fourPlayerEdge.id, portKind: 'remove' });
+  await host.waitFor((message) => message.type === 'state'
+    && message.state.previewKey === 'seafarers:test_builder'
+    && message.state.geom.ports.length === 0);
+
+  const fiveSixPlayer = await selectBuilderScenario('test_builder_56');
+  assert.ok(fiveSixPlayer.geom.tiles.length > fourPlayerTileCount, '5–6 Test Builder uses the larger frame');
+  const fiveSixEdge = firstShorelineEdge(fiveSixPlayer);
+  assert.ok(fiveSixEdge);
+
+  host.send({ type: 'edit_preview_port', edgeId: fiveSixEdge.id, portKind: 'grain' });
+  const grainPortState = (await host.waitFor((message) => message.type === 'state'
+    && message.state.previewKey === 'seafarers:test_builder_56'
+    && message.state.geom.ports?.[0]?.kind === 'grain')).state;
+  assertPortsUseNonAdjacentShorelineEdges(grainPortState, 1);
+
+  host.send({ type: 'fill_ai', targetCount: 5 });
+  await host.waitFor((message) => message.type === 'room' && message.room.players.length === 5);
+  host.send({ type: 'start_game' });
+  const started = (await host.waitFor((message) => message.type === 'state' && message.state.phase !== 'lobby')).state;
+  assert.equal(started.rules.seafarersScenario, 'test_builder_56');
+  assert.equal(started.players.length, 5);
+  assert.equal(started.geom.tiles.length, fiveSixPlayer.geom.tiles.length);
+  assert.equal(started.geom.ports.length, 1);
+  assert.equal(started.geom.ports[0].kind, 'grain');
 });
 
 test('account, lobby, expert tuning, chat, and game-start protocol remains compatible', { timeout: 20_000 }, async (t) => {

@@ -223,12 +223,17 @@
               <option value="fog_island_56">Fog Island</option>
               <option value="cartographer_56_manual">Cartographer</option>
               <option value="cartographer_56_random">Scattered Tiles</option>
+              <option value="test_builder_56">Test Builder</option>
             </select>
           </div>
 
           <div id="testBuilderRow" class="hidden">
             <label class="label">Test builder</label>
             <div class="row" style="gap:8px; flex-wrap:wrap;">
+              <select id="testToolSelect" class="input" style="width:145px;">
+                <option value="tile" selected>Paint tiles</option>
+                <option value="port">Place ports</option>
+              </select>
               <select id="testBrushSelect" class="input" style="flex:1; min-width:180px;">
                 <option value="forest" selected>Forest (lumber)</option>
                 <option value="hills">Hills (brick)</option>
@@ -252,9 +257,18 @@
                 <option value="11">11</option>
                 <option value="12">12</option>
               </select>
+              <select id="testPortSelect" class="input hidden" style="flex:1; min-width:180px;">
+                <option value="generic" selected>Generic port (3:1)</option>
+                <option value="brick">Brick port (2:1)</option>
+                <option value="lumber">Lumber port (2:1)</option>
+                <option value="wool">Wool port (2:1)</option>
+                <option value="grain">Grain port (2:1)</option>
+                <option value="ore">Ore port (2:1)</option>
+                <option value="remove">Remove port</option>
+              </select>
               <button id="testResetBtn" class="btn" type="button">Reset blank</button>
             </div>
-            <div class="muted" style="font-size:12px; margin-top:6px;">Host: pick a tile type + number, then click tiles on the preview to paint. Numbers are ignored on Sea/Desert.</div>
+            <div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
           </div>
 
           <label class="label">Victory points to win</label>

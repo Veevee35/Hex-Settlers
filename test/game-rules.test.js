@@ -22,6 +22,7 @@ test('bank sizing keeps classic, 5-6 player, seafarers, and custom behavior', ()
   assert.equal(bankMaxForRules({ mapMode: 'classic' }), 19);
   assert.equal(bankMaxForRules({ mapMode: 'classic-5-6' }), 24);
   assert.equal(bankMaxForRules({ mapMode: 'seafarers', seafarersScenario: 'cartographer_56' }), 24);
+  assert.equal(bankMaxForRules({ mapMode: 'seafarers', seafarersScenario: 'test_builder_56' }), 24);
   assert.equal(bankMaxForRules({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }), 19);
   assert.equal(bankMaxForRules({ baseResourcesPerType: 31 }), 31);
   assert.equal(bankMaxForRules({ baseResourceCount: 100 }), 40);

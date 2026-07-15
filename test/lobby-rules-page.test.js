@@ -35,6 +35,7 @@ test('rules guide covers every selectable map and Seafarers scenario', () => {
     'cartographer_4_manual',
     'cartographer_4_random',
     'test_builder',
+    'test_builder_56',
     'six_islands',
     'through_the_desert_56',
     'fog_island_56',
@@ -67,3 +68,13 @@ test('rules guide documents core game functions and responsive page styling', ()
   assert.match(stylesCss, /@media \(max-width: 900px\)[\s\S]*?\.rulesPageLayout/);
 });
 
+test('Test Builder exposes tile and typed-port tools for both board sizes', () => {
+  for (const id of ['testToolSelect', 'testBrushSelect', 'testNumberSelect', 'testPortSelect', 'testResetBtn']) {
+    assert.match(indexHtml, new RegExp(`id="${id}"`));
+  }
+  for (const kind of ['generic', 'brick', 'lumber', 'wool', 'grain', 'ore', 'remove']) {
+    assert.match(indexHtml, new RegExp(`<option value="${kind}"`));
+  }
+  assert.match(appJs, /send\(\{ type: 'edit_preview_port', edgeId, portKind \}\)/);
+  assert.match(appJs, /scenario === 'test_builder' \|\| scenario === 'test_builder_56'/);
+});
