@@ -7,6 +7,7 @@ const {
   bankMaxForRules,
   normalizedMapModeRaw,
   seafarersAwardsNewIslandBonus,
+  seafarersDesertsSeparateLandMasses,
 } = require('../server/game-rules');
 
 test('default rules preserve the established game defaults', () => {
@@ -43,10 +44,12 @@ test('Cartographer and Scattered Tiles award normal new-land-mass exploration po
     'cartographer_56_random',
   ]) {
     assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario }), true, seafarersScenario);
+    assert.equal(seafarersDesertsSeparateLandMasses({ mapMode: 'seafarers', seafarersScenario }), true, seafarersScenario);
   }
 
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }), true);
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island' }), false);
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island_56' }), false);
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'classic', seafarersScenario: 'cartographer_4_random' }), false);
+  assert.equal(seafarersDesertsSeparateLandMasses({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }), false);
 });

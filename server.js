@@ -25,7 +25,12 @@ const {
   sessionTokenMatches,
   verifyPasswordHash,
 } = require('./server/security');
-const { DEFAULT_RULES, bankMaxForRules, seafarersAwardsNewIslandBonus } = require('./server/game-rules');
+const {
+  DEFAULT_RULES,
+  bankMaxForRules,
+  seafarersAwardsNewIslandBonus,
+  seafarersDesertsSeparateLandMasses,
+} = require('./server/game-rules');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
@@ -35,6 +40,7 @@ const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = requ
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 const { edgeTouchesSeaForShip } = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
+const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = require('./server/land-masses');
 
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
@@ -2507,61 +2513,6 @@ function computeVP(state) {
   if (state.longestRoad && state.longestRoad.playerId) vp[state.longestRoad.playerId] += 2;
 
   for (const p of state.players) p.vp = vp[p.id] || 0;
-}
-
-// -------------------- Seafarers: New Island Bonus --------------------
-
-// Returns an array tileId -> islandId (land components), with -1 for sea.
-function computeLandIslands(geom) {
-  const tiles = geom?.tiles || [];
-  const n = tiles.length;
-  const tileToIsland = new Array(n).fill(-1);
-  const nbs = geom?.tileNeighbors || [];
-
-  let islandId = 0;
-  for (let i = 0; i < n; i++) {
-    const t = tiles[i];
-    if (!t || t.type === 'sea') continue;
-    if (tileToIsland[i] !== -1) continue;
-
-    const stack = [i];
-    tileToIsland[i] = islandId;
-    while (stack.length) {
-      const cur = stack.pop();
-      for (const nb of (nbs[cur] || [])) {
-        if (nb == null) continue;
-        const tt = tiles[nb];
-        if (!tt || tt.type === 'sea') continue;
-        if (tileToIsland[nb] !== -1) continue;
-        tileToIsland[nb] = islandId;
-        stack.push(nb);
-      }
-    }
-    islandId++;
-  }
-
-  return tileToIsland;
-}
-
-function islandIdForNode(geom, nodeId, tileToIsland) {
-  const adj = geom?.nodeAdjTiles?.[nodeId] || [];
-  for (const tid of adj) {
-    const id = tileToIsland?.[tid];
-    if (id != null && id !== -1) return id;
-  }
-  return null;
-}
-
-function playerHasBuildingOnIsland(game, playerId, islandId, tileToIsland) {
-  if (islandId == null) return false;
-  const nodes = game?.geom?.nodes || [];
-  for (const n of nodes) {
-    if (!n.building || n.building.owner !== playerId) continue;
-    const nid = n.id;
-    const id = islandIdForNode(game.geom, nid, tileToIsland);
-    if (id === islandId) return true;
-  }
-  return false;
 }
 
 // -------------------- Through the Desert: Far Side (Beyond Desert) Bonus --------------------
@@ -5930,7 +5881,9 @@ function applyActionCore(room, playerId, action) {
     // you immediately gain +2 VP. (Not awarded during setup.)
     let newIslandBonus = false;
     if (game.phase === 'main-actions' && seafarersAwardsNewIslandBonus(game.rules)) {
-      const tileToIsland = computeLandIslands(game.geom);
+      const tileToIsland = computeLandIslands(game.geom, {
+        desertSeparates: seafarersDesertsSeparateLandMasses(game.rules),
+      });
       const islandId = islandIdForNode(game.geom, nodeId, tileToIsland);
       if (islandId != null) {
         const alreadyThere = playerHasBuildingOnIsland(game, playerId, islandId, tileToIsland);

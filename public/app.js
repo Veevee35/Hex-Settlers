@@ -6101,6 +6101,7 @@ function refreshLobbyJoinLinkUi() {
       rules: [
         'Tile placement is part of the game: use it to shape future production, coastlines, routes, and access to ports.',
         'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
+        'Desert tiles divide land masses for exploration scoring, so settling on land beyond a desert barrier can earn that bonus.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules still apply.',
       ],
     },
@@ -6113,6 +6114,7 @@ function refreshLobbyJoinLinkUi() {
       ],
       rules: [
         'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
+        'Desert tiles divide land masses for exploration scoring, so settling on land beyond a desert barrier can earn that bonus.',
         'Paired-turn rules apply after setup, and Player 2 may trade only with the bank.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules still apply.',
       ],
@@ -6126,6 +6128,7 @@ function refreshLobbyJoinLinkUi() {
       ],
       rules: [
         'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
+        'Desert tiles divide land masses for exploration scoring, so settling on land beyond a desert barrier can earn that bonus.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules apply.',
       ],
     },
@@ -6138,6 +6141,7 @@ function refreshLobbyJoinLinkUi() {
       ],
       rules: [
         'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
+        'Desert tiles divide land masses for exploration scoring, so settling on land beyond a desert barrier can earn that bonus.',
         'Paired-turn rules apply after setup, and Player 2 may trade only with the bank.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules apply.',
       ],

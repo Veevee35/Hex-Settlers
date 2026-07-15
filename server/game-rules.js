@@ -40,6 +40,13 @@ function seafarersAwardsNewIslandBonus(rules) {
   return scenario !== 'fog_island' && scenario !== 'fog_island_56';
 }
 
+function seafarersDesertsSeparateLandMasses(rules) {
+  if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
+  const scenario = String(rules?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
+  return scenario === 'cartographer_4_manual' || scenario === 'cartographer_4_random' || scenario === 'cartographer_4' ||
+    scenario === 'cartographer_56_manual' || scenario === 'cartographer_56_random' || scenario === 'cartographer_56';
+}
+
 function bankMaxForRules(rules) {
   const custom = Math.floor(Number(rules && (rules.baseResourcesPerType ?? rules.baseResourceCount)));
   if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
@@ -58,4 +65,5 @@ module.exports = {
   isSeafarers56Scenario,
   normalizedMapModeRaw,
   seafarersAwardsNewIslandBonus,
+  seafarersDesertsSeparateLandMasses,
 };
