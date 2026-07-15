@@ -177,7 +177,7 @@ function matchingTileComponents(geom, predicate) {
   return components;
 }
 
-function assertScenarioPortRegionalCoverage(state, { expectedOuterIslands, expectedDesertSections = 0 } = {}) {
+function assertScenarioPortRegionalCoverage(state, { expectedOuterIslands, acrossDesertRegions = [] } = {}) {
   const geom = state.geom;
   const expectedKinds = geom.ports.length === 11
     ? ['brick', 'generic', 'generic', 'generic', 'generic', 'generic', 'generic', 'grain', 'lumber', 'ore', 'wool']
@@ -195,13 +195,18 @@ function assertScenarioPortRegionalCoverage(state, { expectedOuterIslands, expec
     assert.equal(islandPorts.length, 1, `${state.previewKey} has one port on outer island ${Array.from(island).join(',')}`);
   }
 
-  if (expectedDesertSections) {
-    const sections = matchingTileComponents(geom, (tile) => tile.type === 'desert');
-    assert.equal(sections.length, expectedDesertSections, `${state.previewKey} desert section count`);
-    for (const section of sections) {
-      const sectionPorts = geom.ports.filter((port) => section.has(port.landTileId));
-      assert.equal(sectionPorts.length, 1, `${state.previewKey} has one port on desert section ${Array.from(section).join(',')}`);
-    }
+  assert.equal(
+    geom.ports.some((port) => geom.tiles[port.landTileId]?.type === 'desert'),
+    false,
+    `${state.previewKey} has no port attached to a desert tile`,
+  );
+  for (const regionKeys of acrossDesertRegions) {
+    const regionTileIds = new Set((geom.tiles || [])
+      .filter((tile) => regionKeys.has(`${tile.q},${tile.r}`))
+      .map((tile) => tile.id));
+    assert.ok(regionTileIds.size, `${state.previewKey} across-desert region exists`);
+    const regionPorts = geom.ports.filter((port) => regionTileIds.has(port.landTileId));
+    assert.equal(regionPorts.length, 1, `${state.previewKey} has one port on across-desert land ${Array.from(regionKeys).join(',')}`);
   }
 }
 
@@ -252,9 +257,18 @@ test('every map and scenario preview keeps ports valid and completed Seafarers m
     if (option.scenario === 'heading_for_new_shores') {
       assertScenarioPortRegionalCoverage(preview.state, { expectedOuterIslands: 3 });
     } else if (option.scenario === 'through_the_desert') {
-      assertScenarioPortRegionalCoverage(preview.state, { expectedOuterIslands: 3, expectedDesertSections: 1 });
+      assertScenarioPortRegionalCoverage(preview.state, {
+        expectedOuterIslands: 3,
+        acrossDesertRegions: [new Set(['0,-3', '-1,-2', '-2,-1'])],
+      });
     } else if (option.scenario === 'through_the_desert_56') {
-      assertScenarioPortRegionalCoverage(preview.state, { expectedOuterIslands: 4, expectedDesertSections: 1 });
+      assertScenarioPortRegionalCoverage(preview.state, {
+        expectedOuterIslands: 4,
+        acrossDesertRegions: [
+          new Set(['0,-3', '1,-3', '2,-3', '-1,-2', '0,-2']),
+          new Set(['4,-3', '5,-3', '6,-3', '7,-3']),
+        ],
+      });
     }
     const deferredDraft = option.scenario === 'cartographer_4_manual' || option.scenario === 'cartographer_56_manual';
     if (option.mapMode === 'seafarers' && !deferredDraft) {

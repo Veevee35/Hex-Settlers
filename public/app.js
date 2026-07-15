@@ -6013,7 +6013,7 @@ function refreshLobbyJoinLinkUi() {
       setup: [
         'Both starting settlements must be placed on the designated starting island.',
         'Gold Field intersections cannot be used for starting settlements.',
-        'One port is placed on each outer island and each desert shoreline section; the remaining ports stay on the starting mainland.',
+        'One port is placed on each outer island and one on the land mass across the desert; the remaining ports stay on the starting mainland.',
       ],
       rules: [
         'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',
@@ -6027,7 +6027,7 @@ function refreshLobbyJoinLinkUi() {
       setup: [
         'Five or six players place both starting settlements in the allowed starting area and may follow each with a connected road or ship.',
         'Gold Field intersections cannot be used for starting settlements.',
-        'One port is placed on each outer island and each desert shoreline section; the remaining ports stay on the starting mainland.',
+        'One port is placed on each outer island and one on each of the two land masses across the desert; the remaining ports stay on the starting mainland.',
       ],
       rules: [
         'The first settlement a player builds on each new island after setup is worth 2 bonus victory points.',

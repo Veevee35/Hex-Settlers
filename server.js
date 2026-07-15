@@ -4912,9 +4912,8 @@ function generatePorts(geom, portCount = 9, opts = null) {
 
 
 
-function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = null, opts = null) {
+function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = null) {
   const tiles = geom?.tiles || [];
-  const allowDesert = !!opts?.allowDesert;
   const out = [];
   for (const e of (geom?.edges || [])) {
     const adj = geom?.edgeAdjTiles?.[e.id] || [];
@@ -4937,7 +4936,7 @@ function candidateMainlandPortEdgeIds(geom, mainlandTileIds, allowedLandKeys = n
     if (!tL) continue;
     if (!mainlandTileIds || !mainlandTileIds.has(landId)) continue;
     if (tL.type === 'sea') continue;
-    if (!allowDesert && tL.type === 'desert') continue;
+    if (tL.type === 'desert') continue;
     if (allowedLandKeys) {
       const k = `${tL.q},${tL.r}`;
       if (!allowedLandKeys.has(k)) continue;
@@ -5029,10 +5028,14 @@ function generatePortsSeafarersWithRegionalCoverage(geom, count, opts = null) {
     candidateMainlandPortEdgeIds(geom, component, null)
   ));
 
-  if (opts?.includeDesertSections) {
-    const desertSections = matchingTileComponents(geom, (tile) => tile.type === 'desert');
-    for (const section of desertSections) {
-      requiredEdgeGroups.push(candidateMainlandPortEdgeIds(geom, section, null, { allowDesert: true }));
+  if (Array.isArray(opts?.requiredLandKeyGroups)) {
+    for (const keyGroup of opts.requiredLandKeyGroups) {
+      const regionTileIds = new Set();
+      for (const tile of (geom?.tiles || [])) {
+        if (!tile || tile.type === 'sea' || tile.type === 'desert') continue;
+        if (keyGroup?.has(`${tile.q},${tile.r}`)) regionTileIds.add(tile.id);
+      }
+      requiredEdgeGroups.push(candidateMainlandPortEdgeIds(geom, regionTileIds, null));
     }
   }
 
@@ -5113,13 +5116,16 @@ function generatePortsSeafarers(geom, scenario = 'four_islands') {
     if (ports && ports.length === count) return ports;
   }
 
-  // Through the Desert: put one port on every outer island and every contiguous desert shoreline section.
+  // Through the Desert: put one port on every outer island and every land mass across the desert.
   // Keep the remaining ports on the starting mainland.
   if (s === 'through_the_desert' || s === 'through_the_desert_56') {
     const allowed = (s === 'through_the_desert_56') ? TTD56_START_PINK_KEYS : TTD_PINK_KEYS;
+    const requiredLandKeyGroups = (s === 'through_the_desert_56')
+      ? TTD56_RED_REGIONS
+      : [TTD_ACROSS_DESERT_KEYS];
     const ports = generatePortsSeafarersWithRegionalCoverage(geom, count, {
       mainlandAllowedKeys: allowed,
-      includeDesertSections: true,
+      requiredLandKeyGroups,
     });
     if (!ports || ports.length !== count) {
       throw new Error(`Unable to place ${count} Through the Desert ports with the required regional coverage.`);
