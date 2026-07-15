@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+.env
+data/
+users.json
+game_history.json
+active_rooms.json
+*.tmp
+coverage/
