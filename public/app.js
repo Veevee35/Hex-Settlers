@@ -10823,15 +10823,22 @@ function handleProductionGoldPrompt() {
     return edgeAdjTilesAfterOuterSeaTrimClient(edgeId).length === 1;
   }
 
+  function rulesTreatOuterBoundaryAsSeaForShipsClient() {
+    const rules = state?.rules || {};
+    if (String(rules.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
+    const scenario = String(rules.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
+    return scenario === 'cartographer_4_manual' || scenario === 'cartographer_4_random' || scenario === 'cartographer_4' ||
+      scenario === 'cartographer_56_manual' || scenario === 'cartographer_56_random' || scenario === 'cartographer_56';
+  }
+
   function edgeTouchesSeaAfterOuterSeaTrimClient(edgeId) {
     const rawAdj = (state && state.geom && state.geom.edgeAdjTiles && Array.isArray(state.geom.edgeAdjTiles[edgeId])) ? state.geom.edgeAdjTiles[edgeId] : [];
     const adj = edgeAdjTilesAfterOuterSeaTrimClient(edgeId);
     if (!adj.length) return false;
-    if (adj.length === 1) {
-      if ((state.geom.tiles[adj[0]] && state.geom.tiles[adj[0]].type) === 'sea') return true;
-      return rawAdj.some(tid => !adj.includes(tid) && (state.geom.tiles[tid] && state.geom.tiles[tid].type) === 'sea');
-    }
-    return adj.some(tid => (state.geom.tiles[tid] && state.geom.tiles[tid].type) === 'sea');
+    const tileIsSea = (tid) => String(state.geom.tiles?.[tid]?.type || '').toLowerCase() === 'sea';
+    if (adj.some(tileIsSea)) return true;
+    if (rawAdj.some(tid => !adj.includes(tid) && tileIsSea(tid))) return true;
+    return rawAdj.length === 1 && rulesTreatOuterBoundaryAsSeaForShipsClient();
   }
 
   function edgeTouchesLandAfterOuterSeaTrimClient(edgeId) {

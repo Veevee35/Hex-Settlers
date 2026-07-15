@@ -33,6 +33,7 @@ const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
+const { edgeTouchesSeaForShip } = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
 
 const APP_CONFIG = runtimeConfig(process.env);
@@ -2979,14 +2980,8 @@ function edgeTouchesLandAfterOuterSeaTrim(state, edgeId) {
   return adj.some(tid => String(state.geom.tiles?.[tid]?.type || '').toLowerCase() !== 'sea');
 }
 function edgeTouchesSeaAfterOuterSeaTrim(state, edgeId) {
-  const rawAdj = Array.isArray(state?.geom?.edgeAdjTiles?.[edgeId]) ? state.geom.edgeAdjTiles[edgeId] : [];
   const adj = edgeAdjTilesAfterOuterSeaTrim(state, edgeId);
-  if (!adj.length) return false;
-  if (adj.length === 1) {
-    if (String(state.geom.tiles?.[adj[0]]?.type || '').toLowerCase() === 'sea') return true;
-    return rawAdj.some(tid => !adj.includes(tid) && String(state.geom.tiles?.[tid]?.type || '').toLowerCase() === 'sea');
-  }
-  return adj.some(tid => String(state.geom.tiles?.[tid]?.type || '').toLowerCase() === 'sea');
+  return edgeTouchesSeaForShip(state, edgeId, adj);
 }
 function isEdgeOnBoard(state, edgeId) {
   if (!(edgeId >= 0 && edgeId < state.geom.edges.length)) return false;

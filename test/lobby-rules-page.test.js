@@ -78,3 +78,8 @@ test('Test Builder exposes tile and typed-port tools for both board sizes', () =
   assert.match(appJs, /send\(\{ type: 'edit_preview_port', edgeId, portKind \}\)/);
   assert.match(appJs, /scenario === 'test_builder' \|\| scenario === 'test_builder_56'/);
 });
+
+test('Cartographer placement highlights treat outer land edges as open ocean', () => {
+  assert.match(appJs, /function rulesTreatOuterBoundaryAsSeaForShipsClient\(\)/);
+  assert.match(appJs, /rawAdj\.length === 1 && rulesTreatOuterBoundaryAsSeaForShipsClient\(\)/);
+});
