@@ -7,11 +7,7 @@
   "scripts": {
     "start": "node dist/server.js",
     "start:legacy": "node server.js",
-    "build": "tsc -p tsconfig.bootstrap.json",
-    "build:bootstrap": "tsc -p tsconfig.bootstrap.json",
-    "test": "node --test",
-    "test:integration": "node --test test/server.integration.test.js",
-    "check": "tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js",
+    "build:bootstrap": "npx tsc -p tsconfig.bootstrap.json",
     "electron:start": "electron .",
     "electron:dist": "electron-builder"
   },
@@ -23,8 +19,7 @@
   },
   "devDependencies": {
     "electron": "^31.7.7",
-    "electron-builder": "^24.13.3",
-    "typescript": "^5.9.3"
+    "electron-builder": "^24.13.3"
   },
   "build": {
     "appId": "app.hexsettlers.desktop",

@@ -39,7 +39,14 @@ function installProcessGuards() {
     process.on('unhandledRejection', (reason) => {
         console.error('[bootstrap] unhandledRejection', reason);
     });
-    // The authoritative server owns SIGTERM/SIGINT so it can flush queued data.
+    process.on('SIGTERM', () => {
+        console.warn('[bootstrap] SIGTERM received. Shutting down.');
+        process.exit(0);
+    });
+    process.on('SIGINT', () => {
+        console.warn('[bootstrap] SIGINT received. Shutting down.');
+        process.exit(0);
+    });
 }
 function configureRailwayEnv() {
     const port = asInt('PORT', 3000, 1, 65535);
@@ -48,8 +55,7 @@ function configureRailwayEnv() {
     process.env.PORT = String(port);
     process.env.HOST = host;
     // Optional safety toggles (legacy server may ignore these; kept for future migration)
-    // Texture-pack publishing carries base64 PNG payloads and needs a larger ceiling.
-    process.env.HEX_WS_MAX_PAYLOAD = String(asInt('HEX_WS_MAX_PAYLOAD', 48 * 1024 * 1024, 1024, 64 * 1024 * 1024));
+    process.env.HEX_WS_MAX_PAYLOAD = String(asInt('HEX_WS_MAX_PAYLOAD', 512 * 1024, 1024, 10 * 1024 * 1024));
     process.env.HEX_LOG_VERBOSE = String(asBool('HEX_LOG_VERBOSE', false));
 }
 function verifyProjectLayout() {

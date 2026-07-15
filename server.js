@@ -11,34 +11,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const WebSocket = require('ws');
-const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
-const { restoreRoom, serializeRoom } = require('./server/active-rooms');
-const {
-  SESSION_COOKIE_NAME,
-  clearSessionCookie,
-  parseCookies,
-  readJsonBody,
-  requestIsTls,
-  sessionCookie,
-} = require('./server/http-auth');
-const { parseClientMessage } = require('./server/protocol');
-const { clientAddress, runtimeConfig, isAllowedWebSocketOrigin, securityHeaders } = require('./server/runtime-config');
-const {
-  SlidingWindowRateLimiter,
-  derivePasswordHash,
-  hashSessionToken,
-  migrateLegacySessionToken,
-  sessionTokenMatches,
-  verifyPasswordHash,
-} = require('./server/security');
-const {
-  DEFAULT_RULES,
-  bankMaxForRules,
-} = require('./server/game-rules');
 
-const APP_CONFIG = runtimeConfig(process.env);
-const PORT = APP_CONFIG.port;
-const HOST = APP_CONFIG.host;
+const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MIME = {
@@ -81,16 +55,12 @@ const DATA_DIR =
 
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
 
-const ACTIVE_ROOMS_DB_PATH = path.join(DATA_DIR, 'active_rooms.json');
-const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_DB_PATH);
-
 // -------------------- User Accounts (persistent) --------------------
 // Accounts are stored on disk in users.json (DATA_DIR).
 // Passwords are salted + hashed (PBKDF2). Session tokens allow auto-login on refresh.
 const USERS_DB_PATH = path.join(DATA_DIR, 'users.json');
 const AUTH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const AUTH_TOKENS_MAX = 8;
-const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
 
 let USERS_DB = { version: 1, users: [] };
 let userSockets = new Map(); // userId -> ws (enforce one active connection per user)
@@ -100,6 +70,7 @@ let userSockets = new Map(); // userId -> ws (enforce one active connection per 
 // Each entry includes a compact metadata header + a postgame snapshot (stats + players + rules) for viewing later.
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
 const HISTORY_MAX_GAMES = 500;
+const NEURAL_AI_MODEL_PATH = path.join(DATA_DIR, 'neural_ai_model.json');
 
 let HISTORY_DB = { version: 1, games: [] };
 let NEURAL_AI_MODEL = null;
@@ -212,13 +183,9 @@ function saveHistoryDb() {
       HISTORY_DB.games = games.slice(-HISTORY_MAX_GAMES);
     }
     const safe = { version: 1, games: HISTORY_DB.games || [] };
-    return HISTORY_WRITER.write(safe).catch((e) => {
-      console.error('[history] Failed to save game_history.json:', e && e.message ? e.message : e);
-      return false;
-    });
+    fs.writeFileSync(HISTORY_DB_PATH, JSON.stringify(safe, null, 2), 'utf-8');
   } catch (e) {
     console.error('[history] Failed to save game_history.json:', e && e.message ? e.message : e);
-    return Promise.resolve(false);
   }
 }
 
@@ -526,19 +493,6 @@ function loadUsersDb() {
           version: Number(parsed.version || 1),
           users: Array.isArray(parsed.users) ? parsed.users : [],
         };
-        // Migrate legacy plaintext bearer tokens as soon as they are loaded.
-        let migratedTokens = false;
-        for (const user of USERS_DB.users) {
-          if (!user || !Array.isArray(user.tokens)) continue;
-          for (const tokenRecord of user.tokens) {
-            if (tokenRecord && tokenRecord.token && !tokenRecord.tokenHash) {
-              tokenRecord.tokenHash = hashSessionToken(tokenRecord.token);
-              delete tokenRecord.token;
-              migratedTokens = true;
-            }
-          }
-        }
-        if (migratedTokens) void saveUsersDb();
       }
     }
   } catch (e) {
@@ -550,13 +504,9 @@ function loadUsersDb() {
 function saveUsersDb() {
   try {
     const safe = { version: 1, users: USERS_DB.users || [] };
-    return USERS_WRITER.write(safe).catch((e) => {
-      console.error('[users] Failed to save users.json:', e && e.message ? e.message : e);
-      return false;
-    });
+    fs.writeFileSync(USERS_DB_PATH, JSON.stringify(safe, null, 2), 'utf-8');
   } catch (e) {
     console.error('[users] Failed to save users.json:', e && e.message ? e.message : e);
-    return Promise.resolve(false);
   }
 }
 
@@ -570,6 +520,15 @@ function findUserByUsername(username) {
   const nu = normalizeUsername(username);
   if (!nu) return null;
   return (USERS_DB.users || []).find(u => u && normalizeUsername(u.username) === nu) || null;
+}
+
+function pbkdf2Hash(password, saltHex) {
+  const pw = String(password || '');
+  const salt = Buffer.from(String(saltHex || ''), 'hex');
+  // keep runtime reasonable; increase if desired
+  const iters = 120_000;
+  const dk = crypto.pbkdf2Sync(pw, salt, iters, 32, 'sha256');
+  return dk.toString('hex');
 }
 
 function safeUserPublic(u) {
@@ -603,8 +562,8 @@ function issueAuthToken(user) {
   const nowMs = now();
   if (!user.tokens || !Array.isArray(user.tokens)) user.tokens = [];
   // prune expired
-  user.tokens = user.tokens.filter(t => t && (t.tokenHash || t.token) && (t.expiresAt || 0) > nowMs);
-  user.tokens.unshift({ tokenHash: hashSessionToken(token), createdAt: nowMs, lastUsedAt: nowMs, expiresAt: nowMs + AUTH_TOKEN_TTL_MS });
+  user.tokens = user.tokens.filter(t => t && t.token && (t.expiresAt || 0) > nowMs);
+  user.tokens.unshift({ token, createdAt: nowMs, lastUsedAt: nowMs, expiresAt: nowMs + AUTH_TOKEN_TTL_MS });
   if (user.tokens.length > AUTH_TOKENS_MAX) user.tokens.length = AUTH_TOKENS_MAX;
   return token;
 }
@@ -615,41 +574,16 @@ function authenticateByToken(token) {
   const nowMs = now();
   for (const u of (USERS_DB.users || [])) {
     if (!u || !Array.isArray(u.tokens)) continue;
-    const rec = u.tokens.find(x => sessionTokenMatches(x, t));
+    const rec = u.tokens.find(x => x && x.token === t);
     if (!rec) continue;
     if ((rec.expiresAt || 0) <= nowMs) continue;
-    migrateLegacySessionToken(rec, t);
     rec.lastUsedAt = nowMs;
     return u;
   }
   return null;
 }
 
-function revokeAuthToken(token) {
-  const value = String(token || '').trim();
-  if (!value) return false;
-  for (const user of (USERS_DB.users || [])) {
-    if (!user || !Array.isArray(user.tokens)) continue;
-    const before = user.tokens.length;
-    user.tokens = user.tokens.filter((record) => !sessionTokenMatches(record, value));
-    if (user.tokens.length !== before) return true;
-  }
-  return false;
-}
-
-function activateAuthenticatedSocket(ws, user) {
-  const previous = userSockets.get(user.id);
-  if (previous && previous !== ws && previous.readyState === WebSocket.OPEN) {
-    sendJson(previous, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
-    try { previous.close(); } catch (_) {}
-  }
-  userSockets.set(user.id, ws);
-  ws._userId = user.id;
-  ws._username = user.username;
-  ws._authed = true;
-}
-
-async function createUser({ username, password, displayName }) {
+function createUser({ username, password, displayName }) {
   const vu = validateUsername(username);
   if (!vu.ok) return { ok: false, error: vu.error };
   const vp = validatePassword(password);
@@ -659,9 +593,7 @@ async function createUser({ username, password, displayName }) {
 
   const id = crypto.randomUUID();
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = await derivePasswordHash(vp.value, salt);
-  // Recheck after the asynchronous hash to prevent duplicate concurrent registrations.
-  if (findUserByUsername(un)) return { ok: false, error: 'Username already exists.' };
+  const hash = pbkdf2Hash(vp.value, salt);
   const dn = cleanDisplayName(displayName) || vu.value.slice(0, 20);
 
   const user = {
@@ -675,13 +607,19 @@ async function createUser({ username, password, displayName }) {
     lastLoginAt: 0,
   };
   USERS_DB.users.push(user);
+  saveUsersDb();
   return { ok: true, user };
 }
 
-async function verifyPassword(user, password) {
+function verifyPassword(user, password) {
   if (!user || !user.pass || !user.pass.salt || !user.pass.hash) return false;
   try {
-    return await verifyPasswordHash(password, user.pass);
+    const hash = pbkdf2Hash(password, user.pass.salt);
+    // constant-time compare
+    const a = Buffer.from(hash, 'hex');
+    const b = Buffer.from(String(user.pass.hash), 'hex');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   } catch (_) {
     return false;
   }
@@ -1825,6 +1763,28 @@ const DEV_CARD_TYPES = {
 
 const RESOURCE_KINDS = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
+const BANK_MAX_DEFAULT = 19;
+const BANK_MAX_56 = 24;
+
+function isClassic56MapModeRaw(raw) {
+  const mm = String(raw || 'classic').toLowerCase();
+  return mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6';
+}
+
+function normalizedMapModeRaw(raw) {
+  const mm = String(raw || 'classic').toLowerCase();
+  return isClassic56MapModeRaw(mm) ? 'classic56' : mm;
+}
+
+function bankMaxForRules(rules) {
+  const custom = Math.floor(Number(rules?.baseResourcesPerType ?? rules?.baseResourceCount));
+  if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
+  const mm = normalizedMapModeRaw(rules?.mapMode || 'classic');
+  if (mm === 'classic56') return BANK_MAX_56;
+  if (mm === 'seafarers' && isSeafarers56Scenario(rules?.seafarersScenario)) return BANK_MAX_56;
+  return BANK_MAX_DEFAULT;
+}
+
 function bankMaxForGame(game) {
   return bankMaxForRules(game?.rules || null);
 }
@@ -2205,6 +2165,20 @@ function filterStatsForViewer(stats, viewerId) {
 }
 
 // -------------------- Timers & Rules --------------------
+const DEFAULT_RULES = Object.freeze({
+  discardLimit: 7,
+  setupTurnMs: 60_000,   // initial placement phases
+  playTurnMs: 30_000,    // main action phase
+  // "micro" phases: roll / robber / steal / discard
+  // NOTE: the lobby UI and set_rules use microPhaseMs; keep both keys for compatibility.
+  microMs: 15_000,
+  microPhaseMs: 15_000,
+  mapMode: 'classic',
+  seafarersScenario: 'four_islands',
+  victoryPointsToWin: 10,
+  devDeckMode: 25,
+});
+
 function defaultVictoryPointsToWin(rules) {
   const mm = String(rules?.mapMode || 'classic').toLowerCase();
   if (mm !== 'seafarers') return 10;
@@ -7794,55 +7768,6 @@ function sendToRoomMember(room, playerId, payload) {
 }
 
 const rooms = new Map(); // code -> room
-let activeRoomsSaveTimer = null;
-
-function activeRoomsPayload() {
-  return {
-    version: 1,
-    savedAt: now(),
-    rooms: Array.from(rooms.values()).map(serializeRoom).filter(Boolean),
-  };
-}
-
-function saveActiveRoomsNow() {
-  if (activeRoomsSaveTimer) {
-    clearTimeout(activeRoomsSaveTimer);
-    activeRoomsSaveTimer = null;
-  }
-  return ACTIVE_ROOMS_WRITER.write(activeRoomsPayload()).catch((error) => {
-    console.error('[rooms] Failed to save active_rooms.json:', error && error.message ? error.message : error);
-    return false;
-  });
-}
-
-function scheduleActiveRoomsSave() {
-  if (activeRoomsSaveTimer) return;
-  activeRoomsSaveTimer = setTimeout(() => {
-    activeRoomsSaveTimer = null;
-    void saveActiveRoomsNow();
-  }, 150);
-  if (typeof activeRoomsSaveTimer.unref === 'function') activeRoomsSaveTimer.unref();
-}
-
-function loadActiveRooms() {
-  try {
-    if (!fs.existsSync(ACTIVE_ROOMS_DB_PATH)) return;
-    const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_DB_PATH, 'utf8'));
-    const records = parsed && Array.isArray(parsed.rooms) ? parsed.rooms : [];
-    let restoredCount = 0;
-    for (const record of records) {
-      const room = restoreRoom(record, DEFAULT_RULES);
-      if (!room || rooms.has(room.code)) continue;
-      rooms.set(room.code, room);
-      restoredCount += 1;
-    }
-    if (restoredCount) console.log(`[rooms] Restored ${restoredCount} active room(s).`);
-  } catch (error) {
-    console.error('[rooms] Failed to load active_rooms.json:', error && error.message ? error.message : error);
-  }
-}
-
-loadActiveRooms();
 
 function createRoom(hostUserId, hostName) {
   let code = randCode(4);
@@ -7877,7 +7802,6 @@ function createRoom(hostUserId, hostName) {
     pendingLeaveRequests: Object.create(null),
   };
   rooms.set(code, room);
-  scheduleActiveRoomsSave();
   return room;
 }
 
@@ -7940,7 +7864,6 @@ function createRematchRoomFrom(prevRoom) {
     pendingLeaveRequests: Object.create(null),
   };
   rooms.set(code, room);
-  scheduleActiveRoomsSave();
   return room;
 }
 
@@ -8154,7 +8077,6 @@ function roomSnapshot(room) {
 }
 
 function broadcastRoom(room) {
-  scheduleActiveRoomsSave();
   const snap = roomSnapshot(room);
   for (const [pid, ws] of room.sockets.entries()) {
     if (ws.readyState === WebSocket.OPEN) sendJson(ws, { type: 'room', room: snap });
@@ -8254,7 +8176,6 @@ function sanitizeStateFor(game, viewerId) {
 
 function broadcastState(room) {
   if (!room.game) return;
-  scheduleActiveRoomsSave();
   syncTradeTimerPause(room.game);
   syncTimer(room.game);
 
@@ -8268,117 +8189,13 @@ function broadcastState(room) {
 
 function cleanupRooms() {
   const cutoff = now() - (1000 * 60 * 60 * 8); // 8 hours
-  let changed = false;
   for (const [code, room] of rooms.entries()) {
     const anyOpen = Array.from(room.sockets.values()).some(ws => ws.readyState === WebSocket.OPEN);
-    if (!anyOpen && room.createdAt < cutoff) {
-      rooms.delete(code);
-      changed = true;
-    }
+    if (!anyOpen && room.createdAt < cutoff) rooms.delete(code);
   }
-  if (changed) scheduleActiveRoomsSave();
 }
 
 // -------------------- HTTP static server --------------------
-
-function sendHttpJson(req, res, statusCode, body, extraHeaders = {}) {
-  const payload = JSON.stringify(body || {});
-  res.writeHead(statusCode, {
-    ...securityHeaders({ isTls: requestIsTls(req, APP_CONFIG.trustProxy) }),
-    'Cache-Control': 'no-store, max-age=0',
-    'Content-Type': 'application/json; charset=utf-8',
-    ...extraHeaders,
-  });
-  res.end(payload);
-}
-
-async function handleAuthHttp(req, res, urlPath) {
-  try {
-    if (req.method !== 'POST') {
-      sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
-      return;
-    }
-    if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
-      sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' });
-      return;
-    }
-
-    const body = await readJsonBody(req);
-    const route = urlPath.slice('/api/auth/'.length);
-    const cookies = parseCookies(req.headers.cookie);
-    const existingCookieToken = String(cookies[SESSION_COOKIE_NAME] || '').trim();
-
-    if (route === 'register' || route === 'login') {
-      const authLimit = passwordAuthLimiter.consume(clientAddress(req, APP_CONFIG.trustProxy));
-      if (!authLimit.allowed) {
-        sendHttpJson(req, res, 429, {
-          ok: false,
-          error: `Too many authentication attempts. Try again in ${Math.ceil(authLimit.retryAfterMs / 1000)} seconds.`,
-        }, { 'Retry-After': String(Math.ceil(authLimit.retryAfterMs / 1000)) });
-        return;
-      }
-
-      let user;
-      if (route === 'register') {
-        const result = await createUser({
-          username: body.username,
-          password: body.password,
-          displayName: body.displayName || body.name || '',
-        });
-        if (!result.ok) {
-          sendHttpJson(req, res, 400, { ok: false, error: result.error || 'Register failed.' });
-          return;
-        }
-        user = result.user;
-      } else {
-        user = findUserByUsername(body.username);
-        if (!user || !await verifyPassword(user, body.password)) {
-          sendHttpJson(req, res, 401, { ok: false, error: 'Invalid username or password.' });
-          return;
-        }
-        if (body.displayName || body.name) setUserDisplayName(user, body.displayName || body.name);
-      }
-
-      user.lastLoginAt = now();
-      const token = issueAuthToken(user);
-      await saveUsersDb();
-      sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, {
-        'Set-Cookie': sessionCookie(token, { secure: requestIsTls(req, APP_CONFIG.trustProxy) }),
-      });
-      return;
-    }
-
-    if (route === 'token' || route === 'session') {
-      const token = String(body.token || existingCookieToken || '').trim();
-      const user = authenticateByToken(token);
-      if (!user) {
-        sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, {
-          'Set-Cookie': clearSessionCookie({ secure: requestIsTls(req, APP_CONFIG.trustProxy) }),
-        });
-        return;
-      }
-      await saveUsersDb();
-      sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, {
-        'Set-Cookie': sessionCookie(token, { secure: requestIsTls(req, APP_CONFIG.trustProxy) }),
-      });
-      return;
-    }
-
-    if (route === 'logout') {
-      if (existingCookieToken && revokeAuthToken(existingCookieToken)) await saveUsersDb();
-      sendHttpJson(req, res, 200, { ok: true }, {
-        'Set-Cookie': clearSessionCookie({ secure: requestIsTls(req, APP_CONFIG.trustProxy) }),
-      });
-      return;
-    }
-
-    sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
-  } catch (error) {
-    const statusCode = Math.floor(Number(error && error.statusCode || 500));
-    if (statusCode >= 500) console.error('[auth-http] Request failed:', error && error.stack ? error.stack : error);
-    if (!res.headersSent) sendHttpJson(req, res, statusCode, { ok: false, error: statusCode >= 500 ? 'Server error.' : error.message });
-  }
-}
 
 function safePath(p) {
   const rel = p.replace(/\0/g, '').replace(/\.\./g, '');
@@ -8389,10 +8206,6 @@ const server = http.createServer((req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
-    if (urlPath.startsWith('/api/auth/')) {
-      void handleAuthHttp(req, res, urlPath);
-      return;
-    }
     if (urlPath === '/') urlPath = '/index.html';
 
     // Block websocket path from static handling
@@ -8416,10 +8229,7 @@ const server = http.createServer((req, res) => {
         return;
       }
       const ext = path.extname(filePath).toLowerCase();
-      const headers = {
-        ...securityHeaders({ isTls: requestIsTls(req, APP_CONFIG.trustProxy) }),
-        'Content-Type': MIME[ext] || 'application/octet-stream',
-      };
+      const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
       // Long-cache static binary assets locally (PNG/WAV) to avoid repeat fetches during gameplay.
       // Keep HTML/JS/CSS/SW non-cached so deploys update immediately.
       if (ext === '.png' || ext === '.wav' || ext === '.ico') {
@@ -8438,20 +8248,11 @@ const server = http.createServer((req, res) => {
   }
 });
 
-const wss = new WebSocket.Server({ noServer: true, maxPayload: APP_CONFIG.wsMaxPayloadBytes });
-const passwordAuthLimiter = new SlidingWindowRateLimiter({
-  maxAttempts: APP_CONFIG.authAttemptsPerMinute,
-  windowMs: 60_000,
-});
+const wss = new WebSocket.Server({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   const urlPath = req.url.split('?')[0];
   if (urlPath !== '/ws') {
-    socket.destroy();
-    return;
-  }
-  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
-    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
   }
@@ -8460,42 +8261,21 @@ server.on('upgrade', (req, socket, head) => {
   });
 });
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', (ws) => {
   ws._playerId = null;
   ws._roomCode = null;
-  ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
 
   sendJson(ws, { type: 'hello', serverTime: now(), version: 1 });
-  const cookieToken = String(parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME] || '').trim();
-  if (cookieToken) {
-    const cookieUser = authenticateByToken(cookieToken);
-    if (cookieUser) {
-      activateAuthenticatedSocket(ws, cookieUser);
-      void saveUsersDb();
-      sendJson(ws, { type: 'auth_ok', user: safeUserPublic(cookieUser), token: null, cookieAuth: true });
-    } else {
-      sendJson(ws, { type: 'auth_required' });
-    }
-  }
 
-  ws.on('message', async (data) => {
-    try {
-    const parsedMessage = parseClientMessage(data);
-    if (!parsedMessage.ok) {
-      sendJson(ws, { type: 'error', error: parsedMessage.error });
-      return;
-    }
-    const msg = parsedMessage.value;
+  ws.on('message', (data) => {
+    let msg = null;
+    try { msg = JSON.parse(String(data)); } catch { return; }
+    if (!msg || !msg.type) return;
 
     
     // ---- Auth (must happen before joining/creating rooms) ----
     if (msg.type === 'auth_register') {
-      const authLimit = passwordAuthLimiter.consume(ws._clientAddress);
-      if (!authLimit.allowed) {
-        sendJson(ws, { type: 'error', error: `Too many authentication attempts. Try again in ${Math.ceil(authLimit.retryAfterMs / 1000)} seconds.` });
-        return;
-      }
-      const res = await createUser({
+      const res = createUser({
         username: msg.username,
         password: msg.password,
         displayName: msg.displayName || msg.name || '',
@@ -8504,7 +8284,7 @@ wss.on('connection', (ws, req) => {
       const user = res.user;
       user.lastLoginAt = now();
       const token = issueAuthToken(user);
-      await saveUsersDb();
+      saveUsersDb();
 
       const prev = userSockets.get(user.id);
       if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
@@ -8522,20 +8302,15 @@ wss.on('connection', (ws, req) => {
     }
 
     if (msg.type === 'auth_login') {
-      const authLimit = passwordAuthLimiter.consume(ws._clientAddress);
-      if (!authLimit.allowed) {
-        sendJson(ws, { type: 'error', error: `Too many authentication attempts. Try again in ${Math.ceil(authLimit.retryAfterMs / 1000)} seconds.` });
-        return;
-      }
       const user = findUserByUsername(msg.username);
       if (!user) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
-      if (!await verifyPassword(user, msg.password)) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
+      if (!verifyPassword(user, msg.password)) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
       if (msg.displayName || msg.name) {
         setUserDisplayName(user, msg.displayName || msg.name);
       }
       user.lastLoginAt = now();
       const token = issueAuthToken(user);
-      await saveUsersDb();
+      saveUsersDb();
 
       const prev = userSockets.get(user.id);
       if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
@@ -8568,7 +8343,7 @@ wss.on('connection', (ws, req) => {
       ws._authed = true;
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token: String(msg.token || '').trim() });
-      await saveUsersDb();
+      saveUsersDb();
       return;
     }
 
@@ -8577,7 +8352,7 @@ wss.on('connection', (ws, req) => {
       const user = findUserById(ws._userId);
       if (!user) { sendJson(ws, { type: 'error', error: 'Account not found.' }); return; }
       setUserDisplayName(user, msg.displayName || msg.name || '');
-      await saveUsersDb();
+      saveUsersDb();
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token: null });
       return;
     }
@@ -9561,10 +9336,6 @@ if (msg.type === 'create_room') {
       sendJson(ws, { type: 'room', room: roomSnapshot(room) });
       sendRoomStateToSocket(room, ws, pid);
       return;
-    }
-    } catch (error) {
-      console.error('[ws] Message handling failed:', error && error.stack ? error.stack : error);
-      sendJson(ws, { type: 'error', error: 'Server could not process that message.' });
     }
   });
 
@@ -11133,35 +10904,6 @@ setInterval(() => {
 
 setInterval(cleanupRooms, 60_000);
 
-let shuttingDown = false;
-async function gracefulShutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  console.warn(`[shutdown] ${signal} received; flushing persistent state.`);
-
-  for (const client of wss.clients) {
-    try { client.close(1001, 'Server restarting'); } catch (_) {}
-  }
-
-  const serverClosed = new Promise((resolve) => {
-    try { server.close(resolve); } catch (_) { resolve(); }
-  });
-  const timeout = new Promise((resolve) => setTimeout(resolve, 2_000));
-  await Promise.allSettled([
-    saveActiveRoomsNow(),
-    USERS_WRITER.flush(),
-    HISTORY_WRITER.flush(),
-  ]);
-  await Promise.race([serverClosed, timeout]);
-  process.exit(0);
-}
-
-process.once('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
-process.once('SIGINT', () => { void gracefulShutdown('SIGINT'); });
-process.on('message', (message) => {
-  if (message && message.type === 'shutdown') void gracefulShutdown('IPC shutdown');
-});
-
-server.listen(PORT, HOST, () => {
-  console.log(`Hex Settlers server running on http://${HOST}:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Hex Settlers server running on http://localhost:${PORT}`);
 });

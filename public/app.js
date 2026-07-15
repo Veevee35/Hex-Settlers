@@ -962,50 +962,16 @@
     return `Games: ${gp}  Wins: ${w}  Losses: ${l}  Total VP: ${tvp}`;
   }
 
-  function removePersistedAuthToken() {
-    authToken = null;
-    try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
-  }
-
-  function setAuthState(user, token, { clearToken = false } = {}) {
+  function setAuthState(user, token) {
     authUser = user || null;
     if (typeof token === 'string' && token.trim()) {
       authToken = token.trim();
       try { localStorage.setItem(AUTH_TOKEN_KEY, authToken); } catch (_) {}
-    } else if (!user || clearToken) {
-      removePersistedAuthToken();
+    } else if (!user) {
+      authToken = null;
+      try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
     }
     updateAuthUi();
-  }
-
-  async function authApi(route, payload = {}) {
-    const response = await fetch(`/api/auth/${route}`, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    });
-    let result = null;
-    try { result = await response.json(); } catch (_) { result = null; }
-    if (!response.ok || !result || result.ok === false) {
-      throw new Error((result && result.error) || 'Authentication request failed.');
-    }
-    return result;
-  }
-
-  function reconnectForCookieAuth() {
-    websocketReconnectDelayMs = 0;
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-      try { ws.close(4000, 'Refresh authentication'); } catch (_) {}
-    } else {
-      connect();
-    }
-  }
-
-  async function authenticateInBrowser(route, username, password, displayName) {
-    const result = await authApi(route, { username, password, displayName });
-    setAuthState(result.user, null, { clearToken: true });
-    reconnectForCookieAuth();
   }
 
   function updateAuthUi() {
@@ -1033,7 +999,8 @@
 
   function clearAuthLocal() {
     authUser = null;
-    removePersistedAuthToken();
+    authToken = null;
+    try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
     updateAuthUi();
   }
 
@@ -2139,27 +2106,7 @@ return;
     if (!postgameState.replayActivePlayerId && players[0]) postgameState.replayActivePlayerId = players[0].id;
 
     const replayControls = document.createElement('div');
-    replayControls.className = 'pgReplayControls panelScalable';
-
-    const replayTop = document.createElement('div');
-    replayTop.className = 'pgReplayFloatTop';
-    const replayGrip = document.createElement('div');
-    replayGrip.className = 'dragGrip';
-    replayGrip.textContent = '⋮⋮';
-    replayTop.appendChild(replayGrip);
-    const replayTitle = document.createElement('div');
-    replayTitle.className = 'pgReplayFloatTitle';
-    replayTitle.textContent = 'Replay Controls';
-    replayTop.appendChild(replayTitle);
-    const replayScaleHost = document.createElement('div');
-    replayScaleHost.className = 'panelScaleHost';
-    replayScaleHost.appendChild(makeToolScaleControl('postgame_replay_tab', replayControls, { title: 'Scale replay controls tab' }));
-    replayTop.appendChild(replayScaleHost);
-    replayControls.appendChild(replayTop);
-
-    const replayContent = document.createElement('div');
-    replayContent.className = 'pgReplayControlsBody panelScaleContent';
-    replayControls.appendChild(replayContent);
+    replayControls.className = 'pgReplayControls';
 
     if (replayLog.length) {
       const maxI = replayLog.length - 1;
@@ -2190,104 +2137,13 @@ return;
       stepMeta.className = 'pgReplayMeta';
       stepMeta.textContent = `Step ${postgameState.replayIndex + 1}/${replayLog.length}`;
       nav.appendChild(stepMeta);
-      replayContent.appendChild(nav);
+      replayControls.appendChild(nav);
 
       const stepText = document.createElement('div');
       stepText.className = 'pgReplayText';
       const t = step && step.ts ? fmtDateTime(step.ts) : '—';
       stepText.textContent = `${t} · ${step && step.text ? step.text : '—'}`;
-      replayContent.appendChild(stepText);
-
-      const stepState = document.createElement('div');
-      stepState.className = 'pgReplayStepState';
-
-      const readResourceMap = (v) => {
-        if (!v || typeof v !== 'object') return null;
-        const out = {};
-        let touched = false;
-        for (const k of RESOURCE_KEYS) {
-          const n = Number(v[k]);
-          if (Number.isFinite(n)) {
-            out[k] = Math.max(0, Math.floor(n));
-            touched = true;
-          }
-        }
-        return touched ? out : null;
-      };
-
-      const stepData = (step && step.data && typeof step.data === 'object') ? step.data : null;
-      const bankFromStep = readResourceMap(stepData?.bank || stepData?.bankResources || stepData?.bankAfter || stepData?.bankBefore);
-      const bankFallback = readResourceMap(st?.bank) || { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
-      const bankRes = bankFromStep || bankFallback;
-
-      const bankCard = document.createElement('div');
-      bankCard.className = 'pgReplayResCard';
-      const bankTitle = document.createElement('div');
-      bankTitle.className = 'pgReplayResTitle';
-      bankTitle.textContent = 'Bank Resources';
-      bankCard.appendChild(bankTitle);
-      const bankGrid = document.createElement('div');
-      bankGrid.className = 'pgReplayResGrid';
-      for (const rk of RESOURCE_KEYS) {
-        const item = document.createElement('div');
-        item.className = 'pgReplayResItem';
-        item.textContent = `${rk}: ${Math.max(0, Math.floor(Number(bankRes[rk] || 0)))}`;
-        bankGrid.appendChild(item);
-      }
-      bankCard.appendChild(bankGrid);
-      stepState.appendChild(bankCard);
-
-      const playerCard = document.createElement('div');
-      playerCard.className = 'pgReplayResCard';
-      const playerTitle = document.createElement('div');
-      playerTitle.className = 'pgReplayResTitle';
-      playerTitle.textContent = 'Player Resources';
-      playerCard.appendChild(playerTitle);
-      const playerGrid = document.createElement('div');
-      playerGrid.className = 'pgReplayResGrid';
-      const pResById = (stepData && stepData.playerResources && typeof stepData.playerResources === 'object') ? stepData.playerResources : null;
-      for (const p of players) {
-        const pStep = readResourceMap(pResById ? pResById[p.id] : null);
-        const pFinal = readResourceMap(p.resources);
-        const pRes = pStep || pFinal || { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
-        const total = RESOURCE_KEYS.reduce((s, k) => s + Math.max(0, Number(pRes[k] || 0)), 0);
-        const item = document.createElement('button');
-        item.className = 'pgReplayResPlayerBtn' + (postgameState.replayActivePlayerId === p.id ? ' active' : '');
-        item.style.borderColor = p.color || '#888';
-        item.textContent = `${p.name} (${total})`;
-        item.addEventListener('click', () => {
-          postgameState.replayActivePlayerId = p.id;
-          postgameState.replayPlayerLocked = true;
-          renderPostgameTab('resources');
-        });
-        playerGrid.appendChild(item);
-      }
-      playerCard.appendChild(playerGrid);
-      stepState.appendChild(playerCard);
-
-      replayContent.appendChild(stepState);
-
-      const logWrap = document.createElement('div');
-      logWrap.className = 'pgReplayLog';
-      const logTitle = document.createElement('div');
-      logTitle.className = 'pgReplayResTitle';
-      logTitle.textContent = 'Game Log';
-      logWrap.appendChild(logTitle);
-      const start = Math.max(0, postgameState.replayIndex - 8);
-      const end = Math.min(replayLog.length - 1, postgameState.replayIndex + 8);
-      for (let i = start; i <= end; i += 1) {
-        const e = replayLog[i] || {};
-        const b = document.createElement('button');
-        b.className = 'pgReplayLogRow' + (i === postgameState.replayIndex ? ' active' : '');
-        b.textContent = `${i + 1}. ${e.text || '—'}`;
-        b.addEventListener('click', () => {
-          postgameState.replayIndex = i;
-          postgameState.replayPlayerLocked = false;
-          renderPostgameTab('resources');
-        });
-        logWrap.appendChild(b);
-      }
-      replayContent.appendChild(logWrap);
+      replayControls.appendChild(stepText);
     }
 
     const chips = document.createElement('div');
@@ -2304,8 +2160,7 @@ return;
       });
       chips.appendChild(chip);
     }
-    replayContent.appendChild(chips);
-    try { makeDraggablePanel(replayControls, replayGrip, "hexsettlers_postgame_replay_pos_v1"); } catch(_) {}
+    replayControls.appendChild(chips);
     ui.pgTabBody.appendChild(replayControls);
 
     const secTop = makeSection('Resources Overview');
@@ -4371,7 +4226,6 @@ function syncPostgameToState() {
 
   // Networking
   let ws = null;
-  let websocketReconnectDelayMs = 1200;
   let myPlayerId = null;
   let room = null;
   let state = null;
@@ -5053,14 +4907,7 @@ function refreshLobbyJoinLinkUi() {
       let t = null;
       try { t = localStorage.getItem(AUTH_TOKEN_KEY); } catch (_) { t = null; }
       if (t) {
-        // One-time migration from the legacy JS-readable bearer token to an
-        // HTTP-only same-site session cookie. Fall back for older servers.
-        void authApi('token', { token: t }).then((result) => {
-          setAuthState(result.user, null, { clearToken: true });
-          reconnectForCookieAuth();
-        }).catch(() => {
-          send({ type: 'auth_token', token: t });
-        });
+        send({ type: 'auth_token', token: t });
       } else {
         updateAuthUi();
       }
@@ -5068,9 +4915,8 @@ function refreshLobbyJoinLinkUi() {
 
     ws.addEventListener('close', () => {
       setConn(false, 'Disconnected');
-      const delay = websocketReconnectDelayMs;
-      websocketReconnectDelayMs = 1200;
-      setTimeout(connect, delay);
+      // simple retry
+      setTimeout(connect, 1200);
     });
 
     ws.addEventListener('message', (ev) => {
@@ -5224,12 +5070,8 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'auth_ok') {
         if (msg.user) {
-          if (msg.cookieAuth) {
-            setAuthState(msg.user, null, { clearToken: true });
-          } else {
-            // Compatibility path for older clients and non-browser token auth.
-            setAuthState(msg.user, (typeof msg.token === 'string' && msg.token.trim()) ? msg.token : authToken);
-          }
+          // Keep prior token if server didn't send one (e.g., display-name update)
+          setAuthState(msg.user, (typeof msg.token === 'string' && msg.token.trim()) ? msg.token : authToken);
         } else {
           updateAuthUi();
         }
@@ -6685,9 +6527,7 @@ function refreshLobbyJoinLinkUi() {
     const password = (ui.passwordInput?.value || '').trim();
     const displayName = (ui.nameInput?.value || '').trim();
     if (!username || !password) { setError('Enter a username and password.'); return; }
-    void authenticateInBrowser('register', username, password, displayName).catch((error) => {
-      setError(error && error.message ? error.message : 'Registration failed.');
-    });
+    send({ type: 'auth_register', username, password, displayName });
   });
 
   if (ui.loginBtn) ui.loginBtn.addEventListener('click', () => {
@@ -6696,14 +6536,11 @@ function refreshLobbyJoinLinkUi() {
     const password = (ui.passwordInput?.value || '').trim();
     const displayName = (ui.nameInput?.value || '').trim();
     if (!username || !password) { setError('Enter a username and password.'); return; }
-    void authenticateInBrowser('login', username, password, displayName).catch((error) => {
-      setError(error && error.message ? error.message : 'Login failed.');
-    });
+    send({ type: 'auth_login', username, password, displayName });
   });
 
   if (ui.logoutBtn) ui.logoutBtn.addEventListener('click', () => {
     setError(null);
-    void authApi('logout').catch(() => {}).finally(() => reconnectForCookieAuth());
     clearAuthLocal();
     // Optional: drop room state
     room = null;
