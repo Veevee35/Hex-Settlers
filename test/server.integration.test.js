@@ -142,11 +142,16 @@ function assertPortsUseNonAdjacentShorelineEdges(state, expectedPortCount) {
   }
 }
 
-function assertPirateStartsOnKnownSea(state) {
+function assertPirateStartsOnVisibleSea(state) {
   const pirateTiles = (state?.geom?.tiles || []).filter((tile) => tile?.pirate);
   assert.equal(pirateTiles.length, 1, `${state.previewKey} starting pirate count`);
   assert.equal(pirateTiles[0].type, 'sea', `${state.previewKey} pirate starts at sea`);
   assert.equal(!!(pirateTiles[0].fog && !pirateTiles[0].revealed), false, `${state.previewKey} pirate does not start in fog`);
+  const scenario = String(state?.rules?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
+  const showsOuterBorder = scenario === 'test_builder' || scenario.startsWith('cartographer_');
+  if (!showsOuterBorder) {
+    assert.equal(state.geom.tileNeighbors[pirateTiles[0].id].length, 6, `${state.previewKey} pirate starts on a rendered tile`);
+  }
 }
 
 test('every map and scenario preview keeps ports valid and completed Seafarers maps start with a pirate', { timeout: 20_000 }, async (t) => {
@@ -195,7 +200,7 @@ test('every map and scenario preview keeps ports valid and completed Seafarers m
     assertPortsUseNonAdjacentShorelineEdges(preview.state, option.ports);
     const deferredDraft = option.scenario === 'cartographer_4_manual' || option.scenario === 'cartographer_56_manual';
     if (option.mapMode === 'seafarers' && !deferredDraft) {
-      assertPirateStartsOnKnownSea(preview.state);
+      assertPirateStartsOnVisibleSea(preview.state);
     }
   }
 });

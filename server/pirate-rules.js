@@ -1,5 +1,11 @@
 'use strict';
 
+const VISIBLE_OUTER_SEA_SCENARIOS = new Set([
+  'test_builder',
+  'cartographer_4_manual', 'cartographer_4_random', 'cartographer_4',
+  'cartographer_56_manual', 'cartographer_56_random', 'cartographer_56',
+]);
+
 function isUnrevealedFogTile(tile) {
   return !!(tile && tile.fog && !tile.revealed);
 }
@@ -10,9 +16,20 @@ function isFogIslandRules(rules) {
   return scenario === 'fog_island' || scenario === 'fog_island_56';
 }
 
-function pirateCanOccupyTile(rules, tile) {
+function rulesHideOuterSeaBorder(rules) {
+  if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
+  const scenario = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
+  return !VISIBLE_OUTER_SEA_SCENARIOS.has(scenario);
+}
+
+function pirateCanOccupyTile(rules, tile, geom = null) {
   if (!tile || tile.type !== 'sea') return false;
-  return !(isFogIslandRules(rules) && isUnrevealedFogTile(tile));
+  if (isFogIslandRules(rules) && isUnrevealedFogTile(tile)) return false;
+  if (rulesHideOuterSeaBorder(rules)) {
+    const neighbors = geom?.tileNeighbors?.[tile.id];
+    if (Array.isArray(neighbors) && neighbors.length < 6) return false;
+  }
+  return true;
 }
 
 function startingPirateTileIds(tiles, opts = null) {
@@ -21,6 +38,7 @@ function startingPirateTileIds(tiles, opts = null) {
   for (const tile of (tiles || [])) {
     if (!tile || tile.type !== 'sea') continue;
     if (excludeUnrevealedFog && isUnrevealedFogTile(tile)) continue;
+    if (opts?.rules && !pirateCanOccupyTile(opts.rules, tile, opts.geom)) continue;
     out.push(tile.id);
   }
   return out;
@@ -44,4 +62,4 @@ function placeRandomPirate(tiles, opts = null, random = Math.random) {
   return selectedId;
 }
 
-module.exports = { isFogIslandRules, isUnrevealedFogTile, pirateCanOccupyTile, placeRandomPirate, startingPirateTileIds };
+module.exports = { isFogIslandRules, isUnrevealedFogTile, pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder, startingPirateTileIds };

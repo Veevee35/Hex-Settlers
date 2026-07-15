@@ -56,7 +56,21 @@ test('map finalization keeps Fog Island pirates off unrevealed fog', () => {
   assert.deepEqual(tiles.filter((tile) => tile.pirate).map((tile) => tile.id), [2]);
 });
 
-test('gameplay and client targeting use the Fog Island pirate restriction', () => {
-  assert.match(serverJs, /if \(!pirateCanOccupyTile\(game\.rules, tt\)\) return \{ ok: false, error: 'Pirate cannot be placed on an unrevealed fog tile\.' \}/);
+test('map finalization excludes hidden outer-border sea tiles', () => {
+  const rules = { mapMode: 'seafarers', seafarersScenario: 'four_islands' };
+  const tiles = [
+    { id: 0, type: 'sea' },
+    { id: 1, type: 'sea' },
+  ];
+  const geom = { tileNeighbors: { 0: [1, 2, 3], 1: [0, 2, 3, 4, 5, 6] } };
+
+  assert.equal(pirateCanOccupyTile(rules, tiles[0], geom), false);
+  assert.equal(pirateCanOccupyTile(rules, tiles[1], geom), true);
+  assert.equal(placeRandomPirate(tiles, { rules, geom }, () => 0), 1);
+  assert.deepEqual(tiles.filter((tile) => tile.pirate).map((tile) => tile.id), [1]);
+});
+
+test('gameplay and client targeting use the pirate tile restriction', () => {
+  assert.match(serverJs, /if \(!pirateCanOccupyTile\(game\.rules, tt, game\.geom\)\) return \{ ok: false, error: 'Pirate cannot be placed on an unavailable sea tile\.' \}/);
   assert.match(appJs, /canPirateHere = \(isSeaTile && !\(t\.fog && !t\.revealed\) && !t\.pirate\)/);
 });

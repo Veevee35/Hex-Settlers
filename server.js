@@ -31,7 +31,7 @@ const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
-const { pirateCanOccupyTile, placeRandomPirate } = require('./server/pirate-rules');
+const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 
 const APP_CONFIG = runtimeConfig(process.env);
@@ -2944,12 +2944,7 @@ function isNodeOnBoard(state, nodeId) {
 }
 
 function shouldTrimHiddenSeafarersOuterBorder(state) {
-  const rules = state && state.rules ? state.rules : {};
-  const mm = String((rules.mapMode || '')).toLowerCase();
-  if (mm !== 'seafarers') return false;
-  const scen = String((rules.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g, '_');
-  if (scen === 'test_builder' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56') return false;
-  return true;
+  return rulesHideOuterSeaBorder(state?.rules);
 }
 function isHiddenSeafarersOuterBorderSeaTile(state, tileId) {
   const tiles = state && state.geom && Array.isArray(state.geom.tiles) ? state.geom.tiles : null;
@@ -4733,7 +4728,7 @@ function assignCartographer4NumbersRobberPirateAndPorts(game) {
     startSeafarersRobberAndPirate(tiles, []);
   }
 
-  placeRandomPirate(tiles);
+  placeRandomPirate(tiles, { rules: game.rules, geom: game.geom });
 
   game.geom.ports = generatePortsSeafarers(game.geom, is56 ? 'cartographer_56_random' : 'cartographer_4_random');
 }
@@ -4800,9 +4795,10 @@ function generateBoardSeafarersTestBuilder(geom) {
 
 
 
-function finalizeGeneratedSeafarersPirate(tiles, scenario) {
+function finalizeGeneratedSeafarersPirate(geom, tiles, scenario) {
   placeRandomPirate(tiles, {
-    excludeUnrevealedFog: isFogIslandScenario(scenario),
+    rules: { mapMode: 'seafarers', seafarersScenario: scenario },
+    geom,
   });
   return tiles;
 }
@@ -4822,7 +4818,7 @@ function generateBoardSeafarers(geom, scenario = 'four_islands', opts = null) {
   else if (s === 'six_islands') tiles = generateBoardSeafarersSixIslands(geom);
   else if (s === 'test_builder') tiles = generateBoardSeafarersTestBuilder(geom);
   else tiles = generateBoardSeafarersFourIslands(geom);
-  return finalizeGeneratedSeafarersPirate(tiles, s);
+  return finalizeGeneratedSeafarersPirate(geom, tiles, s);
 }
 
 // -------------------- Ports (Harbors) --------------------
@@ -5633,7 +5629,7 @@ function getPirateTileId(game) {
 function setPirate(game, tileId) {
   const tiles = game.geom.tiles;
   if (!tiles[tileId]) return false;
-  if (!pirateCanOccupyTile(game.rules, tiles[tileId])) return false;
+  if (!pirateCanOccupyTile(game.rules, tiles[tileId], game.geom)) return false;
   for (const t of tiles) t.pirate = false;
   tiles[tileId].pirate = true;
   return true;
@@ -6810,7 +6806,7 @@ if (kind === 'move_pirate') {
   const tt = game.geom.tiles?.[tileId];
   if (!tt) return { ok: false, error: 'Bad tile.' };
   if (tt.type !== 'sea') return { ok: false, error: 'Pirate must be placed on the sea.' };
-  if (!pirateCanOccupyTile(game.rules, tt)) return { ok: false, error: 'Pirate cannot be placed on an unrevealed fog tile.' };
+  if (!pirateCanOccupyTile(game.rules, tt, game.geom)) return { ok: false, error: 'Pirate cannot be placed on an unavailable sea tile.' };
 
   const current = getPirateTileId(game);
   if (current != null && tileId === current) return { ok: false, error: 'Pirate must move to a different tile.' };
@@ -9663,7 +9659,7 @@ function handleTimeout(room) {
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const t = game.geom.tiles[i];
       if (!t) continue;
-      if (pirateCanOccupyTile(game.rules, t)) {
+      if (pirateCanOccupyTile(game.rules, t, game.geom)) {
         if (i !== currentPirate) sea.push(i);
       } else if (t.type !== 'sea' && i !== currentRobber) {
         land.push(i);
@@ -9685,7 +9681,7 @@ function handleTimeout(room) {
     const cands = [];
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const t = game.geom.tiles[i];
-      if (!pirateCanOccupyTile(game.rules, t) || i === current) continue;
+      if (!pirateCanOccupyTile(game.rules, t, game.geom) || i === current) continue;
       cands.push(i);
     }
     const shuffled = shuffle(cands);
@@ -10708,7 +10704,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const tt = game.geom.tiles[i];
       if (!tt) continue;
-      if (pirateCanOccupyTile(game.rules, tt)) { if (i !== curP) sea.push(i); }
+      if (pirateCanOccupyTile(game.rules, tt, game.geom)) { if (i !== curP) sea.push(i); }
       else if (tt.type !== 'sea') { if (i !== curR) land.push(i); }
     }
     const robberTarget = bestScoredTarget(land, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
@@ -10761,7 +10757,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       const tt = game.geom.tiles[i];
       if (!tt) continue;
       if (i === cur) continue;
-      if (!pirateCanOccupyTile(game.rules, tt)) continue;
+      if (!pirateCanOccupyTile(game.rules, tt, game.geom)) continue;
       cands.push(i);
     }
     const target = bestScoredTarget(cands, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
