@@ -6043,6 +6043,7 @@ function refreshLobbyJoinLinkUi() {
       rules: [
         'Placing or moving a road or ship beside fog reveals exactly one adjacent hidden tile. Exploration must begin from a revealed edge of the map.',
         'Revealing a normal resource tile grants the explorer 1 matching resource if the bank has one. Revealing a Gold Field prompts a resource choice; revealing sea grants nothing.',
+        'The pirate starts on revealed sea and cannot be moved onto an unrevealed fog tile.',
         'Fog Island does not award the normal 2-point new-island settlement bonus.',
       ],
     },
@@ -6056,6 +6057,7 @@ function refreshLobbyJoinLinkUi() {
       rules: [
         'Placing or moving a road or ship beside fog reveals exactly one adjacent hidden tile, starting from a revealed edge.',
         'A revealed resource tile grants 1 matching resource if available; Gold prompts a choice; sea grants nothing.',
+        'The pirate starts on revealed sea and cannot be moved onto an unrevealed fog tile.',
         'There is no new-island settlement bonus. Paired-turn rules apply, and Player 2 may trade only with the bank.',
       ],
     },
@@ -7468,9 +7470,9 @@ if (ui.copyMyIdBtn) {
         ? 'Click one of your end ships to select it, then click an empty sea edge to move it.'
         : 'Now click an empty sea edge to move the selected ship.';
     } else if (kind === 'move_thief') {
-      msg = 'Click a land tile to move the robber, or a sea tile to move the pirate.';
+      msg = 'Click a land tile to move the robber, or a revealed sea tile to move the pirate.';
     } else if (kind === 'move_pirate') {
-      msg = 'Click a sea tile to move the pirate.';
+      msg = 'Click a revealed sea tile to move the pirate.';
     } else if (kind === 'move_robber') {
       msg = 'Click a land tile to move the robber.';
     } else {
@@ -10488,8 +10490,13 @@ function handleProductionGoldPrompt() {
       if (tid != null) {
         const tile = state.geom?.tiles?.[tid];
         const isSea = (tile && tile.type === 'sea');
+        const unrevealedFog = !!(tile?.fog && !tile?.revealed);
 
         if (isSea) {
+          if (unrevealedFog) {
+            setError('Pirate cannot be placed on an unrevealed fog tile.');
+            return;
+          }
           if (tile?.pirate) {
             setError('Pirate must move to a different tile.');
             return;
@@ -10519,7 +10526,12 @@ function handleProductionGoldPrompt() {
     if (phase === 'pirate-move') {
       const tid = pickTile(x, y);
       if (tid != null) {
-        if (state.geom?.tiles?.[tid]?.pirate) {
+        const tile = state.geom?.tiles?.[tid];
+        if (tile?.fog && !tile?.revealed) {
+          setError('Pirate cannot be placed on an unrevealed fog tile.');
+          return;
+        }
+        if (tile?.pirate) {
           setError('Pirate must move to a different tile.');
           return;
         }
@@ -10867,7 +10879,7 @@ function handleProductionGoldPrompt() {
       if (activePlayerThiefMove) {
         const isSeaTile = t.type === 'sea';
         const canRobberHere = (!isSeaTile && !t.robber);
-        const canPirateHere = (isSeaTile && !t.pirate);
+        const canPirateHere = (isSeaTile && !(t.fog && !t.revealed) && !t.pirate);
         let showChoice = false;
         if (thiefHighlightPhase === 'pirate-or-robber') showChoice = (canRobberHere || canPirateHere);
         else if (thiefHighlightPhase === 'robber-move') showChoice = canRobberHere;
