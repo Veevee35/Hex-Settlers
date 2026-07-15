@@ -116,6 +116,79 @@ class Peer {
   close() { try { this.ws.terminate(); } catch (_) {} }
 }
 
+function assertPortsUseNonAdjacentShorelineEdges(state, expectedPortCount) {
+  const geom = state?.geom;
+  assert.ok(geom);
+  assert.equal(geom.ports.length, expectedPortCount, `${state.previewKey} port count`);
+
+  const usedNodes = new Set();
+  for (const port of geom.ports) {
+    const edge = geom.edges[port.edgeId];
+    assert.ok(edge, `${state.previewKey} port ${port.id} has a valid edge`);
+    assert.deepEqual(port.nodeIds, [edge.a, edge.b]);
+
+    for (const nodeId of port.nodeIds) {
+      assert.equal(usedNodes.has(nodeId), false, `${state.previewKey} has adjacent ports at node ${nodeId}`);
+      usedNodes.add(nodeId);
+    }
+
+    const adjacentTileIds = geom.edgeAdjTiles[port.edgeId] || [];
+    const adjacentTypes = adjacentTileIds.map((tileId) => geom.tiles[tileId]?.type);
+    const isCoastline = adjacentTypes.length === 2
+      && adjacentTypes.includes('sea')
+      && adjacentTypes.some((type) => type && type !== 'sea');
+    const isLandBoundary = adjacentTypes.length === 1 && adjacentTypes[0] !== 'sea';
+    assert.ok(isCoastline || isLandBoundary, `${state.previewKey} port ${port.id} is not on the shoreline`);
+  }
+}
+
+test('every map and scenario preview keeps ports randomized on non-adjacent shoreline edges', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-ports-'));
+  const server = await startServer(port, dataDir);
+  const host = await Peer.connect(port);
+  t.after(async () => {
+    host.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const suffix = Date.now().toString(36).slice(-8);
+  host.send({ type: 'auth_register', username: `ports_${suffix}`, password: 'port placement', displayName: 'Port Tester' });
+  await host.waitFor((message) => message.type === 'auth_ok');
+  host.send({ type: 'create_room', displayName: 'Port Tester' });
+  await host.waitFor((message) => message.type === 'joined');
+
+  const classic = await host.waitFor((message) => message.type === 'state' && message.state.previewKey === 'classic');
+  assertPortsUseNonAdjacentShorelineEdges(classic.state, 9);
+
+  const mapOptions = [
+    { mapMode: 'classic56', scenario: 'four_islands', previewKey: 'classic56', ports: 11 },
+    { mapMode: 'seafarers', scenario: 'four_islands', previewKey: 'seafarers:four_islands', ports: 9 },
+    { mapMode: 'seafarers', scenario: 'through_the_desert', previewKey: 'seafarers:through_the_desert', ports: 9 },
+    { mapMode: 'seafarers', scenario: 'fog_island', previewKey: 'seafarers:fog_island', ports: 9 },
+    { mapMode: 'seafarers', scenario: 'heading_for_new_shores', previewKey: 'seafarers:heading_for_new_shores', ports: 9 },
+    { mapMode: 'seafarers', scenario: 'cartographer_4_manual', previewKey: 'seafarers:cartographer_4_manual', ports: 0 },
+    { mapMode: 'seafarers', scenario: 'cartographer_4_random', previewKey: 'seafarers:cartographer_4_random', ports: 11 },
+    { mapMode: 'seafarers', scenario: 'six_islands', previewKey: 'seafarers:six_islands', ports: 11 },
+    { mapMode: 'seafarers', scenario: 'through_the_desert_56', previewKey: 'seafarers:through_the_desert_56', ports: 11 },
+    { mapMode: 'seafarers', scenario: 'fog_island_56', previewKey: 'seafarers:fog_island_56', ports: 11 },
+    { mapMode: 'seafarers', scenario: 'cartographer_56_manual', previewKey: 'seafarers:cartographer_56_manual', ports: 0 },
+    { mapMode: 'seafarers', scenario: 'cartographer_56_random', previewKey: 'seafarers:cartographer_56_random', ports: 11 },
+    { mapMode: 'seafarers', scenario: 'test_builder', previewKey: 'seafarers:test_builder', ports: 0 },
+  ];
+
+  for (const option of mapOptions) {
+    host.send({
+      type: 'set_rules',
+      rules: { mapMode: option.mapMode, seafarersScenario: option.scenario },
+    });
+    const preview = await host.waitFor((message) =>
+      message.type === 'state' && String(message.state.previewKey || '').startsWith(option.previewKey));
+    assertPortsUseNonAdjacentShorelineEdges(preview.state, option.ports);
+  }
+});
+
 test('account, lobby, expert tuning, chat, and game-start protocol remains compatible', { timeout: 20_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-test-'));

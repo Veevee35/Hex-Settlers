@@ -31,6 +31,7 @@ const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
+const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
@@ -4838,7 +4839,7 @@ function defaultPortKinds(portCount) {
 // Classic-style ports: each port covers 2 adjacent coastal nodes (a single coastline edge).
 function generatePorts(geom, portCount = 9, opts = null) {
   // Ports (Harbors): default 9. Some scenarios may override (e.g., classic 5–6 uses 11).
-  // If a coastline (land/sea) exists, we place ports on coastline edges; otherwise we fall back to boundary edges.
+  // Shoreline includes both land/sea coastline edges and outer board edges that border land.
   const tiles = geom.tiles || [];
 
   const forcedCandidate = (opts && Array.isArray(opts.edgeIds) && opts.edgeIds.length)
@@ -4859,81 +4860,25 @@ function generatePorts(geom, portCount = 9, opts = null) {
       const s1 = t1.type === 'sea';
       if (s0 !== s1) coastlineEdgeIds.push(e.id);
     } else if (adj.length === 1) {
-      boundaryEdgeIds.push(e.id);
+      const tile = tiles[adj[0]];
+      if (tile && tile.type !== 'sea') boundaryEdgeIds.push(e.id);
     }
   }
 
-  const candidate = forcedCandidate || ((coastlineEdgeIds.length > 0) ? coastlineEdgeIds : boundaryEdgeIds);
+  const candidate = forcedCandidate || coastlineEdgeIds.concat(boundaryEdgeIds);
   if (!candidate.length) return [];
 
-  // Sort candidate edges by angle around center.
-  const ordered = candidate
-    .map((eid) => {
-      const e = geom.edges[eid];
-      return { eid, a: e.a, b: e.b, mx: e.mx, my: e.my, ang: Math.atan2(e.my, e.mx) };
-    })
-    .sort((u, v) => u.ang - v.ang);
-
   const PORT_COUNT = Math.max(1, Math.min(24, Math.floor(Number(portCount || 9))));
-  const n = ordered.length;
-  const step = n / PORT_COUNT;
-  const minSep = Math.max(2, Math.floor(step * 0.65));
-
-  const selectedIdx = [];
-  const usedNodes = new Set();
-
-  function circDist(i, j) {
-    const d = Math.abs(i - j);
-    return Math.min(d, n - d);
-  }
-
-  function okSep(idx) {
-    for (const si of selectedIdx) {
-      if (circDist(si, idx) < minSep) return false;
-    }
-    return true;
-  }
-
-  function okNodes(e) {
-    return !usedNodes.has(e.a) && !usedNodes.has(e.b);
-  }
-
-  function pickNear(target) {
-    // First pass: enforce separation + node uniqueness
-    for (let d = 0; d < n; d++) {
-      const cands = [(target + d) % n, (target - d + n) % n];
-      for (const idx of cands) {
-        if (!okSep(idx)) continue;
-        const e = ordered[idx];
-        if (!okNodes(e)) continue;
-        return idx;
-      }
-    }
-    // Second pass: enforce separation only
-    for (let d = 0; d < n; d++) {
-      const cands = [(target + d) % n, (target - d + n) % n];
-      for (const idx of cands) {
-        if (!okSep(idx)) continue;
-        return idx;
-      }
-    }
-    return target % n;
-  }
-
-  for (let i = 0; i < PORT_COUNT; i++) {
-    const target = Math.round(i * step) % n;
-    const idx = pickNear(target);
-    selectedIdx.push(idx);
-    const e = ordered[idx];
-    usedNodes.add(e.a);
-    usedNodes.add(e.b);
+  const selectedEdgeIds = selectRandomNonAdjacentEdgeIds(geom.edges, candidate, PORT_COUNT);
+  if (selectedEdgeIds.length !== PORT_COUNT) {
+    throw new Error(`Unable to place ${PORT_COUNT} non-adjacent ports on ${candidate.length} shoreline edges.`);
   }
 
   const kinds = shuffle(defaultPortKinds(PORT_COUNT).slice());
 
-  return selectedIdx.slice(0, PORT_COUNT).map((idx, i) => {
-    const e = ordered[idx];
-    const adj = geom.edgeAdjTiles?.[e.eid] || [];
+  return selectedEdgeIds.map((edgeId, i) => {
+    const e = geom.edges[edgeId];
+    const adj = geom.edgeAdjTiles?.[edgeId] || [];
     let landTileId = null;
     let seaTileId = null;
     if (adj.length === 2) {
@@ -4951,7 +4896,7 @@ function generatePorts(geom, portCount = 9, opts = null) {
 
     return {
       id: i,
-      edgeId: e.eid,
+      edgeId,
       nodeIds: [e.a, e.b],
       kind: kinds[i] || 'generic',
       mx: e.mx,
