@@ -1822,29 +1822,6 @@ function renderPostgameTab(tab) {
     discard: 'Discards',
   };
 
-  const clamp01 = (x) => Math.max(0, Math.min(1, x || 0));
-
-  const parseHex = (hex) => {
-    const h = String(hex || '').trim();
-    if (!h || h[0] !== '#') return null;
-    const s = h.slice(1);
-    const v = (s.length === 3)
-      ? (s[0]+s[0]+s[1]+s[1]+s[2]+s[2])
-      : s;
-    if (v.length !== 6) return null;
-    const r = parseInt(v.slice(0,2), 16);
-    const g = parseInt(v.slice(2,4), 16);
-    const b = parseInt(v.slice(4,6), 16);
-    if ([r,g,b].some(n => Number.isNaN(n))) return null;
-    return { r, g, b };
-  };
-
-  const rgbaFromHex = (hex, a) => {
-    const rgb = parseHex(hex);
-    if (!rgb) return `rgba(74,163,255,${a})`;
-    return `rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
-  };
-
   const sumRes = (m) => {
     if (!m) return 0;
     let t = 0;
@@ -1857,76 +1834,12 @@ function renderPostgameTab(tab) {
     return Number.isFinite(n) ? n : 0;
   };
 
-  const playerCell = (p, suffix) => {
-    const wrap = document.createElement('div');
-    wrap.className = 'pgName';
-    const dot = document.createElement('div');
-    dot.className = 'pgBadge';
-    dot.style.background = p.color || '#777';
-    const nm = document.createElement('div');
-    nm.textContent = `${p.name}${suffix || ''}`;
-    nm.style.minWidth = '0';
-    nm.style.overflow = 'hidden';
-    nm.style.textOverflow = 'ellipsis';
-    wrap.appendChild(dot);
-    wrap.appendChild(nm);
-    return wrap;
+  const diceTotalFor = (ds) => {
+    if (!ds) return 0;
+    let t = 0;
+    for (let r = 2; r <= 12; r++) t += safeNum(ds[r] || 0);
+    return t;
   };
-
-  const barNode = (value, max, colorHex, text, opts={}) => {
-    const v = safeNum(value);
-    const m = Math.max(0.00001, safeNum(max));
-    const pct = clamp01(v / m);
-    const wrap = document.createElement('div');
-    wrap.className = 'pgBarCell' + (opts.alignRight ? ' right' : '');
-    const fill = document.createElement('div');
-    fill.className = 'pgBarFill';
-    fill.style.width = `${Math.round(pct * 100)}%`;
-    fill.style.background = rgbaFromHex(colorHex, opts.alpha ?? 0.18);
-    const label = document.createElement('div');
-    label.className = 'pgBarLabel';
-    label.textContent = (text != null) ? String(text) : String(v);
-    wrap.appendChild(fill);
-    wrap.appendChild(label);
-    return wrap;
-  };
-
-const stackedBarNode = (segments, max, labelText, opts={}) => {
-  const m = Math.max(0.00001, safeNum(max));
-  const wrap = document.createElement('div');
-  wrap.className = 'pgBarCell pgStack' + (opts.alignRight ? ' right' : '');
-  const stack = document.createElement('div');
-  stack.className = 'pgBarStack';
-
-  let total = 0;
-  for (const s of (segments || [])) total += safeNum(s?.value || 0);
-
-  for (const s of (segments || [])) {
-    const v = safeNum(s?.value || 0);
-    if (!v) continue;
-    const pct = clamp01(v / m) * 100;
-    const seg = document.createElement('div');
-    seg.className = 'pgBarStackSeg';
-    seg.style.width = `${pct}%`;
-    seg.style.background = rgbaFromHex(s?.color, opts.alpha ?? 0.22);
-    stack.appendChild(seg);
-  }
-
-  const label = document.createElement('div');
-  label.className = 'pgBarLabel';
-  label.textContent = (labelText != null) ? String(labelText) : String(total);
-
-  wrap.appendChild(stack);
-  wrap.appendChild(label);
-  return wrap;
-};
-
-const diceTotalFor = (ds) => {
-  if (!ds) return 0;
-  let t = 0;
-  for (let r = 2; r <= 12; r++) t += safeNum(ds[r] || 0);
-  return t;
-};
 
   const makeSection = (title, rightNode) => {
     const sec = document.createElement('div');
@@ -1996,6 +1909,98 @@ const diceTotalFor = (ds) => {
     return wrap;
   };
 
+  const makeOverviewMetric = (metric) => {
+    const tile = document.createElement('div');
+    tile.className = `pgOverviewMetric${metric.tone ? ` ${metric.tone}` : ''}`;
+    if (metric.title) tile.title = metric.title;
+
+    const icon = document.createElement('span');
+    icon.className = 'pgOverviewMetricIcon';
+    if (metric.asset) {
+      const image = document.createElement('img');
+      image.src = getTextureAssetUrl(metric.asset);
+      image.alt = metric.label || '';
+      image.draggable = false;
+      icon.appendChild(image);
+    } else {
+      icon.textContent = metric.icon || '•';
+    }
+
+    const copy = document.createElement('span');
+    copy.className = 'pgOverviewMetricCopy';
+    const label = document.createElement('span');
+    label.className = 'pgOverviewMetricLabel';
+    label.textContent = metric.label;
+    const value = document.createElement('strong');
+    value.className = 'pgOverviewMetricValue';
+    value.textContent = String(metric.value ?? 0);
+    copy.appendChild(label);
+    copy.appendChild(value);
+    tile.appendChild(icon);
+    tile.appendChild(copy);
+    return tile;
+  };
+
+  const makePlayerOverviewCard = (player, options={}) => {
+    const card = document.createElement('article');
+    card.className = `pgOverviewPlayerCard${options.winner ? ' winner' : ''}`;
+    card.style.setProperty('--pg-player-color', player.color || '#777');
+
+    const head = document.createElement('div');
+    head.className = 'pgOverviewCardHead';
+    const headline = document.createElement('strong');
+    headline.className = 'pgOverviewHeadline';
+    headline.textContent = String(options.headline ?? '—');
+    const headlineLabel = document.createElement('span');
+    headlineLabel.className = 'pgOverviewHeadlineLabel';
+    headlineLabel.textContent = options.headlineLabel || '';
+    head.appendChild(headline);
+    head.appendChild(headlineLabel);
+    if (options.ribbon) {
+      const ribbon = document.createElement('span');
+      ribbon.className = 'pgOverviewRibbon';
+      ribbon.textContent = options.ribbon;
+      head.appendChild(ribbon);
+    }
+    card.appendChild(head);
+
+    if (Array.isArray(options.badges) && options.badges.length) {
+      const badges = document.createElement('div');
+      badges.className = 'pgOverviewBadges';
+      for (const badgeText of options.badges) {
+        const badge = document.createElement('span');
+        badge.textContent = badgeText;
+        badges.appendChild(badge);
+      }
+      card.appendChild(badges);
+    }
+
+    const metrics = document.createElement('div');
+    metrics.className = 'pgOverviewMetricGrid';
+    for (const metric of (options.metrics || [])) metrics.appendChild(makeOverviewMetric(metric));
+    card.appendChild(metrics);
+
+    const footer = document.createElement('div');
+    footer.className = 'pgOverviewPlayerFooter';
+    const swatch = document.createElement('span');
+    swatch.className = 'pgOverviewPlayerSwatch';
+    swatch.style.background = player.color || '#777';
+    const name = document.createElement('span');
+    name.textContent = `${player.name}${player.id === myPlayerId ? ' (you)' : ''}`;
+    footer.appendChild(swatch);
+    footer.appendChild(name);
+    card.appendChild(footer);
+    return card;
+  };
+
+  const appendOverviewGrid = (section, cards) => {
+    const grid = document.createElement('div');
+    grid.className = 'pgOverviewPlayerGrid';
+    for (const card of cards) grid.appendChild(card);
+    section.appendChild(grid);
+    return grid;
+  };
+
   const addNote = (txt) => {
     const note = document.createElement('div');
     note.className = 'pgNote';
@@ -2007,152 +2012,95 @@ const diceTotalFor = (ds) => {
 
   // -------------------- SUMMARY --------------------
   if (postgameState.tab === 'summary') {
-    const sec1 = makeSection('Score & Pieces');
+    const section = makeSection('Game Overview');
+    section.classList.add('pgStyledSection');
+    const lrPid = st.longestRoad?.playerId || null;
+    const laPid = st.largestArmy?.playerId || null;
+    const turnsByPlayer = stats?.turnTimes?.byPlayer || {};
+    const tradesByPlayer = stats?.trades?.byPlayer || {};
+    const devByPlayer = stats?.dev?.byPlayer || {};
+    const actionsByPlayer = stats?.actions?.byPlayer || {};
+    const thieves = stats?.thieves || null;
 
-    const maxVP = Math.max(1, ...players.map(p => safeNum(p.vp || 0)));
-    const maxSet = Math.max(1, ...players.map(p => computePieceCounts(st, p.id).settlements));
-    const maxCity = Math.max(1, ...players.map(p => computePieceCounts(st, p.id).cities));
-    const maxRoad = Math.max(1, ...players.map(p => computePieceCounts(st, p.id).roads));
-    const maxShip = Math.max(1, ...players.map(p => computePieceCounts(st, p.id).ships));
-    const maxArmy = Math.max(1, ...players.map(p => safeNum(p.army || 0)));
-
-    const headers1 = ['Player','VP','VP (Dev)','Army','Settlements','Cities','Roads','Ships','Island VP','Desert VP','Badges'];
-    const rows1 = players.map(p => {
+    const cards = players.map((p) => {
       const pc = computePieceCounts(st, p.id);
+      const tt = turnsByPlayer[p.id] || {};
+      const tr = tradesByPlayer[p.id] || {};
+      const dv = devByPlayer[p.id] || {};
+      const ac = actionsByPlayer[p.id] || {};
+      const buildingVP = safeNum(pc.settlements) + safeNum(pc.cities) * 2;
+      const devVP = safeNum(p.vpDev);
+      const islandVP = safeNum(p.newIslandVP);
+      const desertVP = safeNum(p.ttdFarSideVP);
+      const badgeVP = (p.id === lrPid ? 2 : 0) + (p.id === laPid ? 2 : 0);
+      const calculatedVP = buildingVP + devVP + islandVP + desertVP + badgeVP;
+      const shownVP = safeNum(p.vp);
+      const scoreDelta = shownVP - calculatedVP;
       const badges = [];
-      if (st.largestArmy && st.largestArmy.playerId === p.id) badges.push('LA');
-      if (st.longestRoad && st.longestRoad.playerId === p.id) badges.push('LR');
-      return [
-        playerCell(p, p.id === myPlayerId ? ' (you)' : ''),
-        barNode(p.vp || 0, maxVP, p.color, p.vp || 0, { alignRight: true }),
-        barNode(p.vpDev || 0, Math.max(1, ...players.map(pp => safeNum(pp.vpDev || 0))), p.color, p.vpDev || 0, { alignRight: true, alpha: 0.14 }),
-        barNode(p.army || 0, maxArmy, p.color, p.army || 0, { alignRight: true, alpha: 0.14 }),
-        barNode(pc.settlements, maxSet, p.color, pc.settlements, { alignRight: true, alpha: 0.12 }),
-        barNode(pc.cities, maxCity, p.color, pc.cities, { alignRight: true, alpha: 0.12 }),
-        barNode(pc.roads, maxRoad, p.color, pc.roads, { alignRight: true, alpha: 0.12 }),
-        barNode(pc.ships, maxShip, p.color, pc.ships, { alignRight: true, alpha: 0.12 }),
-        barNode(p.newIslandVP || 0, Math.max(1, ...players.map(pp => safeNum(pp.newIslandVP || 0))), p.color, p.newIslandVP || 0, { alignRight: true, alpha: 0.10 }),
-        barNode(p.ttdFarSideVP || 0, Math.max(1, ...players.map(pp => safeNum(pp.ttdFarSideVP || 0))), p.color, p.ttdFarSideVP || 0, { alignRight: true, alpha: 0.10 }),
-        badges.length ? badges.join(' • ') : '—'
-      ];
+      if (p.id === lrPid) badges.push('Longest Road');
+      if (p.id === laPid) badges.push('Largest Army');
+      const steals = safeNum(ac.robberSteals) + safeNum(ac.pirateSteals);
+      const stolenFrom = thieves ? (
+        safeNum(thieves.robber?.stolenFromByPlayer?.[p.id]) +
+        safeNum(thieves.pirate?.stolenFromByPlayer?.[p.id])
+      ) : 0;
+      return makePlayerOverviewCard(p, {
+        headline: `${shownVP} VP`,
+        headlineLabel: p.id === winnerId ? 'Final score · Winner' : 'Final score',
+        ribbon: p.id === winnerId ? '★ Winner' : '',
+        winner: p.id === winnerId,
+        badges,
+        metrics: [
+          { icon: '⌂', label: 'Building VP', value: buildingVP },
+          { asset: 'Dev Cards/VictoryPoint.png', label: 'Dev VP', value: devVP },
+          { icon: '◈', label: 'Island VP', value: islandVP },
+          { icon: '◇', label: 'Desert VP', value: desertVP },
+          { icon: '★', label: 'Badge VP', value: badgeVP },
+          { icon: scoreDelta ? 'Δ' : '✓', label: 'Score check', value: scoreDelta ? `${scoreDelta > 0 ? '+' : ''}${scoreDelta}` : 'Exact', tone: scoreDelta ? 'warning' : 'positive' },
+          { icon: '⌂', label: 'Settlements', value: safeNum(pc.settlements) },
+          { icon: '▰', label: 'Cities', value: safeNum(pc.cities) },
+          { icon: '━', label: 'Roads', value: safeNum(pc.roads) },
+          { icon: '▲', label: 'Ships', value: safeNum(pc.ships) },
+          { icon: '♞', label: 'Army', value: safeNum(p.army) },
+          { icon: '↻', label: 'Turns', value: safeNum(tt.turns) },
+          { icon: '◷', label: 'Avg turn', value: fmtMs(safeNum(tt.avgMs)) },
+          { icon: '⇄', label: 'Trades', value: safeNum(tr.bank) + safeNum(tr.player), title: `${safeNum(tr.bank)} bank / ${safeNum(tr.player)} player` },
+          { icon: '✦', label: 'Dev bought', value: safeNum(dv.bought) },
+          { icon: '♜', label: 'Steals', value: steals },
+          { icon: '!', label: 'Stolen from', value: stolenFrom, tone: stolenFrom ? 'negative' : '' },
+          { icon: '7', label: 'Discards', value: safeNum(ac.discards), tone: safeNum(ac.discards) ? 'negative' : '' },
+        ],
+      });
     });
+    appendOverviewGrid(section, cards);
+    ui.pgTabBody.appendChild(section);
 
-    sec1.appendChild(makeTable(headers1, rows1));
-ui.pgTabBody.appendChild(sec1);
-
-// VP breakdown (buildings + bonuses + badges)
-const secVp = makeSection('VP Breakdown');
-
-const lrPid = st.longestRoad?.playerId || null;
-const laPid = st.largestArmy?.playerId || null;
-
-const rawVp = players.map(p => {
-  const pc = computePieceCounts(st, p.id);
-  const buildingVP = safeNum(pc.settlements) * 1 + safeNum(pc.cities) * 2;
-  const devVP = safeNum(p.vpDev || 0);
-  const islandVP = safeNum(p.newIslandVP || 0);
-  const desertVP = safeNum(p.ttdFarSideVP || 0);
-  const badgeVP = (p.id === lrPid ? 2 : 0) + (p.id === laPid ? 2 : 0);
-  const total = buildingVP + devVP + islandVP + desertVP + badgeVP;
-  return { p, buildingVP, devVP, islandVP, desertVP, badgeVP, total, shown: safeNum(p.vp || 0) };
-});
-
-const maxB = Math.max(1, ...rawVp.map(r => r.buildingVP));
-const maxD = Math.max(1, ...rawVp.map(r => r.devVP));
-const maxI = Math.max(1, ...rawVp.map(r => r.islandVP));
-const maxT = Math.max(1, ...rawVp.map(r => r.desertVP));
-const maxBad = Math.max(1, ...rawVp.map(r => r.badgeVP));
-const maxTot = Math.max(1, ...rawVp.map(r => r.total));
-
-const rowsVp = rawVp.map(r => ([
-  playerCell(r.p),
-  barNode(r.buildingVP, maxB, r.p.color, r.buildingVP, { alignRight: true, alpha: 0.12 }),
-  barNode(r.devVP, maxD, r.p.color, r.devVP, { alignRight: true, alpha: 0.12 }),
-  barNode(r.islandVP, maxI, r.p.color, r.islandVP, { alignRight: true, alpha: 0.10 }),
-  barNode(r.desertVP, maxT, r.p.color, r.desertVP, { alignRight: true, alpha: 0.10 }),
-  barNode(r.badgeVP, maxBad, r.p.color, r.badgeVP, { alignRight: true, alpha: 0.10 }),
-  barNode(r.total, maxTot, r.p.color, r.total, { alignRight: true, alpha: 0.14 }),
-  (r.total === r.shown) ? '—' : (r.shown - r.total >= 0 ? `+${r.shown - r.total}` : String(r.shown - r.total)),
-]));
-
-secVp.appendChild(makeTable(['Player','Buildings','Dev VP','Island','Desert','Badges','Total (calc)','Δ'], rowsVp));
-ui.pgTabBody.appendChild(secVp);
-
-const sec2 = makeSection('Activity Totals');
-
-const turnsByPlayer = (stats && stats.turnTimes && stats.turnTimes.byPlayer) ? stats.turnTimes.byPlayer : null;
-const tradesByPlayer = (stats && stats.trades && stats.trades.byPlayer) ? stats.trades.byPlayer : null;
-const devByPlayer = (stats && stats.dev && stats.dev.byPlayer) ? stats.dev.byPlayer : null;
-const actionsByPlayer = (stats && stats.actions && stats.actions.byPlayer) ? stats.actions.byPlayer : null;
-const buildsByPlayer = (stats && stats.builds && stats.builds.byPlayer) ? stats.builds.byPlayer : null;
-const thieves = (stats && stats.thieves) ? stats.thieves : null;
-
-const rows2_raw = players.map(p => {
-  const tt = turnsByPlayer ? (turnsByPlayer[p.id] || null) : null;
-  const tr = tradesByPlayer ? (tradesByPlayer[p.id] || null) : null;
-  const dv = devByPlayer ? (devByPlayer[p.id] || null) : null;
-  const ac = actionsByPlayer ? (actionsByPlayer[p.id] || null) : null;
-  const bl = buildsByPlayer ? (buildsByPlayer[p.id] || null) : null;
-
-  const turns = tt ? safeNum(tt.turns) : 0;
-  const avgMs = tt ? safeNum(tt.avgMs) : 0;
-  const devBought = dv ? safeNum(dv.bought) : 0;
-  const devPlayed = dv ? safeNum(dv.played) : 0;
-  const bankTrades = tr ? safeNum(tr.bank) : 0;
-  const playerTrades = tr ? safeNum(tr.player) : 0;
-
-  const robberMoves = ac ? safeNum(ac.robberMoves) : 0;
-  const pirateMoves = ac ? safeNum(ac.pirateMoves) : 0;
-  const steals = ac ? (safeNum(ac.robberSteals) + safeNum(ac.pirateSteals)) : 0;
-  const stolenFrom = thieves ? (safeNum(thieves.robber?.stolenFromByPlayer?.[p.id]) + safeNum(thieves.pirate?.stolenFromByPlayer?.[p.id])) : 0;
-
-  const shipMoves = bl ? safeNum(bl.ship_move) : 0;
-  const discards = ac ? safeNum(ac.discards) : 0;
-
-  return { p, turns, avgMs, devBought, devPlayed, bankTrades, playerTrades, robberMoves, pirateMoves, steals, stolenFrom, shipMoves, discards };
-});
-
-const maxTurns = Math.max(1, ...rows2_raw.map(r => r.turns));
-const maxDevB = Math.max(1, ...rows2_raw.map(r => r.devBought));
-const maxDevP = Math.max(1, ...rows2_raw.map(r => r.devPlayed));
-const maxTrades = Math.max(1, ...rows2_raw.map(r => (r.bankTrades + r.playerTrades)));
-const maxRobberMoves = Math.max(1, ...rows2_raw.map(r => r.robberMoves));
-const maxPirateMoves = Math.max(1, ...rows2_raw.map(r => r.pirateMoves));
-const maxSteals = Math.max(1, ...rows2_raw.map(r => r.steals));
-const maxStolenFrom = Math.max(1, ...rows2_raw.map(r => r.stolenFrom));
-const maxShipMoves = Math.max(1, ...rows2_raw.map(r => r.shipMoves));
-const maxDiscards = Math.max(1, ...rows2_raw.map(r => r.discards));
-
-const headers2 = ['Player','Turns','Avg Turn','Dev Bought','Dev Played','Trades','Robber Moves','Pirate Moves','Steals','Stolen From','Ship Moves','Discards'];
-const rows2 = rows2_raw.map(r => {
-  const trades = r.bankTrades + r.playerTrades;
-  return [
-    playerCell(r.p),
-    barNode(r.turns, maxTurns, r.p.color, r.turns, { alignRight: true, alpha: 0.14 }),
-    barNode(r.avgMs, Math.max(1, ...rows2_raw.map(x => x.avgMs || 0)), r.p.color, fmtMs(r.avgMs), { alignRight: true, alpha: 0.10 }),
-    barNode(r.devBought, maxDevB, r.p.color, r.devBought, { alignRight: true, alpha: 0.12 }),
-    barNode(r.devPlayed, maxDevP, r.p.color, r.devPlayed, { alignRight: true, alpha: 0.12 }),
-    barNode(trades, maxTrades, r.p.color, `${r.bankTrades}/${r.playerTrades}`, { alignRight: true, alpha: 0.12 }),
-    barNode(r.robberMoves, maxRobberMoves, r.p.color, r.robberMoves, { alignRight: true, alpha: 0.10 }),
-    barNode(r.pirateMoves, maxPirateMoves, r.p.color, r.pirateMoves, { alignRight: true, alpha: 0.10 }),
-    barNode(r.steals, maxSteals, r.p.color, r.steals, { alignRight: true, alpha: 0.12 }),
-    barNode(r.stolenFrom, maxStolenFrom, r.p.color, r.stolenFrom, { alignRight: true, alpha: 0.10 }),
-    barNode(r.shipMoves, maxShipMoves, r.p.color, r.shipMoves, { alignRight: true, alpha: 0.12 }),
-    barNode(r.discards, maxDiscards, r.p.color, r.discards, { alignRight: true, alpha: 0.12 }),
-  ];
-});
-
-
-    sec2.appendChild(makeTable(headers2, rows2));
-    ui.pgTabBody.appendChild(sec2);
-
-    const note = document.createElement('div');
-    note.className = 'pgNote';
+    const highlights = document.createElement('div');
+    highlights.className = 'pgMatchHighlights';
     const target = Math.floor(Number(st?.rules?.victoryPointsToWin ?? st?.rules?.victoryTarget ?? st?.rules?.vpToWin) || 10);
     const lr = st.longestRoad?.playerId ? (players.find(p=>p.id===st.longestRoad.playerId)?.name || '—') : '—';
     const la = st.largestArmy?.playerId ? (players.find(p=>p.id===st.largestArmy.playerId)?.name || '—') : '—';
-    note.textContent = `Win target: ${target} VP • Longest Road: ${lr} (${st.longestRoad?.length ?? 0}) • Largest Army: ${la} (${st.largestArmy?.size ?? 0})`;
-    ui.pgTabBody.appendChild(note);
+    for (const item of [
+      { icon: '★', label: 'Victory target', value: `${target} VP` },
+      { icon: '━', label: 'Longest Road', value: `${lr} · ${st.longestRoad?.length ?? 0}` },
+      { icon: '♞', label: 'Largest Army', value: `${la} · ${st.largestArmy?.size ?? 0}` },
+    ]) {
+      const highlight = document.createElement('div');
+      highlight.className = 'pgMatchHighlight';
+      const icon = document.createElement('span');
+      icon.textContent = item.icon;
+      const copy = document.createElement('div');
+      const label = document.createElement('small');
+      label.textContent = item.label;
+      const value = document.createElement('strong');
+      value.textContent = item.value;
+      copy.appendChild(label);
+      copy.appendChild(value);
+      highlight.appendChild(icon);
+      highlight.appendChild(copy);
+      highlights.appendChild(highlight);
+    }
+    ui.pgTabBody.appendChild(highlights);
     return;
   }
 
@@ -2161,132 +2109,161 @@ const rows2 = rows2_raw.map(r => {
     const ctrl = document.createElement('div');
     ctrl.className = 'pgSubTabs';
     const mkBtn = (key, label) => {
-      const b = document.createElement('button');
-      b.className = 'pgSubTab' + (postgameState.diceView === key ? ' active' : '');
-      b.textContent = label;
-      b.addEventListener('click', () => {
+      const button = document.createElement('button');
+      button.className = 'pgSubTab' + (postgameState.diceView === key ? ' active' : '');
+      button.textContent = label;
+      button.addEventListener('click', () => {
         postgameState.diceView = key;
         renderPostgameTab('dice');
       });
-      return b;
+      return button;
     };
-    ctrl.appendChild(mkBtn('totals','View Totals'));
-    ctrl.appendChild(mkBtn('players','View Per Player'));
-    ctrl.appendChild(mkBtn('prob','View Probability'));
+    ctrl.appendChild(mkBtn('totals', 'View Totals'));
+    ctrl.appendChild(mkBtn('players', 'View Per Player'));
+    ctrl.appendChild(mkBtn('prob', 'View Probability'));
 
-    const sec = makeSection('Dice Rolls', ctrl);
-
-    const byNum = (stats && stats.rolls && stats.rolls.byNumber) ? stats.rolls.byNumber : (st.diceStats || {});
-    const total = (stats && stats.rolls && Number.isFinite(stats.rolls.total)) ? stats.rolls.total : Object.values(byNum||{}).reduce((a,v)=>a+safeNum(v),0);
-
+    const section = makeSection('Dice Rolls', ctrl);
+    section.classList.add('pgStyledSection');
+    const byNum = stats?.rolls?.byNumber || st.diceStats || {};
+    const total = Number.isFinite(stats?.rolls?.total)
+      ? stats.rolls.total
+      : Object.values(byNum).reduce((sum, value) => sum + safeNum(value), 0);
+    const byPlayer = stats?.rolls?.byPlayer || {};
     const probs = {2:1/36,3:2/36,4:3/36,5:4/36,6:5/36,7:6/36,8:5/36,9:4/36,10:3/36,11:2/36,12:1/36};
 
-    if (postgameState.diceView === 'players') {
-  const byPlayer = (stats && stats.rolls && stats.rolls.byPlayer) ? stats.rolls.byPlayer : {};
-  const rowsRaw = players.map(p => {
-    const r = byPlayer[p.id] || {};
-    const t = diceTotalFor(r);
-    const s7 = safeNum(r[7] || 0);
-    return { p, total: t, sevens: s7 };
-  });
-  const maxT = Math.max(1, ...rowsRaw.map(r => r.total));
-  const max7 = Math.max(1, ...rowsRaw.map(r => r.sevens));
-
-  const headers = ['Player','Total Rolls','7s'];
-  const rows = rowsRaw.map(r => [
-    playerCell(r.p),
-    barNode(r.total, maxT, r.p.color, r.total, { alignRight: true }),
-    barNode(r.sevens, max7, r.p.color, r.sevens, { alignRight: true, alpha: 0.12 }),
-  ]);
-  sec.appendChild(makeTable(headers, rows));
-  ui.pgTabBody.appendChild(sec);
-  addNote(`Total rolls: ${total}`);
-  return;
-}
-
-
-    if (postgameState.diceView === 'prob') {
-      const rows = [];
-      let maxAbsDiff = 1;
-      for (let r=2; r<=12; r++) {
-        const c = safeNum(byNum[r] || 0);
-        const exp = total ? (total * (probs[r] || 0)) : 0;
-        const diff = c - exp;
-        maxAbsDiff = Math.max(maxAbsDiff, Math.abs(diff));
-        rows.push({ r, c, exp, diff });
+    const makeDiceIcon = (roll) => {
+      const icon = document.createElement('div');
+      icon.className = `pgDiceRollIcon${roll === 7 ? ' seven' : ''}`;
+      if (roll === 7) {
+        icon.textContent = '7';
+      } else {
+        const image = document.createElement('img');
+        image.src = getTextureAssetUrl(`Numbers/${roll}.png`);
+        image.alt = `Roll ${roll}`;
+        image.draggable = false;
+        icon.appendChild(image);
       }
-      const headers = ['Roll','Actual','Expected','Δ'];
-      const tableRows = rows.map(o => {
-        const diffTxt = (o.diff >= 0 ? '+' : '') + o.diff.toFixed(1);
-        const col = (o.diff >= 0) ? '#4aa3ff' : '#ff6a6a';
-        return [
-          String(o.r),
-          barNode(o.c, Math.max(1, ...rows.map(x => x.c)), '#9aa7b4', o.c, { alignRight: true, alpha: 0.12 }),
-          o.exp.toFixed(1),
-          barNode(Math.abs(o.diff), maxAbsDiff, col, diffTxt, { alignRight: true, alpha: 0.14 }),
-        ];
+      return icon;
+    };
+
+    if (postgameState.diceView === 'players') {
+      const cards = players.map((p) => {
+        const rolls = byPlayer[p.id] || {};
+        const playerTotal = diceTotalFor(rolls);
+        let mostCommon = 2;
+        for (let roll = 3; roll <= 12; roll++) {
+          if (safeNum(rolls[roll]) > safeNum(rolls[mostCommon])) mostCommon = roll;
+        }
+        const card = makePlayerOverviewCard(p, {
+          headline: playerTotal,
+          headlineLabel: 'Total rolls',
+          metrics: [
+            { icon: '7', label: 'Sevens', value: safeNum(rolls[7]), tone: safeNum(rolls[7]) ? 'negative' : '' },
+            { icon: '⚄', label: 'Most common', value: `${mostCommon} · ${safeNum(rolls[mostCommon])}` },
+            { icon: '%', label: 'Share of rolls', value: `${total ? ((playerTotal / total) * 100).toFixed(1) : '0.0'}%` },
+          ],
+        });
+        const distribution = document.createElement('div');
+        distribution.className = 'pgDicePlayerDistribution';
+        for (let roll = 2; roll <= 12; roll++) {
+          const cell = document.createElement('div');
+          if (roll === 7) cell.className = 'seven';
+          const label = document.createElement('span');
+          label.textContent = String(roll);
+          const value = document.createElement('strong');
+          value.textContent = String(safeNum(rolls[roll]));
+          cell.appendChild(label);
+          cell.appendChild(value);
+          distribution.appendChild(cell);
+        }
+        const footer = card.querySelector('.pgOverviewPlayerFooter');
+        card.insertBefore(distribution, footer);
+        return card;
       });
-      sec.appendChild(makeTable(headers, tableRows));
-      ui.pgTabBody.appendChild(sec);
-      addNote('Expected values use the standard 2d6 distribution.');
+      appendOverviewGrid(section, cards);
+      ui.pgTabBody.appendChild(section);
+      addNote(`Total rolls: ${total}. Each player card shows their complete 2–12 distribution.`);
       return;
     }
 
-    // totals view (stacked by player)
-const byPlayer = (stats && stats.rolls && stats.rolls.byPlayer) ? stats.rolls.byPlayer : {};
+    const rollGrid = document.createElement('div');
+    rollGrid.className = 'pgDiceRollGrid';
+    for (let roll = 2; roll <= 12; roll++) {
+      let actual = safeNum(byNum[roll]);
+      if (!actual) for (const p of players) actual += safeNum((byPlayer[p.id] || {})[roll]);
+      const card = document.createElement('article');
+      card.className = `pgDiceRollCard${roll === 7 ? ' seven' : ''}`;
+      card.appendChild(makeDiceIcon(roll));
 
-const counts = [];
-for (let r=2; r<=12; r++) {
-  let c = safeNum(byNum[r] || 0);
-  if (!c) {
-    // fallback: sum from per-player buckets
-    for (const p of players) c += safeNum((byPlayer[p.id] || {})[r] || 0);
-  }
-  counts.push({ r, c });
-}
-const maxCount = Math.max(1, ...counts.map(o => o.c));
+      if (postgameState.diceView === 'prob') {
+        const expected = total * (probs[roll] || 0);
+        const diff = actual - expected;
+        const metrics = document.createElement('div');
+        metrics.className = 'pgDiceRollMetrics';
+        for (const item of [
+          { label: 'Actual', value: actual },
+          { label: 'Expected', value: expected.toFixed(1) },
+          { label: 'Difference', value: `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}`, tone: diff >= 0 ? 'positive' : 'negative' },
+        ]) {
+          const metric = document.createElement('div');
+          const label = document.createElement('span');
+          label.textContent = item.label;
+          const value = document.createElement('strong');
+          value.textContent = String(item.value);
+          if (item.tone) value.className = item.tone;
+          metric.appendChild(label);
+          metric.appendChild(value);
+          metrics.appendChild(metric);
+        }
+        card.appendChild(metrics);
+      } else {
+        const count = document.createElement('strong');
+        count.className = 'pgDiceRollCount';
+        count.textContent = String(actual);
+        const label = document.createElement('span');
+        label.className = 'pgDiceRollCountLabel';
+        label.textContent = `${total ? ((actual / total) * 100).toFixed(1) : '0.0'}% of rolls`;
+        card.appendChild(count);
+        card.appendChild(label);
+        const contribution = document.createElement('div');
+        contribution.className = 'pgDiceContributionBar';
+        for (const p of players) {
+          const value = safeNum((byPlayer[p.id] || {})[roll]);
+          if (!value || !actual) continue;
+          const segment = document.createElement('span');
+          segment.style.width = `${(value / actual) * 100}%`;
+          segment.style.background = p.color || '#777';
+          segment.title = `${p.name}: ${value}`;
+          contribution.appendChild(segment);
+        }
+        card.appendChild(contribution);
+      }
+      rollGrid.appendChild(card);
+    }
+    section.appendChild(rollGrid);
 
-// Legend
-if (players.length) {
-  const legend = document.createElement('div');
-  legend.className = 'pgLegend';
-  for (const p of players) {
-    const it = document.createElement('div');
-    it.className = 'pgLegendItem';
-    const dot = document.createElement('div');
-    dot.className = 'pgLegendDot';
-    dot.style.background = p.color || '#777';
-    const nm = document.createElement('div');
-    nm.textContent = p.name;
-    it.appendChild(dot);
-    it.appendChild(nm);
-    legend.appendChild(it);
-  }
-  sec.appendChild(legend);
-}
-
-const headers = ['Roll','Count (by player)','%'];
-const rows = counts.map(o => {
-  const r = o.r;
-  const c = o.c;
-  const pct = total ? Math.round((c/total)*1000)/10 : 0;
-
-  const segs = players.map(p => ({
-    value: safeNum((byPlayer[p.id] || {})[r] || 0),
-    color: p.color || '#777',
-  })).filter(s => safeNum(s.value) > 0);
-
-  return [
-    String(r),
-    stackedBarNode(segs, maxCount, c, { alignRight: true, alpha: 0.22 }),
-    pct.toFixed(1)
-  ];
-});
-
-sec.appendChild(makeTable(headers, rows));
-ui.pgTabBody.appendChild(sec);
-addNote(`Total rolls: ${total}. Bars are stacked by player.`);
-return;
+    if (postgameState.diceView !== 'prob') {
+      const legend = document.createElement('div');
+      legend.className = 'pgLegend pgDiceLegend';
+      for (const p of players) {
+        const item = document.createElement('div');
+        item.className = 'pgLegendItem';
+        const dot = document.createElement('div');
+        dot.className = 'pgLegendDot';
+        dot.style.background = p.color || '#777';
+        const name = document.createElement('div');
+        name.textContent = p.name;
+        item.appendChild(dot);
+        item.appendChild(name);
+        legend.appendChild(item);
+      }
+      section.appendChild(legend);
+    }
+    ui.pgTabBody.appendChild(section);
+    addNote(postgameState.diceView === 'prob'
+      ? 'Expected values use the standard 2d6 distribution.'
+      : `Total rolls: ${total}. The colored strip on each number shows each player's contribution.`);
+    return;
   }
 
   // -------------------- RESOURCES --------------------
@@ -2740,114 +2717,57 @@ return;
 
   // -------------------- ACTIVITY --------------------
   if (postgameState.tab === 'activity') {
-    const secTime = makeSection('Turn Time');
+    const section = makeSection('Player Activity');
+    section.classList.add('pgStyledSection');
+    const turnTimes = stats?.turnTimes?.byPlayer || {};
+    const actions = stats?.actions?.byPlayer || {};
+    const trades = stats?.trades?.byPlayer || {};
+    const dev = stats?.dev?.byPlayer || {};
+    const builds = stats?.builds?.byPlayer || {};
+    const rolls = stats?.rolls?.byPlayer || {};
+    const thieves = stats?.thieves || null;
 
-    const byPlayer = (stats && stats.turnTimes && stats.turnTimes.byPlayer) ? stats.turnTimes.byPlayer : null;
-    if (!byPlayer) {
-      secTime.appendChild(document.createTextNode('Turn timing data is unavailable for this match.'));
-      ui.pgTabBody.appendChild(secTime);
-      return;
-    }
-
-    const rowsRaw = players.map(p => {
-      const tt = byPlayer[p.id] || {};
-      return { p, turns: safeNum(tt.turns), totalMs: safeNum(tt.totalMs), avgMs: safeNum(tt.avgMs) };
+    const cards = players.map((p) => {
+      const tt = turnTimes[p.id] || {};
+      const ac = actions[p.id] || {};
+      const tr = trades[p.id] || {};
+      const dv = dev[p.id] || {};
+      const bl = builds[p.id] || {};
+      const rl = rolls[p.id] || {};
+      const stolenFrom = thieves ? (
+        safeNum(thieves.robber?.stolenFromByPlayer?.[p.id]) +
+        safeNum(thieves.pirate?.stolenFromByPlayer?.[p.id])
+      ) : 0;
+      const buildsTotal = safeNum(bl.settlement) + safeNum(bl.city) + safeNum(bl.road) + safeNum(bl.ship);
+      return makePlayerOverviewCard(p, {
+        headline: fmtMs(safeNum(tt.avgMs)),
+        headlineLabel: 'Average turn',
+        metrics: [
+          { icon: '◷', label: 'Total time', value: fmtMs(safeNum(tt.totalMs)) },
+          { icon: '↻', label: 'Turns', value: safeNum(tt.turns) },
+          { icon: '⚄', label: 'Dice rolls', value: diceTotalFor(rl) },
+          { icon: '⌂', label: 'Total builds', value: buildsTotal },
+          { icon: '⌂', label: 'Settlements', value: safeNum(bl.settlement) },
+          { icon: '▰', label: 'Cities', value: safeNum(bl.city) },
+          { icon: '━', label: 'Roads', value: safeNum(bl.road) },
+          { icon: '▲', label: 'Ships', value: safeNum(bl.ship) },
+          { icon: '↝', label: 'Ship moves', value: safeNum(bl.ship_move) },
+          { asset: 'Dev Cards/Knight.png', label: 'Dev played', value: safeNum(dv.played) },
+          { icon: '⇄', label: 'Trades', value: safeNum(tr.bank) + safeNum(tr.player), title: `${safeNum(tr.bank)} bank / ${safeNum(tr.player)} player` },
+          { asset: 'Robber Pirate/thief_robber.png', label: 'Robber moves', value: safeNum(ac.robberMoves) },
+          { asset: 'Robber Pirate/thief_pirate.png', label: 'Pirate moves', value: safeNum(ac.pirateMoves) },
+          { asset: 'Robber Pirate/thief_robber.png', label: 'Robber steals', value: safeNum(ac.robberSteals) },
+          { asset: 'Robber Pirate/thief_pirate.png', label: 'Pirate steals', value: safeNum(ac.pirateSteals) },
+          { icon: '!', label: 'Stolen from', value: stolenFrom, tone: stolenFrom ? 'negative' : '' },
+          { icon: '7', label: 'Discards', value: safeNum(ac.discards), tone: safeNum(ac.discards) ? 'negative' : '' },
+        ],
+      });
     });
-
-    const maxTurns = Math.max(1, ...rowsRaw.map(r => r.turns));
-    const maxTotalMs = Math.max(1, ...rowsRaw.map(r => r.totalMs));
-
-    const headers = ['Player','Turns','Total Time','Avg Turn'];
-    const rows = rowsRaw.map(r => [
-      playerCell(r.p),
-      barNode(r.turns, maxTurns, r.p.color, r.turns, { alignRight: true, alpha: 0.14 }),
-      barNode(r.totalMs, maxTotalMs, r.p.color, fmtMs(r.totalMs), { alignRight: true, alpha: 0.12 }),
-      barNode(r.avgMs, Math.max(1, ...rowsRaw.map(x => x.avgMs)), r.p.color, fmtMs(r.avgMs), { alignRight: true, alpha: 0.10 }),
-    ]);
-
-    secTime.appendChild(makeTable(headers, rows));
-    ui.pgTabBody.appendChild(secTime);
-
-    const secActs = makeSection('Action Counts');
-
-const actions = (stats && stats.actions && stats.actions.byPlayer) ? stats.actions.byPlayer : {};
-const trades = (stats && stats.trades && stats.trades.byPlayer) ? stats.trades.byPlayer : {};
-const dev = (stats && stats.dev && stats.dev.byPlayer) ? stats.dev.byPlayer : {};
-const builds = (stats && stats.builds && stats.builds.byPlayer) ? stats.builds.byPlayer : {};
-const rolls = (stats && stats.rolls && stats.rolls.byPlayer) ? stats.rolls.byPlayer : {};
-const thieves = (stats && stats.thieves) ? stats.thieves : null;
-
-const raw = players.map(p => {
-  const ac = actions[p.id] || {};
-  const tr = trades[p.id] || {};
-  const dv = dev[p.id] || {};
-  const bl = builds[p.id] || {};
-  const rl = rolls[p.id] || {};
-
-  const stolenFrom = thieves ? (
-    safeNum(thieves.robber?.stolenFromByPlayer?.[p.id]) +
-    safeNum(thieves.pirate?.stolenFromByPlayer?.[p.id])
-  ) : 0;
-
-  return {
-    p,
-    rolls: diceTotalFor(rl),
-    settlements: safeNum(bl.settlement),
-    cities: safeNum(bl.city),
-    roads: safeNum(bl.road),
-    ships: safeNum(bl.ship),
-    shipMoves: safeNum(bl.ship_move),
-    devPlayed: safeNum(dv.played),
-    trades: safeNum(tr.bank) + safeNum(tr.player),
-    robberMoves: safeNum(ac.robberMoves),
-    pirateMoves: safeNum(ac.pirateMoves),
-    robberSteals: safeNum(ac.robberSteals),
-    pirateSteals: safeNum(ac.pirateSteals),
-    stolenFrom,
-    discards: safeNum(ac.discards),
-  };
-});
-
-const max = {
-  rolls: Math.max(1, ...raw.map(r => r.rolls)),
-  settlement: Math.max(1, ...raw.map(r => r.settlements)),
-  city: Math.max(1, ...raw.map(r => r.cities)),
-  road: Math.max(1, ...raw.map(r => r.roads)),
-  ship: Math.max(1, ...raw.map(r => r.ships)),
-  shipMoves: Math.max(1, ...raw.map(r => r.shipMoves)),
-  devPlayed: Math.max(1, ...raw.map(r => r.devPlayed)),
-  trades: Math.max(1, ...raw.map(r => r.trades)),
-  robberMoves: Math.max(1, ...raw.map(r => r.robberMoves)),
-  pirateMoves: Math.max(1, ...raw.map(r => r.pirateMoves)),
-  robberSteals: Math.max(1, ...raw.map(r => r.robberSteals)),
-  pirateSteals: Math.max(1, ...raw.map(r => r.pirateSteals)),
-  stolenFrom: Math.max(1, ...raw.map(r => r.stolenFrom)),
-  discards: Math.max(1, ...raw.map(r => r.discards)),
-};
-
-const headers2 = ['Player','Rolls','S','C','R','Sh','Ship Moves','Dev Played','Trades','RM','PM','RS','PS','Stolen From','Discards'];
-const rows2 = raw.map(r => [
-  playerCell(r.p),
-  barNode(r.rolls, max.rolls, r.p.color, r.rolls, { alignRight: true, alpha: 0.14 }),
-  barNode(r.settlements, max.settlement, r.p.color, r.settlements, { alignRight: true, alpha: 0.10 }),
-  barNode(r.cities, max.city, r.p.color, r.cities, { alignRight: true, alpha: 0.10 }),
-  barNode(r.roads, max.road, r.p.color, r.roads, { alignRight: true, alpha: 0.10 }),
-  barNode(r.ships, max.ship, r.p.color, r.ships, { alignRight: true, alpha: 0.10 }),
-  barNode(r.shipMoves, max.shipMoves, r.p.color, r.shipMoves, { alignRight: true, alpha: 0.10 }),
-  barNode(r.devPlayed, max.devPlayed, r.p.color, r.devPlayed, { alignRight: true, alpha: 0.10 }),
-  barNode(r.trades, max.trades, r.p.color, r.trades, { alignRight: true, alpha: 0.10 }),
-  barNode(r.robberMoves, max.robberMoves, r.p.color, r.robberMoves, { alignRight: true, alpha: 0.10 }),
-  barNode(r.pirateMoves, max.pirateMoves, r.p.color, r.pirateMoves, { alignRight: true, alpha: 0.10 }),
-  barNode(r.robberSteals, max.robberSteals, r.p.color, r.robberSteals, { alignRight: true, alpha: 0.10 }),
-  barNode(r.pirateSteals, max.pirateSteals, r.p.color, r.pirateSteals, { alignRight: true, alpha: 0.10 }),
-  barNode(r.stolenFrom, max.stolenFrom, r.p.color, r.stolenFrom, { alignRight: true, alpha: 0.10 }),
-  barNode(r.discards, max.discards, r.p.color, r.discards, { alignRight: true, alpha: 0.10 }),
-]);
-
-secActs.appendChild(makeTable(headers2, rows2));
-ui.pgTabBody.appendChild(secActs);
-addNote('S=Settlements, C=Cities, R=Roads, Sh=Ships, RM/PM=Robber/Pirate Moves, RS/PS=Robber/Pirate Steals.');
-return;
+    appendOverviewGrid(section, cards);
+    ui.pgTabBody.appendChild(section);
+    if (!stats?.turnTimes?.byPlayer) addNote('Turn timing data is unavailable for this match; other activity totals are still shown.');
+    else addNote('Trade totals combine bank and player trades. Robber and pirate actions remain separated for direct comparison.');
+    return;
   }
 
   // -------------------- DEV CARDS --------------------
@@ -2856,81 +2776,86 @@ return;
     controls.className = 'pgControls';
     controls.appendChild(makePlayerSelect('Focus player', 'devFocusId', winnerId));
 
-    const sec1 = makeSection('Dev Cards Overview');
-
-    const byPlayer = (stats && stats.dev && stats.dev.byPlayer) ? stats.dev.byPlayer : null;
+    const section = makeSection('Dev Cards Overview');
+    section.classList.add('pgStyledSection');
+    const byPlayer = stats?.dev?.byPlayer || null;
     if (!byPlayer) {
-      sec1.appendChild(document.createTextNode('Dev card statistics are unavailable for this match.'));
-      ui.pgTabBody.appendChild(sec1);
+      section.appendChild(document.createTextNode('Dev card statistics are unavailable for this match.'));
+      ui.pgTabBody.appendChild(section);
       return;
     }
 
-    const raw = players.map(p => {
-      const d = byPlayer[p.id] || {};
-      const bought = safeNum(d.bought);
-      const played = safeNum(d.played);
-      const byType = d.playedByType || {};
-      const knights = safeNum(byType.knight);
-      const vp = safeNum(byType.victory_point);
-      return { p, bought, played, knights, vp };
+    const types = [
+      { keys: ['knight'], label: 'Knight', asset: 'Dev Cards/Knight.png' },
+      { keys: ['victory_point'], label: 'Victory Point', asset: 'Dev Cards/VictoryPoint.png' },
+      { keys: ['road_building'], label: 'Road Building', asset: 'Dev Cards/RoadBuilding.png' },
+      { keys: ['year_of_plenty', 'invention'], label: 'Year of Plenty', asset: 'Dev Cards/Invention.png' },
+      { keys: ['monopoly'], label: 'Monopoly', asset: 'Dev Cards/Monopoly.png' },
+    ];
+    const typeCount = (bucket, type) => type.keys.reduce((sum, key) => sum + safeNum(bucket?.[key]), 0);
+
+    const cards = players.map((p) => {
+      const data = byPlayer[p.id] || {};
+      const playedByType = data.playedByType || {};
+      return makePlayerOverviewCard(p, {
+        headline: safeNum(data.bought),
+        headlineLabel: 'Cards bought',
+        metrics: [
+          { icon: '▶', label: 'Total played', value: safeNum(data.played) },
+          { icon: '◫', label: 'Unplayed', value: Math.max(0, safeNum(data.bought) - safeNum(data.played)) },
+          ...types.map((type) => ({
+            asset: type.asset,
+            label: `${type.label} played`,
+            value: typeCount(playedByType, type),
+          })),
+        ],
+      });
     });
-
-    const maxBought = Math.max(1, ...raw.map(r => r.bought));
-    const maxPlayed = Math.max(1, ...raw.map(r => r.played));
-    const maxKnights = Math.max(1, ...raw.map(r => r.knights));
-
-    const headers = ['Player','Bought','Played','Knights Played','VP Cards Played'];
-    const rows = raw.map(r => [
-      playerCell(r.p),
-      barNode(r.bought, maxBought, r.p.color, r.bought, { alignRight: true, alpha: 0.14 }),
-      barNode(r.played, maxPlayed, r.p.color, r.played, { alignRight: true, alpha: 0.12 }),
-      barNode(r.knights, maxKnights, r.p.color, r.knights, { alignRight: true, alpha: 0.12 }),
-      barNode(r.vp, Math.max(1, ...raw.map(x => x.vp)), r.p.color, r.vp, { alignRight: true, alpha: 0.10 }),
-    ]);
-
-    sec1.appendChild(makeTable(headers, rows));
-    ui.pgTabBody.appendChild(sec1);
+    appendOverviewGrid(section, cards);
+    ui.pgTabBody.appendChild(section);
 
     const pid = postgameState.devFocusId || winnerId;
-    const focus = players.find(pp => pp.id === pid) || players[0];
-    const d = byPlayer[pid] || {};
-    const types = [
-      ['knight','Knight'],
-      ['victory_point','Victory Point'],
-      ['road_building','Road Building'],
-      ['year_of_plenty','Year of Plenty'],
-      ['invention','Year of Plenty'],
-      ['monopoly','Monopoly'],
-    ];
+    const focus = players.find((player) => player.id === pid) || players[0];
+    const data = byPlayer[focus?.id] || {};
+    const boughtByType = data.boughtByType || {};
+    const playedByType = data.playedByType || {};
 
-    const boughtByType = d.boughtByType || {};
-    const playedByType = d.playedByType || {};
-
-    const rowsT = [];
-    let maxB = 1, maxP = 1;
-    for (const [k,label] of types) {
-      const b = safeNum(boughtByType[k]);
-      const p = safeNum(playedByType[k]);
-      if (b || p) {
-        maxB = Math.max(maxB, b);
-        maxP = Math.max(maxP, p);
+    const focusSection = makeSection(`${focus?.name || 'Player'} · Card Breakdown`, controls);
+    focusSection.classList.add('pgStyledSection', 'pgDevFocusSection');
+    focusSection.style.setProperty('--pg-player-color', focus?.color || '#777');
+    const typeGrid = document.createElement('div');
+    typeGrid.className = 'pgDevTypeGrid';
+    for (const type of types) {
+      const card = document.createElement('article');
+      card.className = 'pgDevTypeCard';
+      const image = document.createElement('img');
+      image.src = getTextureAssetUrl(type.asset);
+      image.alt = type.label;
+      image.draggable = false;
+      const label = document.createElement('strong');
+      label.textContent = type.label;
+      const values = document.createElement('div');
+      values.className = 'pgDevTypeValues';
+      for (const item of [
+        ['Bought', typeCount(boughtByType, type)],
+        ['Played', typeCount(playedByType, type)],
+      ]) {
+        const metric = document.createElement('span');
+        const metricLabel = document.createElement('small');
+        metricLabel.textContent = item[0];
+        const metricValue = document.createElement('b');
+        metricValue.textContent = String(item[1]);
+        metric.appendChild(metricLabel);
+        metric.appendChild(metricValue);
+        values.appendChild(metric);
       }
+      card.appendChild(image);
+      card.appendChild(label);
+      card.appendChild(values);
+      typeGrid.appendChild(card);
     }
-
-    for (const [k,label] of types) {
-      const b = safeNum(boughtByType[k]);
-      const p = safeNum(playedByType[k]);
-      if (!b && !p) continue;
-      rowsT.push([
-        label,
-        barNode(b, maxB, focus.color, b, { alignRight: true, alpha: 0.12 }),
-        barNode(p, maxP, focus.color, p, { alignRight: true, alpha: 0.12 }),
-      ]);
-    }
-
-    const sec2 = makeSection('Focus: Breakdown by Type', controls);
-    sec2.appendChild(makeTable(['Card Type','Bought','Played'], rowsT));
-    ui.pgTabBody.appendChild(sec2);
+    focusSection.appendChild(typeGrid);
+    ui.pgTabBody.appendChild(focusSection);
 
     addNote('Dev stats are derived from purchases and plays tracked by the server.');
     return;

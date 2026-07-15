@@ -924,13 +924,13 @@ select.input{
   font-family: var(--mono);
 }
 .postgameTabs{
-  display:flex;
+  display:grid;
+  grid-template-columns:repeat(5, minmax(108px, 1fr));
   gap:8px;
   padding:10px 14px;
   border-bottom:1px solid rgba(255,255,255,.08);
   background: rgba(255,255,255,.02);
-  flex-wrap:wrap;
-  justify-content:center;
+  overflow-x:auto;
 }
 .pgTab{
   border:1px solid rgba(255,255,255,.12);
@@ -942,10 +942,12 @@ select.input{
   font-weight: 800;
   font-size: 12px;
   letter-spacing: .2px;
+  min-height:42px;
 }
 .pgTab.active{
   border-color: rgba(74,163,255,.55);
-  background: rgba(74,163,255,.14);
+  background: linear-gradient(180deg, rgba(74,163,255,.20), rgba(74,163,255,.09));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 7px 18px rgba(0,0,0,.18);
 }
 .postgameBody{
   flex:1;
@@ -1132,6 +1134,363 @@ select.input{
   border-radius:999px;
   box-shadow: 0 0 0 3px rgba(255,255,255,.06) inset;
 }
+
+/* Postgame: shared overview-card visual system */
+.pgStyledSection > .pgSectionHead{
+  min-height:38px;
+  padding:0 2px;
+}
+.pgOverviewPlayerGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));
+  gap:12px;
+  align-items:stretch;
+}
+.pgOverviewPlayerCard{
+  position:relative;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  padding:12px 10px 10px;
+  border:1px solid color-mix(in srgb, var(--pg-player-color) 58%, rgba(255,255,255,.08));
+  border-radius:18px;
+  background:
+    radial-gradient(260px 190px at 50% 105%, color-mix(in srgb, var(--pg-player-color) 14%, transparent), transparent 72%),
+    rgba(0,0,0,.18);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+  overflow:hidden;
+}
+.pgOverviewPlayerCard.winner{
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.07),
+    0 0 28px color-mix(in srgb, var(--pg-player-color) 13%, transparent);
+}
+.pgOverviewCardHead{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  min-height:46px;
+  padding:0 48px 9px;
+  text-align:center;
+}
+.pgOverviewHeadline{
+  color:color-mix(in srgb, var(--pg-player-color) 68%, #fff);
+  font-family:var(--mono);
+  font-size:18px;
+  font-weight:1000;
+  line-height:1.1;
+  text-shadow:0 4px 12px rgba(0,0,0,.48);
+}
+.pgOverviewHeadlineLabel{
+  margin-top:3px;
+  color:var(--muted);
+  font-family:var(--mono);
+  font-size:8px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.pgOverviewRibbon{
+  position:absolute;
+  top:1px;
+  right:0;
+  padding:4px 6px;
+  border:1px solid color-mix(in srgb, var(--pg-player-color) 48%, rgba(255,255,255,.08));
+  border-radius:999px;
+  background:color-mix(in srgb, var(--pg-player-color) 12%, rgba(0,0,0,.34));
+  color:color-mix(in srgb, var(--pg-player-color) 72%, #fff);
+  font-family:var(--mono);
+  font-size:7px;
+  font-weight:900;
+  white-space:nowrap;
+}
+.pgOverviewBadges{
+  display:flex;
+  justify-content:center;
+  gap:5px;
+  flex-wrap:wrap;
+  margin:-3px 0 8px;
+}
+.pgOverviewBadges span{
+  padding:3px 6px;
+  border:1px solid color-mix(in srgb, var(--pg-player-color) 38%, rgba(255,255,255,.08));
+  border-radius:999px;
+  background:color-mix(in srgb, var(--pg-player-color) 9%, transparent);
+  color:color-mix(in srgb, var(--pg-player-color) 66%, #fff);
+  font-family:var(--mono);
+  font-size:7px;
+  font-weight:900;
+}
+.pgOverviewMetricGrid{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:5px;
+  align-content:start;
+  flex:1;
+}
+.pgOverviewMetric{
+  min-width:0;
+  min-height:46px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:6px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:9px;
+  background:rgba(255,255,255,.025);
+}
+.pgOverviewMetric.positive{border-color:rgba(87,221,107,.20); background:rgba(55,155,73,.055);}
+.pgOverviewMetric.negative{border-color:rgba(235,92,92,.22); background:rgba(172,48,48,.065);}
+.pgOverviewMetric.warning{border-color:rgba(245,190,61,.22); background:rgba(170,119,30,.06);}
+.pgOverviewMetricIcon{
+  width:30px;
+  height:30px;
+  flex:0 0 30px;
+  display:grid;
+  place-items:center;
+  border-radius:8px;
+  background:color-mix(in srgb, var(--pg-player-color) 11%, rgba(0,0,0,.22));
+  color:color-mix(in srgb, var(--pg-player-color) 58%, #fff);
+  font-family:var(--mono);
+  font-size:14px;
+  font-weight:1000;
+}
+.pgOverviewMetricIcon img{
+  width:29px;
+  height:29px;
+  object-fit:contain;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.55));
+}
+.pgOverviewMetricCopy{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.pgOverviewMetricLabel{
+  overflow:hidden;
+  color:var(--muted);
+  font-family:var(--mono);
+  font-size:7px;
+  font-weight:800;
+  line-height:1.15;
+  text-transform:uppercase;
+  text-overflow:ellipsis;
+}
+.pgOverviewMetricValue{
+  overflow:hidden;
+  color:rgba(255,255,255,.96);
+  font-family:var(--mono);
+  font-size:11px;
+  font-weight:1000;
+  line-height:1.1;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.pgOverviewPlayerFooter{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  min-width:0;
+  margin-top:9px;
+  padding-top:9px;
+  border-top:1px solid rgba(255,255,255,.08);
+  color:var(--text);
+  font-size:11px;
+  font-weight:950;
+}
+.pgOverviewPlayerFooter span:last-child{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.pgOverviewPlayerSwatch{
+  width:11px;
+  height:11px;
+  flex:0 0 11px;
+  border-radius:3px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.42);
+}
+.pgMatchHighlights{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:10px;
+  margin:14px 0 4px;
+}
+.pgMatchHighlight{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  min-height:58px;
+  padding:9px 12px;
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:14px;
+  background:rgba(0,0,0,.17);
+}
+.pgMatchHighlight > span{
+  display:grid;
+  place-items:center;
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+  border-radius:10px;
+  background:rgba(74,163,255,.11);
+  color:#87bdff;
+  font-size:17px;
+}
+.pgMatchHighlight div{min-width:0; display:flex; flex-direction:column; gap:2px;}
+.pgMatchHighlight small{color:var(--muted); font-family:var(--mono); font-size:8px; text-transform:uppercase;}
+.pgMatchHighlight strong{overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap;}
+
+/* Dice overview */
+.pgDiceRollGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));
+  gap:9px;
+}
+.pgDiceRollCard{
+  min-height:164px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:flex-start;
+  padding:11px 9px 10px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:15px;
+  background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(0,0,0,.12));
+  overflow:hidden;
+}
+.pgDiceRollCard.seven{
+  border-color:rgba(231,91,91,.32);
+  background:linear-gradient(180deg, rgba(181,55,55,.10), rgba(0,0,0,.12));
+}
+.pgDiceRollIcon{
+  width:60px;
+  height:60px;
+  display:grid;
+  place-items:center;
+  margin-bottom:5px;
+}
+.pgDiceRollIcon img{
+  width:58px;
+  height:58px;
+  object-fit:contain;
+  filter:drop-shadow(0 5px 8px rgba(0,0,0,.50));
+}
+.pgDiceRollIcon.seven{
+  width:52px;
+  height:52px;
+  margin:4px 0 9px;
+  border:2px solid #ff7878;
+  border-radius:999px;
+  background:rgba(170,44,44,.18);
+  color:#ff8a8a;
+  font-family:var(--mono);
+  font-size:24px;
+  font-weight:1000;
+  box-shadow:0 5px 12px rgba(0,0,0,.34);
+}
+.pgDiceRollCount{font-family:var(--mono); font-size:22px; line-height:1;}
+.pgDiceRollCountLabel{margin-top:3px; color:var(--muted); font-family:var(--mono); font-size:8px;}
+.pgDiceContributionBar{
+  width:100%;
+  height:9px;
+  display:flex;
+  margin-top:auto;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:999px;
+  background:rgba(255,255,255,.035);
+  overflow:hidden;
+}
+.pgDiceContributionBar span{height:100%;}
+.pgDiceLegend{justify-content:center; margin:12px 0 0;}
+.pgDiceRollMetrics{
+  width:100%;
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:3px;
+  margin-top:auto;
+}
+.pgDiceRollMetrics div{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:2px;
+  padding:5px 2px;
+  border-radius:7px;
+  background:rgba(255,255,255,.03);
+}
+.pgDiceRollMetrics span{color:var(--muted); font-family:var(--mono); font-size:6px; text-transform:uppercase;}
+.pgDiceRollMetrics strong{font-family:var(--mono); font-size:9px;}
+.pgDiceRollMetrics strong.positive{color:#75ff88;}
+.pgDiceRollMetrics strong.negative{color:#ff7979;}
+.pgDicePlayerDistribution{
+  display:grid;
+  grid-template-columns:repeat(11, minmax(0, 1fr));
+  gap:2px;
+  margin-top:8px;
+}
+.pgDicePlayerDistribution div{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:2px;
+  padding:4px 1px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:5px;
+  background:rgba(255,255,255,.025);
+}
+.pgDicePlayerDistribution div.seven{border-color:rgba(231,91,91,.25); background:rgba(181,55,55,.07);}
+.pgDicePlayerDistribution span{color:var(--muted); font-family:var(--mono); font-size:6px;}
+.pgDicePlayerDistribution strong{font-family:var(--mono); font-size:8px;}
+
+/* Dev-card focus */
+.pgDevFocusSection{
+  margin-top:20px;
+  padding:14px;
+  border:1px solid color-mix(in srgb, var(--pg-player-color) 30%, rgba(255,255,255,.08));
+  border-radius:18px;
+  background:rgba(0,0,0,.16);
+}
+.pgDevTypeGrid{
+  display:grid;
+  grid-template-columns:repeat(5, minmax(140px, 1fr));
+  gap:9px;
+}
+.pgDevTypeCard{
+  min-width:0;
+  display:grid;
+  grid-template-columns:52px 1fr;
+  grid-template-rows:auto auto;
+  align-items:center;
+  gap:5px 8px;
+  padding:9px;
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:13px;
+  background:rgba(255,255,255,.025);
+}
+.pgDevTypeCard > img{
+  grid-row:1 / 3;
+  width:52px;
+  height:66px;
+  object-fit:contain;
+  filter:drop-shadow(0 5px 7px rgba(0,0,0,.48));
+}
+.pgDevTypeCard > strong{overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap;}
+.pgDevTypeValues{display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px;}
+.pgDevTypeValues span{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding:4px;
+  border-radius:6px;
+  background:rgba(0,0,0,.18);
+}
+.pgDevTypeValues small{color:var(--muted); font-family:var(--mono); font-size:6px; text-transform:uppercase;}
+.pgDevTypeValues b{font-family:var(--mono); font-size:11px;}
 
 /* Postgame: Resources per-turn layout */
 .pgResCategoryPanel{
@@ -1490,6 +1849,12 @@ select.input{
   .pgResCategoryHeading{align-items:center; flex-direction:column; gap:3px;}
   .pgResOverviewGrid{grid-template-columns:1fr;}
   .pgResPlayerColumn{min-height:350px;}
+  .pgOverviewPlayerGrid{grid-template-columns:1fr;}
+  .pgMatchHighlights{grid-template-columns:1fr;}
+  .pgDiceRollGrid{grid-template-columns:repeat(2, minmax(0, 1fr));}
+  .pgDevTypeGrid{grid-template-columns:repeat(2, minmax(0, 1fr));}
+  .pgDevTypeCard{grid-template-columns:44px 1fr;}
+  .pgDevTypeCard > img{width:44px; height:58px;}
 }
 
 /* User-adjustable scaling for tabbed overlays (Postgame + History) */
