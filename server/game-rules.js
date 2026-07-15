@@ -34,6 +34,12 @@ function isSeafarers56Scenario(raw) {
     value === 'test_builder_56';
 }
 
+function seafarersAwardsNewIslandBonus(rules) {
+  if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
+  const scenario = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
+  return scenario !== 'fog_island' && scenario !== 'fog_island_56';
+}
+
 function bankMaxForRules(rules) {
   const custom = Math.floor(Number(rules && (rules.baseResourcesPerType ?? rules.baseResourceCount)));
   if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
@@ -51,4 +57,5 @@ module.exports = {
   isClassic56MapModeRaw,
   isSeafarers56Scenario,
   normalizedMapModeRaw,
+  seafarersAwardsNewIslandBonus,
 };

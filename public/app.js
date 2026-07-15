@@ -6100,7 +6100,7 @@ function refreshLobbyJoinLinkUi() {
       ],
       rules: [
         'Tile placement is part of the game: use it to shape future production, coastlines, routes, and access to ports.',
-        'Cartographer does not award the normal 2-point new-island settlement bonus.',
+        'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules still apply.',
       ],
     },
@@ -6112,7 +6112,7 @@ function refreshLobbyJoinLinkUi() {
         'After the draft, number tokens, robber, pirate, and ports are randomized; normal expanded Seafarers setup follows.',
       ],
       rules: [
-        'Cartographer does not award the normal 2-point new-island settlement bonus.',
+        'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
         'Paired-turn rules apply after setup, and Player 2 may trade only with the bank.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules still apply.',
       ],
@@ -6125,7 +6125,7 @@ function refreshLobbyJoinLinkUi() {
         'Each setup settlement is followed by a connected road or ship.',
       ],
       rules: [
-        'Scattered Tiles does not award the normal 2-point new-island settlement bonus.',
+        'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules apply.',
       ],
     },
@@ -6137,7 +6137,7 @@ function refreshLobbyJoinLinkUi() {
         'Each setup settlement is followed by a connected road or ship.',
       ],
       rules: [
-        'Scattered Tiles does not award the normal 2-point new-island settlement bonus.',
+        'The first settlement a player builds on each new land mass after setup is worth 2 bonus victory points.',
         'Paired-turn rules apply after setup, and Player 2 may trade only with the bank.',
         'All common Seafarers ship, pirate, Gold Field, building, trade, and development-card rules apply.',
       ],

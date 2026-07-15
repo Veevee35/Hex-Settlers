@@ -25,7 +25,7 @@ const {
   sessionTokenMatches,
   verifyPasswordHash,
 } = require('./server/security');
-const { DEFAULT_RULES, bankMaxForRules } = require('./server/game-rules');
+const { DEFAULT_RULES, bankMaxForRules, seafarersAwardsNewIslandBonus } = require('./server/game-rules');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
@@ -5934,7 +5934,7 @@ function applyActionCore(room, playerId, action) {
     // Seafarers: when you build a settlement on an island where you have no buildings yet,
     // you immediately gain +2 VP. (Not awarded during setup.)
     let newIslandBonus = false;
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && game.phase === 'main-actions' && !isFogIslandScenario(String((game.rules?.seafarersScenario || 'four_islands')).toLowerCase().replace(/-/g,'_')) && !isCartographer4ScenarioKey(seafarersScenarioKey(game))) {
+    if (game.phase === 'main-actions' && seafarersAwardsNewIslandBonus(game.rules)) {
       const tileToIsland = computeLandIslands(game.geom);
       const islandId = islandIdForNode(game.geom, nodeId, tileToIsland);
       if (islandId != null) {
