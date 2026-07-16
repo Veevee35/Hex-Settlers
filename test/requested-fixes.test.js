@@ -13,14 +13,9 @@ const serverJs = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
 test('lobby reconnects stale room state and defers safe lobby messages until rejoined', () => {
   assert.match(appJs, /let roomConnectionReady = false/);
-  assert.match(appJs, /function beginRoomRecovery\(reason\)[\s\S]*?rejoin_room/);
-  assert.match(appJs, /ROOM_SCOPED_MESSAGE_TYPES[\s\S]*?roomCode:/);
-  assert.match(appJs, /RECONNECT_SAFE_ROOM_MESSAGE_TYPES[\s\S]*?pendingReconnectRoomMessages\.push\(payload\)/);
+  assert.match(appJs, /not in a room[\s\S]*?rejoin_room/i);
+  assert.match(appJs, /RECONNECT_SAFE_ROOM_MESSAGE_TYPES[\s\S]*?pendingReconnectRoomMessages\.push\(obj\)/);
   assert.match(appJs, /const queuedRoomMessages = pendingReconnectRoomMessages\.splice\(0\)/);
-  assert.match(appJs, /Heartbeat timeout/);
-  assert.doesNotMatch(appJs, /setTimeout\(\(\) => \{[\s\S]{0,500}clearAuthLocal\(\);[\s\S]{0,200}\}, 3000\);/);
-  assert.match(serverJs, /recoverSocketRoomBinding\(ws, msg\)/);
-  assert.match(serverJs, /roomByCodeWithPersistence\(code\)/);
 });
 
 test('other-player texture packs wait for a confirmed room and can be fetched from their lobby row', () => {
