@@ -38,6 +38,7 @@ const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
+const { normalizeBankTradeAction, validateBankTradeAvailability } = require('./server/bank-trade');
 const { sanitizeLogEntriesForViewer } = require('./server/private-log');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const { friendlyPirateCanOccupyTile, friendlyPirateProtectedPlayerIds, friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
@@ -6950,47 +6951,62 @@ if (kind === 'pirate_steal') {
   if (kind === 'bank_trade') {
     if (game.phase !== 'main-actions') return { ok: false, error: 'You can only trade after rolling.' };
 
-    const giveKind = action.giveKind;
-    const takeKind = action.takeKind;
-    const takeQty = Math.max(1, Math.floor(Number(action.takeQty || 1)));
-
-    if (!RESOURCE_KINDS.includes(giveKind) || !RESOURCE_KINDS.includes(takeKind)) {
-      return { ok: false, error: 'Invalid resource type.' };
-    }
-    if (giveKind === takeKind) return { ok: false, error: 'Choose two different resources.' };
-
     const p = playerById(game, playerId);
     if (!p) return { ok: false, error: 'Missing player.' };
 
-    // Default: best available rate based on owned ports.
-    // Allow client to explicitly force a 4:1 bank trade (requested behavior).
-    const forced = Math.floor(Number(action.forceRatio || 0));
-    const ratio = (forced === 4) ? 4 : tradeRatioFor(game, playerId, giveKind);
-    const cost = ratio * takeQty;
+    const normalized = normalizeBankTradeAction(action, {
+      resourceKinds: RESOURCE_KINDS,
+      ratioFor: (giveKind) => tradeRatioFor(game, playerId, giveKind),
+    });
+    if (!normalized.ok) return normalized;
 
-    if ((p.resources[giveKind] || 0) < cost) return { ok: false, error: `Not enough ${giveKind} to trade.` };
-
-    // Pay and receive
+    const plan = normalized.plan;
     ensureBank(game);
+    const available = validateBankTradeAvailability(plan, p.resources, game.bank, RESOURCE_KINDS);
+    if (!available.ok) return available;
 
-    // Ensure the bank can supply what is requested before taking payment.
-    const avail = (game.bank && Number.isFinite(game.bank[takeKind])) ? game.bank[takeKind] : 0;
-    if (avail < takeQty) return { ok: false, error: `Bank is out of ${takeKind}.` };
+    // Apply the validated basket atomically. Each offered resource uses its own
+    // port rate, so one action can combine (for example) a 2:1 grain trade and
+    // a 4:1 wool trade without weakening either inventory check.
+    for (const resourceKind of RESOURCE_KINDS) {
+      const quantity = Number(plan.give[resourceKind] || 0);
+      if (quantity <= 0) continue;
+      p.resources[resourceKind] = (p.resources[resourceKind] || 0) - quantity;
+      bankReceive(game, resourceKind, quantity);
+    }
 
-    // Pay into the bank (clamped to scenario bank cap)
-    p.resources[giveKind] = (p.resources[giveKind] || 0) - cost;
-    bankReceive(game, giveKind, cost);
+    for (const resourceKind of RESOURCE_KINDS) {
+      const quantity = Number(plan.take[resourceKind] || 0);
+      if (quantity <= 0) continue;
+      bankGive(game, resourceKind, quantity);
+      grantStats(game, playerId, p.resources, resourceKind, quantity, 'trade');
+    }
 
-    // Take from the bank
-    bankGive(game, takeKind, takeQty);
-    grantStats(game, playerId, p.resources, takeKind, takeQty, 'trade');
-    recordResourceDelta(game, playerId, { [giveKind]: -cost }, 'trade');
+    const spentDelta = {};
+    for (const resourceKind of RESOURCE_KINDS) {
+      const quantity = Number(plan.give[resourceKind] || 0);
+      if (quantity > 0) spentDelta[resourceKind] = -quantity;
+    }
+    recordResourceDelta(game, playerId, spentDelta, 'trade');
     recordTrade(game, playerId, 'bank');
 
+    const formatResources = (resourceMap) => RESOURCE_KINDS
+      .filter((resourceKind) => Number(resourceMap?.[resourceKind] || 0) > 0)
+      .map((resourceKind) => `${resourceMap[resourceKind]} ${resourceKind}`)
+      .join(', ');
+    const giveText = formatResources(plan.give);
+    const takeText = formatResources(plan.take);
+    const tradeWord = plan.tradeCount === 1 ? 'trade' : 'trades';
+
     const turnBonusMs = extendPlayerTurn(game, playerId, 5_000, timerSegmentKey(game)) ? 5_000 : 0;
-    game.message = `${playerName(game, playerId)} traded with the bank (${ratio}:1).`;
-    pushLog(game, `${playerName(game, playerId)} traded ${cost} ${giveKind} for ${takeQty} ${takeKind} (bank).${turnBonusMs ? ' +5 seconds.' : ''}`, 'trade', {
-      kind: 'bank', giveKind, takeKind, takeQty, ratio, turnBonusMs,
+    game.message = `${playerName(game, playerId)} completed ${plan.tradeCount} bank ${tradeWord}.`;
+    pushLog(game, `${playerName(game, playerId)} traded ${giveText} for ${takeText} (bank).${turnBonusMs ? ' +5 seconds.' : ''}`, 'trade', {
+      kind: 'bank',
+      give: plan.give,
+      take: plan.take,
+      ratios: plan.ratios,
+      tradeCount: plan.tradeCount,
+      turnBonusMs,
     });
     broadcastSfx(room, 'trade_success');
     return { ok: true };

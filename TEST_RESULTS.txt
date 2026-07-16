@@ -1,11 +1,14 @@
-Hex Settlers persistent-lobby-v3 validation
+Hex Settlers mixed bank-trade validation
 
 Command: npm run check
 Result: PASS
-Tests: 104 passed, 0 failed
+Tests: 112 passed, 0 failed
 Checks: TypeScript bootstrap build, complete Node test suite, server.js syntax, public/app.js syntax
 
-Additional production-bootstrap soak test:
-- Lobby created and settings changed
-- WebSocket remained open for 32 seconds through the server heartbeat interval
-- Lobby room code and selected victory-point setting remained available
+Bank-trade regression coverage:
+- Mixed resource baskets use each offered resource's own port ratio.
+- 2 grain at 2:1 plus 4 wool at 4:1 creates two valid trade credits.
+- Every offered resource is checked independently against player inventory.
+- Incoming bank inventory is checked independently for every requested resource.
+- Partial port payments, unbalanced baskets, and give/receive overlap are rejected.
+- Legacy single-resource bank trades remain compatible with AI and older clients.

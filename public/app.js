@@ -9449,6 +9449,14 @@ if (ui.moveShipBtn) {
     const me = myPlayer();
     if (!me) return;
 
+    const resourceKinds = ['brick','lumber','wool','grain','ore'];
+    const emptyResourceMap = () => Object.fromEntries(resourceKinds.map(k => [k, 0]));
+    const model = {
+      giveTrades: emptyResourceMap(),
+      take: emptyResourceMap(),
+      conflictKind: null,
+    };
+
     const wrap = document.createElement('div');
     wrap.className = 'tradeWrap';
 
@@ -9464,52 +9472,49 @@ if (ui.moveShipBtn) {
 
     const help = document.createElement('div');
     help.className = 'smallNote';
-    help.textContent = 'Left-click TOP row to choose what you receive (+1 each click). Left-click BOTTOM row to choose what you give to the bank. Right-click / Shift-click top row to reduce.';
+    help.textContent = 'Build one combined trade. Left-click any TOP resource to receive +1. Left-click any BOTTOM resource to add one trade at that resource’s port rate. Shift-click or right-click either row to reduce.';
     help.style.marginBottom = '6px';
     bankBox.appendChild(help);
 
-    const model = {
-      giveKind: 'brick',
-      takeKind: 'grain',
-      takeQty: 1,
-    };
-
     const rows = document.createElement('div');
     rows.className = 'gTradeRows';
+
+    function ratioFor(k) {
+      return force4.checked ? 4 : tradeRatioForClient(k);
+    }
+
+    function giveQuantity(k) {
+      return Math.max(0, Number(model.giveTrades[k] || 0)) * ratioFor(k);
+    }
 
     function makeBankChip(k, rowMode) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'resChipBtn';
       chip.title = rowMode === 'take'
-        ? 'Left-click +1 (or switch resource) · Shift-click / Right-click −1'
-        : 'Left-click to choose resource traded to bank';
+        ? 'Left-click +1 received · Shift-click / Right-click −1'
+        : 'Left-click adds one trade at this resource’s rate · Shift-click / Right-click removes one';
 
-      chip.addEventListener('click', (ev) => {
-        const down = !!ev.shiftKey;
+      function change(delta) {
+        model.conflictKind = null;
         if (rowMode === 'take') {
-          if (down) {
-            if (model.takeKind === k) model.takeQty = Math.max(1, Number(model.takeQty || 1) - 1);
+          if (delta > 0 && Number(model.giveTrades[k] || 0) > 0) {
+            model.conflictKind = k;
           } else {
-            if (model.takeKind === k) {
-              model.takeQty = Math.max(1, Number(model.takeQty || 1) + 1);
-            } else {
-              model.takeKind = k;
-              model.takeQty = Math.max(1, Number(model.takeQty || 1));
-            }
+            model.take[k] = Math.max(0, Number(model.take[k] || 0) + delta);
           }
+        } else if (delta > 0 && Number(model.take[k] || 0) > 0) {
+          model.conflictKind = k;
         } else {
-          if (!down) model.giveKind = k;
+          model.giveTrades[k] = Math.max(0, Number(model.giveTrades[k] || 0) + delta);
         }
         refresh();
-      });
+      }
 
+      chip.addEventListener('click', (ev) => change(ev.shiftKey ? -1 : 1));
       chip.addEventListener('contextmenu', (ev) => {
         ev.preventDefault();
-        if (rowMode === 'take' && model.takeKind === k) {
-          model.takeQty = Math.max(1, Number(model.takeQty || 1) - 1);
-          refresh();
-        }
+        change(-1);
       });
 
       const img = document.createElement('img');
@@ -9526,21 +9531,30 @@ if (ui.moveShipBtn) {
       return {
         node: chip,
         update: () => {
-          const ratio = force4.checked ? 4 : tradeRatioForClient(model.giveKind);
-          const n = (rowMode === 'take')
-            ? (model.takeKind === k ? Math.max(1, Number(model.takeQty || 1)) : 0)
-            : (model.giveKind === k ? Math.max(1, ratio * Math.max(1, Number(model.takeQty || 1))) : 0);
-          const shown = (rowMode === 'take') ? n : -n;
+          const quantity = rowMode === 'take'
+            ? Math.max(0, Number(model.take[k] || 0))
+            : giveQuantity(k);
+          const shown = rowMode === 'take' ? quantity : -quantity;
           chip.classList.toggle('pos', shown > 0);
           chip.classList.toggle('neg', shown < 0);
           chip.classList.toggle('zero', shown === 0);
           val.textContent = `${shown >= 0 ? '+' : ''}${shown}`;
 
-          const selected = (rowMode === 'take') ? (model.takeKind === k) : (model.giveKind === k);
+          const selected = quantity > 0;
           chip.style.borderColor = selected ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.12)';
           chip.style.boxShadow = selected
             ? '0 0 0 2px rgba(255,255,255,.10) inset, 0 0 0 1px rgba(0,0,0,.15)'
             : 'inset 0 1px 0 rgba(255,255,255,.04)';
+
+          if (rowMode === 'give') {
+            const trades = Math.max(0, Number(model.giveTrades[k] || 0));
+            const ratio = ratioFor(k);
+            const owned = Number(me.resources?.[k] || 0);
+            chip.title = `Rate ${ratio}:1 · ${owned} owned · ${trades} trade${trades === 1 ? '' : 's'} selected`;
+          } else {
+            const bankAvailable = Number(state.bank?.[k] || 0);
+            chip.title = `Bank has ${bankAvailable} · Left-click +1 · Shift-click / Right-click −1`;
+          }
         }
       };
     }
@@ -9564,7 +9578,7 @@ if (ui.moveShipBtn) {
       chipsWrap.className = 'gTradeChips';
 
       const chips = [];
-      for (const k of ['brick','lumber','wool','grain','ore']) {
+      for (const k of resourceKinds) {
         const c = makeBankChip(k, rowMode);
         chips.push(c);
         chipsWrap.appendChild(c.node);
@@ -9603,32 +9617,67 @@ if (ui.moveShipBtn) {
     force4.type = 'checkbox';
     force4.checked = false;
     forceRow.appendChild(force4);
-    forceRow.appendChild(document.createTextNode('Force 4:1 (ignore ports)'));
+    forceRow.appendChild(document.createTextNode('Force 4:1 for every offered resource (ignore ports)'));
     bankBox.appendChild(forceRow);
 
     wrap.appendChild(bankBox);
 
     let tradeBtn = null;
 
-    function refresh() {
-      const takeQty = Math.max(1, Math.floor(Number(model.takeQty || 1)));
-      model.takeQty = takeQty;
-      const ratio = force4.checked ? 4 : tradeRatioForClient(model.giveKind);
-      const cost = ratio * takeQty;
-      const sameKind = model.giveKind === model.takeKind;
-
-      for (const c of [...topRow.chips, ...bottomRow.chips]) c.update();
-
-      if (sameKind) {
-        bankInfo.textContent = `Choose different resources: you cannot trade ${model.giveKind} for ${model.takeKind}.`;
-      } else {
-        bankInfo.textContent = `Rate: ${ratio}:1 — Cost: ${cost} ${model.giveKind} for ${takeQty} ${model.takeKind}.`;
-      }
-
-      if (tradeBtn) tradeBtn.disabled = sameKind || !model.giveKind || !model.takeKind || takeQty < 1;
+    function selectedGiveMap() {
+      const give = emptyResourceMap();
+      for (const k of resourceKinds) give[k] = giveQuantity(k);
+      return give;
     }
 
-    force4.addEventListener('change', refresh);
+    function selectedTakeMap() {
+      const take = emptyResourceMap();
+      for (const k of resourceKinds) take[k] = Math.max(0, Math.floor(Number(model.take[k] || 0)));
+      return take;
+    }
+
+    function formatResources(resourceMap) {
+      return resourceKinds
+        .filter(k => Number(resourceMap[k] || 0) > 0)
+        .map(k => `${resourceMap[k]} ${k}`)
+        .join(', ');
+    }
+
+    function refresh() {
+      for (const c of [...topRow.chips, ...bottomRow.chips]) c.update();
+
+      const give = selectedGiveMap();
+      const take = selectedTakeMap();
+      const giveTradeCount = resourceKinds.reduce((sum, k) => sum + Math.max(0, Number(model.giveTrades[k] || 0)), 0);
+      const takeTotal = resourceKinds.reduce((sum, k) => sum + Number(take[k] || 0), 0);
+      const inventoryIssue = resourceKinds.find(k => Number(give[k] || 0) > Number(me.resources?.[k] || 0));
+      const bankIssue = resourceKinds.find(k => Number(take[k] || 0) > Number(state.bank?.[k] || 0));
+      const balanced = giveTradeCount > 0 && giveTradeCount === takeTotal;
+
+      if (model.conflictKind) {
+        bankInfo.textContent = `Remove ${model.conflictKind} from the other row first; the same resource cannot be given and received in one bank trade.`;
+      } else if (inventoryIssue) {
+        bankInfo.textContent = `Not enough ${inventoryIssue}: selected ${give[inventoryIssue]}, but you have ${Number(me.resources?.[inventoryIssue] || 0)}.`;
+      } else if (bankIssue) {
+        bankInfo.textContent = `Bank is out of enough ${bankIssue}: selected ${take[bankIssue]}, but only ${Number(state.bank?.[bankIssue] || 0)} remain.`;
+      } else if (giveTradeCount === 0 && takeTotal === 0) {
+        bankInfo.textContent = 'Nothing is selected. Add one or more outgoing trades, then choose the same total number of resources to receive.';
+      } else if (giveTradeCount !== takeTotal) {
+        const difference = giveTradeCount - takeTotal;
+        bankInfo.textContent = difference > 0
+          ? `Choose ${difference} more resource${difference === 1 ? '' : 's'} to receive.`
+          : `Add ${Math.abs(difference)} more outgoing trade${Math.abs(difference) === 1 ? '' : 's'}.`;
+      } else {
+        bankInfo.textContent = `Ready: trade ${formatResources(give)} for ${formatResources(take)}.`;
+      }
+
+      if (tradeBtn) tradeBtn.disabled = !balanced || !!inventoryIssue || !!bankIssue || !!model.conflictKind;
+    }
+
+    force4.addEventListener('change', () => {
+      model.conflictKind = null;
+      refresh();
+    });
 
     openModal({
       title: 'Bank Trade',
@@ -9636,12 +9685,10 @@ if (ui.moveShipBtn) {
       actions: [
         { label: 'Close', onClick: closeModal },
         { label: 'Trade', primary: true, onClick: () => {
-          const giveKind = model.giveKind;
-          const takeKind = model.takeKind;
-          const takeQty = Math.max(1, Math.floor(Number(model.takeQty || 1)));
-          if (!giveKind || !takeKind || giveKind === takeKind) return;
+          const give = selectedGiveMap();
+          const take = selectedTakeMap();
           closeModal();
-          sendGameAction({ kind: 'bank_trade', giveKind, takeKind, takeQty, forceRatio: force4.checked ? 4 : null });
+          sendGameAction({ kind: 'bank_trade', give, take, forceRatio: force4.checked ? 4 : null });
         } },
       ]
     });

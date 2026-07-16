@@ -42,11 +42,13 @@ test('paired extra action turns suppress player-trade composition for every pair
   assert.match(appJs, /if \(isLocalPairedExtraTurn\(state\)\)[\s\S]*?Player-to-player trades are unavailable/);
 });
 
-test('bank trades accept multi-unit quantities and add five seconds', () => {
-  assert.match(appJs, /model\.takeQty = Math\.max\(1, Number\(model\.takeQty \|\| 1\) \+ 1\)/);
-  assert.match(serverJs, /const cost = ratio \* takeQty/);
+test('bank trades support mixed-resource baskets and add five seconds', () => {
+  assert.match(appJs, /giveTrades: emptyResourceMap\(\)/);
+  assert.match(appJs, /model\.giveTrades\[k\] = Math\.max\(0, Number\(model\.giveTrades\[k\] \|\| 0\) \+ delta\)/);
+  assert.match(appJs, /sendGameAction\(\{ kind: 'bank_trade', give, take, forceRatio:/);
+  assert.match(serverJs, /normalizeBankTradeAction\(action/);
+  assert.match(serverJs, /for \(const resourceKind of RESOURCE_KINDS\) \{[\s\S]*?plan\.give\[resourceKind\]/);
   assert.match(serverJs, /extendPlayerTurn\(game, playerId, 5_000, timerSegmentKey\(game\)\)/);
-  assert.match(serverJs, /bankGive\(game, takeKind, takeQty\)/);
 });
 
 test('the center-board YOUR ROLL banner is shown only for the local roll phase', () => {
