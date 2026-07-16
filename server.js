@@ -5548,8 +5548,9 @@ function distributeResources(game, roll) {
     if (t.robber) {
       // Blocked production is tracked as an opportunity loss. It is not an
       // actual hand delta, so it does not affect per-turn resource totals.
-      if (resKind) {
-        const blocked = blockedProductionByPlayer(t, game.geom.nodes, resKind);
+      const blockedKind = isGold ? 'gold' : resKind;
+      if (blockedKind) {
+        const blocked = blockedProductionByPlayer(t, game.geom.nodes, blockedKind);
         for (const [playerId, losses] of Object.entries(blocked)) {
           const player = playerById(game, playerId);
           if (!player || player.departed) continue;
@@ -6516,7 +6517,7 @@ if (kind === 'choose_production_gold') {
   for (const raw of arr) {
     const rk = String(raw || '').toLowerCase();
     if (!RESOURCE_KINDS.includes(rk)) return { ok: false, error: 'Invalid resource choice.' };
-    const got = grantFromBankStats(game, playerId, p.resources, rk, 1, 'production');
+    const got = grantFromBankStats(game, playerId, p.resources, rk, 1, 'gold_production');
     if (got > 0) granted[rk] = (granted[rk] || 0) + got;
   }
 

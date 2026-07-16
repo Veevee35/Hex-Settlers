@@ -1,11 +1,14 @@
 'use strict';
 
-const RESOURCE_KEYS = Object.freeze(['brick', 'lumber', 'wool', 'grain', 'ore']);
-const RESOURCE_GAIN_SOURCES = Object.freeze(['setup', 'production', 'discover', 'trade', 'steal', 'dev', 'other']);
+// Gold is a virtual summary resource. It never enters a player's hand, but it
+// lets postgame statistics represent Gold Field production and robber-blocked
+// Gold Field opportunities without pretending they were one of the five cards.
+const RESOURCE_KEYS = Object.freeze(['brick', 'lumber', 'wool', 'grain', 'ore', 'gold']);
+const RESOURCE_GAIN_SOURCES = Object.freeze(['setup', 'production', 'gold_production', 'discover', 'trade', 'steal', 'dev', 'other']);
 const RESOURCE_LOSS_SOURCES = Object.freeze(['build', 'trade', 'steal', 'discard', 'monopoly', 'blocked', 'dev', 'other']);
 
 function emptyResourceMap() {
-  return { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+  return { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0, gold: 0 };
 }
 
 function ensureResourceMap(value) {

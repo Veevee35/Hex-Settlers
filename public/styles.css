@@ -1698,6 +1698,32 @@ select.input{
   cursor:pointer;
 }
 .pgResCategoryAction:disabled{opacity:.38; cursor:not-allowed;}
+.pgResGoldMode{
+  width:fit-content;
+  max-width:100%;
+  display:grid;
+  grid-template-columns:auto 30px minmax(0, auto);
+  align-items:center;
+  gap:8px;
+  margin:10px 0 0;
+  padding:6px 9px;
+  border:1px solid rgba(255,196,43,.24);
+  border-radius:10px;
+  background:rgba(255,190,22,.055);
+  color:rgba(255,255,255,.88);
+  cursor:pointer;
+}
+.pgResGoldMode input{width:15px; height:15px; margin:0; accent-color:#f4ba18; cursor:pointer;}
+.pgResGoldMode img{
+  width:30px;
+  height:30px;
+  object-fit:cover;
+  border-radius:6px;
+  box-shadow:0 3px 9px rgba(0,0,0,.34);
+}
+.pgResGoldMode span{display:flex; flex-direction:column; gap:2px; min-width:0; font-size:10px; line-height:1.2;}
+.pgResGoldMode strong{color:#ffd65c; font-size:10px;}
+.pgResGoldMode small{color:var(--muted); font-family:var(--mono); font-size:8px;}
 
 .pgResOverviewGrid{
   display:grid;
@@ -1804,6 +1830,7 @@ select.input{
 .pgResStackBlock.wool{background:#6f9f00;}
 .pgResStackBlock.grain{background:#c9ad00;}
 .pgResStackBlock.ore{background:#747566;}
+.pgResStackBlock.gold{background:linear-gradient(155deg, #6f4300, #d68d00 48%, #704000);}
 .pgResStackBlock.loss{border-color:rgba(255,119,119,.95);}
 .pgResStackBlock.loss::after{
   content:'';

@@ -1512,7 +1512,7 @@
 
 // -------------------- Post-game overlay (splash + stats) --------------------
 const POSTGAME_RESOURCE_CATEGORIES = Object.freeze([
-  { key: 'gain_dice', direction: 'gain', icon: '⚄', label: 'Resources gained from dice rolls', sources: ['production'] },
+  { key: 'gain_dice', direction: 'gain', icon: '⚄', label: 'Resources gained from dice rolls', sources: ['production', 'gold_production'] },
   { key: 'gain_steal', direction: 'gain', icon: '♜', label: 'Resources gained from robber and pirate', sources: ['steal'] },
   { key: 'gain_dev', direction: 'gain', icon: '✦', label: 'Resources gained from Monopolies and Years of Plenty', sources: ['dev'] },
   { key: 'gain_trade', direction: 'gain', icon: '⇄', label: 'Resources gained from trading', sources: ['trade'] },
@@ -1549,6 +1549,7 @@ let postgameState = {
   replayActivePlayerId: null,
   replayPlayerLocked: false,
   resourceCategoryEnabled: defaultPostgameResourceCategories(),
+  showGoldProductionAsGold: false,
 };
 
 
@@ -1849,7 +1850,8 @@ function renderPostgameTab(tab) {
   if (!postgameState.devFocusId) postgameState.devFocusId = winnerId;
 
   const RESOURCE_KEYS = ['brick','lumber','wool','grain','ore'];
-  const RESOURCE_LABEL = { brick:'Brick', lumber:'Wood', wool:'Wool', grain:'Grain', ore:'Ore' };
+  const RESOURCE_LABEL = { brick:'Brick', lumber:'Wood', wool:'Wool', grain:'Grain', ore:'Ore', gold:'Gold' };
+  const POSTGAME_RESOURCE_KEYS = [...RESOURCE_KEYS, 'gold'];
 
   const SOURCE_LABEL = {
     // gains
@@ -1867,7 +1869,7 @@ function renderPostgameTab(tab) {
   const sumRes = (m) => {
     if (!m) return 0;
     let t = 0;
-    for (const k of RESOURCE_KEYS) t += Number(m[k] || 0);
+    for (const k of POSTGAME_RESOURCE_KEYS) t += Number(m[k] || 0);
     return t;
   };
 
@@ -2360,13 +2362,17 @@ function renderPostgameTab(tab) {
 
     const selectedCategories = POSTGAME_RESOURCE_CATEGORIES.filter((category) => postgameState.resourceCategoryEnabled[category.key]);
     const categoryMapFor = (resourceStats, category) => {
-      const out = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0]));
+      const out = Object.fromEntries(POSTGAME_RESOURCE_KEYS.map((key) => [key, 0]));
       if (!resourceStats) return out;
       const buckets = category.direction === 'gain' ? resourceStats.gainedBySource : resourceStats.lostBySource;
       for (const source of category.sources || []) {
         const map = buckets && buckets[source];
         if (!map) continue;
-        for (const key of RESOURCE_KEYS) out[key] += safeNum(map[key]);
+        if (source === 'gold_production' && postgameState.showGoldProductionAsGold) {
+          out.gold += RESOURCE_KEYS.reduce((total, key) => total + safeNum(map[key]), 0);
+          continue;
+        }
+        for (const key of POSTGAME_RESOURCE_KEYS) out[key] += safeNum(map[key]);
       }
       // Older saved matches used "dev" for both card purchases and Monopoly
       // losses. Only use that legacy bucket when no explicit Monopoly data exists.
@@ -2374,7 +2380,7 @@ function renderPostgameTab(tab) {
         for (const source of category.legacySources) {
           const map = buckets && buckets[source];
           if (!map) continue;
-          for (const key of RESOURCE_KEYS) out[key] += safeNum(map[key]);
+          for (const key of POSTGAME_RESOURCE_KEYS) out[key] += safeNum(map[key]);
         }
       }
       return out;
@@ -2382,14 +2388,14 @@ function renderPostgameTab(tab) {
 
     const resourceSummaries = players.map((player) => {
       const resourceStats = resByPlayer ? (resByPlayer[player.id] || null) : null;
-      const gained = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0]));
-      const lost = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0]));
+      const gained = Object.fromEntries(POSTGAME_RESOURCE_KEYS.map((key) => [key, 0]));
+      const lost = Object.fromEntries(POSTGAME_RESOURCE_KEYS.map((key) => [key, 0]));
       for (const category of selectedCategories) {
         const values = categoryMapFor(resourceStats, category);
         const target = category.direction === 'gain' ? gained : lost;
-        for (const key of RESOURCE_KEYS) target[key] += safeNum(values[key]);
+        for (const key of POSTGAME_RESOURCE_KEYS) target[key] += safeNum(values[key]);
       }
-      const netByResource = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, gained[key] - lost[key]]));
+      const netByResource = Object.fromEntries(POSTGAME_RESOURCE_KEYS.map((key) => [key, gained[key] - lost[key]]));
       return {
         player,
         gained,
@@ -2445,6 +2451,28 @@ function renderPostgameTab(tab) {
     }
     categoryPanel.appendChild(categoryGrid);
 
+    const goldMode = document.createElement('label');
+    goldMode.className = 'pgResGoldMode';
+    goldMode.title = 'When enabled, Gold Field dice production is counted as Gold instead of the resource cards players selected.';
+    const goldModeCheckbox = document.createElement('input');
+    goldModeCheckbox.type = 'checkbox';
+    goldModeCheckbox.checked = !!postgameState.showGoldProductionAsGold;
+    goldModeCheckbox.setAttribute('aria-label', 'Show Gold Field production as Gold');
+    const goldModeIcon = document.createElement('img');
+    goldModeIcon.src = '/assets/gold-resource.png';
+    goldModeIcon.alt = '';
+    goldModeIcon.draggable = false;
+    const goldModeText = document.createElement('span');
+    goldModeText.innerHTML = '<strong>Show Gold Field production as Gold</strong><small>Turn off to show the resource cards each player selected.</small>';
+    goldModeCheckbox.addEventListener('change', () => {
+      postgameState.showGoldProductionAsGold = goldModeCheckbox.checked;
+      renderPostgameTab('resources');
+    });
+    goldMode.appendChild(goldModeCheckbox);
+    goldMode.appendChild(goldModeIcon);
+    goldMode.appendChild(goldModeText);
+    categoryPanel.appendChild(goldMode);
+
     const categoryActions = document.createElement('div');
     categoryActions.className = 'pgResCategoryActions';
     const setAllCategories = (value) => {
@@ -2473,7 +2501,7 @@ function renderPostgameTab(tab) {
     const maxStackMagnitude = Math.max(1, ...resourceSummaries.flatMap((summary) => (
       [summary.gainedTotal, summary.lostTotal]
     )));
-    const resourceOrder = ['lumber', 'brick', 'wool', 'grain', 'ore'];
+    const resourceOrder = ['lumber', 'brick', 'wool', 'grain', 'ore', 'gold'];
 
     for (const summary of resourceSummaries) {
       const column = document.createElement('article');
@@ -2520,7 +2548,7 @@ function renderPostgameTab(tab) {
           block.title = `${laneSpec.label} ${value} ${RESOURCE_LABEL[key]}`;
 
           const image = document.createElement('img');
-          image.src = getTextureAssetUrl(`Ports/${key}.png`);
+          image.src = key === 'gold' ? '/assets/gold-resource.png' : getTextureAssetUrl(`Ports/${key}.png`);
           image.alt = RESOURCE_LABEL[key];
           image.draggable = false;
           const amount = document.createElement('span');
