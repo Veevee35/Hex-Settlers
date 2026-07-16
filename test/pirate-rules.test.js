@@ -72,5 +72,5 @@ test('map finalization excludes hidden outer-border sea tiles', () => {
 
 test('gameplay and client targeting use the pirate tile restriction', () => {
   assert.match(serverJs, /if \(!pirateCanOccupyTile\(game\.rules, tt, game\.geom\)\) return \{ ok: false, error: 'Pirate cannot be placed on an unavailable sea tile\.' \}/);
-  assert.match(appJs, /canPirateHere = \(isSeaTile && !\(t\.fog && !t\.revealed\) && !t\.pirate\)/);
+  assert.match(appJs, /canPirateHere = \(isSeaTile && !\(t\.fog && !t\.revealed\) && !t\.pirate && !friendlyRobberTileBlockedClient\(t\.id\)\)/);
 });

@@ -1,14 +1,54 @@
 # Railway deployment
 
-1. Deploy the repository as a Node service.
-2. Attach a persistent volume and mount it at `/data` (or another writable path).
-3. Railway supplies `RAILWAY_VOLUME_MOUNT_PATH`; no custom `DATA_DIR` is needed when that variable is present.
-4. Use `npm run build` as the build command and `npm start` as the start command.
+## Required service settings
 
-The service binds to Railway's `PORT` on `0.0.0.0`. Railway environments enable trusted-proxy handling automatically, so secure cookies and client addresses use Railway's forwarded headers.
+1. Deploy this folder as one Node service.
+2. Keep **Replicas = 1**. Lobby membership, active WebSocket ownership, and current game state are held in the Node process. Multiple replicas require an external shared state/pub-sub layer that this build does not use.
+3. Attach a persistent Railway volume and mount it at `/data`.
+4. Use `npm run build` as the build command.
+5. Use `npm start` as the start command.
+6. Set the Railway health-check path to `/health`.
 
-The volume stores `users.json`, `game_history.json`, `active_rooms.json`, and `neural_ai_model.json`. Without a volume those files live on the deployment filesystem and can disappear on redeploy.
+Railway supplies `PORT` and `RAILWAY_VOLUME_MOUNT_PATH`. The server binds to `0.0.0.0:$PORT` and automatically uses the mounted volume for runtime data.
 
-For a custom domain or a separate front end, set `HEX_ALLOWED_ORIGINS` to a comma-separated list of complete origins such as `https://game.example.com`. Same-host browser clients work without this setting.
+## Persistence
 
-After deployment, confirm the home page loads over HTTPS, create a temporary room, and redeploy once to verify that the account and room can be recovered from the volume.
+The volume stores:
+
+- `users.json`
+- `game_history.json`
+- `active_rooms.json`
+- `neural_ai_model.json`
+
+Without a volume, these files are written to the deployment filesystem and may disappear during a redeploy or replacement.
+
+Lobby creation is not acknowledged to the browser until the active-room snapshot has been written. On a WebSocket reconnect, an authenticated room member can recover the room binding from the room code and the persisted membership record.
+
+## Verify this build
+
+After deployment, open:
+
+`https://YOUR-DOMAIN/health`
+
+A correct response includes:
+
+```json
+{
+  "ok": true,
+  "build": "persistent-lobby-v3"
+}
+```
+
+Then:
+
+1. Log in and create a lobby.
+2. Change the victory-point target or map.
+3. Leave the lobby page open for at least one minute.
+4. Refresh the page and use **Rejoin Last Room** if necessary.
+5. Confirm the room code and lobby settings are still present.
+
+The browser and server both send heartbeat traffic. A transient WebSocket interruption now reconnects without immediately deleting the local lobby view or clearing the account session.
+
+## Custom domains
+
+For a custom domain or separate front end, set `HEX_ALLOWED_ORIGINS` to a comma-separated list of complete origins, such as `https://game.example.com`. Same-host browser clients work without this setting.

@@ -1,0 +1,11 @@
+Hex Settlers persistent-lobby-v3 validation
+
+Command: npm run check
+Result: PASS
+Tests: 104 passed, 0 failed
+Checks: TypeScript bootstrap build, complete Node test suite, server.js syntax, public/app.js syntax
+
+Additional production-bootstrap soak test:
+- Lobby created and settings changed
+- WebSocket remained open for 32 seconds through the server heartbeat interval
+- Lobby room code and selected victory-point setting remained available

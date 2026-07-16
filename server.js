@@ -40,7 +40,7 @@ const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { sanitizeLogEntriesForViewer } = require('./server/private-log');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
-const { friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
+const { friendlyPirateCanOccupyTile, friendlyPirateProtectedPlayerIds, friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 const { edgeTouchesSeaForShip } = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
@@ -80,6 +80,15 @@ function deepClone(obj) {
 
 function now() { return Date.now(); }
 
+const SERVER_STARTED_AT = now();
+const SERVER_INSTANCE_ID = String(
+  process.env.RAILWAY_REPLICA_ID ||
+  process.env.RAILWAY_DEPLOYMENT_ID ||
+  crypto.randomUUID()
+).slice(0, 64);
+const SERVER_BUILD_ID = 'persistent-lobby-v3';
+const WS_HEARTBEAT_INTERVAL_MS = 25_000;
+
 function randCode(len = 4) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
@@ -109,7 +118,7 @@ const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
 const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH);
 
 let USERS_DB = { version: 1, users: [] };
-let userSockets = new Map(); // userId -> ws (enforce one active connection per user)
+let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticate without fighting each other
 
 // -------------------- Game History (persistent) --------------------
 // Completed games are stored on disk in game_history.json (DATA_DIR).
@@ -5639,10 +5648,17 @@ function getPirateTileId(game) {
   return null;
 }
 
+function pirateCanOccupyGameTile(game, tileId) {
+  const tile = game && game.geom && game.geom.tiles && game.geom.tiles[tileId];
+  return !!(tile
+    && pirateCanOccupyTile(game.rules, tile, game.geom)
+    && friendlyPirateCanOccupyTile(game, tileId));
+}
+
 function setPirate(game, tileId) {
   const tiles = game.geom.tiles;
   if (!tiles[tileId]) return false;
-  if (!pirateCanOccupyTile(game.rules, tiles[tileId], game.geom)) return false;
+  if (!pirateCanOccupyGameTile(game, tileId)) return false;
   for (const t of tiles) t.pirate = false;
   tiles[tileId].pirate = true;
   return true;
@@ -6825,19 +6841,27 @@ if (kind === 'choose_thief') {
 if (kind === 'move_pirate') {
   if ((game.rules?.mapMode || 'classic') !== 'seafarers') return { ok: false, error: 'Pirate is only available in Seafarers mode.' };
   if (game.phase !== 'pirate-move' && game.phase !== 'pirate-or-robber') return { ok: false, error: 'Not moving pirate now.' };
-  if (game.phase === 'pirate-or-robber') {
-    // Implicit choice (no separate choose step)
-    game.thiefChoice = null;
-    pushLog(game, `${playerName(game, playerId)} chose to move the pirate.`, 'info');
-  }
-  const tileId = action.tileId;
+  const rawTileId = Number(action.tileId);
+  if (!Number.isFinite(rawTileId)) return { ok: false, error: 'Bad tile.' };
+  const tileId = Math.floor(rawTileId);
   const tt = game.geom.tiles?.[tileId];
   if (!tt) return { ok: false, error: 'Bad tile.' };
   if (tt.type !== 'sea') return { ok: false, error: 'Pirate must be placed on the sea.' };
   if (!pirateCanOccupyTile(game.rules, tt, game.geom)) return { ok: false, error: 'Pirate cannot be placed on an unavailable sea tile.' };
+  const protectedIds = friendlyPirateProtectedPlayerIds(game, tileId);
+  if (protectedIds.length > 0) {
+    const protectedNames = protectedIds.map((id) => playerName(game, id)).join(', ');
+    return { ok: false, error: `Friendly Robber protects this sea tile because ${protectedNames} ${protectedIds.length === 1 ? 'has' : 'have'} 2 VP or fewer.` };
+  }
 
   const current = getPirateTileId(game);
   if (current != null && tileId === current) return { ok: false, error: 'Pirate must move to a different tile.' };
+
+  if (game.phase === 'pirate-or-robber') {
+    // Commit the implicit choice only after validating the destination.
+    game.thiefChoice = null;
+    pushLog(game, `${playerName(game, playerId)} chose to move the pirate.`, 'info');
+  }
 
   if (!setPirate(game, tileId)) return { ok: false, error: 'Bad tile.' };
 
@@ -7704,8 +7728,10 @@ function activeRoomSnapshot() {
   return { version: 1, rooms: Array.from(rooms.values()).map(serializeRoom).filter(Boolean) };
 }
 
-function scheduleActiveRoomsSave() {
-  return ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot()).catch((error) => {
+function scheduleActiveRoomsSave({ throwOnError = false } = {}) {
+  const write = ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot());
+  if (throwOnError) return write;
+  return write.catch((error) => {
     console.error('[rooms] Failed to save active_rooms.json:', error && error.message ? error.message : error);
   });
 }
@@ -7724,6 +7750,78 @@ function loadActiveRooms() {
 }
 
 loadActiveRooms();
+
+function normalizeRoomCode(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function restoreRoomFromPersistence(code) {
+  const normalizedCode = normalizeRoomCode(code);
+  if (!normalizedCode || !fs.existsSync(ACTIVE_ROOMS_PATH)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
+    const records = Array.isArray(parsed && parsed.rooms) ? parsed.rooms : [];
+    const record = records.find((candidate) => normalizeRoomCode(candidate && candidate.code) === normalizedCode);
+    if (!record) return null;
+    const restored = restoreRoom(record, DEFAULT_RULES);
+    if (!restored) return null;
+    const existing = rooms.get(normalizedCode);
+    if (existing) return existing;
+    rooms.set(normalizedCode, restored);
+    console.log(`[rooms] Restored room ${normalizedCode} on demand for socket recovery.`);
+    return restored;
+  } catch (error) {
+    console.error('[rooms] Failed to restore room on demand:', error && error.message ? error.message : error);
+    return null;
+  }
+}
+
+function roomByCodeWithPersistence(code) {
+  const normalizedCode = normalizeRoomCode(code);
+  if (!normalizedCode) return null;
+  return rooms.get(normalizedCode) || restoreRoomFromPersistence(normalizedCode);
+}
+
+function bindSocketToRoomMember(room, playerId, ws, replacementError = 'This room session moved to another browser or tab.') {
+  if (!room || !ws) return false;
+  const pid = String(playerId || '').trim();
+  if (!pid || !findRoomMember(room, pid)) return false;
+
+  // A WebSocket can transport exactly one room session. Detach it from any
+  // previous room before binding the new seat so stale broadcasts cannot make
+  // the browser appear to jump between lobbies.
+  const priorCode = normalizeRoomCode(ws._roomCode);
+  const priorPid = String(ws._playerId || '').trim();
+  if (priorCode && priorPid && (priorCode !== room.code || priorPid !== pid)) {
+    const priorRoom = rooms.get(priorCode);
+    if (priorRoom && priorRoom.sockets.get(priorPid) === ws) priorRoom.sockets.delete(priorPid);
+  }
+
+  const prev = room.sockets.get(pid);
+  room.sockets.set(pid, ws);
+  ws._roomCode = room.code;
+  ws._playerId = pid;
+  if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
+    sendJson(prev, { type: 'error', error: replacementError, reconnectBlocked: true });
+    try { prev.close(4001, 'Room session replaced'); } catch (_) {}
+  }
+  return true;
+}
+
+function recoverSocketRoomBinding(ws, message) {
+  if (!ws || !ws._userId) return { ok: false, error: 'Not logged in.' };
+  const requestedCode = normalizeRoomCode(
+    (message && message.roomCode) || ws._roomCode || ''
+  );
+  if (!requestedCode) return { ok: false, error: 'Not in a room.' };
+  const room = roomByCodeWithPersistence(requestedCode);
+  if (!room) return { ok: false, error: 'Room not found.' };
+  const pid = String(ws._userId || '').trim();
+  if (!findRoomMember(room, pid)) return { ok: false, error: 'You are not a member of this room.' };
+  if (!bindSocketToRoomMember(room, pid, ws)) return { ok: false, error: 'Could not restore the room connection.' };
+  room.lastActiveAt = now();
+  return { ok: true, room, playerId: pid };
+}
 
 function createRoom(hostUserId, hostName) {
   let code = randCode(4);
@@ -7831,7 +7929,7 @@ function createRematchRoomFrom(prevRoom) {
 
 
 function joinRoom(code, userId, name) {
-  const room = rooms.get(code);
+  const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
   ensureRoomRoleLists(room);
 
@@ -7875,7 +7973,7 @@ function joinRoom(code, userId, name) {
 
 
 function rejoinRoom(code, playerId) {
-  const room = rooms.get(code);
+  const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
   ensureRoomRoleLists(room);
   const pid = String(playerId || '').trim();
@@ -8184,16 +8282,25 @@ const passwordAuthLimiter = new SlidingWindowRateLimiter({
 
 function activateAuthenticatedSocket(ws, user) {
   if (!ws || ws.readyState !== WebSocket.OPEN || !user) return false;
-  const prev = userSockets.get(user.id);
-  if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-    sendJson(prev, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
-    try { prev.close(); } catch (_) {}
+  let sockets = userSockets.get(user.id);
+  if (!(sockets instanceof Set)) {
+    sockets = new Set();
+    userSockets.set(user.id, sockets);
   }
-  userSockets.set(user.id, ws);
+  sockets.add(ws);
   ws._userId = user.id;
   ws._username = user.username;
   ws._authed = true;
   return true;
+}
+
+function unregisterAuthenticatedSocket(ws) {
+  const uid = ws && ws._userId;
+  if (!uid) return;
+  const sockets = userSockets.get(uid);
+  if (!(sockets instanceof Set)) return;
+  sockets.delete(ws);
+  if (sockets.size === 0) userSockets.delete(uid);
 }
 
 function revokeAuthToken(user, token) {
@@ -8313,6 +8420,18 @@ const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+    if (urlPath === '/health' || urlPath === '/api/health') {
+      sendHttpJson(req, res, 200, {
+        ok: true,
+        build: SERVER_BUILD_ID,
+        instanceId: SERVER_INSTANCE_ID,
+        startedAt: SERVER_STARTED_AT,
+        uptimeSeconds: Math.floor(process.uptime()),
+        rooms: rooms.size,
+        websocketClients: wss.clients.size,
+      });
+      return;
+    }
     if (urlPath.startsWith('/api/auth/')) {
       await handleAuthHttp(req, res, urlPath);
       return;
@@ -8400,8 +8519,19 @@ wss.on('connection', (ws, req) => {
   ws._roomCode = null;
   ws._spectatorViewId = null;
   ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
+  ws._connectionId = crypto.randomUUID().slice(0, 12);
+  ws._isAlive = true;
+  ws.on('pong', () => { ws._isAlive = true; });
 
-  sendJson(ws, { type: 'hello', serverTime: now(), version: 1 });
+  sendJson(ws, {
+    type: 'hello',
+    serverTime: now(),
+    version: 2,
+    build: SERVER_BUILD_ID,
+    instanceId: SERVER_INSTANCE_ID,
+    startedAt: SERVER_STARTED_AT,
+    connectionId: ws._connectionId,
+  });
 
   const cookieToken = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
   const cookieUser = authenticateByToken(cookieToken);
@@ -8426,8 +8556,13 @@ wss.on('connection', (ws, req) => {
         return;
       }
       const msg = parsed.value;
+      ws._isAlive = true;
 
-    
+    if (msg.type === 'client_ping') {
+      sendJson(ws, { type: 'server_pong', clientTime: Number(msg.clientTime || 0), serverTime: now() });
+      return;
+    }
+
     // ---- Auth (must happen before joining/creating rooms) ----
     if (msg.type === 'auth_register') {
       const attempt = passwordAuthLimiter.consume(ws._clientAddress);
@@ -8651,10 +8786,12 @@ if (msg.type === 'create_room') {
       }
 
       const room = createRoom(ws._userId, desiredName);
-      ws._roomCode = room.code;
-      ws._playerId = ws._userId;
-      room.sockets.set(ws._userId, ws);
+      bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
       ensurePreview(room, true);
+      // Do not acknowledge a newly created lobby until its membership/rules are
+      // durably written. This closes the restart window that could make a room
+      // disappear immediately after creation on a hosted deployment.
+      await scheduleActiveRoomsSave({ throwOnError: true });
 
       sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true, role: roomRole(room, ws._userId) || 'player' });
       sendRoomStateToSocket(room, ws, ws._userId);
@@ -8682,17 +8819,10 @@ if (msg.type === 'create_room') {
       }
       const room = result.room;
 
-      // If someone else is currently connected as this user in this room, replace them.
-      const prev = room.sockets.get(ws._userId);
-      room.sockets.set(ws._userId, ws);
-
-      ws._roomCode = room.code;
-      ws._playerId = ws._userId;
-
-      if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-        sendJson(prev, { type: 'error', error: 'You were disconnected because this account joined from another browser.' });
-        try { prev.close(); } catch (_) {}
-      }
+      // Authentication may exist in multiple tabs, but one room seat has one
+      // active transport. Replacing it is explicit and the retired client is
+      // told not to enter an automatic reconnect war.
+      bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
 
       ensurePreview(room, false);
 
@@ -8722,17 +8852,7 @@ if (msg.type === 'create_room') {
         const room = jr.room;
         const pid = ws._userId;
 
-        // If someone else is currently connected as this player, replace them.
-        const prev = room.sockets.get(pid);
-        room.sockets.set(pid, ws);
-
-        ws._roomCode = room.code;
-        ws._playerId = pid;
-
-        if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-          sendJson(prev, { type: 'error', error: 'You were disconnected because this account rejoined from another browser.' });
-          try { prev.close(); } catch (_) {}
-        }
+        bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
 
         sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
         sendRoomStateToSocket(room, ws, pid);
@@ -8749,17 +8869,7 @@ if (msg.type === 'create_room') {
       const room = result.room;
       const pid = result.playerId;
 
-      // If someone else is currently connected as this player, replace them.
-      const prev = room.sockets.get(pid);
-      room.sockets.set(pid, ws);
-
-      ws._roomCode = room.code;
-      ws._playerId = pid;
-
-      if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-        sendJson(prev, { type: 'error', error: 'You were disconnected because this player rejoined from another browser.' });
-        try { prev.close(); } catch (_) {}
-      }
+      bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
 
       sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
       if (room.game) {
@@ -8775,17 +8885,30 @@ if (msg.type === 'create_room') {
       return;
     }
 
-    // must be in a room after this
-    const code = ws._roomCode;
-    const pid = ws._playerId;
-    if (!code || !pid) {
-      sendJson(ws, { type: 'error', error: 'Not in a room.' });
-      return;
-    }
-    const room = rooms.get(code);
-    if (!room) {
-      sendJson(ws, { type: 'error', error: 'Room expired.' });
-      return;
+    // Room-scoped messages carry a roomCode. If Railway replaces the
+    // transport, or a reconnect races ahead of the explicit rejoin message,
+    // restore the socket binding from the authenticated account and persisted
+    // room membership instead of rejecting the lobby as "Not in a room".
+    let code = ws._roomCode;
+    let pid = ws._playerId;
+    let room = code ? rooms.get(code) : null;
+    const bindingIsValid = !!(
+      room && pid &&
+      findRoomMember(room, pid) &&
+      room.sockets.get(pid) === ws
+    );
+    if (!bindingIsValid) {
+      const recovered = recoverSocketRoomBinding(ws, msg);
+      if (!recovered.ok) {
+        sendJson(ws, { type: 'error', error: recovered.error || 'Not in a room.', recoverableRoomError: true });
+        return;
+      }
+      room = recovered.room;
+      code = room.code;
+      pid = recovered.playerId;
+      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player', recovered: true });
+      sendRoomStateToSocket(room, ws, pid);
+      broadcastRoom(room);
     }
 
     if (msg.type === 'leave_room') {
@@ -9541,8 +9664,7 @@ if (msg.type === 'create_room') {
   });
 
   ws.on('close', () => {
-    const uid = ws._userId;
-    if (uid && userSockets.get(uid) === ws) userSockets.delete(uid);
+    unregisterAuthenticatedSocket(ws);
 
     const code = ws._roomCode;
     const pid = ws._playerId;
@@ -9784,7 +9906,7 @@ function handleTimeout(room) {
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const t = game.geom.tiles[i];
       if (!t) continue;
-      if (pirateCanOccupyTile(game.rules, t, game.geom)) {
+      if (pirateCanOccupyGameTile(game, i)) {
         if (i !== currentPirate) sea.push(i);
       } else if (i !== currentRobber && robberCanOccupyTile(game, i)) {
         land.push(i);
@@ -9806,7 +9928,7 @@ function handleTimeout(room) {
     const cands = [];
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const t = game.geom.tiles[i];
-      if (!pirateCanOccupyTile(game.rules, t, game.geom) || i === current) continue;
+      if (!pirateCanOccupyGameTile(game, i) || i === current) continue;
       cands.push(i);
     }
     const shuffled = shuffle(cands);
@@ -10289,7 +10411,7 @@ function handleAI(room) {
       if (card.type === DEV_CARD_TYPES.VICTORY_POINT) score = 1_000;
       else if (card.type === DEV_CARD_TYPES.KNIGHT) {
         const landIds = (game.geom.tiles || []).filter((tile) => tile && !tile.robber && robberCanOccupyTile(game, tile.id)).map((tile) => tile.id);
-        const seaIds = isSeafarers ? (game.geom.tiles || []).filter((tile) => tile && tile.type === 'sea' && !tile.pirate).map((tile) => tile.id) : [];
+        const seaIds = isSeafarers ? (game.geom.tiles || []).filter((tile) => tile && !tile.pirate && pirateCanOccupyGameTile(game, tile.id)).map((tile) => tile.id) : [];
         const robberBest = bestScoredTarget(landIds, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)).score;
         const pirateBest = bestScoredTarget(seaIds, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS)).score;
         score = 28 + Math.max(0, robberBest, pirateBest);
@@ -10829,7 +10951,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const tt = game.geom.tiles[i];
       if (!tt) continue;
-      if (pirateCanOccupyTile(game.rules, tt, game.geom)) { if (i !== curP) sea.push(i); }
+      if (pirateCanOccupyGameTile(game, i)) { if (i !== curP) sea.push(i); }
       else if (i !== curR && robberCanOccupyTile(game, i)) land.push(i);
     }
     const robberTarget = bestScoredTarget(land, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
@@ -10882,7 +11004,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       const tt = game.geom.tiles[i];
       if (!tt) continue;
       if (i === cur) continue;
-      if (!pirateCanOccupyTile(game.rules, tt, game.geom)) continue;
+      if (!pirateCanOccupyGameTile(game, i)) continue;
       cands.push(i);
     }
     const target = bestScoredTarget(cands, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
@@ -11124,6 +11246,20 @@ const endVoteRebroadcastInterval = setInterval(() => {
   }
 }, 250);
 
+const wsHeartbeatInterval = setInterval(() => {
+  for (const client of wss.clients) {
+    if (!client || client.readyState !== WebSocket.OPEN) continue;
+    if (client._isAlive === false) {
+      try { client.terminate(); } catch (_) {}
+      continue;
+    }
+    client._isAlive = false;
+    try { client.ping(); } catch (_) {
+      try { client.terminate(); } catch (_) {}
+    }
+  }
+}, WS_HEARTBEAT_INTERVAL_MS);
+
 const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
 const authLimiterCleanupInterval = setInterval(() => passwordAuthLimiter.cleanup(), 60_000);
 
@@ -11135,7 +11271,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
+  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }
 
@@ -11183,5 +11319,5 @@ server.on('error', (error) => fatalShutdown('HTTP server error', error));
 wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 
 server.listen(PORT, HOST, () => {
-  console.log(`Hex Settlers server running on http://${HOST}:${PORT}`);
+  console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${PORT} (instance ${SERVER_INSTANCE_ID})`);
 });

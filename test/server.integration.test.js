@@ -555,3 +555,69 @@ test('compiled TypeScript bootstrap serves the current game entry point', { time
   assert.match(html, /Hex Settlers/i);
   assert.match(server.output(), /TS bootstrap starting/);
 });
+
+test('heartbeat replies and a replacement socket recovers an authenticated lobby without a reconnect war', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-recovery-'));
+  const server = await startServer(port, dataDir);
+  const peers = [];
+  t.after(async () => {
+    for (const peer of peers) peer.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const host = await Peer.connect(port);
+  peers.push(host);
+  const pingStamp = Date.now();
+  host.send({ type: 'client_ping', clientTime: pingStamp });
+  const pong = await host.waitFor((message) => message.type === 'server_pong');
+  assert.equal(pong.clientTime, pingStamp);
+  assert.equal(typeof pong.serverTime, 'number');
+
+  const suffix = Date.now().toString(36).slice(-8);
+  host.send({
+    type: 'auth_register',
+    username: `recovery_${suffix}`,
+    password: 'recovery pass',
+    displayName: 'Recovery Host',
+  });
+  const auth = await host.waitFor((message) => message.type === 'auth_ok');
+  host.send({ type: 'create_room', displayName: 'Recovery Host' });
+  const joined = await host.waitFor((message) => message.type === 'joined');
+
+  // Creation is acknowledged only after the room snapshot reaches disk.
+  const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'active_rooms.json'), 'utf8'));
+  assert.ok(persisted.rooms.some((record) => record.code === joined.room.code));
+
+  const replacement = await Peer.connect(port);
+  peers.push(replacement);
+  replacement.send({ type: 'auth_token', token: auth.token });
+  await replacement.waitFor((message) => message.type === 'auth_ok');
+
+  // Merely authenticating a second tab must not evict the first tab.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(host.ws.readyState, WebSocket.OPEN);
+
+  const hostClosed = once(host.ws, 'close');
+  replacement.send({ type: 'get_state', roomCode: joined.room.code });
+  const recovered = await replacement.waitFor((message) => message.type === 'joined' && message.recovered === true);
+  assert.equal(recovered.room.code, joined.room.code);
+  assert.equal(recovered.playerId, auth.user.id);
+  await replacement.waitFor((message) => message.type === 'state');
+
+  const displaced = await host.waitFor((message) => message.type === 'error' && message.reconnectBlocked === true);
+  assert.match(displaced.error, /another browser or tab/i);
+  const [closeCode] = await hostClosed;
+  assert.equal(closeCode, 4001);
+
+  // The replacement transport remains stable and can continue changing lobby state.
+  replacement.send({
+    type: 'set_rules',
+    roomCode: joined.room.code,
+    rules: { victoryPointsToWin: 12 },
+  });
+  const updated = await replacement.waitFor((message) =>
+    message.type === 'room' && message.room.rules.victoryPointsToWin === 12);
+  assert.equal(updated.room.code, joined.room.code);
+});
