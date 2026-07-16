@@ -38,6 +38,7 @@ const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
+const { sanitizeLogEntriesForViewer } = require('./server/private-log');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const { friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
@@ -293,7 +294,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     rules: deepClone(game.rules || null),
     players,
     snapshot,
-    log: deepClone(completeLog),
+    log: sanitizeLogEntriesForViewer(deepClone(completeLog), null),
     replay: deepClone(game.replay ? { ...game.replay, log: undefined, lastLogId: undefined } : null),
   };
 }
@@ -6789,7 +6790,10 @@ if (kind === 'choose_production_gold') {
       // Private event: only the thief sees which resource was stolen
       game.lastEvent = { id: game.eventSeq++, type: 'steal_result', playerId, victimId: victimIdUsed, resourceKind: stolenKind };
       game.message = backToAwaitRoll ? `${playerName(game, playerId)} stole 1 resource. Roll the dice.` : `${playerName(game, playerId)} stole 1 resource.`;
-      pushLog(game, `${playerName(game, playerId)} stole 1 resource from ${playerName(game, victimIdUsed)}.`, 'robber', { victimId: victimIdUsed });
+      pushLog(game, `${playerName(game, playerId)} stole 1 resource from ${playerName(game, victimIdUsed)}.`, 'robber', {
+        victimId: victimIdUsed,
+        privateSteal: { thiefId: playerId, victimId: victimIdUsed, resourceKind: stolenKind },
+      });
     } else {
       game.message = backToAwaitRoll ? `${playerName(game, playerId)}: Roll the dice.` : `${playerName(game, playerId)} may build or end turn.`;
       pushLog(game, `${playerName(game, playerId)} attempted to steal, but no resource was taken.`, 'robber');
@@ -6901,7 +6905,11 @@ if (kind === 'pirate_steal') {
   if (stolenKind) {
     game.lastEvent = { id: game.eventSeq++, type: 'steal_result', playerId, victimId: victimIdUsed, resourceKind: stolenKind };
     game.message = backToAwaitRoll ? `${playerName(game, playerId)} stole 1 resource. Roll the dice.` : `${playerName(game, playerId)} stole 1 resource.`;
-    pushLog(game, `${playerName(game, playerId)} stole 1 resource from ${playerName(game, victimIdUsed)}.`, 'robber', { victimId: victimIdUsed, pirate: true });
+    pushLog(game, `${playerName(game, playerId)} stole 1 resource from ${playerName(game, victimIdUsed)}.`, 'robber', {
+      victimId: victimIdUsed,
+      pirate: true,
+      privateSteal: { thiefId: playerId, victimId: victimIdUsed, resourceKind: stolenKind },
+    });
   } else {
     game.message = backToAwaitRoll ? `${playerName(game, playerId)}: Roll the dice.` : `${playerName(game, playerId)} may build or end turn.`;
     pushLog(game, `${playerName(game, playerId)} attempted to steal, but no resource was taken.`, 'robber', { pirate: true });
@@ -6955,8 +6963,11 @@ if (kind === 'pirate_steal') {
     recordResourceDelta(game, playerId, { [giveKind]: -cost }, 'trade');
     recordTrade(game, playerId, 'bank');
 
+    const turnBonusMs = extendPlayerTurn(game, playerId, 5_000, timerSegmentKey(game)) ? 5_000 : 0;
     game.message = `${playerName(game, playerId)} traded with the bank (${ratio}:1).`;
-    pushLog(game, `${playerName(game, playerId)} traded ${cost} ${giveKind} for ${takeQty} ${takeKind} (bank).`, 'trade', { kind: 'bank', giveKind, takeKind, takeQty, ratio });
+    pushLog(game, `${playerName(game, playerId)} traded ${cost} ${giveKind} for ${takeQty} ${takeKind} (bank).${turnBonusMs ? ' +5 seconds.' : ''}`, 'trade', {
+      kind: 'bank', giveKind, takeKind, takeQty, ratio, turnBonusMs,
+    });
     broadcastSfx(room, 'trade_success');
     return { ok: true };
   }
@@ -8094,10 +8105,12 @@ function sanitizeStateFor(game, viewerId) {
       delete state.lastEvent.cardType;
       delete state.lastEvent.cardId;
     }
-    if (state.lastEvent.type === 'steal_result' && state.lastEvent.playerId !== viewerId) {
+    if (state.lastEvent.type === 'steal_result' && state.lastEvent.playerId !== viewerId && state.lastEvent.victimId !== viewerId) {
       delete state.lastEvent.resourceKind;
     }
   }
+
+  state.log = sanitizeLogEntriesForViewer(state.log, viewerId);
 
   // Hide Fog Island hidden tile information from clients.
   if (state.geom && Array.isArray(state.geom.tiles)) {

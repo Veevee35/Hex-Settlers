@@ -20,6 +20,13 @@ test('legacy dice-roll volume initializes both split roll settings', () => {
   assert.match(appJs, /isSplitDiceLevel && src\.dice_roll != null \? src\.dice_roll/);
 });
 
+test('audio settings split local and other-player end-turn warnings', () => {
+  assert.match(appJs, /\{ key: 'end_turn_self', label: 'Your End Turn Warning' \}/);
+  assert.match(appJs, /\{ key: 'end_turn_others', label: "Other Players' End Turn Warnings" \}/);
+  assert.match(appJs, /isSplitEndTurnLevel && src\.end_turn != null \? src\.end_turn/);
+  assert.match(appJs, /warnedPlayerId === localPlayerId\s*\? 'end_turn_self'\s*:\s*'end_turn_others'/);
+});
+
 test('dice-roll broadcasts identify the roller and clients route the sound by local player', () => {
   assert.match(serverJs, /broadcastSfx\(room, 'dice_roll', \{ rollerId: playerId \}\)/);
   assert.match(appJs, /rollerId === localPlayerId\s*\? 'dice_roll_self'\s*:\s*'dice_roll_others'/);

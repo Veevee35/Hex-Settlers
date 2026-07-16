@@ -154,6 +154,7 @@
     devRemaining: $('devRemaining'),
     hintBox: $('hintBox'),
     canvas: $('board'),
+    yourRollBanner: $('yourRollBanner'),
     countdownClock: $('countdownClock'),
     pauseBtn: $('pauseBtn'),
     pausedOverlay: $('pausedOverlay'),
@@ -651,7 +652,9 @@
 
   async function ensureRoomTexturePackAnnounced(forcePublish = false) {
     texturePackAnnounceQueued = false;
-    if (!room || !room.code || !myPlayerId || !ws || ws.readyState !== 1) return;
+    if (!roomConnectionReady || !room || !room.code || !myPlayerId || !ws || ws.readyState !== 1) return;
+    const announcingSocket = ws;
+    const announcingRoomCode = String(room.code || '');
     const active = activeTexturePackMeta();
     if (!active) return;
     const me = Array.isArray(room.players) ? room.players.find(p => p && p.id === myPlayerId) : null;
@@ -669,6 +672,10 @@
     const roomKey = `${room.code}|${active.id}`;
     if (forcePublish || !texturePackRoomPublished[roomKey]) {
       const payload = await buildTexturePackPublishPayload(active.id);
+      if (!roomConnectionReady || ws !== announcingSocket || !room || String(room.code || '') !== announcingRoomCode) {
+        queueTexturePackAnnounce(forcePublish);
+        return;
+      }
       if (payload) {
         send({ type: 'texture_pack_publish', pack: payload });
         texturePackRoomPublished[roomKey] = true;
@@ -944,7 +951,8 @@
     { key: 'gold_field_production', label: 'Gold Field Production' },
     { key: 'robber_pirate', label: 'Robber / Pirate' },
     { key: 'structure', label: 'Build / Upgrade' },
-    { key: 'end_turn', label: 'End Turn Warning' },
+    { key: 'end_turn_self', label: 'Your End Turn Warning' },
+    { key: 'end_turn_others', label: "Other Players' End Turn Warnings" },
     { key: 'dev_card', label: 'Dev Card' },
     { key: 'trade_proposed', label: 'Trade Proposed' },
     { key: 'trade_success', label: 'Trade Success' },
@@ -1026,6 +1034,7 @@
 
   function reconnectForCookieAuth() {
     websocketReconnectDelayMs = 0;
+    roomConnectionReady = false;
     const activeSocket = ws;
     // Retire this socket before opening its replacement. Its eventual close
     // event must not schedule a second connection and start a reconnect loop.
@@ -4581,6 +4590,15 @@ function syncPostgameToState() {
   let ws = null;
   let websocketReconnectDelayMs = 1200;
   let websocketReconnectTimer = null;
+  let roomConnectionReady = false;
+  let roomRecoveryInFlight = false;
+  let pendingReconnectRoomMessages = [];
+  const RECONNECT_SAFE_ROOM_MESSAGE_TYPES = new Set([
+    'chat', 'clear_ai', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
+    'get_state', 'get_texture_pack', 'kick_player', 'leave_room', 'pause_game', 'request_leave_game',
+    'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_player_color', 'set_rules',
+    'set_spectator_mode', 'set_spectator_view', 'set_texture_pack', 'start_game', 'texture_pack_publish',
+  ]);
   let myPlayerId = null;
   let room = null;
   let state = null;
@@ -4612,22 +4630,29 @@ function syncPostgameToState() {
     } catch (_) {}
   }
 
-  function handleLocalRoomExit(reason) {
+  function handleLocalRoomExit(reason, options = {}) {
+    const preservedRoomCode = options.preserveLastRoom && room && room.code ? String(room.code) : '';
     try {
       if (postgameState && postgameState.historyMode) closePostgameSnapshot();
       else if (postgameState && postgameState.active) exitPostgame();
     } catch (_) {}
     try { closeModal(); } catch (_) {}
     pendingAutoRejoin = false;
+    roomConnectionReady = false;
+    roomRecoveryInFlight = false;
+    pendingReconnectRoomMessages = [];
     room = null;
     state = null;
     resetViewportForRoomChange();
     isHost = false;
     myPlayerId = null;
     try { setLocalPanelLayoutOwnerKey(null); } catch (_) {}
-    try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+    try {
+      if (preservedRoomCode) localStorage.setItem(LAST_ROOM_KEY, preservedRoomCode);
+      else localStorage.removeItem(LAST_ROOM_KEY);
+    } catch (_) {}
     if (ui.rejoinIdInput) ui.rejoinIdInput.value = '';
-    if (ui.codeInput) ui.codeInput.value = '';
+    if (ui.codeInput) ui.codeInput.value = preservedRoomCode;
     if (ui.roomCode) ui.roomCode.textContent = '----';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = '';
     if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = true;
@@ -4943,7 +4968,8 @@ function syncPostgameToState() {
     gold_field_production: makeSfxPool('assets/sfx/gold_field_production.wav', 0.9, 2),
     robber_pirate: makeSfxPool('assets/sfx/robber_pirate.wav', 0.9, 3),
     structure: makeSfxPool('assets/sfx/structure.wav', 0.85, 4),
-    end_turn: makeSfxPool('assets/sfx/end_turn.wav', 0.9, 2),
+    end_turn_self: makeSfxPool('assets/sfx/end_turn.wav', 0.9, 2),
+    end_turn_others: makeSfxPool('assets/sfx/end_turn.wav', 0.9, 2),
     dev_card: makeSfxPool('assets/sfx/dev_card.wav', 0.9, 2),
     trade_proposed: makeSfxPool('assets/sfx/trade_proposed.wav', 0.9, 1),
     trade_success: makeSfxPool('assets/sfx/trade_success.wav', 0.9, 1),
@@ -4956,9 +4982,10 @@ function syncPostgameToState() {
     for (const def of AUDIO_SFX_DEFS) {
       const hasSavedLevel = Object.prototype.hasOwnProperty.call(src, def.key);
       const isSplitDiceLevel = def.key === 'dice_roll_self' || def.key === 'dice_roll_others';
+      const isSplitEndTurnLevel = def.key === 'end_turn_self' || def.key === 'end_turn_others';
       const savedLevel = hasSavedLevel
         ? src[def.key]
-        : (isSplitDiceLevel && src.dice_roll != null ? src.dice_roll : AUDIO_SFX_DEFAULT_PCT);
+        : (isSplitDiceLevel && src.dice_roll != null ? src.dice_roll : (isSplitEndTurnLevel && src.end_turn != null ? src.end_turn : AUDIO_SFX_DEFAULT_PCT));
       merged[def.key] = normalizeAudioSfxPercent(savedLevel);
     }
     audioSfxLevels = merged;
@@ -5046,13 +5073,31 @@ function syncPostgameToState() {
         ? 'dice_roll_self'
         : 'dice_roll_others';
     }
+    if (key === 'end_turn') {
+      const warnedPlayerId = String(metadata?.playerId || metadata?.timedPlayerId || timedPlayerIdForState(state) || '');
+      const localPlayerId = String(myPlayerId || '');
+      key = warnedPlayerId && localPlayerId && warnedPlayerId === localPlayerId
+        ? 'end_turn_self'
+        : 'end_turn_others';
+    }
     const snd = sfx[key];
     if (!snd) return;
     snd.play();
   }
 
   function stopEndTurnWarnAudio() {
-    try { if (sfx && sfx.end_turn && typeof sfx.end_turn.stopAll === 'function') sfx.end_turn.stopAll(); } catch (_) {}
+    try {
+      for (const key of ['end_turn_self', 'end_turn_others']) {
+        if (sfx && sfx[key] && typeof sfx[key].stopAll === 'function') sfx[key].stopAll();
+      }
+    } catch (_) {}
+  }
+  function timedPlayerIdForState(st) {
+    if (!st) return '';
+    if ((st.phase === 'production-gold' || st.special?.kind === 'discovery_gold') && st.special?.forPlayerId) {
+      return String(st.special.forPlayerId);
+    }
+    return String(st.currentPlayerId || '');
   }
   function endTurnWarnStateKey(st) {
     try {
@@ -5116,7 +5161,7 @@ function syncPostgameToState() {
           if (msLeft <= 0 || msLeft > 6000) return;
           if (lastEndTurnWarnKey === curKey) return;
           lastEndTurnWarnKey = curKey;
-          playSfx('end_turn');
+          playSfx('end_turn', { timedPlayerId: timedPlayerIdForState(state) });
         } catch (_) {}
       }, Math.max(0, delay));
     } catch (_) {}
@@ -5272,6 +5317,7 @@ function refreshLobbyJoinLinkUi() {
     const url = `${proto}//${location.host}/ws`;
     const socket = new WebSocket(url);
     ws = socket;
+    roomConnectionReady = false;
 
     socket.addEventListener('open', () => {
       if (ws !== socket) {
@@ -5296,11 +5342,17 @@ function refreshLobbyJoinLinkUi() {
       } else {
         updateAuthUi();
       }
+      setTimeout(() => {
+        if (ws !== socket || !pendingAutoRejoin || roomConnectionReady || !room) return;
+        clearAuthLocal();
+        handleLocalRoomExit('Your session expired. Log in, then rejoin the room.', { preserveLastRoom: true });
+      }, 3000);
     });
 
     socket.addEventListener('close', () => {
       if (ws !== socket) return;
       ws = null;
+      roomConnectionReady = false;
       setConn(false, 'Disconnected');
       const delay = websocketReconnectDelayMs;
       websocketReconnectDelayMs = 1200;
@@ -5405,6 +5457,24 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'error') {
         const e = msg.error || 'Error';
+        if (/room (not found|expired)/i.test(e)) {
+          handleLocalRoomExit(e);
+          return;
+        }
+        if (/^not in a room\.?$/i.test(String(e).trim())) {
+          if (authUser && room && room.code) {
+            if (!roomRecoveryInFlight) {
+              roomConnectionReady = false;
+              roomRecoveryInFlight = true;
+              setError('Reconnecting to the room…');
+              send({ type: 'rejoin_room', code: room.code, displayName: (ui.nameInput?.value || '').trim() });
+            }
+            return;
+          }
+          handleLocalRoomExit(e);
+          return;
+        }
+        roomRecoveryInFlight = false;
         setError(e);
         // If a rematch attempt failed, re-enable the postgame Main Menu button.
         try {
@@ -5412,9 +5482,6 @@ function refreshLobbyJoinLinkUi() {
             ui.pgMainMenuBtn.disabled = false;
             ui.pgMainMenuBtn.textContent = postgameState.historyMode ? 'Back' : 'Main Menu';
           }
-        } catch (_) {}
-        try {
-          if (/room (not found|expired)/i.test(e)) localStorage.removeItem(LAST_ROOM_KEY);
         } catch (_) {}
         updateAuthUi();
         return;
@@ -5512,6 +5579,9 @@ function refreshLobbyJoinLinkUi() {
       if (msg.type === 'auth_required') {
         clearAuthLocal();
         pendingAutoRejoin = false;
+        roomConnectionReady = false;
+        roomRecoveryInFlight = false;
+        if (room) handleLocalRoomExit('Your session expired. Log in, then rejoin the room.', { preserveLastRoom: true });
         return;
       }
 
@@ -5526,6 +5596,8 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'joined') {
+        roomConnectionReady = true;
+        roomRecoveryInFlight = false;
         myPlayerId = msg.playerId;
         try { setLocalPanelLayoutOwnerKey(myPlayerId || null); } catch (_) {}
         room = msg.room;
@@ -5545,6 +5617,8 @@ function refreshLobbyJoinLinkUi() {
         updateButtons();
         queueTexturePackAnnounce(false);
         send({ type: 'get_state' });
+        const queuedRoomMessages = pendingReconnectRoomMessages.splice(0);
+        for (const queuedMessage of queuedRoomMessages) send(queuedMessage);
         return;
       }
 
@@ -5565,6 +5639,7 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'left_room') {
+        roomConnectionReady = false;
         handleLocalRoomExit(msg.reason || (msg.kicked ? 'You were removed from the room.' : 'You left the room.'));
         return;
       }
@@ -5674,6 +5749,13 @@ function refreshLobbyJoinLinkUi() {
     if (!ws || ws.readyState !== 1) return;
     if (historyReplay.active && !HISTORY_REPLAY_ALLOWED_MESSAGES.has(obj && obj.type)) {
       setError('Exit the replay before changing the live game.');
+      return;
+    }
+    if (room && myPlayerId && !roomConnectionReady && RECONNECT_SAFE_ROOM_MESSAGE_TYPES.has(String(obj && obj.type || ''))) {
+      const type = String(obj.type || '');
+      pendingReconnectRoomMessages = pendingReconnectRoomMessages.filter((message) => String(message && message.type || '') !== type);
+      pendingReconnectRoomMessages.push(obj);
+      setError('Reconnecting to the room…');
       return;
     }
     try { ws.send(JSON.stringify(obj)); }
@@ -8674,6 +8756,10 @@ function ensureTimerUiInterval() {
   updateTimerInfo();
 }
 
+  function isLocalPairedExtraTurn(st = state) {
+    return !!(st && myPlayerId && st.currentPlayerId === myPlayerId && st.paired && st.paired.enabled && String(st.paired.stage || '') === 'p2');
+  }
+
   function updateButtons() {
     const phaseNow = currentRoomPhase();
     const inGame = !!state && state.phase !== 'lobby';
@@ -8686,6 +8772,10 @@ function ensureTimerUiInterval() {
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
     const myTurn = inGame && !historyReplay.active && !amSpectator && state.currentPlayerId === myPlayerId;
+    if (ui.yourRollBanner) {
+      const showYourRoll = !!(myTurn && !state.paused && state.phase === 'main-await-roll');
+      ui.yourRollBanner.classList.toggle('hidden', !showYourRoll);
+    }
 
     // Global page state + HUD docking.
     try { document.body.classList.toggle('in-game', inGame); } catch (_) {}
@@ -8822,11 +8912,9 @@ if (ui.moveShipBtn) {
     ui.buildCityBtn.disabled = !(myTurn && state.phase === 'main-actions');
 
     // Trading
-    const mmTrade = String(((state && state.rules && state.rules.mapMode) || (room && room.rules && room.rules.mapMode) || 'classic')).toLowerCase();
-    const isClassic56Trade = (mmTrade === 'classic56' || mmTrade === 'classic_5_6' || mmTrade === 'classic-5-6' || mmTrade === 'classic5_6' || mmTrade === 'classic5-6');
-    const p2Stage = !!(isClassic56Trade && state && state.paired && state.paired.stage === 'p2');
+    const p2Stage = isLocalPairedExtraTurn(state);
     if (ui.bankTradeBtn) ui.bankTradeBtn.disabled = !(myTurn && state.phase === 'main-actions');
-    if (ui.playerTradeBtn) ui.playerTradeBtn.disabled = !(myTurn && state.phase === 'main-actions') || (myTurn && p2Stage);
+    if (ui.playerTradeBtn) ui.playerTradeBtn.disabled = !(myTurn && state.phase === 'main-actions') || p2Stage;
 
     // Dev cards
     const me = myPlayer();
@@ -9754,6 +9842,10 @@ if (ui.moveShipBtn) {
 
   function openPlayerTradeModal(opts = null) {
     if (!state || !myPlayerId) return;
+    if (isLocalPairedExtraTurn(state)) {
+      setError('Player-to-player trades are unavailable during the extra action turn.');
+      return;
+    }
     const me = myPlayer();
     if (!me) return;
 
@@ -10118,6 +10210,11 @@ if (ui.moveShipBtn) {
 
   function handlePendingTradePrompt() {
     if (!state || !myPlayerId) return;
+
+    if (isLocalPairedExtraTurn(state)) {
+      if (modalType === 'pendingTrade' || modalType === 'playerTradeCompose') forceCloseModal();
+      return;
+    }
 
     const t = state.pendingTrade;
 
@@ -11463,6 +11560,12 @@ function handleProductionGoldPrompt() {
         for (const n of state.geom.nodes) {
           if (nodeIsHiddenByOuterSeaTrimClient(n.id)) continue;
           if (n.building) continue;
+          const adjacentTiles = state.geom.nodeAdjTiles?.[n.id] || [];
+          const touchesVisibleLand = adjacentTiles.some((tileId) => {
+            const tile = state.geom.tiles?.[tileId];
+            return !!(tile && tile.type !== 'sea' && !(tile.fog && !tile.revealed));
+          });
+          if (!touchesVisibleLand) continue;
           let ok = true;
           for (const nb of n.adj || []) {
             if (state.geom.nodes[nb].building) { ok = false; break; }
