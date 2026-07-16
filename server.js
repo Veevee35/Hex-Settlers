@@ -80,6 +80,15 @@ function deepClone(obj) {
 
 function now() { return Date.now(); }
 
+const SERVER_STARTED_AT = now();
+const SERVER_INSTANCE_ID = String(
+  process.env.RAILWAY_REPLICA_ID ||
+  process.env.RAILWAY_DEPLOYMENT_ID ||
+  crypto.randomUUID()
+).slice(0, 64);
+const SERVER_BUILD_ID = 'persistent-lobby-v3';
+const WS_HEARTBEAT_INTERVAL_MS = 25_000;
+
 function randCode(len = 4) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
@@ -109,7 +118,7 @@ const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
 const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH);
 
 let USERS_DB = { version: 1, users: [] };
-let userSockets = new Map(); // userId -> ws (enforce one active connection per user)
+let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticate without fighting each other
 
 // -------------------- Game History (persistent) --------------------
 // Completed games are stored on disk in game_history.json (DATA_DIR).
@@ -7704,8 +7713,10 @@ function activeRoomSnapshot() {
   return { version: 1, rooms: Array.from(rooms.values()).map(serializeRoom).filter(Boolean) };
 }
 
-function scheduleActiveRoomsSave() {
-  return ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot()).catch((error) => {
+function scheduleActiveRoomsSave({ throwOnError = false } = {}) {
+  const write = ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot());
+  if (throwOnError) return write;
+  return write.catch((error) => {
     console.error('[rooms] Failed to save active_rooms.json:', error && error.message ? error.message : error);
   });
 }
@@ -7725,34 +7736,80 @@ function loadActiveRooms() {
 
 loadActiveRooms();
 
-function bindSocketToRoom(ws, room, memberId) {
-  if (!ws || !room) return false;
-  const pid = String(memberId || '').trim();
+function normalizeRoomCode(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function restoreRoomFromPersistence(code) {
+  const normalizedCode = normalizeRoomCode(code);
+  if (!normalizedCode || !fs.existsSync(ACTIVE_ROOMS_PATH)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
+    const records = Array.isArray(parsed && parsed.rooms) ? parsed.rooms : [];
+    const record = records.find((candidate) => normalizeRoomCode(candidate && candidate.code) === normalizedCode);
+    if (!record) return null;
+    const restored = restoreRoom(record, DEFAULT_RULES);
+    if (!restored) return null;
+    const existing = rooms.get(normalizedCode);
+    if (existing) return existing;
+    rooms.set(normalizedCode, restored);
+    console.log(`[rooms] Restored room ${normalizedCode} on demand for socket recovery.`);
+    return restored;
+  } catch (error) {
+    console.error('[rooms] Failed to restore room on demand:', error && error.message ? error.message : error);
+    return null;
+  }
+}
+
+function roomByCodeWithPersistence(code) {
+  const normalizedCode = normalizeRoomCode(code);
+  if (!normalizedCode) return null;
+  return rooms.get(normalizedCode) || restoreRoomFromPersistence(normalizedCode);
+}
+
+function bindSocketToRoomMember(room, playerId, ws, replacementError = 'This room session moved to another browser or tab.') {
+  if (!room || !ws) return false;
+  const pid = String(playerId || '').trim();
   if (!pid || !findRoomMember(room, pid)) return false;
-  const previous = room.sockets.get(pid);
+
+  // A WebSocket can transport exactly one room session. Detach it from any
+  // previous room before binding the new seat so stale broadcasts cannot make
+  // the browser appear to jump between lobbies.
+  const priorCode = normalizeRoomCode(ws._roomCode);
+  const priorPid = String(ws._playerId || '').trim();
+  if (priorCode && priorPid && (priorCode !== room.code || priorPid !== pid)) {
+    const priorRoom = rooms.get(priorCode);
+    if (priorRoom && priorRoom.sockets.get(priorPid) === ws) priorRoom.sockets.delete(priorPid);
+  }
+
+  const prev = room.sockets.get(pid);
   room.sockets.set(pid, ws);
   ws._roomCode = room.code;
   ws._playerId = pid;
-  room.lastActiveAt = now();
-  if (previous && previous !== ws && previous.readyState === WebSocket.OPEN) {
-    sendJson(previous, { type: 'error', error: 'This room connection was replaced by a newer connection.' });
-    try { previous.close(); } catch (_) {}
+  if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
+    sendJson(prev, { type: 'error', error: replacementError, reconnectBlocked: true });
+    try { prev.close(4001, 'Room session replaced'); } catch (_) {}
   }
   return true;
 }
 
-function recoverSocketRoomBinding(ws, requestedCode) {
-  if (!ws || !ws._userId) return null;
-  const code = String(requestedCode || '').trim().toUpperCase();
-  if (!code) return null;
-  const room = rooms.get(code);
-  if (!room || !findRoomMember(room, ws._userId)) return null;
-  return bindSocketToRoom(ws, room, ws._userId) ? room : null;
+function recoverSocketRoomBinding(ws, message) {
+  if (!ws || !ws._userId) return { ok: false, error: 'Not logged in.' };
+  const requestedCode = normalizeRoomCode(
+    (message && message.roomCode) || ws._roomCode || ''
+  );
+  if (!requestedCode) return { ok: false, error: 'Not in a room.' };
+  const room = roomByCodeWithPersistence(requestedCode);
+  if (!room) return { ok: false, error: 'Room not found.' };
+  const pid = String(ws._userId || '').trim();
+  if (!findRoomMember(room, pid)) return { ok: false, error: 'You are not a member of this room.' };
+  if (!bindSocketToRoomMember(room, pid, ws)) return { ok: false, error: 'Could not restore the room connection.' };
+  room.lastActiveAt = now();
+  return { ok: true, room, playerId: pid };
 }
 
-function createRoom(hostUserId, hostName, requestedCode = '') {
-  const requested = String(requestedCode || '').trim().toUpperCase();
-  let code = (/^[A-Z2-9]{4,8}$/.test(requested) && !rooms.has(requested)) ? requested : randCode(4);
+function createRoom(hostUserId, hostName) {
+  let code = randCode(4);
   while (rooms.has(code)) code = randCode(4);
 
   const hostId = String(hostUserId || '').trim() || crypto.randomUUID();
@@ -7788,74 +7845,6 @@ function createRoom(hostUserId, hostName, requestedCode = '') {
   rooms.set(code, room);
   scheduleActiveRoomsSave();
   return room;
-}
-
-function recoveredLobbyRules(rawRules) {
-  const raw = (rawRules && typeof rawRules === 'object') ? rawRules : {};
-  const next = { ...DEFAULT_RULES };
-  const clampInt = (value, fallback, min, max) => {
-    const n = Math.floor(Number(value));
-    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
-  };
-  next.discardLimit = clampInt(raw.discardLimit, next.discardLimit, 3, 30);
-  next.setupTurnMs = clampInt(raw.setupTurnMs, next.setupTurnMs, 5_000, 300_000);
-  next.playTurnMs = clampInt(raw.playTurnMs, next.playTurnMs, 5_000, 300_000);
-  next.microPhaseMs = clampInt(raw.microPhaseMs ?? raw.microMs, next.microPhaseMs, 5_000, 300_000);
-  next.microMs = next.microPhaseMs;
-  next.baseResourcesPerType = clampInt(raw.baseResourcesPerType ?? raw.baseResourceCount, bankMaxForRules(raw), 1, 40);
-  next.devDeckMode = normalizeDevDeckMode(raw.devDeckMode ?? next.devDeckMode);
-  next.explorationPointsEnabled = raw.explorationPointsEnabled !== false;
-  next.friendlyRobber = raw.friendlyRobber === true;
-
-  const mm = String(raw.mapMode || 'classic').toLowerCase();
-  next.mapMode = mm === 'seafarers' ? 'seafarers'
-    : (mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6')
-      ? 'classic56'
-      : 'classic';
-  next.seafarersScenario = String(raw.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_').slice(0, 48);
-  next.victoryPointsToWin = clampInt(raw.victoryPointsToWin, next.victoryPointsToWin, 3, 30);
-  return next;
-}
-
-function recoveredLobbyPreview(rawPreview, room) {
-  if (!rawPreview || typeof rawPreview !== 'object' || !room) return null;
-  const geom = rawPreview.geom;
-  if (!geom || typeof geom !== 'object') return null;
-  if (!Array.isArray(geom.tiles) || !Array.isArray(geom.nodes) || !Array.isArray(geom.edges)) return null;
-  if (geom.tiles.length > 200 || geom.nodes.length > 600 || geom.edges.length > 900) return null;
-  const expectedKey = mapPreviewKey(room.rules || DEFAULT_RULES, room.players.length);
-  const suppliedKey = String(rawPreview.key || rawPreview.previewKey || expectedKey);
-  if (suppliedKey !== expectedKey) return null;
-  const cleanGeom = deepClone(geom);
-  if (!cleanGeom) return null;
-  return { key: expectedKey, geom: cleanGeom, at: now() };
-}
-
-function addRecoveredAiPlayers(room, rawPlayers) {
-  if (!room || !Array.isArray(rawPlayers)) return;
-  const usedIds = new Set(room.players.map((player) => String(player && player.id || '')));
-  const usedColors = new Set(room.players.map((player) => String(player && player.color || '').toLowerCase()));
-  const limit = maxPlayersForRules(room.rules || DEFAULT_RULES);
-  for (const raw of rawPlayers) {
-    if (room.players.length >= limit) break;
-    if (!raw || !raw.isAI) continue;
-    let id = String(raw.id || '').trim();
-    if (!id || usedIds.has(id)) id = `ai-${room.aiSeq++}-${crypto.randomUUID().slice(0, 8)}`;
-    let color = String(raw.color || '').trim();
-    if (!color || usedColors.has(color.toLowerCase()) || !COLORS.includes(color)) color = pickAvailableColor(room);
-    const player = {
-      id,
-      name: String(raw.name || 'AI').slice(0, 20),
-      color,
-      joinedAt: now(),
-      isAI: true,
-      texturePackId: 'default',
-      texturePackName: 'Default',
-    };
-    room.players.push(player);
-    usedIds.add(id);
-    usedColors.add(color.toLowerCase());
-  }
 }
 
 // Create a new lobby room that carries over the previous room's players/rules,
@@ -7925,7 +7914,7 @@ function createRematchRoomFrom(prevRoom) {
 
 
 function joinRoom(code, userId, name) {
-  const room = rooms.get(code);
+  const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
   ensureRoomRoleLists(room);
 
@@ -7969,7 +7958,7 @@ function joinRoom(code, userId, name) {
 
 
 function rejoinRoom(code, playerId) {
-  const room = rooms.get(code);
+  const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
   ensureRoomRoleLists(room);
   const pid = String(playerId || '').trim();
@@ -8278,16 +8267,25 @@ const passwordAuthLimiter = new SlidingWindowRateLimiter({
 
 function activateAuthenticatedSocket(ws, user) {
   if (!ws || ws.readyState !== WebSocket.OPEN || !user) return false;
-  const prev = userSockets.get(user.id);
-  if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-    sendJson(prev, { type: 'error', error: 'You were signed out because this account signed in from another device.' });
-    try { prev.close(); } catch (_) {}
+  let sockets = userSockets.get(user.id);
+  if (!(sockets instanceof Set)) {
+    sockets = new Set();
+    userSockets.set(user.id, sockets);
   }
-  userSockets.set(user.id, ws);
+  sockets.add(ws);
   ws._userId = user.id;
   ws._username = user.username;
   ws._authed = true;
   return true;
+}
+
+function unregisterAuthenticatedSocket(ws) {
+  const uid = ws && ws._userId;
+  if (!uid) return;
+  const sockets = userSockets.get(uid);
+  if (!(sockets instanceof Set)) return;
+  sockets.delete(ws);
+  if (sockets.size === 0) userSockets.delete(uid);
 }
 
 function revokeAuthToken(user, token) {
@@ -8407,6 +8405,18 @@ const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+    if (urlPath === '/health' || urlPath === '/api/health') {
+      sendHttpJson(req, res, 200, {
+        ok: true,
+        build: SERVER_BUILD_ID,
+        instanceId: SERVER_INSTANCE_ID,
+        startedAt: SERVER_STARTED_AT,
+        uptimeSeconds: Math.floor(process.uptime()),
+        rooms: rooms.size,
+        websocketClients: wss.clients.size,
+      });
+      return;
+    }
     if (urlPath.startsWith('/api/auth/')) {
       await handleAuthHttp(req, res, urlPath);
       return;
@@ -8494,10 +8504,19 @@ wss.on('connection', (ws, req) => {
   ws._roomCode = null;
   ws._spectatorViewId = null;
   ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
+  ws._connectionId = crypto.randomUUID().slice(0, 12);
   ws._isAlive = true;
   ws.on('pong', () => { ws._isAlive = true; });
 
-  sendJson(ws, { type: 'hello', serverTime: now(), version: 1 });
+  sendJson(ws, {
+    type: 'hello',
+    serverTime: now(),
+    version: 2,
+    build: SERVER_BUILD_ID,
+    instanceId: SERVER_INSTANCE_ID,
+    startedAt: SERVER_STARTED_AT,
+    connectionId: ws._connectionId,
+  });
 
   const cookieToken = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
   const cookieUser = authenticateByToken(cookieToken);
@@ -8522,8 +8541,13 @@ wss.on('connection', (ws, req) => {
         return;
       }
       const msg = parsed.value;
+      ws._isAlive = true;
 
-    
+    if (msg.type === 'client_ping') {
+      sendJson(ws, { type: 'server_pong', clientTime: Number(msg.clientTime || 0), serverTime: now() });
+      return;
+    }
+
     // ---- Auth (must happen before joining/creating rooms) ----
     if (msg.type === 'auth_register') {
       const attempt = passwordAuthLimiter.consume(ws._clientAddress);
@@ -8613,74 +8637,6 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'get_player_leaderboard') {
       const rows = computeLeaderboardFromHistory();
       sendJson(ws, { type: 'player_leaderboard', rows });
-      return;
-    }
-
-    // Every room-scoped browser request carries its room code. If Railway or the
-    // browser replaced the WebSocket, restore the authenticated member binding
-    // before handling the request instead of dropping the lobby with "Not in a room".
-    if ((!ws._roomCode || !ws._playerId) && msg.roomCode) {
-      recoverSocketRoomBinding(ws, msg.roomCode);
-    }
-
-    if (msg.type === 'room_keepalive') {
-      const code = String(msg.roomCode || ws._roomCode || '').trim().toUpperCase();
-      const room = (ws._roomCode ? rooms.get(ws._roomCode) : null) || recoverSocketRoomBinding(ws, code);
-      if (!room || !ws._userId || !findRoomMember(room, ws._userId)) {
-        sendJson(ws, { type: 'error', error: room ? 'Not in a room.' : 'Room not found.' });
-        return;
-      }
-      room.lastActiveAt = now();
-      sendJson(ws, { type: 'room_alive', code: room.code, serverTime: now() });
-      return;
-    }
-
-    if (msg.type === 'recover_lobby') {
-      if (!ws._userId) {
-        sendJson(ws, { type: 'error', error: 'Please log in first.' });
-        return;
-      }
-      const requestedCode = String(msg.code || msg.roomCode || '').trim().toUpperCase();
-      if (!/^[A-Z2-9]{4,8}$/.test(requestedCode)) {
-        sendJson(ws, { type: 'error', error: 'Invalid room code.' });
-        return;
-      }
-
-      let room = rooms.get(requestedCode) || null;
-      if (room) {
-        if (!findRoomMember(room, ws._userId)) {
-          sendJson(ws, { type: 'error', error: 'That room already exists and belongs to another host.' });
-          return;
-        }
-      } else {
-        const desiredName = cleanDisplayName(msg.displayName || msg.name || 'Host') || 'Host';
-        room = createRoom(ws._userId, desiredName, requestedCode);
-        room.rules = recoveredLobbyRules(msg.rules);
-        room.aiDifficulty = ['test', 'easy', 'medium', 'hard', 'expert'].includes(String(msg.aiDifficulty || '').toLowerCase())
-          ? String(msg.aiDifficulty).toLowerCase()
-          : 'test';
-        addRecoveredAiPlayers(room, msg.players);
-        const hostSnapshot = Array.isArray(msg.players)
-          ? msg.players.find((player) => player && String(player.id || '') === String(ws._userId))
-          : null;
-        const host = findRoomPlayer(room, ws._userId);
-        if (host && hostSnapshot && COLORS.includes(String(hostSnapshot.color || ''))) host.color = String(hostSnapshot.color);
-        room.preview = recoveredLobbyPreview(msg.preview, room);
-        if (!room.preview) ensurePreview(room, true);
-        await scheduleActiveRoomsSave();
-      }
-
-      bindSocketToRoom(ws, room, ws._userId);
-      sendJson(ws, {
-        type: 'joined',
-        playerId: ws._userId,
-        room: roomSnapshot(room),
-        isHost: ws._userId === room.hostId,
-        role: roomRole(room, ws._userId) || 'player',
-        recovered: true,
-      });
-      sendRoomStateToSocket(room, ws, ws._userId);
-      broadcastRoom(room);
       return;
     }
 
@@ -8815,12 +8771,12 @@ if (msg.type === 'create_room') {
       }
 
       const room = createRoom(ws._userId, desiredName);
-      bindSocketToRoom(ws, room, ws._userId);
+      bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
       ensurePreview(room, true);
-      // Do not acknowledge a new lobby until its durable snapshot has been written.
-      // This closes the restart window where Railway could replace the process and
-      // the room code would immediately disappear.
-      await scheduleActiveRoomsSave();
+      // Do not acknowledge a newly created lobby until its membership/rules are
+      // durably written. This closes the restart window that could make a room
+      // disappear immediately after creation on a hosted deployment.
+      await scheduleActiveRoomsSave({ throwOnError: true });
 
       sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true, role: roomRole(room, ws._userId) || 'player' });
       sendRoomStateToSocket(room, ws, ws._userId);
@@ -8848,17 +8804,10 @@ if (msg.type === 'create_room') {
       }
       const room = result.room;
 
-      // If someone else is currently connected as this user in this room, replace them.
-      const prev = room.sockets.get(ws._userId);
-      room.sockets.set(ws._userId, ws);
-
-      ws._roomCode = room.code;
-      ws._playerId = ws._userId;
-
-      if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-        sendJson(prev, { type: 'error', error: 'You were disconnected because this account joined from another browser.' });
-        try { prev.close(); } catch (_) {}
-      }
+      // Authentication may exist in multiple tabs, but one room seat has one
+      // active transport. Replacing it is explicit and the retired client is
+      // told not to enter an automatic reconnect war.
+      bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
 
       ensurePreview(room, false);
 
@@ -8888,17 +8837,7 @@ if (msg.type === 'create_room') {
         const room = jr.room;
         const pid = ws._userId;
 
-        // If someone else is currently connected as this player, replace them.
-        const prev = room.sockets.get(pid);
-        room.sockets.set(pid, ws);
-
-        ws._roomCode = room.code;
-        ws._playerId = pid;
-
-        if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-          sendJson(prev, { type: 'error', error: 'You were disconnected because this account rejoined from another browser.' });
-          try { prev.close(); } catch (_) {}
-        }
+        bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
 
         sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
         sendRoomStateToSocket(room, ws, pid);
@@ -8915,17 +8854,7 @@ if (msg.type === 'create_room') {
       const room = result.room;
       const pid = result.playerId;
 
-      // If someone else is currently connected as this player, replace them.
-      const prev = room.sockets.get(pid);
-      room.sockets.set(pid, ws);
-
-      ws._roomCode = room.code;
-      ws._playerId = pid;
-
-      if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
-        sendJson(prev, { type: 'error', error: 'You were disconnected because this player rejoined from another browser.' });
-        try { prev.close(); } catch (_) {}
-      }
+      bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
 
       sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
       if (room.game) {
@@ -8941,17 +8870,30 @@ if (msg.type === 'create_room') {
       return;
     }
 
-    // must be in a room after this
-    const code = ws._roomCode;
-    const pid = ws._playerId;
-    if (!code || !pid) {
-      sendJson(ws, { type: 'error', error: 'Not in a room.' });
-      return;
-    }
-    const room = rooms.get(code);
-    if (!room) {
-      sendJson(ws, { type: 'error', error: 'Room expired.' });
-      return;
+    // Room-scoped messages carry a roomCode. If Railway replaces the
+    // transport, or a reconnect races ahead of the explicit rejoin message,
+    // restore the socket binding from the authenticated account and persisted
+    // room membership instead of rejecting the lobby as "Not in a room".
+    let code = ws._roomCode;
+    let pid = ws._playerId;
+    let room = code ? rooms.get(code) : null;
+    const bindingIsValid = !!(
+      room && pid &&
+      findRoomMember(room, pid) &&
+      room.sockets.get(pid) === ws
+    );
+    if (!bindingIsValid) {
+      const recovered = recoverSocketRoomBinding(ws, msg);
+      if (!recovered.ok) {
+        sendJson(ws, { type: 'error', error: recovered.error || 'Not in a room.', recoverableRoomError: true });
+        return;
+      }
+      room = recovered.room;
+      code = room.code;
+      pid = recovered.playerId;
+      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player', recovered: true });
+      sendRoomStateToSocket(room, ws, pid);
+      broadcastRoom(room);
     }
 
     if (msg.type === 'leave_room') {
@@ -9707,8 +9649,7 @@ if (msg.type === 'create_room') {
   });
 
   ws.on('close', () => {
-    const uid = ws._userId;
-    if (uid && userSockets.get(uid) === ws) userSockets.delete(uid);
+    unregisterAuthenticatedSocket(ws);
 
     const code = ws._roomCode;
     const pid = ws._playerId;
@@ -11290,11 +11231,9 @@ const endVoteRebroadcastInterval = setInterval(() => {
   }
 }, 250);
 
-// WebSocket protocol heartbeats keep Railway/proxy connections from being
-// classified as idle and promptly retire half-open peers. Browser clients
-// automatically answer ping frames with pong frames.
-const websocketHeartbeatInterval = setInterval(() => {
+const wsHeartbeatInterval = setInterval(() => {
   for (const client of wss.clients) {
+    if (!client || client.readyState !== WebSocket.OPEN) continue;
     if (client._isAlive === false) {
       try { client.terminate(); } catch (_) {}
       continue;
@@ -11304,7 +11243,7 @@ const websocketHeartbeatInterval = setInterval(() => {
       try { client.terminate(); } catch (_) {}
     }
   }
-}, 20_000);
+}, WS_HEARTBEAT_INTERVAL_MS);
 
 const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
 const authLimiterCleanupInterval = setInterval(() => passwordAuthLimiter.cleanup(), 60_000);
@@ -11317,7 +11256,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, websocketHeartbeatInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
+  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }
 
@@ -11365,5 +11304,5 @@ server.on('error', (error) => fatalShutdown('HTTP server error', error));
 wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 
 server.listen(PORT, HOST, () => {
-  console.log(`Hex Settlers server running on http://${HOST}:${PORT}`);
+  console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${PORT} (instance ${SERVER_INSTANCE_ID})`);
 });

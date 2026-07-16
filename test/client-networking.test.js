@@ -17,7 +17,7 @@ test('browser networking keeps only one reconnect timer and ignores retired sock
 });
 
 test('browser sends tolerate a socket closing between the ready-state check and send', () => {
-  assert.match(appJs, /function send\(obj\)[\s\S]*?try \{ ws\.send\(JSON\.stringify\(obj\)\); \}[\s\S]*?ws\.close\(\)/);
+  assert.match(appJs, /function send\(obj\)[\s\S]*?const payload = \(room[\s\S]*?roomCode:[\s\S]*?try \{ ws\.send\(JSON\.stringify\(payload\)\); \}[\s\S]*?ws\.close\(\)/);
 });
 
 test('lobby room updates do not read game-only state before the preview arrives', () => {

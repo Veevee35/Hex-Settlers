@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = '20260715-persistent-lobby-v1';
+  const ASSET_CACHE_SW_BUILD = 'persistent-lobby-v3';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1033,6 +1033,7 @@
   }
 
   function reconnectForCookieAuth() {
+    websocketReconnectAllowed = true;
     websocketReconnectDelayMs = 0;
     roomConnectionReady = false;
     const activeSocket = ws;
@@ -4590,10 +4591,14 @@ function syncPostgameToState() {
   let ws = null;
   let websocketReconnectDelayMs = 1200;
   let websocketReconnectTimer = null;
+  let websocketReconnectAllowed = true;
+  let websocketHeartbeatTimer = null;
+  let websocketLastMessageAt = 0;
+  let pendingManualRejoinCode = '';
   let roomConnectionReady = false;
   let roomRecoveryInFlight = false;
+  let roomRecoveryStartedAt = 0;
   let roomRecoveryTimer = null;
-  let roomRecoveryAttempts = 0;
   let pendingReconnectRoomMessages = [];
   const RECONNECT_SAFE_ROOM_MESSAGE_TYPES = new Set([
     'chat', 'clear_ai', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
@@ -4603,9 +4608,10 @@ function syncPostgameToState() {
   ]);
   const ROOM_SCOPED_MESSAGE_TYPES = new Set([
     ...RECONNECT_SAFE_ROOM_MESSAGE_TYPES,
-    'game_action', 'query_build_options', 'query_ship_move_targets', 'room_keepalive',
+    'game_action', 'query_build_options', 'query_ship_move_targets',
   ]);
-  const ROOM_KEEPALIVE_MS = 12_000;
+  const ROOM_RECOVERY_WINDOW_MS = 60_000;
+  const CLIENT_HEARTBEAT_MS = 20_000;
   let myPlayerId = null;
   let room = null;
   let state = null;
@@ -4637,55 +4643,73 @@ function syncPostgameToState() {
     } catch (_) {}
   }
 
-  function clearRoomRecoveryTimer() {
+  function stopWebsocketHeartbeat() {
+    if (websocketHeartbeatTimer !== null) clearInterval(websocketHeartbeatTimer);
+    websocketHeartbeatTimer = null;
+  }
+
+  function startWebsocketHeartbeat(socket) {
+    stopWebsocketHeartbeat();
+    websocketLastMessageAt = Date.now();
+    websocketHeartbeatTimer = setInterval(() => {
+      if (ws !== socket || !socket || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        socket.send(JSON.stringify({ type: 'client_ping', clientTime: Date.now() }));
+      } catch (_) {
+        try { socket.close(); } catch (_) {}
+      }
+      // A dead proxy can leave a browser WebSocket looking open. Force a clean
+      // reconnect if the server has been silent through several heartbeats.
+      if (Date.now() - websocketLastMessageAt > CLIENT_HEARTBEAT_MS * 3) {
+        try { socket.close(4000, 'Heartbeat timeout'); } catch (_) {}
+      }
+    }, CLIENT_HEARTBEAT_MS);
+  }
+
+  function clearRoomRecoveryState() {
+    roomRecoveryInFlight = false;
+    roomRecoveryStartedAt = 0;
     if (roomRecoveryTimer !== null) clearTimeout(roomRecoveryTimer);
     roomRecoveryTimer = null;
   }
 
-  function localLobbyRecoveryPayload() {
-    const code = String((room && room.code) || '').trim().toUpperCase();
-    const preview = (state && String(state.phase || '') === 'lobby' && state.geom)
-      ? { key: String(state.previewKey || ''), geom: state.geom }
-      : null;
-    return {
-      type: 'recover_lobby',
-      code,
-      roomCode: code,
-      displayName: (ui.nameInput?.value || '').trim() || (authUser && (authUser.displayName || authUser.username)) || 'Host',
-      rules: (room && room.rules) || (state && state.rules) || {},
-      aiDifficulty: String((room && room.aiDifficulty) || 'test'),
-      players: (room && Array.isArray(room.players)) ? room.players : [],
-      preview,
-    };
-  }
-
-  function requestRoomRecovery(reason, { recreateMissingLobby = false } = {}) {
-    if (!authUser || !room || !room.code || !ws || ws.readyState !== WebSocket.OPEN) return false;
+  function beginRoomRecovery(reason) {
+    if (!authUser || !room || !room.code) {
+      handleLocalRoomExit(reason || 'Room connection was lost.', { preserveLastRoom: true });
+      return;
+    }
+    const started = roomRecoveryStartedAt || Date.now();
+    roomRecoveryStartedAt = started;
+    if (Date.now() - started > ROOM_RECOVERY_WINDOW_MS) {
+      const code = String((room && room.code) || '').trim().toUpperCase();
+      clearRoomRecoveryState();
+      roomConnectionReady = false;
+      pendingManualRejoinCode = code;
+      // Keep the lobby and its selected setup visible. A temporary Railway
+      // outage must not erase the host's map/rule work or masquerade as leaving.
+      setError('The server is still reconnecting. Your lobby setup remains here; click Rejoin Last Room to retry now.');
+      updateButtons();
+      renderLobby();
+      return;
+    }
     roomConnectionReady = false;
     roomRecoveryInFlight = true;
-    roomRecoveryAttempts += 1;
-    setError(reason || 'Reconnecting to the room…');
-
-    if (recreateMissingLobby && isHost && currentRoomPhase() === 'lobby') {
-      send(localLobbyRecoveryPayload());
-    } else {
-      send({
-        type: 'rejoin_room',
-        code: String(room.code || '').trim().toUpperCase(),
-        displayName: (ui.nameInput?.value || '').trim(),
-      });
-    }
-
-    clearRoomRecoveryTimer();
-    const delay = Math.min(5_000, 1_250 + (roomRecoveryAttempts * 500));
+    setError('Reconnecting to the room…');
+    if (roomRecoveryTimer !== null) clearTimeout(roomRecoveryTimer);
     roomRecoveryTimer = setTimeout(() => {
       roomRecoveryTimer = null;
-      if (roomConnectionReady || !room || !authUser) return;
-      requestRoomRecovery('Restoring the lobby connection…', {
-        recreateMissingLobby: !!(isHost && currentRoomPhase() === 'lobby' && roomRecoveryAttempts >= 2),
-      });
-    }, delay);
-    return true;
+      if (!roomRecoveryInFlight || !room || !room.code) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        websocketReconnectAllowed = true;
+        scheduleWebsocketReconnect(0);
+        beginRoomRecovery(reason);
+        return;
+      }
+      send({ type: 'rejoin_room', code: room.code, displayName: (ui.nameInput?.value || '').trim() });
+      // Retry until the bounded recovery window expires. A Railway restart or
+      // instance handoff may need more than one round trip before persistence is visible.
+      beginRoomRecovery(reason);
+    }, 650);
   }
 
   function handleLocalRoomExit(reason, options = {}) {
@@ -4697,9 +4721,7 @@ function syncPostgameToState() {
     try { closeModal(); } catch (_) {}
     pendingAutoRejoin = false;
     roomConnectionReady = false;
-    roomRecoveryInFlight = false;
-    clearRoomRecoveryTimer();
-    roomRecoveryAttempts = 0;
+    clearRoomRecoveryState();
     pendingReconnectRoomMessages = [];
     room = null;
     state = null;
@@ -5368,6 +5390,7 @@ function refreshLobbyJoinLinkUi() {
 
 
   function connect() {
+    if (!websocketReconnectAllowed) return;
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     if (websocketReconnectTimer !== null) {
       clearTimeout(websocketReconnectTimer);
@@ -5385,6 +5408,7 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
       websocketReconnectDelayMs = 1200;
+      startWebsocketHeartbeat(socket);
       setConn(true, 'Connected');
       setError(null);
       // Migrate older localStorage sessions into an HTTP-only cookie. The
@@ -5403,30 +5427,35 @@ function refreshLobbyJoinLinkUi() {
         updateAuthUi();
       }
       setTimeout(() => {
-        if (ws !== socket || !pendingAutoRejoin || roomConnectionReady || !room) return;
-        // Authentication or Railway routing can occasionally take longer than a
-        // few seconds. Keep the lobby on screen and recycle the transport rather
-        // than destroying the local room state and falsely reporting expiration.
-        setError('Restoring your lobby connection…');
-        try { socket.close(); } catch (_) {}
+        if (ws !== socket || !pendingAutoRejoin || roomConnectionReady || !room || !authUser) return;
+        setError('The connection handshake stalled. Retrying without discarding the lobby…');
+        try { socket.close(4000, 'Handshake retry'); } catch (_) {}
       }, 10_000);
     });
 
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
       if (ws !== socket) return;
+      stopWebsocketHeartbeat();
       ws = null;
       roomConnectionReady = false;
       setConn(false, 'Disconnected');
+      if ((event && Number(event.code) === 4001) || !websocketReconnectAllowed) {
+        setError('This room session is active in another browser or tab. Click Rejoin Last Room here to take it back.');
+        return;
+      }
+      if (room && authUser) setError('Connection interrupted. Reconnecting to the room…');
       const delay = websocketReconnectDelayMs;
-      websocketReconnectDelayMs = 1200;
+      websocketReconnectDelayMs = Math.min(10_000, Math.max(1200, Math.round(websocketReconnectDelayMs * 1.6)));
       scheduleWebsocketReconnect(delay);
     });
 
     socket.addEventListener('message', (ev) => {
       if (ws !== socket) return;
+      websocketLastMessageAt = Date.now();
       let msg = null;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (!msg || !msg.type) return;
+      if (msg.type === 'server_pong') return;
 
       if (msg.type === 'build_options') {
         const tk = msg.targetKind;
@@ -5518,32 +5547,20 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
 
-      if (msg.type === 'room_alive') {
-        if (room && String(msg.code || '').toUpperCase() === String(room.code || '').toUpperCase()) {
-          roomConnectionReady = true;
-          roomRecoveryInFlight = false;
-          clearRoomRecoveryTimer();
-          roomRecoveryAttempts = 0;
-          setError(null);
-        }
-        return;
-      }
-
       if (msg.type === 'error') {
         const e = msg.error || 'Error';
-        const roomMissing = /room (not found|expired)/i.test(e);
-        const roomBindingLost = /^(not in a room\.?|join a room first\.?|player not found in room\.?)$/i.test(String(e).trim());
-        if (roomMissing || roomBindingLost) {
-          const recovering = requestRoomRecovery(
-            roomMissing ? 'Restoring the lobby…' : 'Reconnecting to the room…',
-            { recreateMissingLobby: !!(roomMissing && isHost && currentRoomPhase() === 'lobby') },
-          );
-          if (recovering) return;
-          handleLocalRoomExit(e, { preserveLastRoom: true });
+        if (msg.reconnectBlocked || /room session (moved|is active)|another browser or tab/i.test(e)) {
+          websocketReconnectAllowed = false;
+          roomConnectionReady = false;
+          clearRoomRecoveryState();
+          setError('This room session is active in another browser or tab. Click Rejoin Last Room here to take it back.');
           return;
         }
-        roomRecoveryInFlight = false;
-        clearRoomRecoveryTimer();
+        if (/room (not found|expired)|^not in a room\.?$|not a member of this room/i.test(String(e).trim())) {
+          beginRoomRecovery(e);
+          return;
+        }
+        clearRoomRecoveryState();
         setError(e);
         // If a rematch attempt failed, re-enable the postgame Main Menu button.
         try {
@@ -5606,6 +5623,15 @@ function refreshLobbyJoinLinkUi() {
           updateAuthUi();
         }
 
+        if (pendingManualRejoinCode && authUser) {
+          const targetCode = String(pendingManualRejoinCode || '').trim().toUpperCase();
+          pendingManualRejoinCode = '';
+          if (targetCode) {
+            send({ type: 'rejoin_room', code: targetCode, displayName: (ui.nameInput?.value || '').trim() });
+            return;
+          }
+        }
+
         if (pendingDirectJoinRoomCode && authUser) {
           const targetCode = String(pendingDirectJoinRoomCode || '').trim().toUpperCase();
           const alreadyThere = !!(room && String(room.code || '').trim().toUpperCase() === targetCode);
@@ -5649,7 +5675,7 @@ function refreshLobbyJoinLinkUi() {
         clearAuthLocal();
         pendingAutoRejoin = false;
         roomConnectionReady = false;
-        roomRecoveryInFlight = false;
+        clearRoomRecoveryState();
         if (room) handleLocalRoomExit('Your session expired. Log in, then rejoin the room.', { preserveLastRoom: true });
         return;
       }
@@ -5666,9 +5692,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'joined') {
         roomConnectionReady = true;
-        roomRecoveryInFlight = false;
-        clearRoomRecoveryTimer();
-        roomRecoveryAttempts = 0;
+        clearRoomRecoveryState();
         myPlayerId = msg.playerId;
         try { setLocalPanelLayoutOwnerKey(myPlayerId || null); } catch (_) {}
         room = msg.room;
@@ -5818,21 +5842,21 @@ function refreshLobbyJoinLinkUi() {
 
   function send(obj) {
     if (!ws || ws.readyState !== 1) return;
-    const type = String(obj && obj.type || '');
-    if (historyReplay.active && !HISTORY_REPLAY_ALLOWED_MESSAGES.has(type)) {
+    if (historyReplay.active && !HISTORY_REPLAY_ALLOWED_MESSAGES.has(obj && obj.type)) {
       setError('Exit the replay before changing the live game.');
       return;
     }
-    if (obj && typeof obj === 'object' && room && room.code && ROOM_SCOPED_MESSAGE_TYPES.has(type) && !obj.roomCode) {
-      obj = { ...obj, roomCode: String(room.code || '').trim().toUpperCase() };
-    }
+    const type = String(obj && obj.type || '');
+    const payload = (room && room.code && ROOM_SCOPED_MESSAGE_TYPES.has(type) && !obj.roomCode)
+      ? { ...obj, roomCode: String(room.code).trim().toUpperCase() }
+      : obj;
     if (room && myPlayerId && !roomConnectionReady && RECONNECT_SAFE_ROOM_MESSAGE_TYPES.has(type)) {
       pendingReconnectRoomMessages = pendingReconnectRoomMessages.filter((message) => String(message && message.type || '') !== type);
-      pendingReconnectRoomMessages.push(obj);
+      pendingReconnectRoomMessages.push(payload);
       setError('Reconnecting to the room…');
       return;
     }
-    try { ws.send(JSON.stringify(obj)); }
+    try { ws.send(JSON.stringify(payload)); }
     catch (_) {
       try { ws.close(); } catch (_) {}
     }
@@ -5887,13 +5911,6 @@ function refreshLobbyJoinLinkUi() {
   pendingDirectJoinRoomCode = parseDirectJoinCodeFromUrl();
   updateAuthUi();
   connect();
-  // Keep a small application-level heartbeat flowing through Railway. Besides
-  // preventing idle proxy timeouts, each heartbeat carries the room code so the
-  // server can repair a replaced socket's room binding without user action.
-  setInterval(() => {
-    if (!roomConnectionReady || !room || !room.code || !myPlayerId || !ws || ws.readyState !== WebSocket.OPEN) return;
-    send({ type: 'room_keepalive' });
-  }, ROOM_KEEPALIVE_MS);
   // Keep the countdown clock ticking even when no state messages arrive.
   ensureTimerUiInterval();
 
@@ -7654,6 +7671,13 @@ function refreshLobbyJoinLinkUi() {
     if (!authUser) { setError('Log in first.'); return; }
     const code = (ui.codeInput?.value || '').trim().toUpperCase() || (() => { try { return localStorage.getItem(LAST_ROOM_KEY) || ''; } catch (_) { return ''; } })();
     if (!code) { setError('Enter a room code first.'); return; }
+    websocketReconnectAllowed = true;
+    pendingManualRejoinCode = code;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      scheduleWebsocketReconnect(0);
+      return;
+    }
+    pendingManualRejoinCode = '';
     send({ type: 'rejoin_room', code, displayName: (ui.nameInput?.value || '').trim() });
   });
 
@@ -7668,6 +7692,7 @@ function refreshLobbyJoinLinkUi() {
   });
 
   ui.createBtn.addEventListener('click', () => {
+    websocketReconnectAllowed = true;
     setError(null);
     if (!authUser) { setError('Log in first.'); return; }
     state = null;
@@ -7678,6 +7703,7 @@ function refreshLobbyJoinLinkUi() {
   });
 
   ui.joinBtn.addEventListener('click', () => {
+    websocketReconnectAllowed = true;
     setError(null);
     if (!authUser) { setError('Log in first.'); return; }
     state = null;
