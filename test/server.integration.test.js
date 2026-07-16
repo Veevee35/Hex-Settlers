@@ -501,41 +501,67 @@ test('accounts, active rooms, expert tuning, and neural model survive a clean re
   assert.equal(restoredRoom.isHost, true);
 });
 
-test('room-scoped requests recover an authenticated socket after its room binding is lost', { timeout: 20_000 }, async (t) => {
-  const port = await unusedPort();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-room-recovery-'));
-  const server = await startServer(port, dataDir);
+test('lobby survives socket replacement and can be reconstructed after transient room loss', { timeout: 25_000 }, async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-lobby-persist-'));
+  let server = null;
   const peers = [];
   t.after(async () => {
     for (const peer of peers) peer.close();
-    await server.stop();
+    if (server) await server.stop();
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
+  const firstPort = await unusedPort();
+  server = await startServer(firstPort, dataDir);
   const suffix = Date.now().toString(36).slice(-8);
-  const host = await Peer.connect(port);
-  peers.push(host);
-  host.send({ type: 'auth_register', username: `recover_${suffix}`, password: 'recover pass', displayName: 'Recovery Host' });
-  const auth = await host.waitFor((message) => message.type === 'auth_ok');
-  host.send({ type: 'create_room', displayName: 'Recovery Host' });
-  const joined = await host.waitFor((message) => message.type === 'joined');
+  const original = await Peer.connect(firstPort);
+  peers.push(original);
+  original.send({ type: 'auth_register', username: `persist_${suffix}`, password: 'persistent pass', displayName: 'Persistent Host' });
+  const auth = await original.waitFor((message) => message.type === 'auth_ok');
+  original.send({ type: 'create_room', displayName: 'Persistent Host' });
+  const joined = await original.waitFor((message) => message.type === 'joined');
 
-  // A replacement WebSocket is authenticated but deliberately never sends
-  // rejoin_room. Its first lobby action carries the room context, matching the
-  // browser's reconnect race that previously produced "Not in a room."
-  const replacement = await Peer.connect(port);
+  // Simulate Railway/browser replacing the transport. This socket is authenticated
+  // but has never sent join_room/rejoin_room. The roomCode on keepalive must repair it.
+  const replacement = await Peer.connect(firstPort);
   peers.push(replacement);
   replacement.send({ type: 'auth_token', token: auth.token });
   await replacement.waitFor((message) => message.type === 'auth_ok');
-  replacement.send({ type: 'fill_ai', targetCount: 2, roomCode: joined.room.code });
+  replacement.send({ type: 'room_keepalive', roomCode: joined.room.code });
+  const alive = await replacement.waitFor((message) => message.type === 'room_alive');
+  assert.equal(alive.code, joined.room.code);
 
-  const recovered = await replacement.waitFor((message) => message.type === 'joined' && message.recovered === true);
+  replacement.send({ type: 'set_rules', roomCode: joined.room.code, rules: { discardLimit: 9, playTurnMs: 45_000 } });
+  const updated = await replacement.waitFor((message) => message.type === 'room' && message.room.rules.discardLimit === 9);
+  assert.equal(updated.room.rules.playTurnMs, 45_000);
+
+  replacement.close();
+  await server.stop();
+  server = null;
+
+  // Simulate a host restart without a mounted Railway volume. The authenticated
+  // host can reconstruct the missing lobby under the same code from its local snapshot.
+  fs.rmSync(path.join(dataDir, 'active_rooms.json'), { force: true });
+  const secondPort = await unusedPort();
+  server = await startServer(secondPort, dataDir);
+  const recoveredPeer = await Peer.connect(secondPort);
+  peers.push(recoveredPeer);
+  recoveredPeer.send({ type: 'auth_token', token: auth.token });
+  await recoveredPeer.waitFor((message) => message.type === 'auth_ok');
+  recoveredPeer.send({
+    type: 'recover_lobby',
+    code: joined.room.code,
+    roomCode: joined.room.code,
+    displayName: 'Persistent Host',
+    rules: updated.room.rules,
+    aiDifficulty: updated.room.aiDifficulty,
+    players: updated.room.players,
+  });
+  const recovered = await recoveredPeer.waitFor((message) => message.type === 'joined' && message.recovered === true);
   assert.equal(recovered.room.code, joined.room.code);
   assert.equal(recovered.isHost, true);
-  const filledRoom = await replacement.waitFor((message) =>
-    message.type === 'room' && message.room.players.length === 2 && message.room.players.some((player) => player.isAI));
-  assert.equal(filledRoom.room.hostId, auth.user.id);
-  assert.equal(replacement.messages.some((message) => message.type === 'error' && /not in a room/i.test(message.error || '')), false);
+  assert.equal(recovered.room.rules.discardLimit, 9);
+  assert.equal(recovered.room.rules.playTurnMs, 45_000);
 });
 
 test('browser authentication uses an HTTP-only cookie for WebSocket sessions', { timeout: 20_000 }, async (t) => {

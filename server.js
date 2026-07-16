@@ -7725,8 +7725,34 @@ function loadActiveRooms() {
 
 loadActiveRooms();
 
-function createRoom(hostUserId, hostName) {
-  let code = randCode(4);
+function bindSocketToRoom(ws, room, memberId) {
+  if (!ws || !room) return false;
+  const pid = String(memberId || '').trim();
+  if (!pid || !findRoomMember(room, pid)) return false;
+  const previous = room.sockets.get(pid);
+  room.sockets.set(pid, ws);
+  ws._roomCode = room.code;
+  ws._playerId = pid;
+  room.lastActiveAt = now();
+  if (previous && previous !== ws && previous.readyState === WebSocket.OPEN) {
+    sendJson(previous, { type: 'error', error: 'This room connection was replaced by a newer connection.' });
+    try { previous.close(); } catch (_) {}
+  }
+  return true;
+}
+
+function recoverSocketRoomBinding(ws, requestedCode) {
+  if (!ws || !ws._userId) return null;
+  const code = String(requestedCode || '').trim().toUpperCase();
+  if (!code) return null;
+  const room = rooms.get(code);
+  if (!room || !findRoomMember(room, ws._userId)) return null;
+  return bindSocketToRoom(ws, room, ws._userId) ? room : null;
+}
+
+function createRoom(hostUserId, hostName, requestedCode = '') {
+  const requested = String(requestedCode || '').trim().toUpperCase();
+  let code = (/^[A-Z2-9]{4,8}$/.test(requested) && !rooms.has(requested)) ? requested : randCode(4);
   while (rooms.has(code)) code = randCode(4);
 
   const hostId = String(hostUserId || '').trim() || crypto.randomUUID();
@@ -7762,6 +7788,74 @@ function createRoom(hostUserId, hostName) {
   rooms.set(code, room);
   scheduleActiveRoomsSave();
   return room;
+}
+
+function recoveredLobbyRules(rawRules) {
+  const raw = (rawRules && typeof rawRules === 'object') ? rawRules : {};
+  const next = { ...DEFAULT_RULES };
+  const clampInt = (value, fallback, min, max) => {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+  };
+  next.discardLimit = clampInt(raw.discardLimit, next.discardLimit, 3, 30);
+  next.setupTurnMs = clampInt(raw.setupTurnMs, next.setupTurnMs, 5_000, 300_000);
+  next.playTurnMs = clampInt(raw.playTurnMs, next.playTurnMs, 5_000, 300_000);
+  next.microPhaseMs = clampInt(raw.microPhaseMs ?? raw.microMs, next.microPhaseMs, 5_000, 300_000);
+  next.microMs = next.microPhaseMs;
+  next.baseResourcesPerType = clampInt(raw.baseResourcesPerType ?? raw.baseResourceCount, bankMaxForRules(raw), 1, 40);
+  next.devDeckMode = normalizeDevDeckMode(raw.devDeckMode ?? next.devDeckMode);
+  next.explorationPointsEnabled = raw.explorationPointsEnabled !== false;
+  next.friendlyRobber = raw.friendlyRobber === true;
+
+  const mm = String(raw.mapMode || 'classic').toLowerCase();
+  next.mapMode = mm === 'seafarers' ? 'seafarers'
+    : (mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6')
+      ? 'classic56'
+      : 'classic';
+  next.seafarersScenario = String(raw.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_').slice(0, 48);
+  next.victoryPointsToWin = clampInt(raw.victoryPointsToWin, next.victoryPointsToWin, 3, 30);
+  return next;
+}
+
+function recoveredLobbyPreview(rawPreview, room) {
+  if (!rawPreview || typeof rawPreview !== 'object' || !room) return null;
+  const geom = rawPreview.geom;
+  if (!geom || typeof geom !== 'object') return null;
+  if (!Array.isArray(geom.tiles) || !Array.isArray(geom.nodes) || !Array.isArray(geom.edges)) return null;
+  if (geom.tiles.length > 200 || geom.nodes.length > 600 || geom.edges.length > 900) return null;
+  const expectedKey = mapPreviewKey(room.rules || DEFAULT_RULES, room.players.length);
+  const suppliedKey = String(rawPreview.key || rawPreview.previewKey || expectedKey);
+  if (suppliedKey !== expectedKey) return null;
+  const cleanGeom = deepClone(geom);
+  if (!cleanGeom) return null;
+  return { key: expectedKey, geom: cleanGeom, at: now() };
+}
+
+function addRecoveredAiPlayers(room, rawPlayers) {
+  if (!room || !Array.isArray(rawPlayers)) return;
+  const usedIds = new Set(room.players.map((player) => String(player && player.id || '')));
+  const usedColors = new Set(room.players.map((player) => String(player && player.color || '').toLowerCase()));
+  const limit = maxPlayersForRules(room.rules || DEFAULT_RULES);
+  for (const raw of rawPlayers) {
+    if (room.players.length >= limit) break;
+    if (!raw || !raw.isAI) continue;
+    let id = String(raw.id || '').trim();
+    if (!id || usedIds.has(id)) id = `ai-${room.aiSeq++}-${crypto.randomUUID().slice(0, 8)}`;
+    let color = String(raw.color || '').trim();
+    if (!color || usedColors.has(color.toLowerCase()) || !COLORS.includes(color)) color = pickAvailableColor(room);
+    const player = {
+      id,
+      name: String(raw.name || 'AI').slice(0, 20),
+      color,
+      joinedAt: now(),
+      isAI: true,
+      texturePackId: 'default',
+      texturePackName: 'Default',
+    };
+    room.players.push(player);
+    usedIds.add(id);
+    usedColors.add(color.toLowerCase());
+  }
 }
 
 // Create a new lobby room that carries over the previous room's players/rules,
@@ -8196,60 +8290,6 @@ function activateAuthenticatedSocket(ws, user) {
   return true;
 }
 
-const ROOM_CONTEXT_EXEMPT_MESSAGE_TYPES = new Set([
-  'auth_login', 'auth_register', 'auth_set_display_name', 'auth_token',
-  'create_room', 'get_game_history', 'get_game_history_entry', 'get_player_leaderboard',
-  'join_room', 'rejoin_room',
-]);
-
-function recoverAuthenticatedRoomSocket(ws, msg) {
-  if (!ws || !ws._userId || !msg || typeof msg !== 'object') return false;
-  const userId = String(ws._userId || '').trim();
-  if (!userId) return false;
-
-  const currentCode = String(ws._roomCode || '').trim().toUpperCase();
-  const currentRoom = currentCode ? rooms.get(currentCode) : null;
-  if (currentRoom && roomRole(currentRoom, userId)) {
-    ws._playerId = userId;
-    const previousSocket = currentRoom.sockets.get(userId);
-    currentRoom.sockets.set(userId, ws);
-    if (previousSocket && previousSocket !== ws && previousSocket.readyState === WebSocket.OPEN) {
-      try { previousSocket.close(); } catch (_) {}
-    }
-    return false;
-  }
-
-  if (currentRoom && currentRoom.sockets.get(userId) === ws) currentRoom.sockets.delete(userId);
-  ws._roomCode = null;
-  ws._playerId = null;
-
-  const requestedCode = String(msg.roomCode || '').trim().toUpperCase();
-  if (!requestedCode) return false;
-  const room = rooms.get(requestedCode);
-  if (!room || !roomRole(room, userId)) return false;
-
-  const previousSocket = room.sockets.get(userId);
-  room.sockets.set(userId, ws);
-  ws._roomCode = room.code;
-  ws._playerId = userId;
-
-  if (previousSocket && previousSocket !== ws && previousSocket.readyState === WebSocket.OPEN) {
-    sendJson(previousSocket, { type: 'error', error: 'You were disconnected because this account reconnected from another browser.' });
-    try { previousSocket.close(); } catch (_) {}
-  }
-
-  sendJson(ws, {
-    type: 'joined',
-    playerId: userId,
-    room: roomSnapshot(room),
-    isHost: userId === room.hostId,
-    role: roomRole(room, userId) || 'player',
-    recovered: true,
-  });
-  sendRoomStateToSocket(room, ws, userId);
-  return true;
-}
-
 function revokeAuthToken(user, token) {
   if (!user || !Array.isArray(user.tokens) || !token) return;
   user.tokens = user.tokens.filter((record) => !sessionTokenMatches(record, token));
@@ -8454,6 +8494,8 @@ wss.on('connection', (ws, req) => {
   ws._roomCode = null;
   ws._spectatorViewId = null;
   ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
+  ws._isAlive = true;
+  ws.on('pong', () => { ws._isAlive = true; });
 
   sendJson(ws, { type: 'hello', serverTime: now(), version: 1 });
 
@@ -8574,8 +8616,72 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
-    if (!ROOM_CONTEXT_EXEMPT_MESSAGE_TYPES.has(msg.type)) {
-      recoverAuthenticatedRoomSocket(ws, msg);
+    // Every room-scoped browser request carries its room code. If Railway or the
+    // browser replaced the WebSocket, restore the authenticated member binding
+    // before handling the request instead of dropping the lobby with "Not in a room".
+    if ((!ws._roomCode || !ws._playerId) && msg.roomCode) {
+      recoverSocketRoomBinding(ws, msg.roomCode);
+    }
+
+    if (msg.type === 'room_keepalive') {
+      const code = String(msg.roomCode || ws._roomCode || '').trim().toUpperCase();
+      const room = (ws._roomCode ? rooms.get(ws._roomCode) : null) || recoverSocketRoomBinding(ws, code);
+      if (!room || !ws._userId || !findRoomMember(room, ws._userId)) {
+        sendJson(ws, { type: 'error', error: room ? 'Not in a room.' : 'Room not found.' });
+        return;
+      }
+      room.lastActiveAt = now();
+      sendJson(ws, { type: 'room_alive', code: room.code, serverTime: now() });
+      return;
+    }
+
+    if (msg.type === 'recover_lobby') {
+      if (!ws._userId) {
+        sendJson(ws, { type: 'error', error: 'Please log in first.' });
+        return;
+      }
+      const requestedCode = String(msg.code || msg.roomCode || '').trim().toUpperCase();
+      if (!/^[A-Z2-9]{4,8}$/.test(requestedCode)) {
+        sendJson(ws, { type: 'error', error: 'Invalid room code.' });
+        return;
+      }
+
+      let room = rooms.get(requestedCode) || null;
+      if (room) {
+        if (!findRoomMember(room, ws._userId)) {
+          sendJson(ws, { type: 'error', error: 'That room already exists and belongs to another host.' });
+          return;
+        }
+      } else {
+        const desiredName = cleanDisplayName(msg.displayName || msg.name || 'Host') || 'Host';
+        room = createRoom(ws._userId, desiredName, requestedCode);
+        room.rules = recoveredLobbyRules(msg.rules);
+        room.aiDifficulty = ['test', 'easy', 'medium', 'hard', 'expert'].includes(String(msg.aiDifficulty || '').toLowerCase())
+          ? String(msg.aiDifficulty).toLowerCase()
+          : 'test';
+        addRecoveredAiPlayers(room, msg.players);
+        const hostSnapshot = Array.isArray(msg.players)
+          ? msg.players.find((player) => player && String(player.id || '') === String(ws._userId))
+          : null;
+        const host = findRoomPlayer(room, ws._userId);
+        if (host && hostSnapshot && COLORS.includes(String(hostSnapshot.color || ''))) host.color = String(hostSnapshot.color);
+        room.preview = recoveredLobbyPreview(msg.preview, room);
+        if (!room.preview) ensurePreview(room, true);
+        await scheduleActiveRoomsSave();
+      }
+
+      bindSocketToRoom(ws, room, ws._userId);
+      sendJson(ws, {
+        type: 'joined',
+        playerId: ws._userId,
+        room: roomSnapshot(room),
+        isHost: ws._userId === room.hostId,
+        role: roomRole(room, ws._userId) || 'player',
+        recovered: true,
+      });
+      sendRoomStateToSocket(room, ws, ws._userId);
+      broadcastRoom(room);
+      return;
     }
 
 
@@ -8709,10 +8815,12 @@ if (msg.type === 'create_room') {
       }
 
       const room = createRoom(ws._userId, desiredName);
-      ws._roomCode = room.code;
-      ws._playerId = ws._userId;
-      room.sockets.set(ws._userId, ws);
+      bindSocketToRoom(ws, room, ws._userId);
       ensurePreview(room, true);
+      // Do not acknowledge a new lobby until its durable snapshot has been written.
+      // This closes the restart window where Railway could replace the process and
+      // the room code would immediately disappear.
+      await scheduleActiveRoomsSave();
 
       sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true, role: roomRole(room, ws._userId) || 'player' });
       sendRoomStateToSocket(room, ws, ws._userId);
@@ -11182,6 +11290,22 @@ const endVoteRebroadcastInterval = setInterval(() => {
   }
 }, 250);
 
+// WebSocket protocol heartbeats keep Railway/proxy connections from being
+// classified as idle and promptly retire half-open peers. Browser clients
+// automatically answer ping frames with pong frames.
+const websocketHeartbeatInterval = setInterval(() => {
+  for (const client of wss.clients) {
+    if (client._isAlive === false) {
+      try { client.terminate(); } catch (_) {}
+      continue;
+    }
+    client._isAlive = false;
+    try { client.ping(); } catch (_) {
+      try { client.terminate(); } catch (_) {}
+    }
+  }
+}, 20_000);
+
 const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
 const authLimiterCleanupInterval = setInterval(() => passwordAuthLimiter.cleanup(), 60_000);
 
@@ -11193,7 +11317,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
+  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, websocketHeartbeatInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }
 
