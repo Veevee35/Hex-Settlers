@@ -4599,6 +4599,11 @@ function syncPostgameToState() {
     'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_player_color', 'set_rules',
     'set_spectator_mode', 'set_spectator_view', 'set_texture_pack', 'start_game', 'texture_pack_publish',
   ]);
+  const ROOM_CONTEXT_EXEMPT_MESSAGE_TYPES = new Set([
+    'auth_login', 'auth_register', 'auth_set_display_name', 'auth_token',
+    'create_room', 'get_game_history', 'get_game_history_entry', 'get_player_leaderboard',
+    'join_room', 'rejoin_room',
+  ]);
   let myPlayerId = null;
   let room = null;
   let state = null;
@@ -5747,18 +5752,28 @@ function refreshLobbyJoinLinkUi() {
 
   function send(obj) {
     if (!ws || ws.readyState !== 1) return;
-    if (historyReplay.active && !HISTORY_REPLAY_ALLOWED_MESSAGES.has(obj && obj.type)) {
+    const type = String(obj && obj.type || '');
+    if (historyReplay.active && !HISTORY_REPLAY_ALLOWED_MESSAGES.has(type)) {
       setError('Exit the replay before changing the live game.');
       return;
     }
-    if (room && myPlayerId && !roomConnectionReady && RECONNECT_SAFE_ROOM_MESSAGE_TYPES.has(String(obj && obj.type || ''))) {
-      const type = String(obj.type || '');
+
+    // Carry the room code on every room-scoped request. If Railway replaces a
+    // WebSocket while the page still has a valid lobby, the server can safely
+    // restore this authenticated account's room binding before handling the
+    // request instead of answering with a misleading "Not in a room." error.
+    let payload = obj;
+    if (obj && typeof obj === 'object' && room && room.code && !ROOM_CONTEXT_EXEMPT_MESSAGE_TYPES.has(type) && !obj.roomCode) {
+      payload = { ...obj, roomCode: String(room.code).trim().toUpperCase() };
+    }
+
+    if (room && myPlayerId && !roomConnectionReady && RECONNECT_SAFE_ROOM_MESSAGE_TYPES.has(type)) {
       pendingReconnectRoomMessages = pendingReconnectRoomMessages.filter((message) => String(message && message.type || '') !== type);
-      pendingReconnectRoomMessages.push(obj);
+      pendingReconnectRoomMessages.push(payload);
       setError('Reconnecting to the room…');
       return;
     }
-    try { ws.send(JSON.stringify(obj)); }
+    try { ws.send(JSON.stringify(payload)); }
     catch (_) {
       try { ws.close(); } catch (_) {}
     }

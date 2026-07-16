@@ -8196,6 +8196,60 @@ function activateAuthenticatedSocket(ws, user) {
   return true;
 }
 
+const ROOM_CONTEXT_EXEMPT_MESSAGE_TYPES = new Set([
+  'auth_login', 'auth_register', 'auth_set_display_name', 'auth_token',
+  'create_room', 'get_game_history', 'get_game_history_entry', 'get_player_leaderboard',
+  'join_room', 'rejoin_room',
+]);
+
+function recoverAuthenticatedRoomSocket(ws, msg) {
+  if (!ws || !ws._userId || !msg || typeof msg !== 'object') return false;
+  const userId = String(ws._userId || '').trim();
+  if (!userId) return false;
+
+  const currentCode = String(ws._roomCode || '').trim().toUpperCase();
+  const currentRoom = currentCode ? rooms.get(currentCode) : null;
+  if (currentRoom && roomRole(currentRoom, userId)) {
+    ws._playerId = userId;
+    const previousSocket = currentRoom.sockets.get(userId);
+    currentRoom.sockets.set(userId, ws);
+    if (previousSocket && previousSocket !== ws && previousSocket.readyState === WebSocket.OPEN) {
+      try { previousSocket.close(); } catch (_) {}
+    }
+    return false;
+  }
+
+  if (currentRoom && currentRoom.sockets.get(userId) === ws) currentRoom.sockets.delete(userId);
+  ws._roomCode = null;
+  ws._playerId = null;
+
+  const requestedCode = String(msg.roomCode || '').trim().toUpperCase();
+  if (!requestedCode) return false;
+  const room = rooms.get(requestedCode);
+  if (!room || !roomRole(room, userId)) return false;
+
+  const previousSocket = room.sockets.get(userId);
+  room.sockets.set(userId, ws);
+  ws._roomCode = room.code;
+  ws._playerId = userId;
+
+  if (previousSocket && previousSocket !== ws && previousSocket.readyState === WebSocket.OPEN) {
+    sendJson(previousSocket, { type: 'error', error: 'You were disconnected because this account reconnected from another browser.' });
+    try { previousSocket.close(); } catch (_) {}
+  }
+
+  sendJson(ws, {
+    type: 'joined',
+    playerId: userId,
+    room: roomSnapshot(room),
+    isHost: userId === room.hostId,
+    role: roomRole(room, userId) || 'player',
+    recovered: true,
+  });
+  sendRoomStateToSocket(room, ws, userId);
+  return true;
+}
+
 function revokeAuthToken(user, token) {
   if (!user || !Array.isArray(user.tokens) || !token) return;
   user.tokens = user.tokens.filter((record) => !sessionTokenMatches(record, token));
@@ -8518,6 +8572,10 @@ wss.on('connection', (ws, req) => {
       const rows = computeLeaderboardFromHistory();
       sendJson(ws, { type: 'player_leaderboard', rows });
       return;
+    }
+
+    if (!ROOM_CONTEXT_EXEMPT_MESSAGE_TYPES.has(msg.type)) {
+      recoverAuthenticatedRoomSocket(ws, msg);
     }
 
 

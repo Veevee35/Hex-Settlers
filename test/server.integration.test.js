@@ -501,6 +501,43 @@ test('accounts, active rooms, expert tuning, and neural model survive a clean re
   assert.equal(restoredRoom.isHost, true);
 });
 
+test('room-scoped requests recover an authenticated socket after its room binding is lost', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-room-recovery-'));
+  const server = await startServer(port, dataDir);
+  const peers = [];
+  t.after(async () => {
+    for (const peer of peers) peer.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const suffix = Date.now().toString(36).slice(-8);
+  const host = await Peer.connect(port);
+  peers.push(host);
+  host.send({ type: 'auth_register', username: `recover_${suffix}`, password: 'recover pass', displayName: 'Recovery Host' });
+  const auth = await host.waitFor((message) => message.type === 'auth_ok');
+  host.send({ type: 'create_room', displayName: 'Recovery Host' });
+  const joined = await host.waitFor((message) => message.type === 'joined');
+
+  // A replacement WebSocket is authenticated but deliberately never sends
+  // rejoin_room. Its first lobby action carries the room context, matching the
+  // browser's reconnect race that previously produced "Not in a room."
+  const replacement = await Peer.connect(port);
+  peers.push(replacement);
+  replacement.send({ type: 'auth_token', token: auth.token });
+  await replacement.waitFor((message) => message.type === 'auth_ok');
+  replacement.send({ type: 'fill_ai', targetCount: 2, roomCode: joined.room.code });
+
+  const recovered = await replacement.waitFor((message) => message.type === 'joined' && message.recovered === true);
+  assert.equal(recovered.room.code, joined.room.code);
+  assert.equal(recovered.isHost, true);
+  const filledRoom = await replacement.waitFor((message) =>
+    message.type === 'room' && message.room.players.length === 2 && message.room.players.some((player) => player.isAI));
+  assert.equal(filledRoom.room.hostId, auth.user.id);
+  assert.equal(replacement.messages.some((message) => message.type === 'error' && /not in a room/i.test(message.error || '')), false);
+});
+
 test('browser authentication uses an HTTP-only cookie for WebSocket sessions', { timeout: 20_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-cookie-'));
