@@ -148,3 +148,15 @@ test('development purchases count as spent and Monopoly victims use their own lo
   assert.match(serverJs, /const blocked = blockedProductionByPlayer\(t, game\.geom\.nodes, blockedKind\)/);
   assert.match(serverJs, /recordBlockedProduction\(game, playerId, losses\)/);
 });
+
+test('resource overview uses one shared proportional stack scale that is stable when Gold display changes', () => {
+  assert.match(appJs, /const maxStackMagnitude = Math\.max\(1, \.\.\.resourceSummaries\.flatMap/);
+  assert.match(appJs, /const maxVisualStackHeight = Math\.max\(320, Math\.min\(560,/);
+  assert.match(appJs, /Math\.round\(\(laneSpec\.total \/ maxStackMagnitude\) \* maxVisualStackHeight\)/);
+  assert.match(appJs, /stack\.style\.height = `\$\{stackHeight\}px`/);
+  assert.match(appJs, /block\.style\.flexGrow = String\(value\)/);
+  assert.match(appJs, /Gold mode only[\s\S]*cannot alter a lane's[\s\S]*total visual height/);
+  assert.doesNotMatch(appJs, /const height = 34 \+ Math\.round\(\(value \/ maxStackMagnitude\)/);
+  assert.match(stylesCss, /\.pgResPlayerStack\s*\{[^}]*align-self:end;[^}]*max-height:var\(--pg-res-stack-ceiling/s);
+  assert.match(stylesCss, /\.pgResStackBlock\s*\{[^}]*min-height:0;/s);
+});

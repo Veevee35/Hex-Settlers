@@ -1769,9 +1769,9 @@ select.input{
   padding:8px 0 4px;
 }
 .pgResPlayerColumn{
-  min-height:390px;
+  min-height:calc(var(--pg-res-stack-ceiling, 520px) + 128px);
   display:grid;
-  grid-template-rows:auto minmax(270px, 1fr) auto;
+  grid-template-rows:auto minmax(calc(var(--pg-res-stack-ceiling, 520px) + 38px), 1fr) auto;
   align-items:end;
   padding:13px 9px 11px;
   border:1px solid color-mix(in srgb, var(--pg-player-color) 42%, rgba(255,255,255,.10));
@@ -1794,7 +1794,7 @@ select.input{
 .pgResPlayerNet.negative{color:#ff6e6e;}
 .pgResPlayerNet.zero{color:rgba(255,255,255,.55);}
 .pgResPlayerLanes{
-  min-height:270px;
+  min-height:calc(var(--pg-res-stack-ceiling, 520px) + 38px);
   display:grid;
   grid-template-columns:repeat(2, minmax(0, 1fr));
   gap:8px;
@@ -1804,7 +1804,7 @@ select.input{
 .pgResPlayerLane{
   min-width:0;
   display:grid;
-  grid-template-rows:auto minmax(235px, 1fr);
+  grid-template-rows:auto minmax(var(--pg-res-stack-ceiling, 520px), 1fr);
   border:1px solid rgba(255,255,255,.08);
   border-radius:11px;
   background:rgba(0,0,0,.13);
@@ -1831,22 +1831,27 @@ select.input{
 .pgResPlayerLane.gain .pgResPlayerLaneHeading{background:rgba(72,166,80,.08);}
 .pgResPlayerLane.loss .pgResPlayerLaneHeading{background:rgba(181,68,68,.08);}
 .pgResPlayerLane .pgResPlayerStack{
-  min-height:235px;
+  min-height:0;
 }
 .pgResPlayerStack{
   display:flex;
   flex-direction:column-reverse;
   justify-content:flex-start;
   align-items:center;
-  align-self:stretch;
+  align-self:end;
+  width:100%;
+  max-height:var(--pg-res-stack-ceiling, 520px);
   gap:3px;
-  padding-top:12px;
+}
+.pgResPlayerStack.empty{
+  height:100%;
+  max-height:none;
 }
 .pgResStackBlock{
   position:relative;
   isolation:isolate;
   width:calc(100% - 8px);
-  min-height:34px;
+  min-height:0;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -1880,6 +1885,18 @@ select.input{
   height:26px;
   object-fit:contain;
   filter:drop-shadow(0 2px 3px rgba(0,0,0,.55));
+}
+.pgResStackBlock.compact{
+  gap:4px;
+  font-size:10px;
+}
+.pgResStackBlock.compact img{
+  width:18px;
+  height:18px;
+}
+.pgResStackBlock.micro img,
+.pgResStackBlock.micro span{
+  display:none;
 }
 .pgResStackEmpty{
   margin:auto 0;
@@ -2019,7 +2036,7 @@ select.input{
 @media (max-width: 760px){
   .pgResCategoryHeading{align-items:center; flex-direction:column; gap:3px;}
   .pgResOverviewGrid{grid-template-columns:1fr;}
-  .pgResPlayerColumn{min-height:350px;}
+  .pgResPlayerColumn{min-height:calc(var(--pg-res-stack-ceiling, 520px) + 128px);}
   .pgOverviewPlayerGrid{grid-template-columns:1fr;}
   .pgGameOverviewSection .pgOverviewPlayerGrid{grid-template-columns:1fr;}
   .pgMatchHighlights{grid-template-columns:1fr;}

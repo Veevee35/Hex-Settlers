@@ -2510,6 +2510,13 @@ function renderPostgameTab(tab) {
     const maxStackMagnitude = Math.max(1, ...resourceSummaries.flatMap((summary) => (
       [summary.gainedTotal, summary.lostTotal]
     )));
+    // Every lane uses the same scale. The richest gained/lost lane reaches the
+    // ceiling and all other lanes are a linear fraction of it. Gold mode only
+    // redistributes cards between colored sections, so it cannot alter a lane's
+    // total visual height.
+    const maxVisualStackHeight = Math.max(320, Math.min(560, 240 + Math.round(maxStackMagnitude * 2.6)));
+    const minNonZeroStackHeight = 34;
+    overview.style.setProperty('--pg-res-stack-ceiling', `${maxVisualStackHeight}px`);
     const resourceOrder = ['lumber', 'brick', 'wool', 'grain', 'ore', 'gold'];
 
     for (const summary of resourceSummaries) {
@@ -2545,28 +2552,39 @@ function renderPostgameTab(tab) {
 
         const stack = document.createElement('div');
         stack.className = 'pgResPlayerStack';
-        let blockCount = 0;
-        for (const key of resourceOrder) {
-          const value = safeNum(laneSpec.values[key]);
-          if (!value) continue;
-          blockCount += 1;
-          const block = document.createElement('div');
-          block.className = `pgResStackBlock ${key} ${laneSpec.direction}`;
-          const height = 34 + Math.round((value / maxStackMagnitude) * 110);
-          block.style.height = `${height}px`;
-          block.title = `${laneSpec.label} ${value} ${RESOURCE_LABEL[key]}`;
+        const laneEntries = resourceOrder
+          .map((key) => ({ key, value: safeNum(laneSpec.values[key]) }))
+          .filter((entry) => entry.value > 0);
+        const blockCount = laneEntries.length;
+        const stackHeight = laneSpec.total > 0
+          ? Math.max(minNonZeroStackHeight, Math.round((laneSpec.total / maxStackMagnitude) * maxVisualStackHeight))
+          : 0;
+        if (blockCount) {
+          stack.classList.add('hasValues');
+          stack.style.height = `${stackHeight}px`;
+          const usableBlockHeight = Math.max(1, stackHeight - Math.max(0, blockCount - 1) * 3);
+          for (const { key, value } of laneEntries) {
+            const block = document.createElement('div');
+            block.className = `pgResStackBlock ${key} ${laneSpec.direction}`;
+            block.style.flexGrow = String(value);
+            block.style.flexBasis = '0px';
+            const estimatedHeight = (value / laneSpec.total) * usableBlockHeight;
+            if (estimatedHeight < 34) block.classList.add('compact');
+            if (estimatedHeight < 17) block.classList.add('micro');
+            block.title = `${laneSpec.label} ${value} ${RESOURCE_LABEL[key]}`;
 
-          const image = document.createElement('img');
-          image.src = key === 'gold' ? '/assets/gold-resource.png' : getTextureAssetUrl(`Ports/${key}.png`);
-          image.alt = RESOURCE_LABEL[key];
-          image.draggable = false;
-          const amount = document.createElement('span');
-          amount.textContent = `${laneSpec.sign}${value}`;
-          block.appendChild(image);
-          block.appendChild(amount);
-          stack.appendChild(block);
-        }
-        if (!blockCount) {
+            const image = document.createElement('img');
+            image.src = key === 'gold' ? '/assets/gold-resource.png' : getTextureAssetUrl(`Ports/${key}.png`);
+            image.alt = RESOURCE_LABEL[key];
+            image.draggable = false;
+            const amount = document.createElement('span');
+            amount.textContent = `${laneSpec.sign}${value}`;
+            block.appendChild(image);
+            block.appendChild(amount);
+            stack.appendChild(block);
+          }
+        } else {
+          stack.classList.add('empty');
           const empty = document.createElement('div');
           empty.className = 'pgResStackEmpty';
           empty.textContent = selectedCategories.length ? `No ${laneSpec.label.toLowerCase()} resources` : 'Choose categories above';

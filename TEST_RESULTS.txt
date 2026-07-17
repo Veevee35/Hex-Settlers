@@ -1,12 +1,12 @@
 Hex Settlers validation results
 
-Change: Play the supplied Stolen From sound only for players who lose resources to the robber, pirate, or Monopoly, with a dedicated local audio control.
+Change: Keep Resources Overview stack heights stable when Gold display is toggled and scale every gained/lost stack proportionally against the same match-wide maximum.
 
 Validation command:
   npm run check
 
 Result:
-  125 tests passed
+  126 tests passed
   0 tests failed
   TypeScript bootstrap compiled successfully
   server.js syntax check passed
