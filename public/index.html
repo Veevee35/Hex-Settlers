@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=admin-user-management-v1" />
+  <link rel="stylesheet" href="styles.css?v=self-service-email-reset-v1" />
 </head>
 <body>
   <div id="app">
@@ -30,9 +30,10 @@
           <label class="label">Password</label>
           <input id="passwordInput" class="input" type="password" placeholder="password" />
 
-          <div class="row">
+          <div class="row" style="flex-wrap:wrap;">
             <button id="registerBtn" class="btn">Create Account</button>
             <button id="loginBtn" class="btn primary">Log In</button>
+            <button id="forgotPasswordBtn" class="btn subtle">Forgot Password?</button>
             <button id="logoutBtn" class="btn hidden">Log Out</button>
           </div>
 
@@ -568,6 +569,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=admin-user-management-v1"></script>
+  <script src="app.js?v=self-service-email-reset-v1"></script>
 </body>
 </html>

@@ -30,7 +30,7 @@ Set `DATA_DIR` to keep mutable data outside the repository. Railway uses `RAILWA
 
 | File | Contents |
 | --- | --- |
-| `users.json` | Account profiles, password hashes, hashed session tokens, and aggregate stats |
+| `users.json` | Account profiles, verified recovery emails, password hashes, hashed one-time tokens, hashed session tokens, and aggregate stats |
 | `game_history.json` | Completed-game metadata and postgame snapshots |
 | `active_rooms.json` | Recoverable lobby and active-game snapshots |
 | `neural_ai_model.json` | Neural AI parameters and training metadata |
@@ -51,10 +51,15 @@ Copy `.env.example` into your hosting environment; the server does not load `.en
 | `HEX_AUTH_ATTEMPTS_PER_MINUTE` | `12` | Password-auth limit per client address |
 | `HEX_WS_MAX_PAYLOAD` | `50331648` | Transport ceiling needed by large texture packs |
 | `HEX_BUILTIN_ADMIN_ENABLED` | on outside tests | Creates the reserved `Benleethom` administrator account |
-| `HEX_ADMIN_PASSWORD` | generated once when absent | Password for the built-in administrator; set this securely in Railway |
+| `HEX_ADMIN_PASSWORD` | generated once when absent | Initial password for the built-in administrator; set this securely in Railway |
+| `HEX_ADMIN_FORCE_PASSWORD_SYNC` | `false` | One-restart override that forces the environment password onto the built-in administrator |
+| `HEX_PUBLIC_BASE_URL` | inferred from request | Public origin used in verification and password-reset links |
+| `HEX_EMAIL_FROM` | local placeholder | Sender identity for account email |
+| `RESEND_API_KEY` | unset | Enables Resend email delivery |
+| `SMTP_HOST` and `SMTP_*` | unset | Enables SMTP email delivery when Resend is not configured |
 | `AI_FAST` | off | Accelerated AI ticks for simulations only |
 
-The built-in administrator uses username **Benleethom** and player name **Ben**. When `HEX_ADMIN_PASSWORD` is omitted on the first production start, the server prints a one-time random temporary password in the deploy log. The administrator sees a **User Management** button in the lobby and can reset other users’ passwords; resets revoke that user’s saved login sessions.
+The built-in administrator uses username **Benleethom** and player name **Ben**. When `HEX_ADMIN_PASSWORD` is omitted on the first production start, the server prints a one-time random temporary password in the deploy log. Ben sees every registered account in **User Management**; ordinary players see only their own account in **My Account**. Signed-in users can change their own password and verify a recovery email. The pre-login recovery flow sends expiring, one-time password-reset links through Resend or SMTP. See `ADMIN_SETUP.md` for provider configuration.
 
 Expert AI weights also have optional `EXPERT_AI_*` environment overrides; see the defaults near the bottom of `server.js`.
 

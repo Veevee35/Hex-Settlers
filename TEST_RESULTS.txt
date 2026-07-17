@@ -1,19 +1,22 @@
 Hex Settlers validation results
 
-Change: Add the reserved Benleethom / Ben administrator account and an administrator-only lobby user-management screen for resetting other users' passwords.
+Change: Add self-service user management for every account, verified recovery-email linking, and pre-login email password resets while preserving administrator-wide management for Benleethom.
 
 Security behavior:
-  - Administrator role is issued by the server and returned as a boolean only.
-  - Password hashes and session-token hashes are never returned to the browser.
-  - Resetting a password revokes the affected user's saved sessions.
-  - The reserved administrator username cannot be registered by ordinary users.
-  - No default administrator password is hardcoded in the project.
+  - Non-administrator users receive only their own account record.
+  - Self-service password changes require the current password.
+  - Administrator resets and self-service password changes revoke older saved sessions.
+  - Email verification links expire after 1 hour and are single use.
+  - Password-reset links expire after 30 minutes and are single use.
+  - Password hashes, session tokens, and one-time tokens are never returned to the browser.
+  - Email and username reset requests use non-enumerating responses and rate limits.
+  - Recovery email can use Resend or TLS-capable SMTP.
 
 Validation command:
   npm run check
 
 Result:
-  129 tests passed
+  132 tests passed
   0 tests failed
   TypeScript bootstrap compiled successfully
   server.js syntax check passed

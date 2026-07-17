@@ -2577,3 +2577,23 @@ body.rules-page-open{overflow:hidden;}
   .userManagementControls{grid-template-columns:1fr}
   .userManagementControls .btn{width:100%}
 }
+
+/* Self-service account and email recovery */
+.btn.subtle{background:rgba(255,255,255,.035); color:var(--muted)}
+.btn.subtle:hover{background:rgba(255,255,255,.075); color:var(--text)}
+.userManagementWarning{padding:10px 12px; border:1px solid rgba(255,179,71,.42); border-radius:10px; background:rgba(118,72,10,.18); color:#ffd99a; font-size:12px; line-height:1.45}
+.userManagementRow.self{border-color:rgba(70,178,255,.38); box-shadow:0 0 0 1px rgba(70,178,255,.08) inset}
+.userManagementBadge.selfBadge{border-color:rgba(77,190,255,.55); background:rgba(40,130,190,.14); color:#9edcff}
+.userManagementEmailLine{margin-top:6px; color:#b9c8d4; font-size:11px; line-height:1.4; word-break:break-word}
+.userManagementPending{margin-top:4px; color:#ffd37b; font-size:11px; line-height:1.4; word-break:break-word}
+.userManagementControls{display:flex; flex-direction:column; gap:10px; min-width:0}
+.userManagementSection{display:flex; flex-direction:column; gap:8px; padding:10px; border:1px solid rgba(255,255,255,.09); border-radius:11px; background:rgba(0,0,0,.13); min-width:0}
+.userManagementSection .btn{align-self:flex-start}
+.userManagementEmailButtons{gap:8px; flex-wrap:wrap}
+.passwordRecoveryPanel{display:flex; flex-direction:column; gap:10px; min-width:min(440px,72vw)}
+.passwordRecoveryPanel .btn{align-self:flex-start}
+@media (max-width:720px){
+  .passwordRecoveryPanel{min-width:0}
+  .userManagementSection .btn{align-self:stretch; width:100%}
+  .userManagementEmailButtons{display:grid; grid-template-columns:1fr}
+}

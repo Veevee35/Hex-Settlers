@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'admin-user-management-v1';
+  const ASSET_CACHE_SW_BUILD = 'self-service-email-reset-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -45,6 +45,7 @@
     registerBtn: $('registerBtn'),
     loginBtn: $('loginBtn'),
     logoutBtn: $('logoutBtn'),
+    forgotPasswordBtn: $('forgotPasswordBtn'),
     userManagementBtn: $('userManagementBtn'),
     authStatus: $('authStatus'),
     authStats: $('authStats'),
@@ -1042,6 +1043,19 @@
     return payload;
   }
 
+  async function accountApi(action, body = {}) {
+    const response = await fetch(`/api/account/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    });
+    let payload = {};
+    try { payload = await response.json(); } catch (_) {}
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'Account request failed.');
+    return payload;
+  }
+
   function scheduleWebsocketReconnect(delayMs) {
     if (websocketReconnectTimer !== null) clearTimeout(websocketReconnectTimer);
     const delay = Math.max(0, Number(delayMs) || 0);
@@ -1082,7 +1096,11 @@
       ui.authStats.textContent = loggedIn ? formatStatsLine(authUser.stats) : '';
     }
     if (ui.logoutBtn) ui.logoutBtn.classList.toggle('hidden', !loggedIn);
-    if (ui.userManagementBtn) ui.userManagementBtn.classList.toggle('hidden', !(loggedIn && authUser.isAdmin));
+    if (ui.forgotPasswordBtn) ui.forgotPasswordBtn.classList.toggle('hidden', loggedIn);
+    if (ui.userManagementBtn) {
+      ui.userManagementBtn.classList.toggle('hidden', !loggedIn);
+      ui.userManagementBtn.textContent = loggedIn && authUser.isAdmin ? 'User Management' : 'My Account';
+    }
     if (ui.loginBtn) ui.loginBtn.disabled = loggedIn;
     if (ui.registerBtn) ui.registerBtn.disabled = loggedIn;
     if (ui.usernameInput) ui.usernameInput.disabled = loggedIn;
@@ -6079,6 +6097,7 @@ function refreshLobbyJoinLinkUi() {
   pendingDirectJoinRoomCode = parseDirectJoinCodeFromUrl();
   updateAuthUi();
   connect();
+  setTimeout(handleAccountActionLinkFromUrl, 0);
   // Keep the countdown clock ticking even when no state messages arrive.
   ensureTimerUiInterval();
 
@@ -6185,8 +6204,8 @@ function refreshLobbyJoinLinkUi() {
   }
 
   async function openUserManagementScreen() {
-    if (!(authUser && authUser.isAdmin)) {
-      setError('Administrator access required.');
+    if (!authUser) {
+      setError('Log in first.');
       return;
     }
 
@@ -6194,37 +6213,51 @@ function refreshLobbyJoinLinkUi() {
     shell.className = 'userManagementPanel';
     const loading = document.createElement('div');
     loading.className = 'hint';
-    loading.textContent = 'Loading user accounts…';
+    loading.textContent = 'Loading account information…';
     shell.appendChild(loading);
     openModal({
-      title: 'User Management',
+      title: authUser.isAdmin ? 'User Management' : 'My Account',
       bodyNode: shell,
       actions: [{ label: 'Close', onClick: closeModal }],
     });
 
     let result;
     try {
-      result = await adminApi('users');
+      result = await accountApi('users');
     } catch (error) {
       loading.className = 'userManagementError';
-      loading.textContent = error.message || 'Could not load user accounts.';
+      loading.textContent = error.message || 'Could not load account information.';
       return;
     }
 
     const users = Array.isArray(result.users) ? result.users : [];
     const currentUserId = String(result.currentUserId || authUser.id || '');
+    const adminView = !!result.isAdmin;
+    const emailDeliveryConfigured = !!result.emailDeliveryConfigured;
     shell.innerHTML = '';
 
     const intro = document.createElement('div');
     intro.className = 'userManagementIntro';
-    intro.textContent = 'Reset a registered player’s password. A reset immediately invalidates that player’s saved login sessions.';
+    intro.textContent = adminView
+      ? 'Manage your own recovery email and password. Administrator accounts can also reset passwords for other registered players.'
+      : 'Only your account is shown. You can change your password and link a verified recovery email for password resets before login.';
     shell.appendChild(intro);
 
-    const search = document.createElement('input');
-    search.className = 'input userManagementSearch';
-    search.type = 'search';
-    search.placeholder = 'Search username or player name';
-    shell.appendChild(search);
+    if (!emailDeliveryConfigured) {
+      const warning = document.createElement('div');
+      warning.className = 'userManagementWarning';
+      warning.textContent = 'Email delivery is not configured on this server. Password changes still work, but recovery emails cannot be sent yet.';
+      shell.appendChild(warning);
+    }
+
+    let search = null;
+    if (adminView) {
+      search = document.createElement('input');
+      search.className = 'input userManagementSearch';
+      search.type = 'search';
+      search.placeholder = 'Search username or player name';
+      shell.appendChild(search);
+    }
 
     const count = document.createElement('div');
     count.className = 'labelTiny userManagementCount';
@@ -6234,14 +6267,23 @@ function refreshLobbyJoinLinkUi() {
     list.className = 'userManagementList';
     shell.appendChild(list);
 
+    const makePasswordInput = (placeholder, autocomplete = 'new-password') => {
+      const input = document.createElement('input');
+      input.className = 'input userManagementPassword';
+      input.type = 'password';
+      input.autocomplete = autocomplete;
+      input.placeholder = placeholder;
+      return input;
+    };
+
     const renderUsers = () => {
-      const query = String(search.value || '').trim().toLowerCase();
+      const query = String(search && search.value || '').trim().toLowerCase();
       const filtered = users.filter((user) => {
         if (!query) return true;
         return String(user.username || '').toLowerCase().includes(query)
           || String(user.displayName || '').toLowerCase().includes(query);
       });
-      count.textContent = `${filtered.length} of ${users.length} users`;
+      count.textContent = adminView ? `${filtered.length} of ${users.length} users` : 'Your account';
       list.innerHTML = '';
 
       if (!filtered.length) {
@@ -6253,8 +6295,9 @@ function refreshLobbyJoinLinkUi() {
       }
 
       for (const user of filtered) {
+        const isCurrentUser = String(user.id || '') === currentUserId;
         const row = document.createElement('div');
-        row.className = 'userManagementRow';
+        row.className = 'userManagementRow' + (isCurrentUser ? ' self' : '');
 
         const identity = document.createElement('div');
         identity.className = 'userManagementIdentity';
@@ -6269,12 +6312,36 @@ function refreshLobbyJoinLinkUi() {
           badge.textContent = 'Admin';
           title.appendChild(badge);
         }
+        if (isCurrentUser) {
+          const badge = document.createElement('span');
+          badge.className = 'userManagementBadge selfBadge';
+          badge.textContent = 'You';
+          title.appendChild(badge);
+        }
         identity.appendChild(title);
 
         const playerName = document.createElement('div');
         playerName.className = 'userManagementPlayerName';
         playerName.textContent = `Player name: ${user.displayName || user.username || '—'}`;
         identity.appendChild(playerName);
+
+        const emailLine = document.createElement('div');
+        emailLine.className = 'userManagementEmailLine';
+        if (isCurrentUser && user.email) {
+          emailLine.textContent = `Recovery email: ${user.email}${user.emailVerified ? ' • Verified' : ' • Not verified'}`;
+        } else if (user.hasEmail) {
+          emailLine.textContent = `Recovery email: ${user.emailMasked || 'Linked'}`;
+        } else {
+          emailLine.textContent = 'Recovery email: Not linked';
+        }
+        identity.appendChild(emailLine);
+
+        if (isCurrentUser && user.pendingEmail) {
+          const pending = document.createElement('div');
+          pending.className = 'userManagementPending';
+          pending.textContent = `Verification pending: ${user.pendingEmail}`;
+          identity.appendChild(pending);
+        }
 
         const stats = user.stats || {};
         const meta = document.createElement('div');
@@ -6285,60 +6352,420 @@ function refreshLobbyJoinLinkUi() {
 
         const controls = document.createElement('div');
         controls.className = 'userManagementControls';
-        const password = document.createElement('input');
-        password.className = 'input userManagementPassword';
-        password.type = 'password';
-        password.autocomplete = 'new-password';
-        password.placeholder = user.id === currentUserId ? 'Current administrator' : 'New password (6+ characters)';
-        password.disabled = user.id === currentUserId;
-        controls.appendChild(password);
 
-        const reset = document.createElement('button');
-        reset.className = 'btn danger';
-        reset.type = 'button';
-        reset.textContent = user.id === currentUserId ? 'Current Admin' : 'Reset Password';
-        reset.disabled = user.id === currentUserId;
-        controls.appendChild(reset);
+        if (isCurrentUser) {
+          const passwordSection = document.createElement('div');
+          passwordSection.className = 'userManagementSection';
+          const passwordHeading = document.createElement('div');
+          passwordHeading.className = 'labelTiny';
+          passwordHeading.textContent = 'Change Password';
+          passwordSection.appendChild(passwordHeading);
 
-        const status = document.createElement('div');
-        status.className = 'userManagementStatus';
-        controls.appendChild(status);
+          const currentPassword = makePasswordInput('Current password', 'current-password');
+          const newPassword = makePasswordInput('New password (6+ characters)');
+          const confirmPassword = makePasswordInput('Confirm new password');
+          passwordSection.append(currentPassword, newPassword, confirmPassword);
 
-        reset.addEventListener('click', async () => {
-          const nextPassword = String(password.value || '');
-          if (nextPassword.length < 6) {
-            status.className = 'userManagementStatus error';
-            status.textContent = 'Password must be at least 6 characters.';
-            password.focus();
-            return;
+          const changePassword = document.createElement('button');
+          changePassword.className = 'btn primary';
+          changePassword.type = 'button';
+          changePassword.textContent = 'Change Password';
+          passwordSection.appendChild(changePassword);
+
+          const passwordStatus = document.createElement('div');
+          passwordStatus.className = 'userManagementStatus';
+          passwordSection.appendChild(passwordStatus);
+
+          changePassword.addEventListener('click', async () => {
+            const currentValue = String(currentPassword.value || '');
+            const nextValue = String(newPassword.value || '');
+            if (!currentValue) {
+              passwordStatus.className = 'userManagementStatus error';
+              passwordStatus.textContent = 'Enter your current password.';
+              currentPassword.focus();
+              return;
+            }
+            if (nextValue.length < 6) {
+              passwordStatus.className = 'userManagementStatus error';
+              passwordStatus.textContent = 'New password must be at least 6 characters.';
+              newPassword.focus();
+              return;
+            }
+            if (nextValue !== String(confirmPassword.value || '')) {
+              passwordStatus.className = 'userManagementStatus error';
+              passwordStatus.textContent = 'The new passwords do not match.';
+              confirmPassword.focus();
+              return;
+            }
+            changePassword.disabled = true;
+            passwordStatus.className = 'userManagementStatus';
+            passwordStatus.textContent = 'Changing password…';
+            try {
+              const response = await accountApi('change-password', {
+                currentPassword: currentValue,
+                newPassword: nextValue,
+              });
+              if (response.user) setAuthState(response.user, null, { clearToken: true });
+              currentPassword.value = '';
+              newPassword.value = '';
+              confirmPassword.value = '';
+              passwordStatus.className = 'userManagementStatus success';
+              passwordStatus.textContent = response.message || 'Password changed.';
+            } catch (error) {
+              passwordStatus.className = 'userManagementStatus error';
+              passwordStatus.textContent = error.message || 'Password change failed.';
+            } finally {
+              changePassword.disabled = false;
+            }
+          });
+          controls.appendChild(passwordSection);
+
+          const emailSection = document.createElement('div');
+          emailSection.className = 'userManagementSection';
+          const emailHeading = document.createElement('div');
+          emailHeading.className = 'labelTiny';
+          emailHeading.textContent = 'Recovery Email';
+          emailSection.appendChild(emailHeading);
+
+          const emailInput = document.createElement('input');
+          emailInput.className = 'input';
+          emailInput.type = 'email';
+          emailInput.autocomplete = 'email';
+          emailInput.placeholder = 'you@example.com';
+          emailInput.value = user.pendingEmail || user.email || '';
+          emailInput.disabled = !emailDeliveryConfigured;
+          emailSection.appendChild(emailInput);
+
+          const emailPassword = makePasswordInput('Current password', 'current-password');
+          emailPassword.disabled = !emailDeliveryConfigured;
+          emailSection.appendChild(emailPassword);
+
+          const emailButtons = document.createElement('div');
+          emailButtons.className = 'row userManagementEmailButtons';
+          const verifyEmail = document.createElement('button');
+          verifyEmail.className = 'btn';
+          verifyEmail.type = 'button';
+          verifyEmail.textContent = user.pendingEmail ? 'Resend Verification' : (user.hasEmail ? 'Change Email' : 'Link Email');
+          verifyEmail.disabled = !emailDeliveryConfigured;
+          emailButtons.appendChild(verifyEmail);
+
+          let removeEmail = null;
+          if (user.hasEmail || user.pendingEmail) {
+            removeEmail = document.createElement('button');
+            removeEmail.className = 'btn danger';
+            removeEmail.type = 'button';
+            removeEmail.textContent = 'Remove Email';
+            emailButtons.appendChild(removeEmail);
           }
-          const confirmed = window.confirm(`Reset the password for ${user.username}? Their existing sessions will be signed out.`);
-          if (!confirmed) return;
-          reset.disabled = true;
-          password.disabled = true;
+          emailSection.appendChild(emailButtons);
+
+          const emailStatus = document.createElement('div');
+          emailStatus.className = 'userManagementStatus';
+          emailSection.appendChild(emailStatus);
+
+          verifyEmail.addEventListener('click', async () => {
+            const email = String(emailInput.value || '').trim();
+            const currentValue = String(emailPassword.value || '');
+            if (!email) {
+              emailStatus.className = 'userManagementStatus error';
+              emailStatus.textContent = 'Enter an email address.';
+              emailInput.focus();
+              return;
+            }
+            if (!currentValue) {
+              emailStatus.className = 'userManagementStatus error';
+              emailStatus.textContent = 'Enter your current password.';
+              emailPassword.focus();
+              return;
+            }
+            verifyEmail.disabled = true;
+            emailStatus.className = 'userManagementStatus';
+            emailStatus.textContent = 'Sending verification email…';
+            try {
+              const response = await accountApi('request-email-link', { email, currentPassword: currentValue });
+              if (response.user) {
+                Object.assign(user, response.user);
+                setAuthState(response.user, null, { clearToken: true });
+              }
+              emailPassword.value = '';
+              emailStatus.className = 'userManagementStatus success';
+              emailStatus.textContent = response.message || 'Verification email sent.';
+              setTimeout(renderUsers, 600);
+            } catch (error) {
+              emailStatus.className = 'userManagementStatus error';
+              emailStatus.textContent = error.message || 'Could not send verification email.';
+            } finally {
+              verifyEmail.disabled = !emailDeliveryConfigured;
+            }
+          });
+
+          if (removeEmail) {
+            removeEmail.addEventListener('click', async () => {
+              const currentValue = String(emailPassword.value || '');
+              if (!currentValue) {
+                emailStatus.className = 'userManagementStatus error';
+                emailStatus.textContent = 'Enter your current password before removing the email.';
+                emailPassword.focus();
+                return;
+              }
+              if (!window.confirm('Remove the recovery email from your account? Email password recovery will stop working.')) return;
+              removeEmail.disabled = true;
+              emailStatus.className = 'userManagementStatus';
+              emailStatus.textContent = 'Removing email…';
+              try {
+                const response = await accountApi('remove-email', { currentPassword: currentValue });
+                if (response.user) {
+                  Object.assign(user, response.user);
+                  setAuthState(response.user, null, { clearToken: true });
+                }
+                emailPassword.value = '';
+                emailStatus.className = 'userManagementStatus success';
+                emailStatus.textContent = response.message || 'Recovery email removed.';
+                setTimeout(renderUsers, 500);
+              } catch (error) {
+                emailStatus.className = 'userManagementStatus error';
+                emailStatus.textContent = error.message || 'Could not remove recovery email.';
+              } finally {
+                removeEmail.disabled = false;
+              }
+            });
+          }
+          controls.appendChild(emailSection);
+        } else if (adminView) {
+          const adminSection = document.createElement('div');
+          adminSection.className = 'userManagementSection';
+          const adminHeading = document.createElement('div');
+          adminHeading.className = 'labelTiny';
+          adminHeading.textContent = 'Administrator Password Reset';
+          adminSection.appendChild(adminHeading);
+
+          const password = makePasswordInput('New password (6+ characters)');
+          adminSection.appendChild(password);
+          const reset = document.createElement('button');
+          reset.className = 'btn danger';
+          reset.type = 'button';
+          reset.textContent = 'Reset Password';
+          adminSection.appendChild(reset);
+          const status = document.createElement('div');
           status.className = 'userManagementStatus';
-          status.textContent = 'Resetting…';
-          try {
-            const response = await adminApi('reset-password', { userId: user.id, newPassword: nextPassword });
-            password.value = '';
-            status.className = 'userManagementStatus success';
-            status.textContent = response.message || 'Password reset. Existing sessions were signed out.';
-          } catch (error) {
-            status.className = 'userManagementStatus error';
-            status.textContent = error.message || 'Password reset failed.';
-          } finally {
-            reset.disabled = false;
-            password.disabled = false;
-          }
-        });
+          adminSection.appendChild(status);
+
+          reset.addEventListener('click', async () => {
+            const nextPassword = String(password.value || '');
+            if (nextPassword.length < 6) {
+              status.className = 'userManagementStatus error';
+              status.textContent = 'Password must be at least 6 characters.';
+              password.focus();
+              return;
+            }
+            const confirmed = window.confirm(`Reset the password for ${user.username}? Their existing sessions will be signed out.`);
+            if (!confirmed) return;
+            reset.disabled = true;
+            password.disabled = true;
+            status.className = 'userManagementStatus';
+            status.textContent = 'Resetting…';
+            try {
+              const response = await adminApi('reset-password', { userId: user.id, newPassword: nextPassword });
+              password.value = '';
+              status.className = 'userManagementStatus success';
+              status.textContent = response.message || 'Password reset. Existing sessions were signed out.';
+            } catch (error) {
+              status.className = 'userManagementStatus error';
+              status.textContent = error.message || 'Password reset failed.';
+            } finally {
+              reset.disabled = false;
+              password.disabled = false;
+            }
+          });
+          controls.appendChild(adminSection);
+        }
 
         row.appendChild(controls);
         list.appendChild(row);
       }
     };
 
-    search.addEventListener('input', renderUsers);
+    if (search) search.addEventListener('input', renderUsers);
     renderUsers();
+  }
+
+  function removeAccountActionFromUrl(parameter) {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete(parameter);
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch (_) {}
+  }
+
+  function openForgotPasswordScreen() {
+    const shell = document.createElement('div');
+    shell.className = 'passwordRecoveryPanel';
+    const intro = document.createElement('div');
+    intro.className = 'userManagementIntro';
+    intro.textContent = 'Enter your username or linked email. If the account has a verified recovery email, a one-time reset link will be sent.';
+    shell.appendChild(intro);
+
+    const identifier = document.createElement('input');
+    identifier.className = 'input';
+    identifier.type = 'text';
+    identifier.autocomplete = 'username';
+    identifier.placeholder = 'Username or email';
+    shell.appendChild(identifier);
+
+    const sendButton = document.createElement('button');
+    sendButton.className = 'btn primary';
+    sendButton.type = 'button';
+    sendButton.textContent = 'Send Reset Email';
+    shell.appendChild(sendButton);
+
+    const status = document.createElement('div');
+    status.className = 'userManagementStatus';
+    shell.appendChild(status);
+
+    sendButton.addEventListener('click', async () => {
+      const value = String(identifier.value || '').trim();
+      if (!value) {
+        status.className = 'userManagementStatus error';
+        status.textContent = 'Enter your username or email.';
+        identifier.focus();
+        return;
+      }
+      sendButton.disabled = true;
+      status.className = 'userManagementStatus';
+      status.textContent = 'Requesting reset email…';
+      try {
+        const response = await authApi('request-password-reset', { identifier: value });
+        status.className = 'userManagementStatus success';
+        status.textContent = response.message || 'If the account can receive recovery email, a reset link was sent.';
+      } catch (error) {
+        status.className = 'userManagementStatus error';
+        status.textContent = error.message || 'Could not request a password reset.';
+      } finally {
+        sendButton.disabled = false;
+      }
+    });
+
+    openModal({
+      title: 'Forgot Password',
+      bodyNode: shell,
+      actions: [{ label: 'Close', onClick: closeModal }],
+    });
+    setTimeout(() => identifier.focus(), 0);
+  }
+
+  function openPasswordResetFromToken(token) {
+    const shell = document.createElement('div');
+    shell.className = 'passwordRecoveryPanel';
+    const intro = document.createElement('div');
+    intro.className = 'userManagementIntro';
+    intro.textContent = 'Choose a new password for your account. This reset link can only be used once.';
+    shell.appendChild(intro);
+
+    const password = document.createElement('input');
+    password.className = 'input';
+    password.type = 'password';
+    password.autocomplete = 'new-password';
+    password.placeholder = 'New password (6+ characters)';
+    shell.appendChild(password);
+
+    const confirm = document.createElement('input');
+    confirm.className = 'input';
+    confirm.type = 'password';
+    confirm.autocomplete = 'new-password';
+    confirm.placeholder = 'Confirm new password';
+    shell.appendChild(confirm);
+
+    const resetButton = document.createElement('button');
+    resetButton.className = 'btn primary';
+    resetButton.type = 'button';
+    resetButton.textContent = 'Reset Password';
+    shell.appendChild(resetButton);
+
+    const status = document.createElement('div');
+    status.className = 'userManagementStatus';
+    shell.appendChild(status);
+
+    resetButton.addEventListener('click', async () => {
+      const nextPassword = String(password.value || '');
+      if (nextPassword.length < 6) {
+        status.className = 'userManagementStatus error';
+        status.textContent = 'Password must be at least 6 characters.';
+        password.focus();
+        return;
+      }
+      if (nextPassword !== String(confirm.value || '')) {
+        status.className = 'userManagementStatus error';
+        status.textContent = 'The passwords do not match.';
+        confirm.focus();
+        return;
+      }
+      resetButton.disabled = true;
+      status.className = 'userManagementStatus';
+      status.textContent = 'Resetting password…';
+      try {
+        const response = await authApi('reset-password', { token, newPassword: nextPassword });
+        removeAccountActionFromUrl('reset_password');
+        clearAuthLocal();
+        password.value = '';
+        confirm.value = '';
+        status.className = 'userManagementStatus success';
+        status.textContent = response.message || 'Password reset. You can now log in.';
+      } catch (error) {
+        status.className = 'userManagementStatus error';
+        status.textContent = error.message || 'Password reset failed.';
+      } finally {
+        resetButton.disabled = false;
+      }
+    });
+
+    openModal({
+      title: 'Reset Password',
+      bodyNode: shell,
+      actions: [{ label: 'Close', onClick: closeModal }],
+    });
+    setTimeout(() => password.focus(), 0);
+  }
+
+  async function verifyEmailFromToken(token) {
+    const shell = document.createElement('div');
+    shell.className = 'passwordRecoveryPanel';
+    const status = document.createElement('div');
+    status.className = 'hint';
+    status.textContent = 'Verifying email…';
+    shell.appendChild(status);
+    openModal({
+      title: 'Verify Recovery Email',
+      bodyNode: shell,
+      actions: [{ label: 'Close', onClick: closeModal }],
+    });
+    try {
+      const response = await authApi('verify-email', { token });
+      removeAccountActionFromUrl('verify_email');
+      status.className = 'userManagementStatus success';
+      status.textContent = response.message || 'Email verified.';
+      if (authUser) {
+        try {
+          const session = await authApi('session');
+          if (session.user) setAuthState(session.user, null, { clearToken: true });
+        } catch (_) {}
+      }
+    } catch (error) {
+      status.className = 'userManagementStatus error';
+      status.textContent = error.message || 'Email verification failed.';
+    }
+  }
+
+  function handleAccountActionLinkFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const verifyToken = String(params.get('verify_email') || '').trim();
+      const resetToken = String(params.get('reset_password') || '').trim();
+      if (verifyToken) {
+        void verifyEmailFromToken(verifyToken);
+      } else if (resetToken) {
+        openPasswordResetFromToken(resetToken);
+      }
+    } catch (_) {}
   }
   ui.modalBackdrop.addEventListener('click', closeModal);
   window.addEventListener('keydown', (ev) => {
@@ -7999,6 +8426,7 @@ function refreshLobbyJoinLinkUi() {
   });
 
   if (ui.userManagementBtn) ui.userManagementBtn.addEventListener('click', openUserManagementScreen);
+  if (ui.forgotPasswordBtn) ui.forgotPasswordBtn.addEventListener('click', openForgotPasswordScreen);
 
   if (ui.rejoinLastBtn) ui.rejoinLastBtn.addEventListener('click', () => {
     setError(null);

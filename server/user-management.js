@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { maskEmail, normalizeEmail } = require('./email-delivery');
 
 const BUILTIN_ADMIN_USERNAME = 'Benleethom';
 const BUILTIN_ADMIN_DISPLAY_NAME = 'Ben';
@@ -27,8 +28,10 @@ function isBuiltInAdminUser(user) {
   );
 }
 
-function safeManagedUser(user) {
+function safeManagedUser(user, { includeEmail = false } = {}) {
   if (!user) return null;
+  const linkedEmail = normalizeEmail(user.email);
+  const pendingEmail = normalizeEmail(user.emailVerification && user.emailVerification.email);
   return {
     id: String(user.id || ''),
     username: String(user.username || ''),
@@ -38,6 +41,12 @@ function safeManagedUser(user) {
     createdAt: Number(user.createdAt || 0),
     lastLoginAt: Number(user.lastLoginAt || 0),
     passwordResetAt: Number(user.passwordResetAt || 0),
+    hasEmail: !!linkedEmail,
+    emailVerified: !!(linkedEmail && user.emailVerifiedAt),
+    email: includeEmail ? linkedEmail : '',
+    emailMasked: linkedEmail ? maskEmail(linkedEmail) : '',
+    pendingEmail: includeEmail ? pendingEmail : '',
+    pendingEmailExpiresAt: includeEmail ? Number(user.emailVerification && user.emailVerification.expiresAt || 0) : 0,
   };
 }
 
@@ -47,10 +56,15 @@ function generateTemporaryPassword() {
   return crypto.randomBytes(18).toString('base64url');
 }
 
+function generateOneTimeToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
 module.exports = {
   BUILTIN_ADMIN_DISPLAY_NAME,
   BUILTIN_ADMIN_MARKER,
   BUILTIN_ADMIN_USERNAME,
+  generateOneTimeToken,
   generateTemporaryPassword,
   isAdminUser,
   isBuiltInAdminUser,

@@ -16,11 +16,12 @@ const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persisten
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
 const { parseClientMessage } = require('./server/protocol');
-const { clientAddress, isAllowedWebSocketOrigin, runtimeConfig, securityHeaders } = require('./server/runtime-config');
+const { clientAddress, forwardedHost, isAllowedWebSocketOrigin, runtimeConfig, securityHeaders } = require('./server/runtime-config');
 const {
   BUILTIN_ADMIN_DISPLAY_NAME,
   BUILTIN_ADMIN_MARKER,
   BUILTIN_ADMIN_USERNAME,
+  generateOneTimeToken,
   generateTemporaryPassword,
   isAdminUser,
   isBuiltInAdminUser,
@@ -28,11 +29,19 @@ const {
   safeManagedUser,
 } = require('./server/user-management');
 const {
+  escapeHtml,
+  isEmailDeliveryConfigured,
+  normalizeEmail,
+  sendTransactionalEmail,
+  validateEmailAddress,
+} = require('./server/email-delivery');
+const {
   SlidingWindowRateLimiter,
   derivePasswordHash,
   hashSessionToken,
   migrateLegacySessionToken,
   sessionTokenMatches,
+  timingSafeHexEqual,
   verifyPasswordHash,
 } = require('./server/security');
 const {
@@ -103,7 +112,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'admin-user-management-v1';
+const SERVER_BUILD_ID = 'self-service-email-reset-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -131,6 +140,8 @@ const USERS_DB_PATH = path.join(DATA_DIR, 'users.json');
 const ACTIVE_ROOMS_PATH = path.join(DATA_DIR, 'active_rooms.json');
 const AUTH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const AUTH_TOKENS_MAX = 8;
+const EMAIL_VERIFICATION_TTL_MS = 1000 * 60 * 60; // 1 hour
+const PASSWORD_RESET_TTL_MS = 1000 * 60 * 30; // 30 minutes
 const BUILTIN_ADMIN_ENABLED = (() => {
   const raw = String(process.env.HEX_BUILTIN_ADMIN_ENABLED || '').trim().toLowerCase();
   if (raw) return ['1', 'true', 'yes', 'on'].includes(raw);
@@ -139,7 +150,7 @@ const BUILTIN_ADMIN_ENABLED = (() => {
 const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
 const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH);
 
-let USERS_DB = { version: 1, users: [] };
+let USERS_DB = { version: 2, users: [] };
 let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticate without fighting each other
 
 // -------------------- Game History (persistent) --------------------
@@ -589,12 +600,12 @@ function loadUsersDb() {
     }
   } catch (e) {
     console.error('[users] Failed to load users.json:', e && e.message ? e.message : e);
-    USERS_DB = { version: 1, users: [] };
+    USERS_DB = { version: 2, users: [] };
   }
 }
 
 function saveUsersDb() {
-  const safe = { version: 1, users: USERS_DB.users || [] };
+  const safe = { version: 2, users: USERS_DB.users || [] };
   return USERS_WRITER.write(safe).catch((e) => {
     console.error('[users] Failed to save users.json:', e && e.message ? e.message : e);
   });
@@ -612,16 +623,50 @@ function findUserByUsername(username) {
   return (USERS_DB.users || []).find(u => u && normalizeUsername(u.username) === nu) || null;
 }
 
+function findUserByEmail(email, { includePending = false } = {}) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  return (USERS_DB.users || []).find((user) => {
+    if (!user) return false;
+    if (normalizeEmail(user.email) === normalized) return true;
+    return includePending && normalizeEmail(user.emailVerification && user.emailVerification.email) === normalized;
+  }) || null;
+}
+
+function oneTimeTokenHash(token) {
+  return crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
+}
+
+function findUserByOneTimeToken(field, token) {
+  const candidateHash = oneTimeTokenHash(token);
+  if (!candidateHash) return null;
+  const nowMs = now();
+  return (USERS_DB.users || []).find((user) => {
+    const record = user && user[field];
+    return !!(
+      record
+      && Number(record.expiresAt || 0) > nowMs
+      && timingSafeHexEqual(record.tokenHash, candidateHash)
+    );
+  }) || null;
+}
+
 function safeUserPublic(u) {
   if (!u) return null;
+  const managed = safeManagedUser(u, { includeEmail: true });
   return {
-    id: u.id,
-    username: u.username,
-    displayName: u.displayName || u.username,
-    isAdmin: isAdminUser(u),
-    stats: u.stats || { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 },
-    createdAt: u.createdAt || 0,
-    lastLoginAt: u.lastLoginAt || 0,
+    id: managed.id,
+    username: managed.username,
+    displayName: managed.displayName,
+    isAdmin: managed.isAdmin,
+    stats: managed.stats,
+    createdAt: managed.createdAt,
+    lastLoginAt: managed.lastLoginAt,
+    hasEmail: managed.hasEmail,
+    emailVerified: managed.emailVerified,
+    email: managed.email,
+    pendingEmail: managed.pendingEmail,
+    pendingEmailExpiresAt: managed.pendingEmailExpiresAt,
   };
 }
 
@@ -719,7 +764,7 @@ function authenticatedDisplayName(user, requestedName, fallback = 'Player') {
   return cleanDisplayName(requestedName) || cleanDisplayName(user && user.displayName) || fallback;
 }
 
-async function setUserPassword(user, password, { revokeTokens = true } = {}) {
+async function setUserPassword(user, password, { revokeTokens = true, source = 'account' } = {}) {
   if (!user) return { ok: false, error: 'Account not found.' };
   const validation = validatePassword(password);
   if (!validation.ok) return validation;
@@ -727,14 +772,91 @@ async function setUserPassword(user, password, { revokeTokens = true } = {}) {
   const hash = await derivePasswordHash(validation.value, salt);
   user.pass = { salt, hash };
   user.passwordResetAt = now();
+  delete user.passwordReset;
   if (revokeTokens) user.tokens = [];
+  if (isBuiltInAdminUser(user)) user.adminPasswordSource = source === 'environment' ? 'environment' : 'account';
   return { ok: true };
+}
+
+function publicBaseUrlForRequest(request) {
+  const configured = String(process.env.HEX_PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') return parsed.origin + parsed.pathname.replace(/\/$/, '');
+    } catch (_) {}
+  }
+  const host = forwardedHost(request, APP_CONFIG.trustProxy);
+  if (!host) return '';
+  return `${requestIsTls(request, APP_CONFIG.trustProxy) ? 'https' : 'http'}://${host}`;
+}
+
+function accountLink(baseUrl, parameter, token) {
+  const base = String(baseUrl || '').replace(/\/$/, '');
+  if (!base) return '';
+  return `${base}/?${encodeURIComponent(parameter)}=${encodeURIComponent(token)}`;
+}
+
+function emailShell(title, intro, actionLabel, actionUrl, footer) {
+  const safeTitle = escapeHtml(title);
+  const safeIntro = escapeHtml(intro);
+  const safeActionLabel = escapeHtml(actionLabel);
+  const safeUrl = escapeHtml(actionUrl);
+  const safeFooter = escapeHtml(footer);
+  return `<!doctype html><html><body style="margin:0;background:#090d11;color:#e8edf2;font-family:Arial,sans-serif"><div style="max-width:620px;margin:0 auto;padding:32px 20px"><div style="border:1px solid #2d4657;border-radius:16px;background:#111820;padding:26px"><h1 style="margin:0 0 16px;font-size:24px;color:#ffffff">${safeTitle}</h1><p style="line-height:1.55;color:#c6d1db">${safeIntro}</p><p style="margin:26px 0"><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:#e05b45;color:#fff;text-decoration:none;font-weight:700">${safeActionLabel}</a></p><p style="font-size:12px;line-height:1.5;color:#8795a2;word-break:break-all">${safeUrl}</p><p style="margin-top:24px;font-size:12px;line-height:1.5;color:#8795a2">${safeFooter}</p></div></div></body></html>`;
+}
+
+async function sendEmailVerification(user, email, token, request) {
+  const url = accountLink(publicBaseUrlForRequest(request), 'verify_email', token);
+  if (!url) throw new Error('HEX_PUBLIC_BASE_URL is required to create email links.');
+  const displayName = user.displayName || user.username;
+  return sendTransactionalEmail({
+    to: email,
+    subject: 'Verify your Hex Settlers email',
+    text: `Hello ${displayName},
+
+Verify this email for your Hex Settlers account:
+${url}
+
+This link expires in 1 hour. If you did not request it, ignore this email.`,
+    html: emailShell(
+      'Verify your Hex Settlers email',
+      `Hello ${displayName}. Confirm this address so it can be used to recover your account.`,
+      'Verify email',
+      url,
+      'This one-time link expires in 1 hour. If you did not request it, ignore this message.',
+    ),
+  }, process.env);
+}
+
+async function sendPasswordResetEmail(user, token, request) {
+  const url = accountLink(publicBaseUrlForRequest(request), 'reset_password', token);
+  if (!url) throw new Error('HEX_PUBLIC_BASE_URL is required to create password-reset links.');
+  const displayName = user.displayName || user.username;
+  return sendTransactionalEmail({
+    to: user.email,
+    subject: 'Reset your Hex Settlers password',
+    text: `Hello ${displayName},
+
+Reset your Hex Settlers password:
+${url}
+
+This link expires in 30 minutes and can only be used once. If you did not request it, ignore this email.`,
+    html: emailShell(
+      'Reset your Hex Settlers password',
+      `Hello ${displayName}. A password reset was requested for your account.`,
+      'Reset password',
+      url,
+      'This one-time link expires in 30 minutes. If you did not request it, your password has not changed.',
+    ),
+  }, process.env);
 }
 
 async function ensureBuiltInAdminAccount() {
   if (!BUILTIN_ADMIN_ENABLED) return;
 
   const configuredPassword = String(process.env.HEX_ADMIN_PASSWORD || '');
+  const forcePasswordSync = ['1', 'true', 'yes', 'on'].includes(String(process.env.HEX_ADMIN_FORCE_PASSWORD_SYNC || '').trim().toLowerCase());
   const configuredValidation = configuredPassword ? validatePassword(configuredPassword) : null;
   if (configuredValidation && !configuredValidation.ok) {
     throw new Error(`HEX_ADMIN_PASSWORD is invalid: ${configuredValidation.error}`);
@@ -756,6 +878,7 @@ async function ensureBuiltInAdminAccount() {
     });
     if (!result.ok) throw new Error(result.error || 'Failed to create built-in administrator account.');
     user = result.user;
+    user.adminPasswordSource = configuredPassword ? 'environment' : 'account';
     generatedPassword = configuredPassword ? '' : initialPassword;
     changed = true;
   } else if (!isBuiltInAdminUser(user)) {
@@ -769,7 +892,7 @@ async function ensureBuiltInAdminAccount() {
     user.role = 'admin';
     user.systemAccount = BUILTIN_ADMIN_MARKER;
     user.displayName = BUILTIN_ADMIN_DISPLAY_NAME;
-    const reset = await setUserPassword(user, configuredPassword, { revokeTokens: true });
+    const reset = await setUserPassword(user, configuredPassword, { revokeTokens: true, source: 'environment' });
     if (!reset.ok) throw new Error(reset.error || 'Failed to secure built-in administrator account.');
     changed = true;
   } else {
@@ -777,8 +900,17 @@ async function ensureBuiltInAdminAccount() {
       user.displayName = BUILTIN_ADMIN_DISPLAY_NAME;
       changed = true;
     }
-    if (configuredPassword && !await verifyPassword(user, configuredPassword)) {
-      const reset = await setUserPassword(user, configuredPassword, { revokeTokens: true });
+    if (!user.adminPasswordSource) {
+      // Existing installations from the previous admin build were managed by
+      // HEX_ADMIN_PASSWORD when it was present. Record that source once so a
+      // later in-app password change can intentionally take ownership.
+      user.adminPasswordSource = configuredPassword ? 'environment' : 'account';
+      changed = true;
+    }
+    const shouldSyncConfiguredPassword = configuredPassword
+      && (forcePasswordSync || user.adminPasswordSource === 'environment');
+    if (shouldSyncConfiguredPassword && !await verifyPassword(user, configuredPassword)) {
+      const reset = await setUserPassword(user, configuredPassword, { revokeTokens: true, source: 'environment' });
       if (!reset.ok) throw new Error(reset.error || 'Failed to update built-in administrator password.');
       changed = true;
     }
@@ -8447,6 +8579,14 @@ const adminActionLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 60,
   windowMs: 60_000,
 });
+const accountActionLimiter = new SlidingWindowRateLimiter({
+  maxAttempts: 30,
+  windowMs: 60_000,
+});
+const passwordResetRequestLimiter = new SlidingWindowRateLimiter({
+  maxAttempts: 5,
+  windowMs: 15 * 60_000,
+});
 
 function activateAuthenticatedSocket(ws, user) {
   if (!ws || ws.readyState !== WebSocket.OPEN || !user) return false;
@@ -8549,6 +8689,93 @@ async function handleAuthHttp(req, res, urlPath) {
     }
     await saveUsersDb();
     sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    return;
+  }
+
+  if (urlPath === '/api/auth/verify-email') {
+    const token = String(body.token || '').trim();
+    const user = findUserByOneTimeToken('emailVerification', token);
+    if (!user) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'This email-verification link is invalid or has expired.' });
+      return;
+    }
+    const email = normalizeEmail(user.emailVerification && user.emailVerification.email);
+    const conflict = findUserByEmail(email);
+    if (!email || (conflict && conflict.id !== user.id)) {
+      delete user.emailVerification;
+      await saveUsersDb();
+      sendHttpJson(req, res, 409, { ok: false, error: 'That email is already linked to another account.' });
+      return;
+    }
+    user.email = email;
+    user.emailVerifiedAt = now();
+    delete user.emailVerification;
+    delete user.passwordReset;
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, message: 'Email verified. It can now be used for password recovery.' });
+    return;
+  }
+
+  if (urlPath === '/api/auth/request-password-reset') {
+    if (!isEmailDeliveryConfigured(process.env)) {
+      sendHttpJson(req, res, 503, { ok: false, error: 'Password-reset email delivery is not configured on this server.' });
+      return;
+    }
+    const address = clientAddress(req, APP_CONFIG.trustProxy);
+    const limit = passwordResetRequestLimiter.consume(`ip:${address}`);
+    if (!limit.allowed) {
+      sendHttpJson(req, res, 429, { ok: false, error: 'Too many password-reset requests. Try again later.' }, {
+        'Retry-After': String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))),
+      });
+      return;
+    }
+    const identifier = String(body.identifier || body.username || body.email || '').trim();
+    const user = findUserByUsername(identifier) || findUserByEmail(identifier);
+    const genericMessage = 'If a matching account has a verified email, a password-reset link has been sent.';
+    if (!user || !user.email || !user.emailVerifiedAt) {
+      sendHttpJson(req, res, 200, { ok: true, message: genericMessage });
+      return;
+    }
+    const accountLimit = passwordResetRequestLimiter.consume(`account:${user.id}`);
+    if (!accountLimit.allowed) {
+      sendHttpJson(req, res, 200, { ok: true, message: genericMessage });
+      return;
+    }
+    const resetToken = generateOneTimeToken();
+    user.passwordReset = {
+      tokenHash: oneTimeTokenHash(resetToken),
+      createdAt: now(),
+      expiresAt: now() + PASSWORD_RESET_TTL_MS,
+    };
+    await saveUsersDb();
+    try {
+      await sendPasswordResetEmail(user, resetToken, req);
+    } catch (error) {
+      delete user.passwordReset;
+      await saveUsersDb();
+      console.error('[email] Failed to send password reset:', error && error.message ? error.message : error);
+    }
+    sendHttpJson(req, res, 200, { ok: true, message: genericMessage });
+    return;
+  }
+
+  if (urlPath === '/api/auth/reset-password') {
+    const token = String(body.token || '').trim();
+    const user = findUserByOneTimeToken('passwordReset', token);
+    if (!user) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'This password-reset link is invalid or has expired.' });
+      return;
+    }
+    const reset = await setUserPassword(user, body.newPassword, { revokeTokens: true, source: 'account' });
+    if (!reset.ok) {
+      sendHttpJson(req, res, 400, { ok: false, error: reset.error || 'Password reset failed.' });
+      return;
+    }
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, message: 'Password reset. You can now log in with the new password.' }, {
+      'Set-Cookie': clearSessionCookie({ secure }),
+    });
+    setTimeout(() => disconnectUserSessions(user.id, 'Your password was reset. Please log in again.'), 25);
     return;
   }
 
@@ -8664,6 +8891,148 @@ async function handleAdminHttp(req, res, urlPath) {
   sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
 }
 
+
+async function handleAccountHttp(req, res, urlPath) {
+  if (req.method !== 'POST') {
+    sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
+    return;
+  }
+  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' });
+    return;
+  }
+
+  const secure = requestIsTls(req, APP_CONFIG.trustProxy);
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+  const viewer = authenticateByToken(token);
+  if (!viewer) {
+    sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+    return;
+  }
+
+  const limit = accountActionLimiter.consume(viewer.id);
+  if (!limit.allowed) {
+    sendHttpJson(req, res, 429, { ok: false, error: 'Too many account actions. Try again shortly.' }, {
+      'Retry-After': String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))),
+    });
+    return;
+  }
+
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (error) {
+    sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Invalid request.' });
+    return;
+  }
+
+  if (urlPath === '/api/account/users') {
+    const sourceUsers = isAdminUser(viewer) ? (USERS_DB.users || []) : [viewer];
+    const users = sourceUsers
+      .map((user) => safeManagedUser(user, { includeEmail: user.id === viewer.id }))
+      .filter(Boolean)
+      .sort((left, right) => String(left.username).localeCompare(String(right.username), undefined, { sensitivity: 'base' }));
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      users,
+      currentUserId: viewer.id,
+      isAdmin: isAdminUser(viewer),
+      emailDeliveryConfigured: isEmailDeliveryConfigured(process.env),
+    });
+    return;
+  }
+
+  if (urlPath === '/api/account/change-password') {
+    if (!await verifyPassword(viewer, body.currentPassword)) {
+      sendHttpJson(req, res, 401, { ok: false, error: 'Current password is incorrect.' });
+      return;
+    }
+    const reset = await setUserPassword(viewer, body.newPassword, { revokeTokens: true, source: 'account' });
+    if (!reset.ok) {
+      sendHttpJson(req, res, 400, { ok: false, error: reset.error || 'Password change failed.' });
+      return;
+    }
+    const newToken = issueAuthToken(viewer);
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      user: safeUserPublic(viewer),
+      message: 'Password changed. Other saved sessions were signed out.',
+    }, { 'Set-Cookie': sessionCookie(newToken, { secure }) });
+    setTimeout(() => disconnectUserSessions(viewer.id, 'Your account password changed. Reconnecting securely.'), 75);
+    return;
+  }
+
+  if (urlPath === '/api/account/request-email-link') {
+    if (!isEmailDeliveryConfigured(process.env)) {
+      sendHttpJson(req, res, 503, { ok: false, error: 'Email delivery is not configured on this server.' });
+      return;
+    }
+    if (!await verifyPassword(viewer, body.currentPassword)) {
+      sendHttpJson(req, res, 401, { ok: false, error: 'Current password is incorrect.' });
+      return;
+    }
+    const validation = validateEmailAddress(body.email);
+    if (!validation.ok) {
+      sendHttpJson(req, res, 400, { ok: false, error: validation.error });
+      return;
+    }
+    const email = validation.value;
+    const conflict = findUserByEmail(email, { includePending: true });
+    if (conflict && conflict.id !== viewer.id) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'That email is already linked to another account.' });
+      return;
+    }
+    if (normalizeEmail(viewer.email) === email && viewer.emailVerifiedAt) {
+      sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(viewer), message: 'That email is already verified.' });
+      return;
+    }
+
+    const verificationToken = generateOneTimeToken();
+    viewer.emailVerification = {
+      email,
+      tokenHash: oneTimeTokenHash(verificationToken),
+      createdAt: now(),
+      expiresAt: now() + EMAIL_VERIFICATION_TTL_MS,
+    };
+    await saveUsersDb();
+    try {
+      await sendEmailVerification(viewer, email, verificationToken, req);
+    } catch (error) {
+      delete viewer.emailVerification;
+      await saveUsersDb();
+      console.error('[email] Failed to send email verification:', error && error.message ? error.message : error);
+      sendHttpJson(req, res, 502, { ok: false, error: 'The verification email could not be sent. Check the server email configuration.' });
+      return;
+    }
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      user: safeUserPublic(viewer),
+      message: `Verification email sent to ${email}.`,
+    });
+    return;
+  }
+
+  if (urlPath === '/api/account/remove-email') {
+    if (!await verifyPassword(viewer, body.currentPassword)) {
+      sendHttpJson(req, res, 401, { ok: false, error: 'Current password is incorrect.' });
+      return;
+    }
+    delete viewer.email;
+    delete viewer.emailVerifiedAt;
+    delete viewer.emailVerification;
+    delete viewer.passwordReset;
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      user: safeUserPublic(viewer),
+      message: 'Recovery email removed.',
+    });
+    return;
+  }
+
+  sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
+}
+
 function safePath(p) {
   const rel = p.replace(/\0/g, '').replace(/\.\./g, '');
   return path.join(PUBLIC_DIR, rel);
@@ -8687,6 +9056,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/auth/')) {
       await handleAuthHttp(req, res, urlPath);
+      return;
+    }
+    if (urlPath.startsWith('/api/account/')) {
+      await handleAccountHttp(req, res, urlPath);
       return;
     }
     if (urlPath.startsWith('/api/admin/')) {
@@ -11521,6 +11894,8 @@ const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
 const authLimiterCleanupInterval = setInterval(() => {
   passwordAuthLimiter.cleanup();
   adminActionLimiter.cleanup();
+  accountActionLimiter.cleanup();
+  passwordResetRequestLimiter.cleanup();
 }, 60_000);
 
 let shuttingDown = false;

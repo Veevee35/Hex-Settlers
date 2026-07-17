@@ -727,3 +727,153 @@ test('built-in Benleethom administrator can list users and securely reset anothe
   assert.equal(JSON.stringify(persisted).includes(adminPassword), false);
   assert.equal(JSON.stringify(persisted).includes(ordinaryNewPassword), false);
 });
+
+test('ordinary users can manage only themselves, verify recovery email, and reset a forgotten password', { timeout: 25_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-self-service-'));
+  const capturePath = path.join(dataDir, 'email-capture.jsonl');
+  const adminPassword = 'Admin self service 42';
+  const server = await startServer(port, dataDir, 'server.js', {
+    HEX_BUILTIN_ADMIN_ENABLED: 'true',
+    HEX_ADMIN_PASSWORD: adminPassword,
+    HEX_PUBLIC_BASE_URL: `http://127.0.0.1:${port}`,
+    HEX_EMAIL_CAPTURE_PATH: capturePath,
+  });
+  t.after(async () => {
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  async function post(route, body, cookie = '') {
+    const headers = { 'Content-Type': 'application/json' };
+    if (cookie) headers.Cookie = cookie;
+    const response = await fetch(`http://127.0.0.1:${port}${route}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body || {}),
+    });
+    let payload = {};
+    try { payload = await response.json(); } catch (_) {}
+    return { response, payload, cookie: String(response.headers.get('set-cookie') || '').split(';')[0] };
+  }
+
+  const suffix = Date.now().toString(36).slice(-8);
+  const username = `self_${suffix}`;
+  const originalPassword = 'original password 42';
+  const changedPassword = 'changed password 42';
+  const emailedPassword = 'emailed password 42';
+  const recoveryEmail = `self-${suffix}@example.com`;
+
+  const ordinary = await post('/api/auth/register', {
+    username,
+    password: originalPassword,
+    displayName: 'Self Service Player',
+  });
+  assert.equal(ordinary.response.status, 200);
+  assert.match(ordinary.cookie, /hexsettlers_session=/);
+
+  const other = await post('/api/auth/register', {
+    username: `other_${suffix}`,
+    password: 'other password 42',
+    displayName: 'Other Player',
+  });
+  assert.equal(other.response.status, 200);
+
+  const selfList = await post('/api/account/users', {}, ordinary.cookie);
+  assert.equal(selfList.response.status, 200);
+  assert.equal(selfList.payload.isAdmin, false);
+  assert.equal(selfList.payload.users.length, 1);
+  assert.equal(selfList.payload.users[0].username, username);
+  assert.equal(selfList.payload.emailDeliveryConfigured, true);
+
+  const wrongCurrent = await post('/api/account/change-password', {
+    currentPassword: 'wrong password',
+    newPassword: changedPassword,
+  }, ordinary.cookie);
+  assert.equal(wrongCurrent.response.status, 401);
+
+  const changed = await post('/api/account/change-password', {
+    currentPassword: originalPassword,
+    newPassword: changedPassword,
+  }, ordinary.cookie);
+  assert.equal(changed.response.status, 200);
+  assert.match(changed.payload.message, /other saved sessions/i);
+  assert.match(changed.cookie, /hexsettlers_session=/);
+
+  const oldSession = await post('/api/auth/session', {}, ordinary.cookie);
+  assert.equal(oldSession.response.status, 401);
+  const changedSession = await post('/api/auth/session', {}, changed.cookie);
+  assert.equal(changedSession.response.status, 200);
+
+  const emailRequest = await post('/api/account/request-email-link', {
+    email: recoveryEmail,
+    currentPassword: changedPassword,
+  }, changed.cookie);
+  assert.equal(emailRequest.response.status, 200);
+  assert.equal(emailRequest.payload.user.pendingEmail, recoveryEmail);
+  assert.equal(emailRequest.payload.user.hasEmail, false);
+
+  const capturedAfterVerification = fs.readFileSync(capturePath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(capturedAfterVerification.length, 1);
+  assert.equal(capturedAfterVerification[0].to, recoveryEmail);
+  const verifyUrl = new URL(capturedAfterVerification[0].text.match(/https?:\/\/\S+/)[0]);
+  const verifyToken = verifyUrl.searchParams.get('verify_email');
+  assert.ok(verifyToken);
+
+  const verified = await post('/api/auth/verify-email', { token: verifyToken });
+  assert.equal(verified.response.status, 200);
+  assert.match(verified.payload.message, /verified/i);
+  const reusedVerification = await post('/api/auth/verify-email', { token: verifyToken });
+  assert.equal(reusedVerification.response.status, 400);
+
+  const selfAfterVerify = await post('/api/account/users', {}, changed.cookie);
+  assert.equal(selfAfterVerify.response.status, 200);
+  assert.equal(selfAfterVerify.payload.users[0].email, recoveryEmail);
+  assert.equal(selfAfterVerify.payload.users[0].emailVerified, true);
+
+  const resetRequest = await post('/api/auth/request-password-reset', { identifier: username });
+  assert.equal(resetRequest.response.status, 200);
+  assert.match(resetRequest.payload.message, /matching account/i);
+  const capturedAfterReset = fs.readFileSync(capturePath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(capturedAfterReset.length, 2);
+  const resetUrl = new URL(capturedAfterReset[1].text.match(/https?:\/\/\S+/)[0]);
+  const resetToken = resetUrl.searchParams.get('reset_password');
+  assert.ok(resetToken);
+
+  const reset = await post('/api/auth/reset-password', {
+    token: resetToken,
+    newPassword: emailedPassword,
+  });
+  assert.equal(reset.response.status, 200);
+  assert.match(reset.payload.message, /log in/i);
+  const reusedReset = await post('/api/auth/reset-password', {
+    token: resetToken,
+    newPassword: 'another password 42',
+  });
+  assert.equal(reusedReset.response.status, 400);
+
+  const staleChangedLogin = await post('/api/auth/login', { username, password: changedPassword });
+  assert.equal(staleChangedLogin.response.status, 401);
+  const recoveredLogin = await post('/api/auth/login', { username, password: emailedPassword });
+  assert.equal(recoveredLogin.response.status, 200);
+  assert.equal(recoveredLogin.payload.user.email, recoveryEmail);
+
+  const adminLogin = await post('/api/auth/login', { username: 'Benleethom', password: adminPassword });
+  assert.equal(adminLogin.response.status, 200);
+  const adminAccountList = await post('/api/account/users', {}, adminLogin.cookie);
+  assert.equal(adminAccountList.response.status, 200);
+  assert.equal(adminAccountList.payload.isAdmin, true);
+  assert.ok(adminAccountList.payload.users.length >= 3);
+  const ordinaryInAdminList = adminAccountList.payload.users.find((user) => user.username === username);
+  assert.ok(ordinaryInAdminList);
+  assert.equal(ordinaryInAdminList.email, '');
+  assert.match(ordinaryInAdminList.emailMasked, /@example\.com$/);
+
+  const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'users.json'), 'utf8'));
+  const stored = persisted.users.find((user) => user.username === username);
+  assert.equal(stored.email, recoveryEmail);
+  assert.ok(stored.emailVerifiedAt > 0);
+  assert.equal(stored.emailVerification, undefined);
+  assert.equal(stored.passwordReset, undefined);
+  assert.equal(JSON.stringify(stored).includes(emailedPassword), false);
+});

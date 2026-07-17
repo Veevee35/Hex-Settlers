@@ -9,6 +9,7 @@
 5. Use `npm start` as the start command.
 6. Set the Railway health-check path to `/health`.
 7. Add `HEX_ADMIN_PASSWORD` as a private Railway variable with a strong password for the built-in `Benleethom` administrator account.
+8. To enable recovery email, set `HEX_PUBLIC_BASE_URL` to the deployed public origin and configure either `RESEND_API_KEY` or the `SMTP_*` variables described in `ADMIN_SETUP.md`.
 
 Railway supplies `PORT` and `RAILWAY_VOLUME_MOUNT_PATH`. The server binds to `0.0.0.0:$PORT` and automatically uses the mounted volume for runtime data.
 
@@ -36,7 +37,7 @@ A correct response includes:
 ```json
 {
   "ok": true,
-  "build": "admin-user-management-v1"
+  "build": "self-service-email-reset-v1"
 }
 ```
 
@@ -54,7 +55,7 @@ The browser and server both send heartbeat traffic. A transient WebSocket interr
 
 The server reserves username **Benleethom** and creates it with player name **Ben**. Set `HEX_ADMIN_PASSWORD` before deployment so the account has a known strong password. When the variable is missing on the first production start, a random temporary password is printed once in the Railway deploy log.
 
-After logging in as Benleethom, use **User Management** in the lobby to search registered users and reset their passwords. A reset invalidates the affected user’s existing saved sessions. Password hashes and session-token hashes are never returned to the browser.
+After logging in as Benleethom, use **User Management** in the lobby to search registered users and reset their passwords. Ordinary players see **My Account** and only their own account. Every signed-in user can change their own password and link a verified recovery email. A pre-login **Forgot Password?** flow sends one-time reset links when email delivery is configured. Password hashes, session-token hashes, and one-time token hashes are never returned to the browser.
 
 ## Custom domains
 
