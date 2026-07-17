@@ -1,12 +1,12 @@
 Hex Settlers validation results
 
-Change: Exploration victory points now apply to Fog Island and Fog Island 5-6 when enabled.
+Change: Play the supplied Stolen From sound only for players who lose resources to the robber, pirate, or Monopoly, with a dedicated local audio control.
 
 Validation command:
   npm run check
 
 Result:
-  123 tests passed
+  125 tests passed
   0 tests failed
   TypeScript bootstrap compiled successfully
   server.js syntax check passed

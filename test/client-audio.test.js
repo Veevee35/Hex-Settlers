@@ -32,3 +32,16 @@ test('dice-roll broadcasts identify the roller and clients route the sound by lo
   assert.match(appJs, /rollerId === localPlayerId\s*\? 'dice_roll_self'\s*:\s*'dice_roll_others'/);
   assert.match(appJs, /playSfx\(msg\.name, msg\)/);
 });
+
+test('stolen-from audio is configurable and uses the supplied local sound asset', () => {
+  assert.match(appJs, /\{ key: 'stolen_from', label: 'Stolen From \(Robber \/ Pirate \/ Monopoly\)' \}/);
+  assert.match(appJs, /stolen_from: makeSfxPool\('assets\/sfx\/stolen_from\.wav'/);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'public', 'assets', 'sfx', 'stolen_from.wav')), true);
+});
+
+test('successful robber, pirate, and monopoly losses send stolen-from audio only to affected players', () => {
+  assert.match(serverJs, /function sendPlayerSfx\(room, playerId, name, extra\)[\s\S]*room\.sockets\.get\(playerId\)/);
+  assert.match(serverJs, /sendPlayerSfx\(room, victimId, 'stolen_from', \{ source: 'robber', thiefId: playerId, amount: 1 \}\)/);
+  assert.match(serverJs, /sendPlayerSfx\(room, victimId, 'stolen_from', \{ source: 'pirate', thiefId: playerId, amount: 1 \}\)/);
+  assert.match(serverJs, /if \(n > 0\) \{[\s\S]*sendPlayerSfx\(room, op\.id, 'stolen_from', \{ source: 'monopoly', thiefId: playerId, amount: n \}\)/);
+});

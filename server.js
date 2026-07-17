@@ -6485,6 +6485,7 @@ if (ttdFarSideBonus) {
           op.resources[rk] = 0;
           recordResourceDelta(game, op.id, { [rk]: -n }, 'monopoly');
           grantStats(game, playerId, p.resources, rk, n, 'dev');
+          sendPlayerSfx(room, op.id, 'stolen_from', { source: 'monopoly', thiefId: playerId, amount: n });
           total += n;
         }
       }
@@ -6804,6 +6805,7 @@ if (kind === 'choose_production_gold') {
           recordResourceDelta(game, victimId, { [rk]: -1 }, 'steal');
           grantStats(game, playerId, thief.resources, rk, 1, 'steal');
           recordRobberSteal(game, playerId, victimId);
+          sendPlayerSfx(room, victimId, 'stolen_from', { source: 'robber', thiefId: playerId, amount: 1 });
           stolenKind = rk;
         }
       }
@@ -6930,6 +6932,7 @@ if (kind === 'pirate_steal') {
         recordResourceDelta(game, victimId, { [rk]: -1 }, 'steal');
         grantStats(game, playerId, thief.resources, rk, 1, 'steal');
         recordPirateSteal(game, playerId, victimId);
+        sendPlayerSfx(room, victimId, 'stolen_from', { source: 'pirate', thiefId: playerId, amount: 1 });
         stolenKind = rk;
       }
     }
@@ -8191,6 +8194,17 @@ function broadcastRoom(room) {
     if (ws.readyState === WebSocket.OPEN) sendJson(ws, { type: 'room', room: snap });
   }
   scheduleActiveRoomsSave();
+}
+
+function sendPlayerSfx(room, playerId, name, extra) {
+  if (!room || !room.sockets || typeof room.sockets.get !== 'function') return;
+  const ws = room.sockets.get(playerId);
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const payload = { type: 'sfx', name: String(name || '') };
+  if (extra && typeof extra === 'object') {
+    for (const k of Object.keys(extra)) payload[k] = extra[k];
+  }
+  sendJson(ws, payload);
 }
 
 function broadcastSfx(room, name, extra) {
