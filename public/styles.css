@@ -628,6 +628,8 @@ body.in-game .hudRollDock{display:none;}
 .gTradeChips{display:flex; gap:10px; flex-wrap:wrap}
 .resChipBtn{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background: rgba(0,0,0,.18); border:1px solid rgba(255,255,255,.12); border-radius:14px; min-width:92px; color:var(--text); cursor:pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.04)}
 .resChipBtn:hover{border-color: rgba(255,255,255,.22)}
+.resChipBtn:disabled{opacity:.38; cursor:not-allowed; border-color:rgba(255,255,255,.07); filter:grayscale(.65)}
+.resChipBtn:disabled:hover{border-color:rgba(255,255,255,.07)}
 .resChipBtn img{width:32px; height:32px}
 .resChipBtn .delta{font-family:var(--mono); font-size:14px; min-width:32px; text-align:right; color:var(--muted)}
 .resChipBtn.pos .delta{color: var(--ok)}

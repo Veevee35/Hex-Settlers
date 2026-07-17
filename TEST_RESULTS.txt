@@ -1,14 +1,16 @@
-Hex Settlers mixed bank-trade validation
+Hex Settlers player-trade overlap validation
 
-Command: npm run check
+Command: tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js
 Result: PASS
-Tests: 112 passed, 0 failed
-Checks: TypeScript bootstrap build, complete Node test suite, server.js syntax, public/app.js syntax
+Tests: 116 passed, 0 failed
+Checks: TypeScript bootstrap build, complete Node test suite, server integration, server.js syntax, public/app.js syntax
 
-Bank-trade regression coverage:
-- Mixed resource baskets use each offered resource's own port ratio.
-- 2 grain at 2:1 plus 4 wool at 4:1 creates two valid trade credits.
-- Every offered resource is checked independently against player inventory.
-- Incoming bank inventory is checked independently for every requested resource.
-- Partial port payments, unbalanced baskets, and give/receive overlap are rejected.
-- Legacy single-resource bank trades remain compatible with AI and older clients.
+Player-trade regression coverage:
+- Brick, lumber, wool, grain, and ore cannot appear on both sides of one player trade.
+- Selecting a resource disables its matching chip on the opposite side of the trade window.
+- Revising an invalid legacy trade keeps the Propose button disabled until the overlap is removed.
+- The server rejects overlapping proposals from outdated or modified clients.
+- Pending overlapping trades are cancelled if encountered during response or finalization.
+- Valid mixed-resource player trades remain allowed when the two sides do not overlap.
+
+Existing mixed bank-trade, Friendly Robber/Pirate, AI, persistence, networking, map, and rules tests continue to pass.

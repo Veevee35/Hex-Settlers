@@ -10018,37 +10018,42 @@ if (ui.moveShipBtn) {
     playerBox.className = 'tradeBox';
     playerBox.innerHTML = `<div class="tradeTitle">Player trade (multi‑unit)</div>`;
 
-    const recv = { brick:0, lumber:0, wool:0, grain:0, ore:0 };
-    const give = { brick:0, lumber:0, wool:0, grain:0, ore:0 };
+    const resourceKinds = ['brick','lumber','wool','grain','ore'];
+    const recv = Object.fromEntries(resourceKinds.map(k => [k, 0]));
+    const give = Object.fromEntries(resourceKinds.map(k => [k, 0]));
+
+    const help = document.createElement('div');
+    help.className = 'smallNote';
+    help.textContent = 'Choose what you receive on the top row and what you give on the bottom row. A resource selected on one side is unavailable on the other side.';
+    help.style.marginBottom = '6px';
+    playerBox.appendChild(help);
 
     // Prefill when revising an existing pending trade.
     if (opts && (opts.initOffer || opts.initRequest)) {
       const io = opts.initOffer || {};
       const ir = opts.initRequest || {};
-      for (const k of ['brick','lumber','wool','grain','ore']) {
+      for (const k of resourceKinds) {
         give[k] = Math.max(0, Math.floor(Number(io[k] || 0)));
         recv[k] = Math.max(0, Math.floor(Number(ir[k] || 0)));
       }
     }
 
-    function makeChip(k, getVal, setVal, signMode) {
+    function makeChip(k, getVal, setVal, getOppositeVal, signMode) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'resChipBtn';
-      chip.title = 'Click +1 · Shift‑click −1';
-      chip.addEventListener('click', (ev) => {
-        const down = !!ev.shiftKey;
+
+      function change(delta) {
         const v = Number(getVal() || 0);
-        const next = Math.max(0, v + (down ? -1 : 1));
-        setVal(next);
+        if (delta > 0 && Number(getOppositeVal() || 0) > 0) return;
+        setVal(Math.max(0, v + delta));
         refresh();
-      });
+      }
+
+      chip.addEventListener('click', (ev) => change(ev.shiftKey ? -1 : 1));
       chip.addEventListener('contextmenu', (ev) => {
         ev.preventDefault();
-        const v = Number(getVal() || 0);
-        const next = Math.max(0, v - 1);
-        setVal(next);
-        refresh();
+        change(-1);
       });
 
       const img = document.createElement('img');
@@ -10071,6 +10076,12 @@ if (ui.moveShipBtn) {
           chip.classList.toggle('neg', shown < 0);
           chip.classList.toggle('zero', shown === 0);
           val.textContent = `${shown >= 0 ? '+' : ''}${shown}`;
+
+          const blockedByOppositeSide = n === 0 && Number(getOppositeVal() || 0) > 0;
+          chip.disabled = blockedByOppositeSide;
+          chip.title = blockedByOppositeSide
+            ? `Remove ${k} from the other side before selecting it here.`
+            : 'Click +1 · Shift-click / Right-click -1';
         }
       };
     }
@@ -10086,10 +10097,11 @@ if (ui.moveShipBtn) {
       chipsWrap.className = 'gTradeChips';
 
       const chips = [];
-      for (const k of ['brick','lumber','wool','grain','ore']) {
+      for (const k of resourceKinds) {
         const src = (arrowKind === 'down') ? recv : give;
+        const opposite = (arrowKind === 'down') ? give : recv;
         const sign = (arrowKind === 'down') ? 'plus' : 'minus';
-        const c = makeChip(k, () => src[k], (v) => { src[k] = v; }, sign);
+        const c = makeChip(k, () => src[k], (v) => { src[k] = v; }, () => opposite[k], sign);
         chips.push(c);
         chipsWrap.appendChild(c.node);
       }
@@ -10110,17 +10122,22 @@ if (ui.moveShipBtn) {
     rows.appendChild(bottomRow.row);
 
     playerBox.appendChild(rows);
+
+    const tradeInfo = document.createElement('div');
+    tradeInfo.className = 'smallNote';
+    tradeInfo.style.marginTop = '6px';
+    playerBox.appendChild(tradeInfo);
     wrap.appendChild(playerBox);
 
     function totals(m) {
       let t = 0;
-      for (const k of ['brick','lumber','wool','grain','ore']) t += (m[k] || 0);
+      for (const k of resourceKinds) t += (m[k] || 0);
       return t;
     }
 
     function getOffer() {
       const out = {};
-      for (const k of ['brick','lumber','wool','grain','ore']) {
+      for (const k of resourceKinds) {
         const n = Math.max(0, Math.floor(Number(give[k] || 0)));
         if (n > 0) out[k] = n;
       }
@@ -10128,21 +10145,34 @@ if (ui.moveShipBtn) {
     }
     function getRequest() {
       const out = {};
-      for (const k of ['brick','lumber','wool','grain','ore']) {
+      for (const k of resourceKinds) {
         const n = Math.max(0, Math.floor(Number(recv[k] || 0)));
         if (n > 0) out[k] = n;
       }
       return out;
     }
 
+    function selectedOverlapKind() {
+      return resourceKinds.find(k => Number(give[k] || 0) > 0 && Number(recv[k] || 0) > 0) || null;
+    }
+
     let proposeBtn = null;
 
     function refresh() {
       for (const c of [...topRow.chips, ...bottomRow.chips]) c.update();
+
+      const offer = getOffer();
+      const request = getRequest();
+      const overlapKind = selectedOverlapKind();
+
+      if (overlapKind) {
+        tradeInfo.textContent = `Remove ${overlapKind} from one side. The same resource cannot be given and received in a player trade.`;
+      } else {
+        tradeInfo.textContent = 'The same resource cannot appear on both sides of a player trade.';
+      }
+
       if (proposeBtn) {
-        const offer = getOffer();
-        const request = getRequest();
-        proposeBtn.disabled = (totals(offer) === 0 || totals(request) === 0);
+        proposeBtn.disabled = totals(offer) === 0 || totals(request) === 0 || !!overlapKind;
       }
     }
 
@@ -10155,6 +10185,10 @@ if (ui.moveShipBtn) {
         { label: 'Propose', primary: true, onClick: () => {
           const offer = getOffer();
           const request = getRequest();
+          if (selectedOverlapKind()) {
+            refresh();
+            return;
+          }
           closeModal();
           const payload = { kind: 'propose_trade', offer, request };
           if (reviseOfTradeId) payload.replaceTradeId = reviseOfTradeId;

@@ -51,6 +51,14 @@ test('bank trades support mixed-resource baskets and add five seconds', () => {
   assert.match(serverJs, /extendPlayerTurn\(game, playerId, 5_000, timerSegmentKey\(game\)\)/);
 });
 
+test('player trades cannot give and receive the same resource', () => {
+  assert.match(appJs, /const blockedByOppositeSide = n === 0 && Number\(getOppositeVal\(\) \|\| 0\) > 0/);
+  assert.match(appJs, /chip\.disabled = blockedByOppositeSide/);
+  assert.match(appJs, /selectedOverlapKind\(\)/);
+  assert.match(serverJs, /validatePlayerTradeSides\(offer, request, RESOURCE_KINDS\)/);
+  assert.match(serverJs, /validatePlayerTradeSides\(t\.offer \|\| \{\}, t\.request \|\| \{\}, RESOURCE_KINDS\)/);
+});
+
 test('the center-board YOUR ROLL banner is shown only for the local roll phase', () => {
   assert.match(indexHtml, /id="yourRollBanner"[^>]*>YOUR ROLL</);
   assert.match(styles, /\.yourRollBanner\{[\s\S]*?color:#ff1f2d[\s\S]*?font-size:clamp/);

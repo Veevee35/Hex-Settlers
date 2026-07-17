@@ -39,6 +39,7 @@ const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = re
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { normalizeBankTradeAction, validateBankTradeAvailability } = require('./server/bank-trade');
+const { validatePlayerTradeSides } = require('./server/player-trade');
 const { sanitizeLogEntriesForViewer } = require('./server/private-log');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const { friendlyPirateCanOccupyTile, friendlyPirateProtectedPlayerIds, friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
@@ -7057,6 +7058,9 @@ if (kind === 'pirate_steal') {
 
     if (offerTotal === 0 || reqTotal === 0) return { ok: false, error: 'Trade must include both an offer and a request.' };
 
+    const tradeSides = validatePlayerTradeSides(offer, request, RESOURCE_KINDS);
+    if (!tradeSides.ok) return tradeSides;
+
     // Ensure proposer can afford the offer now (will be re-checked on finalize)
     for (const [k, n] of Object.entries(offer)) {
       if ((fromP.resources[k] || 0) < n) return { ok: false, error: `Not enough ${k} to offer.` };
@@ -7095,6 +7099,12 @@ if (kind === 'pirate_steal') {
     if (playerId === t.fromId) return { ok: false, error: 'Proposer cannot respond to their own trade.' };
 
     if (!t.responses || !(playerId in t.responses)) return { ok: false, error: 'You cannot respond to this trade.' };
+
+    const tradeSides = validatePlayerTradeSides(t.offer || {}, t.request || {}, RESOURCE_KINDS);
+    if (!tradeSides.ok) {
+      game.pendingTrade = null;
+      return tradeSides;
+    }
 
     // If a player clicks approve but cannot afford the requested resources,
     // treat that click as a reject so the UI shows a red X instead of a green check.
@@ -7141,6 +7151,12 @@ if (kind === 'pirate_steal') {
     if (!withPlayerId || withPlayerId === playerId) return { ok: false, error: 'Choose a player to trade with.' };
 
     if (!t.responses || t.responses[withPlayerId] !== 'accept') return { ok: false, error: 'That player has not accepted the trade.' };
+
+    const tradeSides = validatePlayerTradeSides(t.offer || {}, t.request || {}, RESOURCE_KINDS);
+    if (!tradeSides.ok) {
+      game.pendingTrade = null;
+      return tradeSides;
+    }
 
     const fromP = playerById(game, t.fromId);
     const toP = playerById(game, withPlayerId);
