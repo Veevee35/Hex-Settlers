@@ -74,3 +74,22 @@ test('buy development card is placed in the turn action bar instead of the devel
   assert.doesNotMatch(appJs, /right\.appendChild\(ui\.buyDevBtn\)/);
 });
 
+
+
+test('robber and pirate legal placement tiles use prominent accessible highlights', () => {
+  assert.match(appJs, /const legalFill = isSeaTile \? 'rgba\(55,190,255,\.95\)' : 'rgba\(255,201,48,\.95\)'/);
+  assert.match(appJs, /ctx\.globalAlpha = 0\.28 \+ 0\.14 \* thiefPulse/);
+  assert.match(appJs, /ctx\.strokeStyle = 'rgba\(0,0,0,\.92\)'/);
+  assert.match(appJs, /ctx\.shadowBlur = Math\.max\(10, view\.scale \* 0\.14\)/);
+  assert.match(appJs, /ctx\.setLineDash\(/);
+  assert.match(appJs, /ctx\.fillText\('✓', c\.x, badgeY \+ 1\)/);
+  assert.match(appJs, /drawThiefLegalTileOverlayPass\(activePlayerThiefMove, thiefHighlightPhase, thiefPulse\)/);
+});
+
+test('paired extra action turns show a red Extra Turn banner above the action bar', () => {
+  assert.match(indexHtml, /id="extraTurnBanner"[^>]*>Extra Turn<\/div>/);
+  assert.match(styles, /\.extraTurnBanner\{[\s\S]*?color:#ff2638[\s\S]*?font-weight:950/);
+  assert.match(styles, /\.hudBar \.extraTurnBanner\{[\s\S]*?bottom:calc\(100% \+ 7px\)/);
+  assert.match(appJs, /ui\.extraTurnBanner\.classList\.toggle\('hidden', !showExtraTurn\)/);
+  assert.match(appJs, /String\(state\.paired\.stage \|\| ''\) === 'p2'[\s\S]*?state\.phase === 'main-actions'/);
+});

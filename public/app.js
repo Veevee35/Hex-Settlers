@@ -143,6 +143,7 @@
     errBox: $('errBox'),
     turnInfo: $('turnInfo'),
     timerInfo: $('timerInfo'),
+    extraTurnBanner: $('extraTurnBanner'),
     resourcesBox: $('resourcesBox'),
     buyDevBtn: $('buyDevBtn'),
     bankTradeBtn: $('bankTradeBtn'),
@@ -3853,6 +3854,8 @@ function syncPostgameToState() {
 
     const card = ui.turnCard;
     card.innerHTML = '';
+
+    if (ui.extraTurnBanner) card.appendChild(ui.extraTurnBanner);
 
     const row = document.createElement('div');
     row.className = 'hudBarRow';
@@ -8876,6 +8879,18 @@ function ensureTimerUiInterval() {
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
     const myTurn = inGame && !historyReplay.active && !amSpectator && state.currentPlayerId === myPlayerId;
+    if (ui.extraTurnBanner) {
+      const showExtraTurn = !!(
+        inGame &&
+        !historyReplay.active &&
+        state &&
+        state.paired &&
+        state.paired.enabled &&
+        String(state.paired.stage || '') === 'p2' &&
+        state.phase === 'main-actions'
+      );
+      ui.extraTurnBanner.classList.toggle('hidden', !showExtraTurn);
+    }
     if (ui.yourRollBanner) {
       const showYourRoll = !!(myTurn && !state.paused && state.phase === 'main-await-roll');
       ui.yourRollBanner.classList.toggle('hidden', !showYourRoll);
@@ -11522,23 +11537,76 @@ function handleProductionGoldPrompt() {
         else if (thiefHighlightPhase === 'pirate-move') showChoice = canPirateHere;
 
         if (showChoice) {
+          const legalFill = isSeaTile ? 'rgba(55,190,255,.95)' : 'rgba(255,201,48,.95)';
+          const legalStroke = isSeaTile ? 'rgba(145,235,255,1)' : 'rgba(255,239,145,1)';
+          const badgeY = c.y + (view.scale * 0.48);
+          const badgeRadius = Math.max(10, Math.min(16, view.scale * 0.16));
+
+          // Strong translucent wash so legal destinations remain obvious over every texture.
           ctx.save();
-          ctx.globalAlpha = 0.14 + 0.10 * thiefPulse;
-          ctx.fillStyle = isSeaTile ? 'rgba(110,196,255,0.9)' : 'rgba(255,214,102,0.9)';
+          ctx.globalAlpha = 0.28 + 0.14 * thiefPulse;
+          ctx.fillStyle = legalFill;
           ctx.beginPath();
           poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
           ctx.closePath();
           ctx.fill();
           ctx.restore();
 
+          // A dark halo separates the legal outline from bright terrain and sea artwork.
           ctx.save();
-          ctx.globalAlpha = 0.55 + 0.20 * thiefPulse;
-          ctx.strokeStyle = isSeaTile ? 'rgba(125,215,255,.95)' : 'rgba(255,224,120,.95)';
-          ctx.lineWidth = 3;
+          ctx.globalAlpha = 0.82;
+          ctx.strokeStyle = 'rgba(0,0,0,.92)';
+          ctx.lineWidth = Math.max(7, view.scale * 0.075);
+          ctx.lineJoin = 'round';
           ctx.beginPath();
           poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
           ctx.closePath();
           ctx.stroke();
+          ctx.restore();
+
+          // Bright pulsing double border marks the exact clickable hex.
+          ctx.save();
+          ctx.globalAlpha = 0.88 + 0.12 * thiefPulse;
+          ctx.strokeStyle = legalStroke;
+          ctx.lineWidth = Math.max(4, view.scale * 0.045);
+          ctx.lineJoin = 'round';
+          ctx.shadowColor = legalStroke;
+          ctx.shadowBlur = Math.max(10, view.scale * 0.14);
+          ctx.beginPath();
+          poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+          ctx.closePath();
+          ctx.stroke();
+          ctx.restore();
+
+          ctx.save();
+          ctx.globalAlpha = 0.78 + 0.18 * thiefPulse;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = Math.max(2, view.scale * 0.022);
+          ctx.setLineDash([Math.max(7, view.scale * 0.085), Math.max(4, view.scale * 0.05)]);
+          ctx.beginPath();
+          poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+          ctx.closePath();
+          ctx.stroke();
+          ctx.restore();
+
+          // A check badge makes the legal state readable even for colorblind players.
+          ctx.save();
+          ctx.globalAlpha = 0.92 + 0.08 * thiefPulse;
+          ctx.fillStyle = 'rgba(8,12,18,.92)';
+          ctx.strokeStyle = legalStroke;
+          ctx.lineWidth = Math.max(2, badgeRadius * 0.18);
+          ctx.shadowColor = 'rgba(0,0,0,.75)';
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.arc(c.x, badgeY, badgeRadius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `900 ${Math.round(badgeRadius * 1.35)}px ui-sans-serif, system-ui`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('✓', c.x, badgeY + 1);
           ctx.restore();
         }
       }
@@ -11950,7 +12018,9 @@ function handleProductionGoldPrompt() {
       }
     }
 
-    // Re-draw robber/pirate above roads/ships/buildings; re-draw colorblind markers after so shapes remain topmost.
+    // Re-draw legal thief destinations above roads/ships/buildings, then keep the actual
+    // robber/pirate pieces and accessibility marks on the very top.
+    drawThiefLegalTileOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse);
     drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse);
     drawColorblindPieceMarksOverlayPass();
 
@@ -11967,6 +12037,67 @@ function handleProductionGoldPrompt() {
     }
 
     updateShipMoveCancelPopupPosition();
+  }
+
+  function drawThiefLegalTileOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse) {
+    if (!activePlayerThiefMove || !state || !state.geom || !Array.isArray(state.geom.tiles)) return;
+    for (const t of state.geom.tiles) {
+      if (!t || shouldHideOuterSeaBorderTileClient(t)) continue;
+      const isSeaTile = t.type === 'sea';
+      const canRobberHere = (!isSeaTile && !t.robber && !friendlyRobberTileBlockedClient(t.id));
+      const canPirateHere = (isSeaTile && !(t.fog && !t.revealed) && !t.pirate && !friendlyRobberTileBlockedClient(t.id));
+      let showChoice = false;
+      if (thiefHighlightPhase === 'pirate-or-robber') showChoice = canRobberHere || canPirateHere;
+      else if (thiefHighlightPhase === 'robber-move') showChoice = canRobberHere;
+      else if (thiefHighlightPhase === 'pirate-move') showChoice = canPirateHere;
+      if (!showChoice) continue;
+
+      const c = worldToScreen({ x: t.cx, y: t.cy });
+      const poly = tilePolygonScreen(t);
+      const legalStroke = isSeaTile ? 'rgba(145,235,255,1)' : 'rgba(255,239,145,1)';
+      const badgeY = c.y + (view.scale * 0.48);
+      const badgeRadius = Math.max(10, Math.min(16, view.scale * 0.16));
+
+      ctx.save();
+      ctx.globalAlpha = 0.90;
+      ctx.strokeStyle = 'rgba(0,0,0,.96)';
+      ctx.lineWidth = Math.max(8, view.scale * 0.085);
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      poly.forEach((point, i) => i ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.90 + 0.10 * thiefPulse;
+      ctx.strokeStyle = legalStroke;
+      ctx.lineWidth = Math.max(4, view.scale * 0.048);
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = legalStroke;
+      ctx.shadowBlur = Math.max(12, view.scale * 0.16);
+      ctx.beginPath();
+      poly.forEach((point, i) => i ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.96;
+      ctx.fillStyle = 'rgba(8,12,18,.94)';
+      ctx.strokeStyle = legalStroke;
+      ctx.lineWidth = Math.max(2, badgeRadius * 0.18);
+      ctx.beginPath();
+      ctx.arc(c.x, badgeY, badgeRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `900 ${Math.round(badgeRadius * 1.35)}px ui-sans-serif, system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✓', c.x, badgeY + 1);
+      ctx.restore();
+    }
   }
 
   function drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse) {

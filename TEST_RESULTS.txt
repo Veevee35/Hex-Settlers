@@ -1,17 +1,14 @@
-Hex Settlers Buy Development Card action-bar update
+Hex Settlers validation results
 
-Command: tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js
+Date: 2026-07-16
 Result: PASS
-Tests: 117 passed, 0 failed
-Checks: TypeScript bootstrap build, complete Node test suite, server integration, server.js syntax, public/app.js syntax
 
-Change:
-- Moved the Buy Dev Card button from the Development Cards panel into the main turn action bar.
-- The button appears between Upgrade City and Bank Trade in the in-game action bar.
-- Existing affordability, active-turn, action-phase, and remaining-deck restrictions are unchanged.
-- The Development Cards panel continues to show the remaining deck count, cost reminder, and the player's development-card hand.
+- Node test suite: 119 passed, 0 failed
+- Server JavaScript syntax check: passed
+- Client JavaScript syntax check: passed
+- TypeScript bootstrap compilation: passed
 
-Regression coverage:
-- Confirms the button is stored in the Turn panel markup rather than the Development Cards panel.
-- Confirms the dynamically built turn HUD includes Buy Dev Card in the action order.
-- Confirms the Development Cards header no longer reparents the button.
+Changes validated:
+- Robber and pirate legal placement tiles use a stronger pulsing wash, dark contrast halo, bright double outline, and check badge.
+- Legal thief-placement outlines are redrawn above roads, ships, and buildings.
+- Paired Player 2 action turns display a red "Extra Turn" label above the left side of the action bar.
