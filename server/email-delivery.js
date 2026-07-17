@@ -67,7 +67,7 @@ function isEmailDeliveryConfigured(env = process.env) {
 }
 
 function fromAddress(env = process.env) {
-  const configured = String(env.HEX_EMAIL_FROM || env.SMTP_FROM || '').trim();
+  const configured = String(env.HEX_EMAIL_FROM || env.SMTP_FROM || 'no-reply@tenthson.com').trim();
   return configured || 'Hex Settlers <no-reply@localhost>';
 }
 
