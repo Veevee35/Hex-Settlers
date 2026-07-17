@@ -38,9 +38,7 @@ function isSeafarers56Scenario(raw) {
 
 function seafarersAwardsNewIslandBonus(rules) {
   if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
-  if (!seafarersExplorationPointsEnabled(rules)) return false;
-  const scenario = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
-  return scenario !== 'fog_island' && scenario !== 'fog_island_56';
+  return seafarersExplorationPointsEnabled(rules);
 }
 
 function seafarersExplorationPointsEnabled(rules) {

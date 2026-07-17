@@ -6557,7 +6557,7 @@ function refreshLobbyJoinLinkUi() {
         'Placing or moving a road or ship beside fog reveals exactly one adjacent hidden tile. Exploration must begin from a revealed edge of the map.',
         'Revealing a normal resource tile grants the explorer 1 matching resource if the bank has one. Revealing a Gold Field prompts a resource choice; revealing sea grants nothing.',
         'The pirate starts on revealed sea and cannot be moved onto an unrevealed fog tile.',
-        'Fog Island does not award the normal 2-point new-island settlement bonus.',
+        'When exploration victory points are enabled, the first settlement a player builds on each newly revealed land mass after setup awards 2 bonus victory points.',
       ],
     },
     fog_island_56: {
@@ -6571,7 +6571,7 @@ function refreshLobbyJoinLinkUi() {
         'Placing or moving a road or ship beside fog reveals exactly one adjacent hidden tile, starting from a revealed edge.',
         'A revealed resource tile grants 1 matching resource if available; Gold prompts a choice; sea grants nothing.',
         'The pirate starts on revealed sea and cannot be moved onto an unrevealed fog tile.',
-        'There is no new-island settlement bonus. Paired-turn rules apply, and Player 2 may trade only with the bank.',
+        'When exploration victory points are enabled, the first settlement a player builds on each newly revealed land mass after setup awards 2 bonus victory points. Paired-turn rules apply, and Player 2 may trade only with the bank.',
       ],
     },
     heading_for_new_shores: {

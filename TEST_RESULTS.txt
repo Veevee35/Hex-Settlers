@@ -1,16 +1,13 @@
 Hex Settlers validation results
 
-Date: 2026-07-16
-Result: PASS
+Change: Exploration victory points now apply to Fog Island and Fog Island 5-6 when enabled.
 
-- Node test suite: 122 passed, 0 failed
-- Server JavaScript syntax check: passed
-- Client JavaScript syntax check: passed
-- TypeScript bootstrap compilation: passed
+Validation command:
+  npm run check
 
-Changes validated:
-- A ship placed during the current action opportunity cannot be moved immediately.
-- The ship becomes movable on its owner's next normal turn or paired extra turn.
-- Server validation and ship-target queries reject newly placed ships even if a client is modified or outdated.
-- The client blocks selecting a newly placed ship and displays an explanatory message.
-- The red Extra Turn banner is visible only to the local player whose paired extra turn is active.
+Result:
+  123 tests passed
+  0 tests failed
+  TypeScript bootstrap compiled successfully
+  server.js syntax check passed
+  public/app.js syntax check passed

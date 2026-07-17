@@ -90,3 +90,10 @@ test('Cartographer placement highlights treat outer land edges as open ocean', (
   assert.match(appJs, /function rulesTreatOuterBoundaryAsSeaForShipsClient\(\)/);
   assert.match(appJs, /rawAdj\.length === 1 && rulesTreatOuterBoundaryAsSeaForShipsClient\(\)/);
 });
+
+
+test('Fog Island rules describe the enabled exploration settlement bonus', () => {
+  assert.match(appJs, /newly revealed land mass after setup awards 2 bonus victory points/);
+  assert.doesNotMatch(appJs, /Fog Island does not award the normal 2-point new-island settlement bonus/);
+  assert.doesNotMatch(appJs, /There is no new-island settlement bonus/);
+});

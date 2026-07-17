@@ -48,7 +48,7 @@ test('bank sizing keeps classic, 5-6 player, seafarers, and custom behavior', ()
   assert.equal(normalizedMapModeRaw('classic_5_6'), 'classic56');
 });
 
-test('Cartographer and Scattered Tiles award normal new-land-mass exploration points', () => {
+test('Seafarers scenarios award new-land-mass exploration points when enabled', () => {
   for (const seafarersScenario of [
     'cartographer_4_manual',
     'cartographer_4_random',
@@ -60,8 +60,10 @@ test('Cartographer and Scattered Tiles award normal new-land-mass exploration po
   }
 
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }), true);
-  assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island' }), false);
-  assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island_56' }), false);
+  assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island' }), true);
+  assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island_56' }), true);
+  assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island', explorationPointsEnabled: false }), false);
+  assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'seafarers', seafarersScenario: 'fog_island_56', explorationPointsEnabled: false }), false);
   assert.equal(seafarersAwardsNewIslandBonus({ mapMode: 'classic', seafarersScenario: 'cartographer_4_random' }), false);
   assert.equal(seafarersDesertsSeparateLandMasses({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }), false);
   assert.equal(seafarersExplorationPointsEnabled({ explorationPointsEnabled: false }), false);
