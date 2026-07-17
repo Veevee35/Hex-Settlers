@@ -3,12 +3,13 @@ Hex Settlers validation results
 Date: 2026-07-16
 Result: PASS
 
-- Node test suite: 119 passed, 0 failed
+- Node test suite: 120 passed, 0 failed
 - Server JavaScript syntax check: passed
 - Client JavaScript syntax check: passed
 - TypeScript bootstrap compilation: passed
 
 Changes validated:
-- Robber and pirate legal placement tiles use a stronger pulsing wash, dark contrast halo, bright double outline, and check badge.
-- Legal thief-placement outlines are redrawn above roads, ships, and buildings.
-- Paired Player 2 action turns display a red "Extra Turn" label above the left side of the action bar.
+- Newly placed roads, ships, settlements, and cities render at 150% size for two seconds for every player.
+- Placement emphasis does not alter board coordinates, legal placement logic, or hitboxes.
+- Moving an existing ship is distinguished from placing a new ship and does not trigger the enlargement.
+- Placement emphasis applies to setup builds, normal builds, AI builds, fallback graphics, and colorblind piece markings.

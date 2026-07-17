@@ -1706,6 +1706,7 @@ function startHistoryReplay(entry) {
     setError('A step-by-step replay is not available for this older game.');
     return;
   }
+  clearStructurePlacementEmphasis();
   cancelHistoryReplayScrub();
   historyReplay = { active: true, entry, index: 0, liveState: state, viewPlayerId: null };
   setHistoryVisible(false);
@@ -1715,6 +1716,7 @@ function startHistoryReplay(entry) {
 
 function stopHistoryReplay() {
   if (!historyReplay.active) return;
+  clearStructurePlacementEmphasis();
   cancelHistoryReplayScrub();
   const liveState = historyReplay.liveState;
   historyReplay = { active: false, entry: null, index: 0, liveState: null, viewPlayerId: null };
@@ -4615,6 +4617,131 @@ function syncPostgameToState() {
   let room = null;
   let state = null;
 
+  const STRUCTURE_PLACEMENT_EMPHASIS_MS = 2_000;
+  const STRUCTURE_PLACEMENT_SCALE = 1.5;
+  const structurePlacementEmphasis = new Map();
+  let structurePlacementEmphasisTimer = null;
+
+  function structurePlacementKey(kind, targetId) {
+    return `${String(kind || '')}:${Number(targetId)}`;
+  }
+
+  function clearStructurePlacementEmphasis() {
+    structurePlacementEmphasis.clear();
+    if (structurePlacementEmphasisTimer !== null) clearTimeout(structurePlacementEmphasisTimer);
+    structurePlacementEmphasisTimer = null;
+  }
+
+  function pruneStructurePlacementEmphasis(now = Date.now()) {
+    for (const [key, entry] of structurePlacementEmphasis.entries()) {
+      if (!entry || Number(entry.expiresAt || 0) <= now) structurePlacementEmphasis.delete(key);
+    }
+  }
+
+  function scheduleStructurePlacementEmphasisExpiry() {
+    if (structurePlacementEmphasisTimer !== null) clearTimeout(structurePlacementEmphasisTimer);
+    structurePlacementEmphasisTimer = null;
+    pruneStructurePlacementEmphasis();
+    if (!structurePlacementEmphasis.size) return;
+    let nextExpiry = Infinity;
+    for (const entry of structurePlacementEmphasis.values()) {
+      nextExpiry = Math.min(nextExpiry, Number(entry && entry.expiresAt || Infinity));
+    }
+    if (!Number.isFinite(nextExpiry)) return;
+    structurePlacementEmphasisTimer = setTimeout(() => {
+      structurePlacementEmphasisTimer = null;
+      pruneStructurePlacementEmphasis();
+      try { render(); } catch (_) {}
+      scheduleStructurePlacementEmphasisExpiry();
+    }, Math.max(0, nextExpiry - Date.now()) + 16);
+  }
+
+  function emphasizePlacedStructure(kind, targetId, ownerId, now = Date.now()) {
+    const id = Number(targetId);
+    if (!kind || !Number.isFinite(id) || !ownerId) return;
+    structurePlacementEmphasis.set(structurePlacementKey(kind, id), {
+      kind,
+      targetId: id,
+      ownerId,
+      expiresAt: now + STRUCTURE_PLACEMENT_EMPHASIS_MS,
+    });
+  }
+
+  function structurePlacementScale(kind, targetId, ownerId) {
+    const entry = structurePlacementEmphasis.get(structurePlacementKey(kind, targetId));
+    if (!entry || entry.ownerId !== ownerId || Number(entry.expiresAt || 0) <= Date.now()) return 1;
+    return STRUCTURE_PLACEMENT_SCALE;
+  }
+
+  function objectsByNumericId(items) {
+    const out = new Map();
+    for (const item of (Array.isArray(items) ? items : [])) {
+      const id = Number(item && item.id);
+      if (Number.isFinite(id)) out.set(id, item);
+    }
+    return out;
+  }
+
+  function trackNewStructurePlacements(previousState, nextState) {
+    if (!previousState || !nextState || !previousState.geom || !nextState.geom || String(nextState.phase || '') === 'lobby') {
+      clearStructurePlacementEmphasis();
+      return;
+    }
+
+    const previousEdges = objectsByNumericId(previousState.geom.edges);
+    const nextEdges = objectsByNumericId(nextState.geom.edges);
+    const removedShipsByOwner = new Map();
+    const addedShips = [];
+    const now = Date.now();
+
+    for (const [edgeId, previousEdge] of previousEdges.entries()) {
+      const nextEdge = nextEdges.get(edgeId);
+      const oldOwner = previousEdge && previousEdge.shipOwner;
+      if (oldOwner && (!nextEdge || nextEdge.shipOwner !== oldOwner)) {
+        removedShipsByOwner.set(oldOwner, Number(removedShipsByOwner.get(oldOwner) || 0) + 1);
+      }
+    }
+
+    for (const [edgeId, nextEdge] of nextEdges.entries()) {
+      const previousEdge = previousEdges.get(edgeId);
+      if (!previousEdge) continue;
+      if (!previousEdge.roadOwner && nextEdge.roadOwner) {
+        emphasizePlacedStructure('road', edgeId, nextEdge.roadOwner, now);
+      }
+      if (nextEdge.shipOwner && previousEdge.shipOwner !== nextEdge.shipOwner) {
+        addedShips.push({ edgeId, ownerId: nextEdge.shipOwner });
+      }
+    }
+
+    // A ship move removes one ship and adds one ship for the same owner in the same
+    // state transition. Pair those changes so only newly purchased/placed ships pulse.
+    for (const added of addedShips) {
+      const removedCount = Number(removedShipsByOwner.get(added.ownerId) || 0);
+      if (removedCount > 0) {
+        removedShipsByOwner.set(added.ownerId, removedCount - 1);
+        continue;
+      }
+      emphasizePlacedStructure('ship', added.edgeId, added.ownerId, now);
+    }
+
+    const previousNodes = objectsByNumericId(previousState.geom.nodes);
+    const nextNodes = objectsByNumericId(nextState.geom.nodes);
+    for (const [nodeId, nextNode] of nextNodes.entries()) {
+      const previousNode = previousNodes.get(nodeId);
+      if (!previousNode || !nextNode || !nextNode.building) continue;
+      const oldBuilding = previousNode.building || null;
+      const newBuilding = nextNode.building;
+      const isNewBuilding = !oldBuilding || oldBuilding.owner !== newBuilding.owner;
+      const isCityUpgrade = !!oldBuilding && oldBuilding.owner === newBuilding.owner && oldBuilding.type !== 'city' && newBuilding.type === 'city';
+      if (isNewBuilding || isCityUpgrade) {
+        const kind = newBuilding.type === 'city' ? 'city' : 'settlement';
+        emphasizePlacedStructure(kind, nodeId, newBuilding.owner, now);
+      }
+    }
+
+    scheduleStructurePlacementEmphasisExpiry();
+  }
+
   function roomPlayersList() {
     return (room && Array.isArray(room.players)) ? room.players : [];
   }
@@ -4724,6 +4851,7 @@ function syncPostgameToState() {
     pendingReconnectRoomMessages = [];
     room = null;
     state = null;
+    clearStructurePlacementEmphasis();
     resetViewportForRoomChange();
     isHost = false;
     myPlayerId = null;
@@ -5786,6 +5914,7 @@ function refreshLobbyJoinLinkUi() {
           return;
         }
         const prevState = state;
+        trackNewStructurePlacements(prevState, msg.state);
         state = msg.state;
         syncEndTurnWarnAudioState(prevState, state);
         // Any state change should clear click-to-build UI and transient hover/confirm state.
@@ -11895,22 +12024,25 @@ function handleProductionGoldPrompt() {
       if (e.roadOwner) {
         const p = state.players.find(pp => pp.id === e.roadOwner);
         const colIdx = playerColorIndex(p?.color);
-        if (!drawEdgeStructureSprite('road', colIdx, as.x, as.y, bs.x, bs.y)) {
+        const placementScale = structurePlacementScale('road', e.id, e.roadOwner);
+        if (!drawEdgeStructureSprite('road', colIdx, as.x, as.y, bs.x, bs.y, placementScale)) {
+          const mx = (as.x + bs.x) / 2;
+          const my = (as.y + bs.y) / 2;
           ctx.save();
+          ctx.translate(mx, my);
+          ctx.scale(placementScale, placementScale);
           ctx.strokeStyle = p?.color || '#ffffff';
           ctx.lineWidth = 8;
           ctx.lineCap = 'round';
           ctx.beginPath();
-          ctx.moveTo(as.x, as.y);
-          ctx.lineTo(bs.x, bs.y);
+          ctx.moveTo(as.x - mx, as.y - my);
+          ctx.lineTo(bs.x - mx, bs.y - my);
           ctx.stroke();
           ctx.restore();
 
           if (colorblindMode) {
-            const mx = (as.x + bs.x) / 2;
-            const my = (as.y + bs.y) / 2;
             const ang = Math.atan2(bs.y - as.y, bs.x - as.x);
-            drawColorblindMark(colIdx, mx, my, 18, ang);
+            drawColorblindMark(colIdx, mx, my, 18 * placementScale, ang);
           }
         }
       }
@@ -11918,24 +12050,27 @@ function handleProductionGoldPrompt() {
       if (e.shipOwner) {
         const p = state.players.find(pp => pp.id === e.shipOwner);
         const colIdx = playerColorIndex(p?.color);
-        if (!drawEdgeStructureSprite('ship', colIdx, as.x, as.y, bs.x, bs.y)) {
+        const placementScale = structurePlacementScale('ship', e.id, e.shipOwner);
+        if (!drawEdgeStructureSprite('ship', colIdx, as.x, as.y, bs.x, bs.y, placementScale)) {
+          const mx = (as.x + bs.x) / 2;
+          const my = (as.y + bs.y) / 2;
           ctx.save();
+          ctx.translate(mx, my);
+          ctx.scale(placementScale, placementScale);
           ctx.strokeStyle = p?.color || '#ffffff';
           ctx.lineWidth = 6;
           ctx.lineCap = 'round';
           ctx.setLineDash([10, 8]);
           ctx.beginPath();
-          ctx.moveTo(as.x, as.y);
-          ctx.lineTo(bs.x, bs.y);
+          ctx.moveTo(as.x - mx, as.y - my);
+          ctx.lineTo(bs.x - mx, bs.y - my);
           ctx.stroke();
           ctx.setLineDash([]);
           ctx.restore();
 
           if (colorblindMode) {
-            const mx = (as.x + bs.x) / 2;
-            const my = (as.y + bs.y) / 2;
             const ang = Math.atan2(bs.y - as.y, bs.x - as.x);
-            drawColorblindMark(colIdx, mx, my, 16, ang);
+            drawColorblindMark(colIdx, mx, my, 16 * placementScale, ang);
           }
         }
       }
@@ -12012,9 +12147,9 @@ function handleProductionGoldPrompt() {
       const col = p?.color || '#ffffff';
 
       if (n.building.type === 'settlement') {
-        drawSettlement(s.x, s.y, col);
+        drawSettlement(s.x, s.y, col, structurePlacementScale('settlement', n.id, n.building.owner));
       } else {
-        drawCity(s.x, s.y, col);
+        drawCity(s.x, s.y, col, structurePlacementScale('city', n.id, n.building.owner));
       }
     }
 
@@ -12210,7 +12345,8 @@ function handleProductionGoldPrompt() {
           const len = Math.max(16, Math.round(dist * 0.5));
           const thick = Math.max(10, Math.round(hexH * 0.07));
           const base = Math.min(len, Math.max(thick * 2.5, thick + 8));
-          const s = Math.max(10, Math.round(base * 0.5));
+          const placementScale = structurePlacementScale('road', e.id, e.roadOwner);
+          const s = Math.max(10, Math.round(base * 0.5 * placementScale));
           drawColorblindMark(colIdx, mx, my, s, ang);
         }
         if (e.shipOwner) {
@@ -12219,7 +12355,8 @@ function handleProductionGoldPrompt() {
           const len = Math.max(16, Math.round(dist * 0.5));
           const thick = Math.max(10, Math.round(hexH * 0.08));
           const base = Math.min(len, Math.max(thick * 2.5, thick + 8));
-          const s = Math.max(10, Math.round(base * 0.5));
+          const placementScale = structurePlacementScale('ship', e.id, e.shipOwner);
+          const s = Math.max(10, Math.round(base * 0.5 * placementScale));
           drawColorblindMark(colIdx, mx, my, s, ang);
         }
       }
@@ -12233,7 +12370,8 @@ function handleProductionGoldPrompt() {
         const colIdx = playerColorIndex(p?.color);
         const s = worldToScreen({ x: n.x, y: n.y });
         const hexH = 2 * view.scale;
-        const sz = Math.max(22, Math.round(hexH / 3));
+        const placementScale = structurePlacementScale(n.building.type === 'city' ? 'city' : 'settlement', n.id, n.building.owner);
+        const sz = Math.max(22, Math.round(hexH / 3)) * placementScale;
         drawColorblindMark(colIdx, s.x, s.y, Math.max(12, Math.round(sz * 0.55)), 0);
       }
     }
@@ -12276,7 +12414,7 @@ function handleProductionGoldPrompt() {
     return true;
   }
 
-  function drawEdgeStructureSprite(kind, colorIdx, ax, ay, bx, by) {
+  function drawEdgeStructureSprite(kind, colorIdx, ax, ay, bx, by, scale = 1) {
     if (!STRUCT.ready) return false;
     const mx = (ax + bx) / 2;
     const my = (ay + by) / 2;
@@ -12289,16 +12427,18 @@ function handleProductionGoldPrompt() {
     const dist = Math.hypot(dx, dy);
     const hexH = 2 * view.scale;
     const isShip = kind === 'ship';
-    const len = Math.max(16, Math.round(dist * 0.5));
-    const thick = Math.max(10, Math.round(hexH * (isShip ? 0.08 : 0.07)));
+    const safeScale = Math.max(1, Number(scale || 1));
+    const len = Math.max(16, Math.round(dist * 0.5)) * safeScale;
+    const thick = Math.max(10, Math.round(hexH * (isShip ? 0.08 : 0.07))) * safeScale;
 
     return drawStructureSprite(kind, colorIdx, mx, my, len, thick, ang);
   }
 
-  function drawSettlement(x, y, color) {
+  function drawSettlement(x, y, color, scale = 1) {
     const colIdx = playerColorIndex(color);
     const hexH = 2 * view.scale;
-    const sz = Math.max(22, Math.round(hexH / 3)); // match number token size
+    const safeScale = Math.max(1, Number(scale || 1));
+    const sz = Math.max(22, Math.round(hexH / 3)) * safeScale; // newly placed pieces briefly render 50% larger
     if (drawStructureSprite('settlement', colIdx, x, y, sz, sz, 0)) return;
 
     // Fallback simple shape
@@ -12307,9 +12447,9 @@ function handleProductionGoldPrompt() {
     ctx.strokeStyle = 'rgba(0,0,0,.35)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x, y - 10);
-    ctx.lineTo(x + 10, y + 8);
-    ctx.lineTo(x - 10, y + 8);
+    ctx.moveTo(x, y - 10 * safeScale);
+    ctx.lineTo(x + 10 * safeScale, y + 8 * safeScale);
+    ctx.lineTo(x - 10 * safeScale, y + 8 * safeScale);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -12319,10 +12459,11 @@ function handleProductionGoldPrompt() {
     }
   }
 
-  function drawCity(x, y, color) {
+  function drawCity(x, y, color, scale = 1) {
     const colIdx = playerColorIndex(color);
     const hexH = 2 * view.scale;
-    const sz = Math.max(22, Math.round(hexH / 3)); // match number token size
+    const safeScale = Math.max(1, Number(scale || 1));
+    const sz = Math.max(22, Math.round(hexH / 3)) * safeScale; // newly placed pieces briefly render 50% larger
     if (drawStructureSprite('city', colIdx, x, y, sz, sz, 0)) return;
 
     // Fallback simple shape
@@ -12330,7 +12471,7 @@ function handleProductionGoldPrompt() {
     ctx.fillStyle = color;
     ctx.strokeStyle = 'rgba(0,0,0,.35)';
     ctx.lineWidth = 2;
-    const w = 18, h = 14;
+    const w = 18 * safeScale, h = 14 * safeScale;
     ctx.beginPath();
     ctx.rect(x - w/2, y - h/2, w, h);
     ctx.fill();
@@ -12338,7 +12479,7 @@ function handleProductionGoldPrompt() {
     // little roof
     ctx.beginPath();
     ctx.moveTo(x - w/2, y - h/2);
-    ctx.lineTo(x, y - h/2 - 10);
+    ctx.lineTo(x, y - h/2 - 10 * safeScale);
     ctx.lineTo(x + w/2, y - h/2);
     ctx.closePath();
     ctx.fill();

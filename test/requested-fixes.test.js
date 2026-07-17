@@ -93,3 +93,16 @@ test('paired extra action turns show a red Extra Turn banner above the action ba
   assert.match(appJs, /ui\.extraTurnBanner\.classList\.toggle\('hidden', !showExtraTurn\)/);
   assert.match(appJs, /String\(state\.paired\.stage \|\| ''\) === 'p2'[\s\S]*?state\.phase === 'main-actions'/);
 });
+
+test('new roads, ships, settlements, and cities render 50 percent larger for two seconds', () => {
+  assert.match(appJs, /const STRUCTURE_PLACEMENT_EMPHASIS_MS = 2_000/);
+  assert.match(appJs, /const STRUCTURE_PLACEMENT_SCALE = 1\.5/);
+  assert.match(appJs, /function trackNewStructurePlacements\(previousState, nextState\)/);
+  assert.match(appJs, /emphasizePlacedStructure\('road', edgeId, nextEdge\.roadOwner, now\)/);
+  assert.match(appJs, /emphasizePlacedStructure\('ship', added\.edgeId, added\.ownerId, now\)/);
+  assert.match(appJs, /const kind = newBuilding\.type === 'city' \? 'city' : 'settlement'/);
+  assert.match(appJs, /removedShipsByOwner[\s\S]*?Pair those changes so only newly purchased\/placed ships pulse/);
+  assert.match(appJs, /drawEdgeStructureSprite\('road',[\s\S]*?placementScale\)/);
+  assert.match(appJs, /drawSettlement\(s\.x, s\.y, col, structurePlacementScale\('settlement'/);
+  assert.match(appJs, /drawCity\(s\.x, s\.y, col, structurePlacementScale\('city'/);
+});
