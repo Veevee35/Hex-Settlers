@@ -91,7 +91,7 @@ test('paired extra action turns show a red Extra Turn banner above the action ba
   assert.match(styles, /\.extraTurnBanner\{[\s\S]*?color:#ff2638[\s\S]*?font-weight:950/);
   assert.match(styles, /\.hudBar \.extraTurnBanner\{[\s\S]*?bottom:calc\(100% \+ 7px\)/);
   assert.match(appJs, /ui\.extraTurnBanner\.classList\.toggle\('hidden', !showExtraTurn\)/);
-  assert.match(appJs, /String\(state\.paired\.stage \|\| ''\) === 'p2'[\s\S]*?state\.phase === 'main-actions'/);
+  assert.match(appJs, /myTurn &&[\s\S]*?String\(state\.paired\.stage \|\| ''\) === 'p2'[\s\S]*?state\.phase === 'main-actions'/);
 });
 
 test('new roads, ships, settlements, and cities render 50 percent larger for two seconds', () => {
@@ -105,4 +105,14 @@ test('new roads, ships, settlements, and cities render 50 percent larger for two
   assert.match(appJs, /drawEdgeStructureSprite\('road',[\s\S]*?placementScale\)/);
   assert.match(appJs, /drawSettlement\(s\.x, s\.y, col, structurePlacementScale\('settlement'/);
   assert.match(appJs, /drawCity\(s\.x, s\.y, col, structurePlacementScale\('city'/);
+});
+
+
+test('ships placed during the current action opportunity cannot be moved immediately', () => {
+  assert.match(serverJs, /markShipPlacedThisOpportunity\(game, edgeId, playerId\)/);
+  assert.match(serverJs, /shipWasPlacedThisOpportunity\(game, fromEdgeId, playerId\)/);
+  assert.match(serverJs, /A ship just placed cannot be moved until your next turn or extra turn/);
+  assert.match(appJs, /function shipMoveOpportunityKeyClient\(st = state, playerId = myPlayerId\)/);
+  assert.match(appJs, /function shipWasPlacedThisOpportunityClient\(edgeId, st = state, playerId = myPlayerId\)/);
+  assert.match(appJs, /shipWasPlacedThisOpportunityClient\(edgeId\)[\s\S]*?A ship just placed cannot be moved/);
 });

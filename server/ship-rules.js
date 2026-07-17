@@ -15,6 +15,39 @@ function rulesTreatOuterBoundaryAsSea(rules) {
   return OUTER_BOUNDARY_SHIP_SCENARIOS.has(scenario);
 }
 
+
+function shipMoveOpportunityKey(state, playerId = state?.currentPlayerId) {
+  const turnNumber = Math.max(0, Math.floor(Number(state?.turnNumber || 0)));
+  const ownerId = String(playerId || '');
+  const pairedStage = state?.paired?.enabled ? String(state.paired.stage || '') : 'solo';
+  return `${turnNumber}:${ownerId}:${pairedStage}`;
+}
+
+function markShipPlacedThisOpportunity(state, edgeId, playerId) {
+  if (!state || edgeId == null || !playerId) return null;
+  if (!state.shipPlacedOpportunityByEdge || typeof state.shipPlacedOpportunityByEdge !== 'object') {
+    state.shipPlacedOpportunityByEdge = {};
+  }
+  const marker = {
+    ownerId: String(playerId),
+    opportunityKey: shipMoveOpportunityKey(state, playerId),
+  };
+  state.shipPlacedOpportunityByEdge[String(edgeId)] = marker;
+  return marker;
+}
+
+function shipWasPlacedThisOpportunity(state, edgeId, playerId) {
+  if (!state || edgeId == null || !playerId) return false;
+  const marker = state.shipPlacedOpportunityByEdge?.[String(edgeId)];
+  if (!marker || String(marker.ownerId || '') !== String(playerId)) return false;
+  return String(marker.opportunityKey || '') === shipMoveOpportunityKey(state, playerId);
+}
+
+function clearShipPlacementMarker(state, edgeId) {
+  if (!state?.shipPlacedOpportunityByEdge || edgeId == null) return;
+  delete state.shipPlacedOpportunityByEdge[String(edgeId)];
+}
+
 function edgeTouchesSeaForShip(state, edgeId, visibleAdjacentTileIds = null) {
   const rawAdjacentTileIds = Array.isArray(state?.geom?.edgeAdjTiles?.[edgeId])
     ? state.geom.edgeAdjTiles[edgeId]
@@ -37,6 +70,10 @@ function edgeTouchesSeaForShip(state, edgeId, visibleAdjacentTileIds = null) {
 
 module.exports = {
   OUTER_BOUNDARY_SHIP_SCENARIOS,
+  clearShipPlacementMarker,
   edgeTouchesSeaForShip,
+  markShipPlacedThisOpportunity,
   rulesTreatOuterBoundaryAsSea,
+  shipMoveOpportunityKey,
+  shipWasPlacedThisOpportunity,
 };

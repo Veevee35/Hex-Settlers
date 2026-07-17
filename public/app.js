@@ -8750,6 +8750,10 @@ if (ui.copyMyIdBtn) {
     try {
       const used = state && state.shipMoveUsed && state.shipMoveUsed[myPlayerId] === state.turnNumber;
       if (used) { setError('You have already moved a ship this turn.'); return; }
+      if (shipWasPlacedThisOpportunityClient(edgeId)) {
+        setError('A ship just placed cannot be moved until your next turn or extra turn.');
+        return;
+      }
     } catch (_) {}
     if (edgeTouchesPirateClient(edgeId)) {
       setError('The pirate blocks moving that ship.');
@@ -8996,6 +9000,20 @@ function ensureTimerUiInterval() {
     return !!(st && myPlayerId && st.currentPlayerId === myPlayerId && st.paired && st.paired.enabled && String(st.paired.stage || '') === 'p2');
   }
 
+  function shipMoveOpportunityKeyClient(st = state, playerId = myPlayerId) {
+    const turnNumber = Math.max(0, Math.floor(Number(st?.turnNumber || 0)));
+    const ownerId = String(playerId || '');
+    const pairedStage = st?.paired?.enabled ? String(st.paired.stage || '') : 'solo';
+    return `${turnNumber}:${ownerId}:${pairedStage}`;
+  }
+
+  function shipWasPlacedThisOpportunityClient(edgeId, st = state, playerId = myPlayerId) {
+    if (!st || edgeId == null || !playerId) return false;
+    const marker = st.shipPlacedOpportunityByEdge?.[String(edgeId)];
+    if (!marker || String(marker.ownerId || '') !== String(playerId)) return false;
+    return String(marker.opportunityKey || '') === shipMoveOpportunityKeyClient(st, playerId);
+  }
+
   function updateButtons() {
     const phaseNow = currentRoomPhase();
     const inGame = !!state && state.phase !== 'lobby';
@@ -9012,6 +9030,7 @@ function ensureTimerUiInterval() {
       const showExtraTurn = !!(
         inGame &&
         !historyReplay.active &&
+        myTurn &&
         state &&
         state.paired &&
         state.paired.enabled &&
@@ -11342,6 +11361,10 @@ function handleProductionGoldPrompt() {
         const e = state.geom?.edges?.[hit];
         if (!e || e.shipOwner !== myPlayerId) {
           setError('Click one of your ships to select it.');
+          return;
+        }
+        if (shipWasPlacedThisOpportunityClient(hit)) {
+          setError('A ship just placed cannot be moved until your next turn or extra turn.');
           return;
         }
         if (edgeTouchesPirateClient(hit)) {

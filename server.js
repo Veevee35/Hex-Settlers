@@ -44,7 +44,12 @@ const { sanitizeLogEntriesForViewer } = require('./server/private-log');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const { friendlyPirateCanOccupyTile, friendlyPirateProtectedPlayerIds, friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
-const { edgeTouchesSeaForShip } = require('./server/ship-rules');
+const {
+  clearShipPlacementMarker,
+  edgeTouchesSeaForShip,
+  markShipPlacedThisOpportunity,
+  shipWasPlacedThisOpportunity,
+} = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
 const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = require('./server/land-masses');
 const {
@@ -5237,7 +5242,10 @@ function newEmptyGame(room) {
     thiefChoiceSeq: 1,
     pirateSteal: null,
     pirateStealSeq: 1,
-        shipMoveUsed: {},
+    shipMoveUsed: {},
+    // Main-turn ship placements are locked from movement until the owner's next
+    // normal or paired extra-turn opportunity. Keys are board edge ids.
+    shipPlacedOpportunityByEdge: {},
     discoverySeq: 1,
   };
 }
@@ -6200,6 +6208,7 @@ if (ttdFarSideBonus) {
 
     payCostStats(game, playerId, p.resources, BUILD_COSTS.ship, 'build');
     e.shipOwner = playerId;
+    markShipPlacedThisOpportunity(game, edgeId, playerId);
 
     recordBuild(game, playerId, 'ship');
     broadcastSfx(room, 'structure');
@@ -6244,6 +6253,9 @@ if (ttdFarSideBonus) {
     if (edgeTouchesPirate(game, fromEdgeId)) return { ok: false, error: 'The pirate blocks moving that ship.' };
     if (!fromE || !toE) return { ok: false, error: 'Bad edge.' };
     if (fromE.shipOwner !== playerId) return { ok: false, error: 'You can only move your own ship.' };
+    if (shipWasPlacedThisOpportunity(game, fromEdgeId, playerId)) {
+      return { ok: false, error: 'A ship just placed cannot be moved until your next turn or extra turn.' };
+    }
     if (toE.shipOwner || toE.roadOwner) return { ok: false, error: 'That edge is already occupied.' };
 
     // Must be a movable end-ship (classic Seafarers rule).
@@ -6281,7 +6293,9 @@ if (ttdFarSideBonus) {
       return { ok: false, error: 'Moved ship must remain connected to your ships or a settlement/city.' };
     }
 
-        toE.shipOwner = playerId;
+    toE.shipOwner = playerId;
+    clearShipPlacementMarker(game, fromEdgeId);
+    clearShipPlacementMarker(game, toEdgeId);
 
     // Fog Island exploration (Option B)
     const exploredFog = maybeExploreFogFromEdge(game, playerId, toEdgeId);

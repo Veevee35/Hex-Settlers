@@ -3,13 +3,14 @@ Hex Settlers validation results
 Date: 2026-07-16
 Result: PASS
 
-- Node test suite: 120 passed, 0 failed
+- Node test suite: 122 passed, 0 failed
 - Server JavaScript syntax check: passed
 - Client JavaScript syntax check: passed
 - TypeScript bootstrap compilation: passed
 
 Changes validated:
-- Newly placed roads, ships, settlements, and cities render at 150% size for two seconds for every player.
-- Placement emphasis does not alter board coordinates, legal placement logic, or hitboxes.
-- Moving an existing ship is distinguished from placing a new ship and does not trigger the enlargement.
-- Placement emphasis applies to setup builds, normal builds, AI builds, fallback graphics, and colorblind piece markings.
+- A ship placed during the current action opportunity cannot be moved immediately.
+- The ship becomes movable on its owner's next normal turn or paired extra turn.
+- Server validation and ship-target queries reject newly placed ships even if a client is modified or outdated.
+- The client blocks selecting a newly placed ship and displays an explanatory message.
+- The red Extra Turn banner is visible only to the local player whose paired extra turn is active.

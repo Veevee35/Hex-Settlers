@@ -2,7 +2,14 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { edgeTouchesSeaForShip, rulesTreatOuterBoundaryAsSea } = require('../server/ship-rules');
+const {
+  clearShipPlacementMarker,
+  edgeTouchesSeaForShip,
+  markShipPlacedThisOpportunity,
+  rulesTreatOuterBoundaryAsSea,
+  shipMoveOpportunityKey,
+  shipWasPlacedThisOpportunity,
+} = require('../server/ship-rules');
 
 function stateFor(scenario, tileTypes, edgeAdjTiles) {
   return {
@@ -40,4 +47,31 @@ test('explicit and trimmed sea adjacency remain valid for every Seafarers scenar
   const coastline = stateFor('four_islands', ['hills', 'sea'], [[0, 1]]);
   assert.equal(edgeTouchesSeaForShip(coastline, 0, [0, 1]), true);
   assert.equal(edgeTouchesSeaForShip(coastline, 0, [0]), true);
+});
+
+
+test('newly placed ships stay locked only for the current normal or paired extra-turn opportunity', () => {
+  const state = {
+    turnNumber: 12,
+    currentPlayerId: 'p1',
+    paired: { enabled: true, stage: 'p1' },
+    shipPlacedOpportunityByEdge: {},
+  };
+
+  const marker = markShipPlacedThisOpportunity(state, 7, 'p1');
+  assert.equal(marker.opportunityKey, shipMoveOpportunityKey(state, 'p1'));
+  assert.equal(shipWasPlacedThisOpportunity(state, 7, 'p1'), true);
+  assert.equal(shipWasPlacedThisOpportunity(state, 7, 'p2'), false);
+
+  // A paired extra turn is a distinct action opportunity even if a host or restored
+  // game retains the same global turn number.
+  state.paired.stage = 'p2';
+  assert.equal(shipWasPlacedThisOpportunity(state, 7, 'p1'), false);
+
+  state.paired.stage = 'p1';
+  state.turnNumber += 1;
+  assert.equal(shipWasPlacedThisOpportunity(state, 7, 'p1'), false);
+
+  clearShipPlacementMarker(state, 7);
+  assert.equal(state.shipPlacedOpportunityByEdge['7'], undefined);
 });
