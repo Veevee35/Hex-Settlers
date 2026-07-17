@@ -1,15 +1,17 @@
-Hex Settlers in-game Friendly Robber status
+Hex Settlers Buy Development Card action-bar update
 
 Command: tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js
 Result: PASS
-Tests: 116 passed, 0 failed
+Tests: 117 passed, 0 failed
 Checks: TypeScript bootstrap build, complete Node test suite, server integration, server.js syntax, public/app.js syntax
 
 Change:
-- The in-game Game Rules window now displays Friendly Robber as Enabled or Disabled.
-- The displayed status is read from the live room/game rules after the match has started.
-- Lobby rules documentation and existing robber/pirate protection behavior remain unchanged.
+- Moved the Buy Dev Card button from the Development Cards panel into the main turn action bar.
+- The button appears between Upgrade City and Bank Trade in the in-game action bar.
+- Existing affordability, active-turn, action-phase, and remaining-deck restrictions are unchanged.
+- The Development Cards panel continues to show the remaining deck count, cost reminder, and the player's development-card hand.
 
 Regression coverage:
-- Confirms the in-game rules table renders the Friendly Robber status row.
-- Existing mixed bank trade, player trade, Friendly Robber/Pirate, AI, persistence, networking, map, and rules tests continue to pass.
+- Confirms the button is stored in the Turn panel markup rather than the Development Cards panel.
+- Confirms the dynamically built turn HUD includes Buy Dev Card in the action order.
+- Confirms the Development Cards header no longer reparents the button.

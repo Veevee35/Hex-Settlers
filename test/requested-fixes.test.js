@@ -64,3 +64,13 @@ test('the center-board YOUR ROLL banner is shown only for the local roll phase',
   assert.match(styles, /\.yourRollBanner\{[\s\S]*?color:#ff1f2d[\s\S]*?font-size:clamp/);
   assert.match(appJs, /myTurn && !state\.paused && state\.phase === 'main-await-roll'/);
 });
+
+test('buy development card is placed in the turn action bar instead of the development-card panel', () => {
+  const turnCardStart = indexHtml.indexOf('id="turnCard"');
+  const devCardStart = indexHtml.indexOf('id="devCard"');
+  const buyDevStart = indexHtml.indexOf('id="buyDevBtn"');
+  assert.ok(turnCardStart >= 0 && devCardStart > turnCardStart && buyDevStart > turnCardStart && buyDevStart < devCardStart);
+  assert.match(appJs, /ui\.buildCityBtn,\s*ui\.buyDevBtn,\s*ui\.bankTradeBtn/);
+  assert.doesNotMatch(appJs, /right\.appendChild\(ui\.buyDevBtn\)/);
+});
+

@@ -1413,11 +1413,6 @@
       ui.devRemaining.classList.add('devDeckInline');
       right.appendChild(ui.devRemaining);
     }
-    if (ui.buyDevBtn) {
-      ui.buyDevBtn.classList.add('btnTiny');
-      right.appendChild(ui.buyDevBtn);
-    }
-
     ensurePanelHeaderScaleControl(ui.devCard, header, 'dev_panel', 'Scale Development Cards panel');
     ensurePanelScaleWrapper(ui.devCard, header);
     const wrap = ui.devCard.querySelector(':scope > .panelScaleContent');
@@ -3877,6 +3872,7 @@ function syncPostgameToState() {
       ui.moveShipBtn,
       ui.buildSettlementBtn,
       ui.buildCityBtn,
+      ui.buyDevBtn,
       ui.bankTradeBtn,
       ui.playerTradeBtn,
       ui.pauseBtn,
