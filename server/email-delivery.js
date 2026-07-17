@@ -58,7 +58,7 @@ function integerEnv(env, name, fallback, min, max) {
 function emailDeliveryMode(env = process.env) {
   if (String(env.HEX_EMAIL_CAPTURE_PATH || '').trim()) return 'capture';
   if (String(env.RESEND_API_KEY || '').trim()) return 'resend';
-  if (String(env.SMTP_HOST || '').trim()) return 'smtp';
+  if (String(env.SMTP_HOST || 'smtp.tenthson.com').trim()) return 'smtp';
   return 'none';
 }
 
