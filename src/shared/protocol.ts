@@ -22,6 +22,7 @@ export type AuthenticatedUser = {
   id: string;
   username: string;
   displayName: string;
+  isAdmin: boolean;
   stats: Record<string, number>;
 };
 

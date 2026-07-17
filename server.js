@@ -18,6 +18,16 @@ const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, req
 const { parseClientMessage } = require('./server/protocol');
 const { clientAddress, isAllowedWebSocketOrigin, runtimeConfig, securityHeaders } = require('./server/runtime-config');
 const {
+  BUILTIN_ADMIN_DISPLAY_NAME,
+  BUILTIN_ADMIN_MARKER,
+  BUILTIN_ADMIN_USERNAME,
+  generateTemporaryPassword,
+  isAdminUser,
+  isBuiltInAdminUser,
+  isReservedAdminUsername,
+  safeManagedUser,
+} = require('./server/user-management');
+const {
   SlidingWindowRateLimiter,
   derivePasswordHash,
   hashSessionToken,
@@ -93,7 +103,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'persistent-lobby-v3';
+const SERVER_BUILD_ID = 'admin-user-management-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -121,6 +131,11 @@ const USERS_DB_PATH = path.join(DATA_DIR, 'users.json');
 const ACTIVE_ROOMS_PATH = path.join(DATA_DIR, 'active_rooms.json');
 const AUTH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const AUTH_TOKENS_MAX = 8;
+const BUILTIN_ADMIN_ENABLED = (() => {
+  const raw = String(process.env.HEX_BUILTIN_ADMIN_ENABLED || '').trim().toLowerCase();
+  if (raw) return ['1', 'true', 'yes', 'on'].includes(raw);
+  return String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'test';
+})();
 const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
 const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH);
 
@@ -603,6 +618,7 @@ function safeUserPublic(u) {
     id: u.id,
     username: u.username,
     displayName: u.displayName || u.username,
+    isAdmin: isAdminUser(u),
     stats: u.stats || { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 },
     createdAt: u.createdAt || 0,
     lastLoginAt: u.lastLoginAt || 0,
@@ -650,11 +666,14 @@ function authenticateByToken(token) {
   return null;
 }
 
-async function createUser({ username, password, displayName }) {
+async function createUser({ username, password, displayName, role = 'user', systemAccount = '', allowReservedUsername = false }) {
   const vu = validateUsername(username);
   if (!vu.ok) return { ok: false, error: vu.error };
   const vp = validatePassword(password);
   if (!vp.ok) return { ok: false, error: vp.error };
+  if (!allowReservedUsername && isReservedAdminUsername(vu.value)) {
+    return { ok: false, error: 'That username is reserved.' };
+  }
   const un = normalizeUsername(vu.value);
   if (findUserByUsername(un)) return { ok: false, error: 'Username already exists.' };
 
@@ -669,6 +688,8 @@ async function createUser({ username, password, displayName }) {
     id,
     username: vu.value,
     displayName: dn,
+    role: role === 'admin' ? 'admin' : 'user',
+    systemAccount: systemAccount || undefined,
     pass: { salt, hash },
     tokens: [],
     stats: { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 },
@@ -685,8 +706,91 @@ async function verifyPassword(user, password) {
 
 function setUserDisplayName(user, displayName) {
   if (!user) return;
+  if (isBuiltInAdminUser(user)) {
+    user.displayName = BUILTIN_ADMIN_DISPLAY_NAME;
+    return;
+  }
   const dn = cleanDisplayName(displayName);
   if (dn) user.displayName = dn;
+}
+
+function authenticatedDisplayName(user, requestedName, fallback = 'Player') {
+  if (isBuiltInAdminUser(user)) return BUILTIN_ADMIN_DISPLAY_NAME;
+  return cleanDisplayName(requestedName) || cleanDisplayName(user && user.displayName) || fallback;
+}
+
+async function setUserPassword(user, password, { revokeTokens = true } = {}) {
+  if (!user) return { ok: false, error: 'Account not found.' };
+  const validation = validatePassword(password);
+  if (!validation.ok) return validation;
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = await derivePasswordHash(validation.value, salt);
+  user.pass = { salt, hash };
+  user.passwordResetAt = now();
+  if (revokeTokens) user.tokens = [];
+  return { ok: true };
+}
+
+async function ensureBuiltInAdminAccount() {
+  if (!BUILTIN_ADMIN_ENABLED) return;
+
+  const configuredPassword = String(process.env.HEX_ADMIN_PASSWORD || '');
+  const configuredValidation = configuredPassword ? validatePassword(configuredPassword) : null;
+  if (configuredValidation && !configuredValidation.ok) {
+    throw new Error(`HEX_ADMIN_PASSWORD is invalid: ${configuredValidation.error}`);
+  }
+
+  let user = findUserByUsername(BUILTIN_ADMIN_USERNAME);
+  let generatedPassword = '';
+  let changed = false;
+
+  if (!user) {
+    const initialPassword = configuredPassword || generateTemporaryPassword();
+    const result = await createUser({
+      username: BUILTIN_ADMIN_USERNAME,
+      password: initialPassword,
+      displayName: BUILTIN_ADMIN_DISPLAY_NAME,
+      role: 'admin',
+      systemAccount: BUILTIN_ADMIN_MARKER,
+      allowReservedUsername: true,
+    });
+    if (!result.ok) throw new Error(result.error || 'Failed to create built-in administrator account.');
+    user = result.user;
+    generatedPassword = configuredPassword ? '' : initialPassword;
+    changed = true;
+  } else if (!isBuiltInAdminUser(user)) {
+    // Never silently elevate a pre-existing account that claimed the reserved
+    // username. Providing HEX_ADMIN_PASSWORD proves an intentional migration,
+    // rotates the credential, and invalidates every existing session.
+    if (!configuredPassword) {
+      console.error(`[admin] Existing ${BUILTIN_ADMIN_USERNAME} account was not promoted. Set HEX_ADMIN_PASSWORD once to claim and secure it.`);
+      return;
+    }
+    user.role = 'admin';
+    user.systemAccount = BUILTIN_ADMIN_MARKER;
+    user.displayName = BUILTIN_ADMIN_DISPLAY_NAME;
+    const reset = await setUserPassword(user, configuredPassword, { revokeTokens: true });
+    if (!reset.ok) throw new Error(reset.error || 'Failed to secure built-in administrator account.');
+    changed = true;
+  } else {
+    if (user.displayName !== BUILTIN_ADMIN_DISPLAY_NAME) {
+      user.displayName = BUILTIN_ADMIN_DISPLAY_NAME;
+      changed = true;
+    }
+    if (configuredPassword && !await verifyPassword(user, configuredPassword)) {
+      const reset = await setUserPassword(user, configuredPassword, { revokeTokens: true });
+      if (!reset.ok) throw new Error(reset.error || 'Failed to update built-in administrator password.');
+      changed = true;
+    }
+  }
+
+  if (changed) await saveUsersDb();
+  if (generatedPassword) {
+    console.log(`[admin] Created ${BUILTIN_ADMIN_USERNAME} (${BUILTIN_ADMIN_DISPLAY_NAME}). Temporary password: ${generatedPassword}`);
+    console.log('[admin] Save this password now, then set HEX_ADMIN_PASSWORD in your hosting environment before a future data reset.');
+  } else if (configuredPassword && changed) {
+    console.log(`[admin] ${BUILTIN_ADMIN_USERNAME} administrator account is ready using HEX_ADMIN_PASSWORD.`);
+  }
 }
 
 loadUsersDb();
@@ -8339,6 +8443,10 @@ const passwordAuthLimiter = new SlidingWindowRateLimiter({
   maxAttempts: APP_CONFIG.authAttemptsPerMinute,
   windowMs: 60_000,
 });
+const adminActionLimiter = new SlidingWindowRateLimiter({
+  maxAttempts: 60,
+  windowMs: 60_000,
+});
 
 function activateAuthenticatedSocket(ws, user) {
   if (!ws || ws.readyState !== WebSocket.OPEN || !user) return false;
@@ -8366,6 +8474,17 @@ function unregisterAuthenticatedSocket(ws) {
 function revokeAuthToken(user, token) {
   if (!user || !Array.isArray(user.tokens) || !token) return;
   user.tokens = user.tokens.filter((record) => !sessionTokenMatches(record, token));
+}
+
+function disconnectUserSessions(userId, reason = 'Your password was reset. Please log in again.') {
+  const uid = String(userId || '').trim();
+  const sockets = userSockets.get(uid);
+  if (!(sockets instanceof Set)) return;
+  for (const socket of sockets) {
+    try { sendJson(socket, { type: 'auth_required', reason }); } catch (_) {}
+    try { socket.close(4001, reason.slice(0, 120)); } catch (_) {}
+  }
+  userSockets.delete(uid);
 }
 
 function sendHttpJson(req, res, statusCode, payload, extraHeaders = {}) {
@@ -8471,6 +8590,80 @@ async function handleAuthHttp(req, res, urlPath) {
   sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
 }
 
+async function handleAdminHttp(req, res, urlPath) {
+  if (req.method !== 'POST') {
+    sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
+    return;
+  }
+  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' });
+    return;
+  }
+
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+  const admin = authenticateByToken(token);
+  if (!admin) {
+    sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' });
+    return;
+  }
+  if (!isAdminUser(admin)) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Administrator access required.' });
+    return;
+  }
+
+  const limit = adminActionLimiter.consume(admin.id);
+  if (!limit.allowed) {
+    sendHttpJson(req, res, 429, { ok: false, error: 'Too many administrator actions. Try again shortly.' }, {
+      'Retry-After': String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))),
+    });
+    return;
+  }
+
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (error) {
+    sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Invalid request.' });
+    return;
+  }
+
+  if (urlPath === '/api/admin/users') {
+    const users = (USERS_DB.users || [])
+      .map(safeManagedUser)
+      .filter(Boolean)
+      .sort((left, right) => String(left.username).localeCompare(String(right.username), undefined, { sensitivity: 'base' }));
+    sendHttpJson(req, res, 200, { ok: true, users, currentUserId: admin.id });
+    return;
+  }
+
+  if (urlPath === '/api/admin/reset-password') {
+    const targetId = String(body.userId || '').trim();
+    const target = findUserById(targetId);
+    if (!target) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'User account not found.' });
+      return;
+    }
+    if (target.id === admin.id) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Use a separate account-password flow to change your own administrator password.' });
+      return;
+    }
+    const reset = await setUserPassword(target, body.newPassword, { revokeTokens: true });
+    if (!reset.ok) {
+      sendHttpJson(req, res, 400, { ok: false, error: reset.error || 'Password reset failed.' });
+      return;
+    }
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      user: safeManagedUser(target),
+      message: `Password reset for ${target.username}. Existing sessions were signed out.`,
+    });
+    setTimeout(() => disconnectUserSessions(target.id), 25);
+    return;
+  }
+
+  sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
+}
+
 function safePath(p) {
   const rel = p.replace(/\0/g, '').replace(/\.\./g, '');
   return path.join(PUBLIC_DIR, rel);
@@ -8494,6 +8687,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/auth/')) {
       await handleAuthHttp(req, res, urlPath);
+      return;
+    }
+    if (urlPath.startsWith('/api/admin/')) {
+      await handleAdminHttp(req, res, urlPath);
       return;
     }
     if (urlPath === '/') urlPath = '/index.html';
@@ -8838,8 +9035,8 @@ if (msg.type === 'create_room') {
         sendJson(ws, { type: 'error', error: 'Please log in first.' });
         return;
       }
-      const desiredName = cleanDisplayName(msg.displayName || msg.name || 'Host') || 'Host';
       const user = findUserById(ws._userId);
+      const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Host');
       if (user && desiredName) {
         setUserDisplayName(user, desiredName);
         saveUsersDb();
@@ -8865,8 +9062,8 @@ if (msg.type === 'create_room') {
         return;
       }
       const code = String(msg.code || '').toUpperCase().trim();
-      const desiredName = cleanDisplayName(msg.displayName || msg.name || 'Player') || 'Player';
       const user = findUserById(ws._userId);
+      const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Player');
       if (user && desiredName) {
         setUserDisplayName(user, desiredName);
         saveUsersDb();
@@ -8897,8 +9094,8 @@ if (msg.type === 'create_room') {
 
       // New behavior: if logged in, rejoin using your account (no player ID needed)
       if (ws._userId) {
-        const desiredName = cleanDisplayName(msg.displayName || msg.name || '');
         const user = findUserById(ws._userId);
+        const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Player');
         if (user && desiredName) {
           setUserDisplayName(user, desiredName);
           saveUsersDb();
@@ -11321,7 +11518,10 @@ const wsHeartbeatInterval = setInterval(() => {
 }, WS_HEARTBEAT_INTERVAL_MS);
 
 const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
-const authLimiterCleanupInterval = setInterval(() => passwordAuthLimiter.cleanup(), 60_000);
+const authLimiterCleanupInterval = setInterval(() => {
+  passwordAuthLimiter.cleanup();
+  adminActionLimiter.cleanup();
+}, 60_000);
 
 let shuttingDown = false;
 let shutdownExitCode = 0;
@@ -11378,6 +11578,8 @@ process.on('unhandledRejection', (error) => fatalShutdown('Unhandled rejection',
 server.on('error', (error) => fatalShutdown('HTTP server error', error));
 wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 
-server.listen(PORT, HOST, () => {
-  console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${PORT} (instance ${SERVER_INSTANCE_ID})`);
-});
+ensureBuiltInAdminAccount().then(() => {
+  server.listen(PORT, HOST, () => {
+    console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${PORT} (instance ${SERVER_INSTANCE_ID})`);
+  });
+}).catch((error) => fatalShutdown('Administrator initialization failed', error));

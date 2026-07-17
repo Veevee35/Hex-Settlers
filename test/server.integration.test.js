@@ -36,11 +36,11 @@ async function waitForHttp(port, processOutput) {
   throw new Error(`Server did not start. Output:\n${processOutput()}`);
 }
 
-async function startServer(port, dataDir, entryPoint = 'server.js') {
+async function startServer(port, dataDir, entryPoint = 'server.js', extraEnv = {}) {
   let output = '';
   const child = spawn(process.execPath, [entryPoint], {
     cwd: PROJECT_ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, NODE_ENV: 'test' },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, NODE_ENV: 'test', ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
   });
@@ -620,4 +620,110 @@ test('heartbeat replies and a replacement socket recovers an authenticated lobby
   const updated = await replacement.waitFor((message) =>
     message.type === 'room' && message.room.rules.victoryPointsToWin === 12);
   assert.equal(updated.room.code, joined.room.code);
+});
+
+test('built-in Benleethom administrator can list users and securely reset another user password', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-admin-'));
+  const adminPassword = 'Admin horse battery 42';
+  const server = await startServer(port, dataDir, 'server.js', {
+    HEX_BUILTIN_ADMIN_ENABLED: 'true',
+    HEX_ADMIN_PASSWORD: adminPassword,
+  });
+  t.after(async () => {
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  async function post(route, body, cookie = '') {
+    const headers = { 'Content-Type': 'application/json' };
+    if (cookie) headers.Cookie = cookie;
+    const response = await fetch(`http://127.0.0.1:${port}${route}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body || {}),
+    });
+    let payload = {};
+    try { payload = await response.json(); } catch (_) {}
+    return { response, payload, cookie: String(response.headers.get('set-cookie') || '').split(';')[0] };
+  }
+
+  const adminLogin = await post('/api/auth/login', {
+    username: 'Benleethom',
+    password: adminPassword,
+    displayName: 'Someone Else',
+  });
+  assert.equal(adminLogin.response.status, 200);
+  assert.equal(adminLogin.payload.user.username, 'Benleethom');
+  assert.equal(adminLogin.payload.user.displayName, 'Ben');
+  assert.equal(adminLogin.payload.user.isAdmin, true);
+  assert.match(adminLogin.cookie, /hexsettlers_session=/);
+
+  const suffix = Date.now().toString(36).slice(-8);
+  const ordinaryPassword = 'ordinary password';
+  const ordinaryNewPassword = 'new ordinary password';
+  const ordinary = await post('/api/auth/register', {
+    username: `managed_${suffix}`,
+    password: ordinaryPassword,
+    displayName: 'Managed Player',
+  });
+  assert.equal(ordinary.response.status, 200);
+  assert.equal(ordinary.payload.user.isAdmin, false);
+  const ordinaryId = ordinary.payload.user.id;
+
+  const reserved = await post('/api/auth/register', {
+    username: 'BENLEETHOM',
+    password: 'not allowed',
+    displayName: 'Impostor',
+  });
+  assert.equal(reserved.response.status, 400);
+  assert.match(reserved.payload.error, /reserved/i);
+
+  const denied = await post('/api/admin/users', {}, ordinary.cookie);
+  assert.equal(denied.response.status, 403);
+  assert.match(denied.payload.error, /administrator/i);
+
+  const list = await post('/api/admin/users', {}, adminLogin.cookie);
+  assert.equal(list.response.status, 200);
+  const managedEntry = list.payload.users.find((user) => user.id === ordinaryId);
+  assert.ok(managedEntry);
+  assert.equal(managedEntry.username, `managed_${suffix}`);
+  assert.equal(managedEntry.pass, undefined);
+  assert.equal(managedEntry.tokens, undefined);
+  assert.ok(list.payload.users.some((user) => user.username === 'Benleethom' && user.isAdmin === true));
+
+  const sessionBefore = await post('/api/auth/session', {}, ordinary.cookie);
+  assert.equal(sessionBefore.response.status, 200);
+
+  const reset = await post('/api/admin/reset-password', {
+    userId: ordinaryId,
+    newPassword: ordinaryNewPassword,
+  }, adminLogin.cookie);
+  assert.equal(reset.response.status, 200);
+  assert.match(reset.payload.message, /sessions were signed out/i);
+  assert.equal(reset.payload.user.passwordResetAt > 0, true);
+
+  const sessionAfter = await post('/api/auth/session', {}, ordinary.cookie);
+  assert.equal(sessionAfter.response.status, 401);
+
+  const oldLogin = await post('/api/auth/login', {
+    username: `managed_${suffix}`,
+    password: ordinaryPassword,
+  });
+  assert.equal(oldLogin.response.status, 401);
+
+  const newLogin = await post('/api/auth/login', {
+    username: `managed_${suffix}`,
+    password: ordinaryNewPassword,
+  });
+  assert.equal(newLogin.response.status, 200);
+  assert.equal(newLogin.payload.user.displayName, 'Managed Player');
+
+  const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'users.json'), 'utf8'));
+  const persistedAdmin = persisted.users.find((user) => user.username === 'Benleethom');
+  assert.equal(persistedAdmin.role, 'admin');
+  assert.equal(persistedAdmin.systemAccount, 'builtin-benleethom-v1');
+  assert.notEqual(persistedAdmin.pass.hash, adminPassword);
+  assert.equal(JSON.stringify(persisted).includes(adminPassword), false);
+  assert.equal(JSON.stringify(persisted).includes(ordinaryNewPassword), false);
 });

@@ -1,12 +1,19 @@
 Hex Settlers validation results
 
-Change: Keep Resources Overview stack heights stable when Gold display is toggled and scale every gained/lost stack proportionally against the same match-wide maximum.
+Change: Add the reserved Benleethom / Ben administrator account and an administrator-only lobby user-management screen for resetting other users' passwords.
+
+Security behavior:
+  - Administrator role is issued by the server and returned as a boolean only.
+  - Password hashes and session-token hashes are never returned to the browser.
+  - Resetting a password revokes the affected user's saved sessions.
+  - The reserved administrator username cannot be registered by ordinary users.
+  - No default administrator password is hardcoded in the project.
 
 Validation command:
   npm run check
 
 Result:
-  126 tests passed
+  129 tests passed
   0 tests failed
   TypeScript bootstrap compiled successfully
   server.js syntax check passed

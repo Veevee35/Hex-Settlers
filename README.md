@@ -50,7 +50,11 @@ Copy `.env.example` into your hosting environment; the server does not load `.en
 | `HEX_ALLOWED_ORIGINS` | same host | Comma-separated additional WebSocket/API origins; `*` allows all |
 | `HEX_AUTH_ATTEMPTS_PER_MINUTE` | `12` | Password-auth limit per client address |
 | `HEX_WS_MAX_PAYLOAD` | `50331648` | Transport ceiling needed by large texture packs |
+| `HEX_BUILTIN_ADMIN_ENABLED` | on outside tests | Creates the reserved `Benleethom` administrator account |
+| `HEX_ADMIN_PASSWORD` | generated once when absent | Password for the built-in administrator; set this securely in Railway |
 | `AI_FAST` | off | Accelerated AI ticks for simulations only |
+
+The built-in administrator uses username **Benleethom** and player name **Ben**. When `HEX_ADMIN_PASSWORD` is omitted on the first production start, the server prints a one-time random temporary password in the deploy log. The administrator sees a **User Management** button in the lobby and can reset other users’ passwords; resets revoke that user’s saved login sessions.
 
 Expert AI weights also have optional `EXPERT_AI_*` environment overrides; see the defaults near the bottom of `server.js`.
 

@@ -8,6 +8,7 @@
 4. Use `npm run build` as the build command.
 5. Use `npm start` as the start command.
 6. Set the Railway health-check path to `/health`.
+7. Add `HEX_ADMIN_PASSWORD` as a private Railway variable with a strong password for the built-in `Benleethom` administrator account.
 
 Railway supplies `PORT` and `RAILWAY_VOLUME_MOUNT_PATH`. The server binds to `0.0.0.0:$PORT` and automatically uses the mounted volume for runtime data.
 
@@ -35,7 +36,7 @@ A correct response includes:
 ```json
 {
   "ok": true,
-  "build": "persistent-lobby-v3"
+  "build": "admin-user-management-v1"
 }
 ```
 
@@ -48,6 +49,12 @@ Then:
 5. Confirm the room code and lobby settings are still present.
 
 The browser and server both send heartbeat traffic. A transient WebSocket interruption now reconnects without immediately deleting the local lobby view or clearing the account session.
+
+## Administrator account
+
+The server reserves username **Benleethom** and creates it with player name **Ben**. Set `HEX_ADMIN_PASSWORD` before deployment so the account has a known strong password. When the variable is missing on the first production start, a random temporary password is printed once in the Railway deploy log.
+
+After logging in as Benleethom, use **User Management** in the lobby to search registered users and reset their passwords. A reset invalidates the affected user’s existing saved sessions. Password hashes and session-token hashes are never returned to the browser.
 
 ## Custom domains
 

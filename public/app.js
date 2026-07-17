@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'persistent-lobby-v3';
+  const ASSET_CACHE_SW_BUILD = 'admin-user-management-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -45,6 +45,7 @@
     registerBtn: $('registerBtn'),
     loginBtn: $('loginBtn'),
     logoutBtn: $('logoutBtn'),
+    userManagementBtn: $('userManagementBtn'),
     authStatus: $('authStatus'),
     authStats: $('authStats'),
     rejoinLastBtn: $('rejoinLastBtn'),
@@ -1009,6 +1010,9 @@
     } else if (!user) {
       removePersistedAuthToken();
     }
+    if (authUser && ui.nameInput && (authUser.isAdmin || !String(ui.nameInput.value || '').trim())) {
+      ui.nameInput.value = authUser.displayName || authUser.username || '';
+    }
     updateAuthUi();
   }
 
@@ -1022,6 +1026,19 @@
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
     if (!response.ok || !payload.ok) throw new Error(payload.error || 'Authentication failed.');
+    return payload;
+  }
+
+  async function adminApi(action, body = {}) {
+    const response = await fetch(`/api/admin/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    });
+    let payload = {};
+    try { payload = await response.json(); } catch (_) {}
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'Administrator request failed.');
     return payload;
   }
 
@@ -1057,12 +1074,15 @@
   function updateAuthUi() {
     const loggedIn = !!authUser;
     if (ui.authStatus) {
-      ui.authStatus.textContent = loggedIn ? `Logged in as ${authUser.username}` : 'Not logged in.';
+      ui.authStatus.textContent = loggedIn
+        ? `Logged in as ${authUser.username}${authUser.isAdmin ? ' • Administrator' : ''}`
+        : 'Not logged in.';
     }
     if (ui.authStats) {
       ui.authStats.textContent = loggedIn ? formatStatsLine(authUser.stats) : '';
     }
     if (ui.logoutBtn) ui.logoutBtn.classList.toggle('hidden', !loggedIn);
+    if (ui.userManagementBtn) ui.userManagementBtn.classList.toggle('hidden', !(loggedIn && authUser.isAdmin));
     if (ui.loginBtn) ui.loginBtn.disabled = loggedIn;
     if (ui.registerBtn) ui.registerBtn.disabled = loggedIn;
     if (ui.usernameInput) ui.usernameInput.disabled = loggedIn;
@@ -6157,6 +6177,169 @@ function refreshLobbyJoinLinkUi() {
     }
     ui.modal.classList.remove('hidden');
   }
+
+  function formatUserManagementDate(timestamp) {
+    const value = Number(timestamp || 0);
+    if (!value) return 'Never';
+    try { return new Date(value).toLocaleString(); } catch (_) { return 'Unknown'; }
+  }
+
+  async function openUserManagementScreen() {
+    if (!(authUser && authUser.isAdmin)) {
+      setError('Administrator access required.');
+      return;
+    }
+
+    const shell = document.createElement('div');
+    shell.className = 'userManagementPanel';
+    const loading = document.createElement('div');
+    loading.className = 'hint';
+    loading.textContent = 'Loading user accounts…';
+    shell.appendChild(loading);
+    openModal({
+      title: 'User Management',
+      bodyNode: shell,
+      actions: [{ label: 'Close', onClick: closeModal }],
+    });
+
+    let result;
+    try {
+      result = await adminApi('users');
+    } catch (error) {
+      loading.className = 'userManagementError';
+      loading.textContent = error.message || 'Could not load user accounts.';
+      return;
+    }
+
+    const users = Array.isArray(result.users) ? result.users : [];
+    const currentUserId = String(result.currentUserId || authUser.id || '');
+    shell.innerHTML = '';
+
+    const intro = document.createElement('div');
+    intro.className = 'userManagementIntro';
+    intro.textContent = 'Reset a registered player’s password. A reset immediately invalidates that player’s saved login sessions.';
+    shell.appendChild(intro);
+
+    const search = document.createElement('input');
+    search.className = 'input userManagementSearch';
+    search.type = 'search';
+    search.placeholder = 'Search username or player name';
+    shell.appendChild(search);
+
+    const count = document.createElement('div');
+    count.className = 'labelTiny userManagementCount';
+    shell.appendChild(count);
+
+    const list = document.createElement('div');
+    list.className = 'userManagementList';
+    shell.appendChild(list);
+
+    const renderUsers = () => {
+      const query = String(search.value || '').trim().toLowerCase();
+      const filtered = users.filter((user) => {
+        if (!query) return true;
+        return String(user.username || '').toLowerCase().includes(query)
+          || String(user.displayName || '').toLowerCase().includes(query);
+      });
+      count.textContent = `${filtered.length} of ${users.length} users`;
+      list.innerHTML = '';
+
+      if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'hint';
+        empty.textContent = 'No matching users.';
+        list.appendChild(empty);
+        return;
+      }
+
+      for (const user of filtered) {
+        const row = document.createElement('div');
+        row.className = 'userManagementRow';
+
+        const identity = document.createElement('div');
+        identity.className = 'userManagementIdentity';
+        const title = document.createElement('div');
+        title.className = 'userManagementTitle';
+        const username = document.createElement('span');
+        username.textContent = user.username || 'Unknown user';
+        title.appendChild(username);
+        if (user.isAdmin) {
+          const badge = document.createElement('span');
+          badge.className = 'userManagementBadge';
+          badge.textContent = 'Admin';
+          title.appendChild(badge);
+        }
+        identity.appendChild(title);
+
+        const playerName = document.createElement('div');
+        playerName.className = 'userManagementPlayerName';
+        playerName.textContent = `Player name: ${user.displayName || user.username || '—'}`;
+        identity.appendChild(playerName);
+
+        const stats = user.stats || {};
+        const meta = document.createElement('div');
+        meta.className = 'userManagementMeta';
+        meta.textContent = `Games ${Number(stats.gamesPlayed || 0)} • Wins ${Number(stats.wins || 0)} • Last login ${formatUserManagementDate(user.lastLoginAt)}`;
+        identity.appendChild(meta);
+        row.appendChild(identity);
+
+        const controls = document.createElement('div');
+        controls.className = 'userManagementControls';
+        const password = document.createElement('input');
+        password.className = 'input userManagementPassword';
+        password.type = 'password';
+        password.autocomplete = 'new-password';
+        password.placeholder = user.id === currentUserId ? 'Current administrator' : 'New password (6+ characters)';
+        password.disabled = user.id === currentUserId;
+        controls.appendChild(password);
+
+        const reset = document.createElement('button');
+        reset.className = 'btn danger';
+        reset.type = 'button';
+        reset.textContent = user.id === currentUserId ? 'Current Admin' : 'Reset Password';
+        reset.disabled = user.id === currentUserId;
+        controls.appendChild(reset);
+
+        const status = document.createElement('div');
+        status.className = 'userManagementStatus';
+        controls.appendChild(status);
+
+        reset.addEventListener('click', async () => {
+          const nextPassword = String(password.value || '');
+          if (nextPassword.length < 6) {
+            status.className = 'userManagementStatus error';
+            status.textContent = 'Password must be at least 6 characters.';
+            password.focus();
+            return;
+          }
+          const confirmed = window.confirm(`Reset the password for ${user.username}? Their existing sessions will be signed out.`);
+          if (!confirmed) return;
+          reset.disabled = true;
+          password.disabled = true;
+          status.className = 'userManagementStatus';
+          status.textContent = 'Resetting…';
+          try {
+            const response = await adminApi('reset-password', { userId: user.id, newPassword: nextPassword });
+            password.value = '';
+            status.className = 'userManagementStatus success';
+            status.textContent = response.message || 'Password reset. Existing sessions were signed out.';
+          } catch (error) {
+            status.className = 'userManagementStatus error';
+            status.textContent = error.message || 'Password reset failed.';
+          } finally {
+            reset.disabled = false;
+            password.disabled = false;
+          }
+        });
+
+        row.appendChild(controls);
+        list.appendChild(row);
+      }
+    };
+
+    search.addEventListener('input', renderUsers);
+    renderUsers();
+  }
   ui.modalBackdrop.addEventListener('click', closeModal);
   window.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeModal();
@@ -7814,6 +7997,8 @@ function refreshLobbyJoinLinkUi() {
     if (ui.roomBox) ui.roomBox.classList.add('hidden');
     reconnectForCookieAuth();
   });
+
+  if (ui.userManagementBtn) ui.userManagementBtn.addEventListener('click', openUserManagementScreen);
 
   if (ui.rejoinLastBtn) ui.rejoinLastBtn.addEventListener('click', () => {
     setError(null);

@@ -2552,3 +2552,28 @@ body.rules-page-open{overflow:hidden;}
   .rightSidebarResize{flex-basis:6px; width:6px;}
   body.in-game .rightHud{right:calc(var(--right-sidebar-width, 340px) + 6px);}
 }
+
+/* Administrator user management */
+.userManagementPanel{display:flex; flex-direction:column; gap:10px; max-height:min(72vh,760px)}
+.userManagementIntro{color:var(--muted); line-height:1.45}
+.userManagementSearch{width:100%}
+.userManagementCount{margin-top:2px}
+.userManagementList{display:flex; flex-direction:column; gap:10px; overflow:auto; padding-right:4px}
+.userManagementRow{display:grid; grid-template-columns:minmax(0,1fr) minmax(250px,.85fr); gap:12px; padding:12px; border:1px solid var(--line); border-radius:14px; background:rgba(0,0,0,.16)}
+.userManagementIdentity{min-width:0}
+.userManagementTitle{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-family:var(--mono); font-size:13px; font-weight:900; color:var(--text); word-break:break-word}
+.userManagementBadge{padding:2px 7px; border-radius:999px; border:1px solid rgba(255,190,70,.55); background:rgba(255,172,35,.12); color:#ffd37b; font-size:10px; text-transform:uppercase; letter-spacing:.06em}
+.userManagementPlayerName{margin-top:5px; color:var(--text); font-size:12px}
+.userManagementMeta{margin-top:5px; color:var(--muted); font-size:11px; line-height:1.4}
+.userManagementControls{display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; gap:8px}
+.userManagementPassword{min-width:0}
+.userManagementStatus{grid-column:1 / -1; min-height:16px; color:var(--muted); font-size:11px}
+.userManagementStatus.success{color:#72ee9b}
+.userManagementStatus.error,.userManagementError{color:#ff7b82}
+.btn.danger{border-color:rgba(255,90,100,.45); color:#ff9ca3; background:rgba(120,20,28,.22)}
+.btn.danger:hover{background:rgba(150,26,36,.32)}
+@media (max-width:720px){
+  .userManagementRow{grid-template-columns:1fr}
+  .userManagementControls{grid-template-columns:1fr}
+  .userManagementControls .btn{width:100%}
+}
