@@ -84,6 +84,7 @@ test('setup, client targeting, server validation, timeout, and AI paths share fr
   assert.match(appJs, /friendlyRobber: ui\.friendlyRobberToggle \? !!ui\.friendlyRobberToggle\.checked : false/);
   assert.ok((appJs.match(/rejectFriendlyRobberTileClient\(tid\)/g) || []).length >= 4);
   assert.ok(appJs.includes("const canPirateHere = (isSeaTile && !(t.fog && !t.revealed) && !t.pirate && !friendlyRobberTileBlockedClient(t.id));"));
+  assert.match(appJs, /addRow\('Friendly Robber', rules\.friendlyRobber === true \? 'Enabled' : 'Disabled'\)/);
   assert.match(serverJs, /const protectedIds = friendlyRobberProtectedPlayerIds\(game, tileId\)/);
   assert.match(serverJs, /const protectedIds = friendlyPirateProtectedPlayerIds\(game, tileId\)/);
   assert.ok((serverJs.match(/robberCanOccupyTile\(game, i\)/g) || []).length >= 4);

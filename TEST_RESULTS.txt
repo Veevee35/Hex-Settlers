@@ -1,16 +1,15 @@
-Hex Settlers player-trade overlap validation
+Hex Settlers in-game Friendly Robber status
 
 Command: tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js
 Result: PASS
 Tests: 116 passed, 0 failed
 Checks: TypeScript bootstrap build, complete Node test suite, server integration, server.js syntax, public/app.js syntax
 
-Player-trade regression coverage:
-- Brick, lumber, wool, grain, and ore cannot appear on both sides of one player trade.
-- Selecting a resource disables its matching chip on the opposite side of the trade window.
-- Revising an invalid legacy trade keeps the Propose button disabled until the overlap is removed.
-- The server rejects overlapping proposals from outdated or modified clients.
-- Pending overlapping trades are cancelled if encountered during response or finalization.
-- Valid mixed-resource player trades remain allowed when the two sides do not overlap.
+Change:
+- The in-game Game Rules window now displays Friendly Robber as Enabled or Disabled.
+- The displayed status is read from the live room/game rules after the match has started.
+- Lobby rules documentation and existing robber/pirate protection behavior remain unchanged.
 
-Existing mixed bank-trade, Friendly Robber/Pirate, AI, persistence, networking, map, and rules tests continue to pass.
+Regression coverage:
+- Confirms the in-game rules table renders the Friendly Robber status row.
+- Existing mixed bank trade, player trade, Friendly Robber/Pirate, AI, persistence, networking, map, and rules tests continue to pass.

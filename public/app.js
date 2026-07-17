@@ -6967,6 +6967,7 @@ function refreshLobbyJoinLinkUi() {
         : '25 cards (14K / 2RB / 2Inv / 2Mon / 5VP)';
     addRow('Development Deck', ddSpec);
     addRow('Discard Limit', `${discardLimit}`);
+    addRow('Friendly Robber', rules.friendlyRobber === true ? 'Enabled' : 'Disabled');
     addRow('Timer Speed', `${timerSpeedName()} (setup ${msToS(setupMs)} / turn ${msToS(playMs)} / micro ${msToS(microMs)})`);
 
     table.appendChild(tbody);
