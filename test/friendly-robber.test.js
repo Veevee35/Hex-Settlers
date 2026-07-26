@@ -8,7 +8,9 @@ const {
   friendlyPirateCanOccupyTile,
   friendlyPirateProtectedPlayerIds,
   friendlyRobberProtectedPlayerIds,
+  pirateTileTargetsPlayer,
   robberCanOccupyTile,
+  robberTileTargetsPlayer,
 } = require('../server/friendly-robber');
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -79,6 +81,16 @@ test('friendly robber remains opt-in', () => {
   assert.equal(robberCanOccupyTile(game, 0), true);
 });
 
+test('automatic thief targeting detects the moving player own buildings and ships', () => {
+  const game = makeGame(false);
+  assert.equal(robberTileTargetsPlayer(game, 0, 'new'), true);
+  assert.equal(robberTileTargetsPlayer(game, 1, 'new'), false);
+  assert.equal(robberTileTargetsPlayer(game, 1, 'leader'), true);
+  assert.equal(pirateTileTargetsPlayer(game, 2, 'new'), true);
+  assert.equal(pirateTileTargetsPlayer(game, 2, 'leader'), true);
+  assert.equal(pirateTileTargetsPlayer(game, 0, 'new'), false);
+});
+
 test('setup, client targeting, server validation, timeout, and AI paths share friendly robber rules', () => {
   assert.match(indexHtml, /id="friendlyRobberToggle"[^>]*type="checkbox"/);
   assert.match(appJs, /friendlyRobber: ui\.friendlyRobberToggle \? !!ui\.friendlyRobberToggle\.checked : false/);
@@ -89,4 +101,6 @@ test('setup, client targeting, server validation, timeout, and AI paths share fr
   assert.match(serverJs, /const protectedIds = friendlyPirateProtectedPlayerIds\(game, tileId\)/);
   assert.ok((serverJs.match(/robberCanOccupyTile\(game, i\)/g) || []).length >= 4);
   assert.ok((serverJs.match(/pirateCanOccupyGameTile\(game, i\)/g) || []).length >= 4);
+  assert.ok((serverJs.match(/robberTileTargetsPlayer\(game, i, pid\)/g) || []).length >= 4);
+  assert.ok((serverJs.match(/pirateTileTargetsPlayer\(game, i, pid\)/g) || []).length >= 3);
 });

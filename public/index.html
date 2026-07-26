@@ -71,7 +71,10 @@
                 <div class="labelTiny">Room</div>
                 <div id="roomCode" class="roomCode">----</div>
               </div>
-              <button id="startBtn" class="btn primary hidden">Start Game</button>
+              <div class="lobbyReadyActions">
+                <button id="readyBtn" class="btn hidden" type="button">Ready</button>
+                <button id="startBtn" class="btn primary hidden">Start Game</button>
+              </div>
             </div>
 
             <div style="margin-top:10px;">
@@ -368,6 +371,7 @@
           <div id="turnInfo" class="turnInfo">Create or join a lobby.</div>
           <div id="timerInfo" class="timerInfo hidden">—</div>
           <div id="extraTurnBanner" class="extraTurnBanner hidden" aria-live="polite">Extra Turn</div>
+          <div id="placementTurnBanner" class="placementTurnBanner hidden" aria-live="polite">Your Turn</div>
 
           <div class="actions">
             <button id="rollBtn" class="btn primary" disabled>Roll Dice</button>

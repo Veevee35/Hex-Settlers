@@ -346,6 +346,8 @@ test('Test Builder supports custom port painting on both Seafarers board sizes',
 
   host.send({ type: 'fill_ai', targetCount: 5 });
   await host.waitFor((message) => message.type === 'room' && message.room.players.length === 5);
+  host.send({ type: 'set_ready', ready: true });
+  await host.waitFor((message) => message.type === 'room' && message.room.players.every((player) => player.ready === true));
   host.send({ type: 'start_game' });
   const started = (await host.waitFor((message) => message.type === 'state' && message.state.phase !== 'lobby')).state;
   assert.equal(started.rules.seafarersScenario, 'test_builder_56');
@@ -404,6 +406,13 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
     message.type === 'room' && message.room.chat.some((entry) => entry.text === 'hello from integration test'));
   assert.equal(roomWithChat.room.chat.at(-1).from, 'Guest');
 
+  host.send({ type: 'start_game' });
+  const notReadyError = await host.waitFor((message) => message.type === 'error' && /must be ready/i.test(message.error));
+  assert.match(notReadyError.error, /Host, Guest|Guest, Host/);
+
+  host.send({ type: 'set_ready', ready: true });
+  guest.send({ type: 'set_ready', ready: true });
+  await host.waitFor((message) => message.type === 'room' && message.room.players.every((player) => player.ready === true));
   host.send({ type: 'start_game' });
   const startedState = await host.waitFor((message) => message.type === 'state' && message.state.phase !== 'lobby');
   assert.equal(startedState.state.players.length, 2);

@@ -53,11 +53,34 @@ function friendlyPirateCanOccupyTile(game, tileId) {
   return friendlyPirateProtectedPlayerIds(game, tileId).length === 0;
 }
 
+function robberTileTargetsPlayer(game, tileId, playerId) {
+  const pid = String(playerId || '');
+  const tile = game && game.geom && game.geom.tiles && game.geom.tiles[tileId];
+  if (!pid || !tile) return false;
+  const cornerIds = Array.isArray(tile.cornerNodeIds)
+    ? tile.cornerNodeIds
+    : (game.geom.nodes || []).map((_, nodeId) => nodeId).filter((nodeId) => (game.geom.nodeAdjTiles?.[nodeId] || []).includes(tileId));
+  return cornerIds.some((nodeId) => game.geom.nodes?.[nodeId]?.building?.owner === pid);
+}
+
+function pirateTileTargetsPlayer(game, tileId, playerId) {
+  const pid = String(playerId || '');
+  const tile = game && game.geom && game.geom.tiles && game.geom.tiles[tileId];
+  if (!pid || !tile || tile.type !== 'sea') return false;
+  return (game.geom.edges || []).some((edge) => {
+    if (!edge || edge.shipOwner !== pid) return false;
+    const adjacentTileIds = game.geom.edgeAdjTiles?.[edge.id];
+    return Array.isArray(adjacentTileIds) && adjacentTileIds.includes(tileId);
+  });
+}
+
 module.exports = {
   FRIENDLY_ROBBER_MAX_VP,
   friendlyPirateCanOccupyTile,
   friendlyPirateProtectedPlayerIds,
   friendlyRobberEnabled,
   friendlyRobberProtectedPlayerIds,
+  pirateTileTargetsPlayer,
   robberCanOccupyTile,
+  robberTileTargetsPlayer,
 };

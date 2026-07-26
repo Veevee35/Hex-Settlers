@@ -70,6 +70,7 @@
     rulesPageContent: $('rulesPageContent'),
     joinBtn: $('joinBtn'),
     rejoinBtn: $('rejoinBtn'),
+    readyBtn: $('readyBtn'),
     startBtn: $('startBtn'),
     lobbyCard: $('lobbyCard'),
     setupCard: $('setupCard'),
@@ -146,6 +147,7 @@
     turnInfo: $('turnInfo'),
     timerInfo: $('timerInfo'),
     extraTurnBanner: $('extraTurnBanner'),
+    placementTurnBanner: $('placementTurnBanner'),
     resourcesBox: $('resourcesBox'),
     buyDevBtn: $('buyDevBtn'),
     bankTradeBtn: $('bankTradeBtn'),
@@ -3915,6 +3917,7 @@ function syncPostgameToState() {
     card.innerHTML = '';
 
     if (ui.extraTurnBanner) card.appendChild(ui.extraTurnBanner);
+    if (ui.placementTurnBanner) card.appendChild(ui.placementTurnBanner);
 
     const row = document.createElement('div');
     row.className = 'hudBarRow';
@@ -4662,7 +4665,7 @@ function syncPostgameToState() {
     'chat', 'clear_ai', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
     'get_state', 'get_texture_pack', 'kick_player', 'leave_room', 'pause_game', 'request_leave_game',
     'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_player_color', 'set_rules',
-    'set_spectator_mode', 'set_spectator_view', 'set_texture_pack', 'start_game', 'texture_pack_publish',
+    'set_ready', 'set_spectator_mode', 'set_spectator_view', 'set_texture_pack', 'start_game', 'texture_pack_publish',
   ]);
   const ROOM_SCOPED_MESSAGE_TYPES = new Set([
     ...RECONNECT_SAFE_ROOM_MESSAGE_TYPES,
@@ -4924,6 +4927,7 @@ function syncPostgameToState() {
     if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = true;
     if (ui.genJoinLinkBtn) ui.genJoinLinkBtn.disabled = true;
     if (ui.playersList) ui.playersList.innerHTML = '';
+    if (ui.readyBtn) ui.readyBtn.classList.add('hidden');
     if (ui.startBtn) ui.startBtn.classList.add('hidden');
     if (ui.roomBox) ui.roomBox.classList.add('hidden');
     refreshLobbyJoinLinkUi();
@@ -6138,7 +6142,7 @@ function refreshLobbyJoinLinkUi() {
 
     // If a player dismisses the proposed-trade popup, treat it as a reject.
     try {
-      if (modalType === 'pendingTrade' && state && state.pendingTrade && myPlayerId) {
+      if (!suppressPendingTradeCloseReject && modalType === 'pendingTrade' && state && state.pendingTrade && myPlayerId) {
         const t = state.pendingTrade;
         if (t && t.id && myPlayerId !== t.fromId) {
           // Always reject on close (even if previously accepted).
@@ -6165,9 +6169,14 @@ function refreshLobbyJoinLinkUi() {
     activeToolModal = null;
     chatRefs = null;
 
-    // If an end-game vote prompt was deferred because another modal was open,
-    // try opening it immediately after the current modal closes.
+    // If a shared prompt was deferred because another modal was open, try it
+    // immediately after the current modal closes.
     try {
+      if (pendingTradePromptId && state && state.pendingTrade && Number(state.pendingTrade.id || 0) === Number(pendingTradePromptId || 0)) {
+        setTimeout(() => {
+          try { handlePendingTradePrompt(); } catch (_) {}
+        }, 0);
+      }
       if (pendingEndVotePromptId && state && state.endVote && Number(state.endVote.id || 0) === Number(pendingEndVotePromptId || 0)) {
         setTimeout(() => {
           try { handleEndGameVotePrompt(); } catch (_) {}
@@ -7504,7 +7513,7 @@ function refreshLobbyJoinLinkUi() {
       'A settlement receives 1 matching resource; a city receives 2. The desert and sea do not produce.',
       'If the bank cannot provide the required cards, it pays only what the game can legally distribute from the remaining supply.',
       ...(guide.isSeafarers ? ['A Gold Field lets each eligible player choose the resource they receive. Each pending Gold choice uses the micro-phase timer.'] : []),
-      `On a 7, every player holding more than ${guide.discardLimit} resource cards discards half their hand, rounded down.`,
+      `On a 7, every player holding more than ${guide.discardLimit} resource cards has 30 seconds to discard half their hand, rounded down.`,
       `After all required discards, the roller moves the ${guide.isSeafarers ? 'robber or pirate' : 'robber'} and may steal 1 random resource from an eligible adjacent opponent.`,
     ]);
 
@@ -7615,7 +7624,8 @@ function refreshLobbyJoinLinkUi() {
     appendRulesGuideList(timers, [
       `Setup placement: ${guide.setupSeconds} seconds for each required settlement or route placement.`,
       `Normal turn: ${guide.playSeconds} seconds.`,
-      `Micro phase: ${guide.microSeconds} seconds for short required choices such as discarding, stealing, or choosing Gold Field resources.`,
+      'Discard phase: 30 seconds after a 7 is rolled.',
+      `Micro phase: ${guide.microSeconds} seconds for other short required choices such as stealing or choosing Gold Field resources.`,
       'The server automatically resolves or skips an expired choice when possible so the game can continue.',
       'Opening a trade window does not pause the turn timer.',
       'A completed player-to-player trade adds 10 seconds to the initiating player’s turn.',
@@ -8016,6 +8026,15 @@ function refreshLobbyJoinLinkUi() {
       tag.appendChild(name);
       row.appendChild(tag);
 
+      if (roleLabel === 'player') {
+        const readyStatus = document.createElement('div');
+        const playerReady = !!(p.isAI || p.ready === true);
+        readyStatus.className = `lobbyReadyStatus ${playerReady ? 'ready' : 'waiting'}`;
+        readyStatus.textContent = playerReady ? 'Ready' : 'Not Ready';
+        readyStatus.setAttribute('aria-label', `${p.name || 'Player'} is ${playerReady ? 'ready' : 'not ready'}`);
+        row.appendChild(readyStatus);
+      }
+
       const controls = document.createElement('div');
       controls.style.display = 'flex';
       controls.style.alignItems = 'center';
@@ -8388,7 +8407,20 @@ function refreshLobbyJoinLinkUi() {
     const isClassic56 = (mmLow === 'classic56' || mmLow === 'classic_5_6' || mmLow === 'classic-5-6' || mmLow === 'classic5_6' || mmLow === 'classic5-6');
     const isSix = uiIsSixIslands(r);
     const minPlayers = isClassic56 ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2));
-    ui.startBtn.disabled = !(myPlayerId && room.hostId === myPlayerId && room.players.length >= minPlayers && (!state || state.phase === 'lobby'));
+    const gameIsInLobby = !state || state.phase === 'lobby';
+    const meInLobby = (room.players || []).find((player) => player && player.id === myPlayerId) || null;
+    const allPlayersReady = (room.players || []).length > 0 && (room.players || []).every((player) => !!(player && (player.isAI || player.ready === true)));
+    if (ui.readyBtn) {
+      const showReady = !!(gameIsInLobby && meInLobby && !meInLobby.isAI);
+      const amReady = !!(meInLobby && meInLobby.ready === true);
+      ui.readyBtn.classList.toggle('hidden', !showReady);
+      ui.readyBtn.classList.toggle('primary', amReady);
+      ui.readyBtn.textContent = amReady ? 'Unready' : 'Ready';
+      ui.readyBtn.setAttribute('aria-pressed', amReady ? 'true' : 'false');
+      ui.readyBtn.disabled = !showReady;
+    }
+    ui.startBtn.disabled = !(myPlayerId && room.hostId === myPlayerId && room.players.length >= minPlayers && allPlayersReady && gameIsInLobby);
+    ui.startBtn.title = allPlayersReady ? '' : 'Every player must be ready before the game can start.';
   }
 
     // ---- Account / Auth ----
@@ -8501,6 +8533,13 @@ if (ui.copyMyIdBtn) {
   ui.startBtn.addEventListener('click', () => {
     setError(null);
     send({ type: 'start_game' });
+  });
+
+  if (ui.readyBtn) ui.readyBtn.addEventListener('click', () => {
+    if (!room || !myPlayerId) return;
+    const me = (room.players || []).find((player) => player && player.id === myPlayerId);
+    if (!me || me.isAI) return;
+    send({ type: 'set_ready', ready: me.ready !== true });
   });
 
   if (ui.aiDifficultySelect) ui.aiDifficultySelect.addEventListener('change', () => {
@@ -9621,8 +9660,9 @@ function ensureTimerUiInterval() {
   // Update once per second so the countdown is always readable and stable.
   timerUiInterval = setInterval(() => {
     updateTimerInfo();
-    // Robustness: if an end-game vote is active and its prompt was deferred/missed,
-    // keep retrying so every player reliably sees it.
+    // Robustness: shared prompts may have arrived while a required modal was open.
+    // Keep retrying so every player reliably sees them.
+    try { handlePendingTradePrompt(); } catch (_) {}
     try { handleEndGameVotePrompt(); } catch (_) {}
   }, 1000);
   // Run immediately so you don't wait up to 1s after joining.
@@ -9671,6 +9711,15 @@ function ensureTimerUiInterval() {
         state.phase === 'main-actions'
       );
       ui.extraTurnBanner.classList.toggle('hidden', !showExtraTurn);
+    }
+    if (ui.placementTurnBanner) {
+      const placementTurnPhases = new Set([
+        'cartographer-draft',
+        'setup1-settlement', 'setup1-road',
+        'setup2-settlement', 'setup2-road',
+      ]);
+      const showPlacementTurn = !!(myTurn && !state.paused && placementTurnPhases.has(String(state.phase || '')));
+      ui.placementTurnBanner.classList.toggle('hidden', !showPlacementTurn);
     }
     if (ui.yourRollBanner) {
       const showYourRoll = !!(myTurn && !state.paused && state.phase === 'main-await-roll');
@@ -10199,7 +10248,9 @@ if (ui.moveShipBtn) {
 
   // -------------------- Trading UI --------------------
 
-  let lastTradePromptIdSeen = 0;
+  let lastTradePromptKeySeen = '';
+  let pendingTradePromptId = 0;
+  let suppressPendingTradeCloseReject = false;
   let lastEndVotePromptIdSeen = 0;
   let pendingEndVotePromptId = 0;
   // When the trade proposer hits "Revise Trade" from the proposed-trade popup,
@@ -10556,20 +10607,18 @@ if (ui.moveShipBtn) {
     head.appendChild(chips);
     box.appendChild(head);
 
-    // --- Grid: players + approve/reject
+    // --- Grid: player response statuses. Voting controls live in the modal's
+    // bottom action row so every responder uses the same clear controls.
     const grid = document.createElement('div');
-    grid.className = 'ptGrid';
+    grid.className = 'ptGrid ptStatusGrid';
 
     const h1 = document.createElement('div');
     h1.className = 'ptCell ptHeader';
     h1.textContent = '';
     const h2 = document.createElement('div');
     h2.className = 'ptCell ptHeader';
-    h2.textContent = 'Approve';
-    const h3 = document.createElement('div');
-    h3.className = 'ptCell ptHeader';
-    h3.textContent = 'Reject';
-    grid.appendChild(h1); grid.appendChild(h2); grid.appendChild(h3);
+    h2.textContent = 'Response';
+    grid.appendChild(h1); grid.appendChild(h2);
 
     const responses = (t.responses || {});
     const isProposer = myPlayerId === t.fromId;
@@ -10586,65 +10635,16 @@ if (ui.moveShipBtn) {
       nameCell.appendChild(rowBadge);
       nameCell.appendChild(rowName);
 
-      const approveCell = document.createElement('div');
-      approveCell.className = 'ptCell ptVoteCell';
-      const rejectCell = document.createElement('div');
-      rejectCell.className = 'ptCell ptVoteCell';
-
-      if (p.id === t.fromId) {
-        // proposer row: no votes
-        approveCell.innerHTML = '';
-        rejectCell.innerHTML = '';
-      } else {
-        const status = responses[p.id] || null;
-
-        // Approve button/icon
-        const approveBtn = document.createElement('button');
-        approveBtn.className = 'voteBtn' + (status === 'accept' ? ' on ok' : '');
-        approveBtn.type = 'button';
-        approveBtn.innerHTML = status === 'accept' ? '✔' : '';
-        approveBtn.title = status === 'accept' ? 'Approved' : 'Approve';
-
-        // Reject button/icon
-        const rejectBtn = document.createElement('button');
-        rejectBtn.className = 'voteBtn' + (status === 'reject' ? ' on bad' : '');
-        rejectBtn.type = 'button';
-        rejectBtn.innerHTML = status === 'reject' ? '✖' : '';
-        rejectBtn.title = status === 'reject' ? 'Rejected' : 'Reject';
-
-        const isMeRow = p.id === myPlayerId;
-        if (isMeRow && !isProposer) {
-          approveBtn.disabled = false;
-          rejectBtn.disabled = false;
-
-          approveBtn.addEventListener('click', () => {
-            sendGameAction({ kind: 'respond_trade', tradeId: t.id, accept: true });
-          });
-          rejectBtn.addEventListener('click', () => {
-            sendGameAction({ kind: 'respond_trade', tradeId: t.id, accept: false });
-          });
-        } else if (isProposer) {
-          // proposer can finalize by clicking an accepted player's checkmark
-          approveBtn.disabled = !(status === 'accept');
-          rejectBtn.disabled = true;
-
-          approveBtn.addEventListener('click', () => {
-            if (status !== 'accept') return;
-            sendGameAction({ kind: 'finalize_trade', tradeId: t.id, withPlayerId: p.id });
-          });
-        } else {
-          // other players: read-only
-          approveBtn.disabled = true;
-          rejectBtn.disabled = true;
-        }
-
-        approveCell.appendChild(approveBtn);
-        rejectCell.appendChild(rejectBtn);
-      }
+      const statusCell = document.createElement('div');
+      const status = p.id === t.fromId ? 'offering' : (responses[p.id] || 'pending');
+      statusCell.className = `ptCell ptResponseStatus ${status}`;
+      statusCell.textContent = status === 'accept' ? 'Accepted'
+        : status === 'reject' ? 'Rejected'
+          : status === 'offering' ? 'Offering'
+            : 'Pending';
 
       grid.appendChild(nameCell);
-      grid.appendChild(approveCell);
-      grid.appendChild(rejectCell);
+      grid.appendChild(statusCell);
     }
 
     box.appendChild(grid);
@@ -10668,8 +10668,25 @@ if (ui.moveShipBtn) {
           });
         }
       });
+      const acceptedPlayers = (state.players || []).filter((player) => player && responses[player.id] === 'accept');
+      for (const player of acceptedPlayers) {
+        modalActions.push({
+          label: `Trade with ${player.name || 'Player'}`,
+          primary: true,
+          onClick: () => sendGameAction({ kind: 'finalize_trade', tradeId: t.id, withPlayerId: player.id }),
+        });
+      }
+      modalActions.push({ label: 'Close', onClick: closeModal });
+    } else {
+      const respond = (accept) => {
+        suppressPendingTradeCloseReject = true;
+        closeModal();
+        suppressPendingTradeCloseReject = false;
+        sendGameAction({ kind: 'respond_trade', tradeId: t.id, accept });
+      };
+      modalActions.push({ label: 'Reject', onClick: () => respond(false) });
+      modalActions.push({ label: 'Accept', primary: true, onClick: () => respond(true) });
     }
-    modalActions.push({ label: 'Close', onClick: closeModal });
 
     openModal({
       title: 'Player Trade',
@@ -11201,21 +11218,39 @@ if (ui.moveShipBtn) {
 
     // If trade cleared, close any open trade modal
     if (!t || !t.id) {
+      pendingTradePromptId = 0;
       if (modalType === 'pendingTrade') forceCloseModal();
       return;
     }
 
+    const isTradeParticipant = myPlayerId === t.fromId || Object.prototype.hasOwnProperty.call(t.responses || {}, myPlayerId);
+    if (!isTradeParticipant) {
+      pendingTradePromptId = 0;
+      if (modalType === 'pendingTrade') forceCloseModal();
+      return;
+    }
+
+    const tradeId = Number(t.id || 0);
+    const tradePromptKey = `${String(state.roomCode || room?.code || '')}:${tradeId}`;
+
     // Keep the proposed-trade modal live-updated while it's open
     if (modalType === 'pendingTrade' && !ui.modal.classList.contains('hidden')) {
+      pendingTradePromptId = 0;
+      lastTradePromptKeySeen = tradePromptKey;
       openPendingTradeModal(true);
       return;
     }
 
-    // Don't interrupt other modals
-    if (!ui.modal.classList.contains('hidden')) return;
+    // Defer behind required choices and retry when they close or on the periodic
+    // prompt check. This prevents a single state packet from losing the popup.
+    if (!ui.modal.classList.contains('hidden')) {
+      pendingTradePromptId = tradeId;
+      return;
+    }
 
-    if (t.id <= lastTradePromptIdSeen) return;
-    lastTradePromptIdSeen = t.id;
+    if (tradePromptKey === lastTradePromptKeySeen && tradeId !== Number(pendingTradePromptId || 0)) return;
+    pendingTradePromptId = 0;
+    lastTradePromptKeySeen = tradePromptKey;
 
     openPendingTradeModal(true);
   }
@@ -12322,14 +12357,13 @@ function handleProductionGoldPrompt() {
         else if (thiefHighlightPhase === 'pirate-move') showChoice = canPirateHere;
 
         if (showChoice) {
-          const legalFill = isSeaTile ? 'rgba(55,190,255,.95)' : 'rgba(255,201,48,.95)';
-          const legalStroke = isSeaTile ? 'rgba(145,235,255,1)' : 'rgba(255,239,145,1)';
-          const badgeY = c.y + (view.scale * 0.48);
-          const badgeRadius = Math.max(10, Math.min(16, view.scale * 0.16));
+          const legalFill = isSeaTile ? 'rgba(55,190,255,.58)' : 'rgba(255,201,48,.58)';
+          const legalStroke = isSeaTile ? 'rgba(145,235,255,.72)' : 'rgba(255,239,145,.72)';
 
-          // Strong translucent wash so legal destinations remain obvious over every texture.
+          // Keep the destination wash subtle. This pass is intentionally drawn with
+          // the terrain so roads, ships, settlements, and cities remain above it.
           ctx.save();
-          ctx.globalAlpha = 0.28 + 0.14 * thiefPulse;
+          ctx.globalAlpha = 0.12 + 0.06 * thiefPulse;
           ctx.fillStyle = legalFill;
           ctx.beginPath();
           poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
@@ -12339,9 +12373,9 @@ function handleProductionGoldPrompt() {
 
           // A dark halo separates the legal outline from bright terrain and sea artwork.
           ctx.save();
-          ctx.globalAlpha = 0.82;
-          ctx.strokeStyle = 'rgba(0,0,0,.92)';
-          ctx.lineWidth = Math.max(7, view.scale * 0.075);
+          ctx.globalAlpha = 0.42;
+          ctx.strokeStyle = 'rgba(0,0,0,.70)';
+          ctx.lineWidth = Math.max(6, view.scale * 0.065);
           ctx.lineJoin = 'round';
           ctx.beginPath();
           poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
@@ -12351,12 +12385,12 @@ function handleProductionGoldPrompt() {
 
           // Bright pulsing double border marks the exact clickable hex.
           ctx.save();
-          ctx.globalAlpha = 0.88 + 0.12 * thiefPulse;
+          ctx.globalAlpha = 0.46 + 0.10 * thiefPulse;
           ctx.strokeStyle = legalStroke;
           ctx.lineWidth = Math.max(4, view.scale * 0.045);
           ctx.lineJoin = 'round';
           ctx.shadowColor = legalStroke;
-          ctx.shadowBlur = Math.max(10, view.scale * 0.14);
+          ctx.shadowBlur = Math.max(6, view.scale * 0.08);
           ctx.beginPath();
           poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
           ctx.closePath();
@@ -12364,34 +12398,14 @@ function handleProductionGoldPrompt() {
           ctx.restore();
 
           ctx.save();
-          ctx.globalAlpha = 0.78 + 0.18 * thiefPulse;
-          ctx.strokeStyle = '#ffffff';
+          ctx.globalAlpha = 0.30 + 0.08 * thiefPulse;
+          ctx.strokeStyle = 'rgba(255,255,255,.72)';
           ctx.lineWidth = Math.max(2, view.scale * 0.022);
           ctx.setLineDash([Math.max(7, view.scale * 0.085), Math.max(4, view.scale * 0.05)]);
           ctx.beginPath();
           poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
           ctx.closePath();
           ctx.stroke();
-          ctx.restore();
-
-          // A check badge makes the legal state readable even for colorblind players.
-          ctx.save();
-          ctx.globalAlpha = 0.92 + 0.08 * thiefPulse;
-          ctx.fillStyle = 'rgba(8,12,18,.92)';
-          ctx.strokeStyle = legalStroke;
-          ctx.lineWidth = Math.max(2, badgeRadius * 0.18);
-          ctx.shadowColor = 'rgba(0,0,0,.75)';
-          ctx.shadowBlur = 8;
-          ctx.beginPath();
-          ctx.arc(c.x, badgeY, badgeRadius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = '#ffffff';
-          ctx.font = `900 ${Math.round(badgeRadius * 1.35)}px ui-sans-serif, system-ui`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('✓', c.x, badgeY + 1);
           ctx.restore();
         }
       }
@@ -12809,9 +12823,8 @@ function handleProductionGoldPrompt() {
       }
     }
 
-    // Re-draw legal thief destinations above roads/ships/buildings, then keep the actual
-    // robber/pirate pieces and accessibility marks on the very top.
-    drawThiefLegalTileOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse);
+    // Keep the actual robber/pirate pieces above structures. Legal destination
+    // highlights stay in the terrain pass below every player-built piece.
     drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse);
     drawColorblindPieceMarksOverlayPass();
 
@@ -12828,67 +12841,6 @@ function handleProductionGoldPrompt() {
     }
 
     updateShipMoveCancelPopupPosition();
-  }
-
-  function drawThiefLegalTileOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse) {
-    if (!activePlayerThiefMove || !state || !state.geom || !Array.isArray(state.geom.tiles)) return;
-    for (const t of state.geom.tiles) {
-      if (!t || shouldHideOuterSeaBorderTileClient(t)) continue;
-      const isSeaTile = t.type === 'sea';
-      const canRobberHere = (!isSeaTile && !t.robber && !friendlyRobberTileBlockedClient(t.id));
-      const canPirateHere = (isSeaTile && !(t.fog && !t.revealed) && !t.pirate && !friendlyRobberTileBlockedClient(t.id));
-      let showChoice = false;
-      if (thiefHighlightPhase === 'pirate-or-robber') showChoice = canRobberHere || canPirateHere;
-      else if (thiefHighlightPhase === 'robber-move') showChoice = canRobberHere;
-      else if (thiefHighlightPhase === 'pirate-move') showChoice = canPirateHere;
-      if (!showChoice) continue;
-
-      const c = worldToScreen({ x: t.cx, y: t.cy });
-      const poly = tilePolygonScreen(t);
-      const legalStroke = isSeaTile ? 'rgba(145,235,255,1)' : 'rgba(255,239,145,1)';
-      const badgeY = c.y + (view.scale * 0.48);
-      const badgeRadius = Math.max(10, Math.min(16, view.scale * 0.16));
-
-      ctx.save();
-      ctx.globalAlpha = 0.90;
-      ctx.strokeStyle = 'rgba(0,0,0,.96)';
-      ctx.lineWidth = Math.max(8, view.scale * 0.085);
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      poly.forEach((point, i) => i ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
-      ctx.closePath();
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.save();
-      ctx.globalAlpha = 0.90 + 0.10 * thiefPulse;
-      ctx.strokeStyle = legalStroke;
-      ctx.lineWidth = Math.max(4, view.scale * 0.048);
-      ctx.lineJoin = 'round';
-      ctx.shadowColor = legalStroke;
-      ctx.shadowBlur = Math.max(12, view.scale * 0.16);
-      ctx.beginPath();
-      poly.forEach((point, i) => i ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
-      ctx.closePath();
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.save();
-      ctx.globalAlpha = 0.96;
-      ctx.fillStyle = 'rgba(8,12,18,.94)';
-      ctx.strokeStyle = legalStroke;
-      ctx.lineWidth = Math.max(2, badgeRadius * 0.18);
-      ctx.beginPath();
-      ctx.arc(c.x, badgeY, badgeRadius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `900 ${Math.round(badgeRadius * 1.35)}px ui-sans-serif, system-ui`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('✓', c.x, badgeY + 1);
-      ctx.restore();
-    }
   }
 
   function drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse) {

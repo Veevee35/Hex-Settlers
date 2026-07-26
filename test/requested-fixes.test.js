@@ -76,22 +76,31 @@ test('buy development card is placed in the turn action bar instead of the devel
 
 
 
-test('robber and pirate legal placement tiles use prominent accessible highlights', () => {
-  assert.match(appJs, /const legalFill = isSeaTile \? 'rgba\(55,190,255,\.95\)' : 'rgba\(255,201,48,\.95\)'/);
-  assert.match(appJs, /ctx\.globalAlpha = 0\.28 \+ 0\.14 \* thiefPulse/);
-  assert.match(appJs, /ctx\.strokeStyle = 'rgba\(0,0,0,\.92\)'/);
-  assert.match(appJs, /ctx\.shadowBlur = Math\.max\(10, view\.scale \* 0\.14\)/);
+test('robber and pirate legal placement tiles are translucent and render below player structures without checkmarks', () => {
+  assert.match(appJs, /const legalFill = isSeaTile \? 'rgba\(55,190,255,\.58\)' : 'rgba\(255,201,48,\.58\)'/);
+  assert.match(appJs, /ctx\.globalAlpha = 0\.12 \+ 0\.06 \* thiefPulse/);
   assert.match(appJs, /ctx\.setLineDash\(/);
-  assert.match(appJs, /ctx\.fillText\('✓', c\.x, badgeY \+ 1\)/);
-  assert.match(appJs, /drawThiefLegalTileOverlayPass\(activePlayerThiefMove, thiefHighlightPhase, thiefPulse\)/);
+  assert.doesNotMatch(appJs, /drawThiefLegalTileOverlayPass/);
+  const highlight = appJs.indexOf("const legalFill = isSeaTile");
+  const roads = appJs.indexOf('// Draw roads + ships');
+  const buildings = appJs.indexOf('// Draw nodes + buildings');
+  assert.ok(highlight >= 0 && highlight < roads && roads < buildings);
 });
 
 test('paired extra action turns show a red Extra Turn banner above the action bar', () => {
   assert.match(indexHtml, /id="extraTurnBanner"[^>]*>Extra Turn<\/div>/);
-  assert.match(styles, /\.extraTurnBanner\{[\s\S]*?color:#ff2638[\s\S]*?font-weight:950/);
-  assert.match(styles, /\.hudBar \.extraTurnBanner\{[\s\S]*?bottom:calc\(100% \+ 7px\)/);
+  assert.match(styles, /\.extraTurnBanner,\s*\.placementTurnBanner\{[\s\S]*?color:#ff2638[\s\S]*?font-weight:950/);
+  assert.match(styles, /\.hudBar \.extraTurnBanner,\s*\.hudBar \.placementTurnBanner\{[\s\S]*?bottom:calc\(100% \+ 7px\)/);
   assert.match(appJs, /ui\.extraTurnBanner\.classList\.toggle\('hidden', !showExtraTurn\)/);
   assert.match(appJs, /myTurn &&[\s\S]*?String\(state\.paired\.stage \|\| ''\) === 'p2'[\s\S]*?state\.phase === 'main-actions'/);
+});
+
+test('setup placement turns show a red Your Turn banner above the action bar', () => {
+  assert.match(indexHtml, /id="placementTurnBanner"[^>]*>Your Turn<\/div>/);
+  assert.match(styles, /\.placementTurnBanner\{?[\s\S]*?color:#ff2638/);
+  assert.match(appJs, /'setup1-settlement', 'setup1-road'/);
+  assert.match(appJs, /'setup2-settlement', 'setup2-road'/);
+  assert.match(appJs, /ui\.placementTurnBanner\.classList\.toggle\('hidden', !showPlacementTurn\)/);
 });
 
 test('new roads, ships, settlements, and cities render 50 percent larger for two seconds', () => {

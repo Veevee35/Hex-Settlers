@@ -61,7 +61,14 @@ const { normalizeBankTradeAction, validateBankTradeAvailability } = require('./s
 const { validatePlayerTradeSides } = require('./server/player-trade');
 const { sanitizeLogEntriesForViewer } = require('./server/private-log');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
-const { friendlyPirateCanOccupyTile, friendlyPirateProtectedPlayerIds, friendlyRobberProtectedPlayerIds, robberCanOccupyTile } = require('./server/friendly-robber');
+const {
+  friendlyPirateCanOccupyTile,
+  friendlyPirateProtectedPlayerIds,
+  friendlyRobberProtectedPlayerIds,
+  pirateTileTargetsPlayer,
+  robberCanOccupyTile,
+  robberTileTargetsPlayer,
+} = require('./server/friendly-robber');
 const { selectRandomNonAdjacentEdgeIds } = require('./server/port-placement');
 const {
   clearShipPlacementMarker,
@@ -2488,7 +2495,7 @@ function phaseDurationMs(game, phase) {
     case 'production-gold':
       return micro;
     case 'discard':
-      return micro;
+      return 30_000;
     case 'pirate-or-robber':
       return micro;
     case 'robber-move':
@@ -5919,6 +5926,20 @@ function startThiefChoice(game, source, playerId) {
   game.message = `${who} ${verb}. Click a land tile to move the robber, or a sea tile to move the pirate. Then steal 1 random resource.`;
 }
 
+function finishAutomaticThiefMoveWithoutTarget(game, playerId, piece) {
+  const label = piece === 'pirate' ? 'pirate' : (piece === 'robber or pirate' ? 'robber or pirate' : 'robber');
+  const ctx = game.robberContext;
+  const backToAwaitRoll = !!(ctx && ctx.source === 'knight' && ctx.preRoll);
+  game.robberContext = null;
+  game.thiefChoice = null;
+  game.robberSteal = null;
+  game.pirateSteal = null;
+  game.phase = backToAwaitRoll ? 'main-await-roll' : 'main-actions';
+  resumeThiefTimerIfPending(game);
+  game.message = `Automatic ${label} placement was skipped because no legal tile avoided ${playerName(game, playerId)}'s own pieces.`;
+  pushLog(game, game.message, 'robber', { kind: 'auto_move_skipped', piece: label, playerId });
+}
+
 function edgeTouchesPirate(game, edgeId) {
   const pid = getPirateTileId(game);
   if (pid == null) return false;
@@ -6714,6 +6735,7 @@ if (ttdFarSideBonus) {
       const rk = action.resourceKind;
       if (!RESOURCE_KINDS.includes(rk)) return { ok: false, error: 'Choose a resource type.' };
       let total = 0;
+      const stolenFrom = [];
       for (const op of game.players) {
         if (op.id === playerId) continue;
         const n = op.resources?.[rk] || 0;
@@ -6722,12 +6744,17 @@ if (ttdFarSideBonus) {
           recordResourceDelta(game, op.id, { [rk]: -n }, 'monopoly');
           grantStats(game, playerId, p.resources, rk, n, 'dev');
           sendPlayerSfx(room, op.id, 'stolen_from', { source: 'monopoly', thiefId: playerId, amount: n });
+          stolenFrom.push({ playerId: op.id, playerName: playerName(game, op.id), resourceKind: rk, amount: n });
           total += n;
         }
       }
       consumeDevelopmentCard(p, cardId);
-      game.message = `${playerName(game, playerId)} played Monopoly on ${rk} and took ${total}.`;
-      pushLog(game, `${playerName(game, playerId)} played Monopoly on ${rk}.`, 'dev', { card: 'monopoly', resourceKind: rk });
+      const breakdown = stolenFrom.length
+        ? stolenFrom.map((entry) => `${entry.amount} ${rk} from ${entry.playerName}`).join(', ')
+        : `0 ${rk}; no player had any`;
+      const monopolyText = `${playerName(game, playerId)} played Monopoly on ${rk} and stole ${total} total: ${breakdown}.`;
+      game.message = monopolyText;
+      pushLog(game, monopolyText, 'dev', { card: 'monopoly', resourceKind: rk, total, stolenFrom });
       return { ok: true };
     }
 
@@ -7740,6 +7767,22 @@ function clearAIPlayersFromRoom(room) {
   room.players = room.players.filter(p => p && !isAIPlayerObj(p));
 }
 
+function roomPlayerIsReady(player) {
+  return !!(player && (isAIPlayerObj(player) || player.ready === true));
+}
+
+function unreadyHumanRoomPlayers(room) {
+  return (room && Array.isArray(room.players) ? room.players : [])
+    .filter((player) => player && !isAIPlayerObj(player) && player.ready !== true);
+}
+
+function resetHumanRoomPlayerReadiness(room) {
+  if (!room || !Array.isArray(room.players)) return;
+  for (const player of room.players) {
+    if (player && !isAIPlayerObj(player)) player.ready = false;
+  }
+}
+
 function ensureRoomRoleLists(room) {
   if (!room) return null;
   if (!Array.isArray(room.players)) room.players = [];
@@ -8128,6 +8171,7 @@ function createRoom(hostUserId, hostName) {
       joinedAt: now(),
       texturePackId: 'default',
       texturePackName: 'Default',
+      ready: false,
     }],
     spectators: [],
     sockets: new Map(), // room member id -> ws
@@ -8163,6 +8207,7 @@ function createRematchRoomFrom(prevRoom) {
     color: String(p && p.color || COLORS[0]),
     joinedAt: now(),
     isAI: !!(p && p.isAI),
+    ready: !!(p && p.isAI),
     texturePackId: String((p && p.texturePackId) || 'default'),
     texturePackName: String((p && p.texturePackName) || 'Default'),
   })).filter(p => p.id);
@@ -8185,7 +8230,7 @@ function createRematchRoomFrom(prevRoom) {
       finalHostId = players[0].id;
     }
   } else {
-    players.push({ id: finalHostId, name: 'Host', color: COLORS[0], joinedAt: now(), texturePackId: 'default', texturePackName: 'Default' });
+    players.push({ id: finalHostId, name: 'Host', color: COLORS[0], joinedAt: now(), texturePackId: 'default', texturePackName: 'Default', ready: false });
   }
 
   const room = {
@@ -8250,7 +8295,7 @@ function joinRoom(code, userId, name) {
   }
 
   const color = pickAvailableColor(room);
-  room.players.push({ id: pid, name: (desiredName || 'Player').slice(0, 20), color, joinedAt: now(), texturePackId: 'default', texturePackName: 'Default' });
+  room.players.push({ id: pid, name: (desiredName || 'Player').slice(0, 20), color, joinedAt: now(), texturePackId: 'default', texturePackName: 'Default', ready: false });
   return { ok: true, room, playerId: pid, role: 'player' };
 }
 
@@ -8413,7 +8458,7 @@ function roomSnapshot(room) {
   return {
     code: room.code,
     hostId: room.hostId,
-    players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI), texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
+    players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI), ready: roomPlayerIsReady(p), texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     spectators: room.spectators.map(p => ({ id: p.id, name: p.name, color: p.color, isSpectator: true, texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES),
     gamePhase: room.game ? room.game.phase : 'lobby',
@@ -9605,6 +9650,7 @@ if (msg.type === 'create_room') {
           name: spec.name,
           color: desiredColor,
           joinedAt: spec.joinedAt || now(),
+          ready: false,
           texturePackId: String((spec && spec.texturePackId) || 'default'),
           texturePackName: String((spec && spec.texturePackName) || 'Default'),
         });
@@ -9774,6 +9820,22 @@ if (msg.type === 'create_room') {
     }
 
 
+    if (msg.type === 'set_ready') {
+      if (room.game && room.game.phase !== 'lobby') {
+        sendJson(ws, { type: 'error', error: 'Readiness can only be changed in the lobby.' });
+        return;
+      }
+      const player = findRoomPlayer(room, pid);
+      if (!player || isAIPlayerObj(player)) {
+        sendJson(ws, { type: 'error', error: 'Only human players can change readiness.' });
+        return;
+      }
+      player.ready = !!msg.ready;
+      broadcastRoom(room);
+      return;
+    }
+
+
     if (msg.type === 'set_rules') {
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only host can change settings.' });
@@ -9864,7 +9926,9 @@ if (msg.type === 'create_room') {
         next.victoryPointsToWin = defaultVictoryPointsToWin(next);
       }
 
+      const rulesChanged = JSON.stringify(room.rules || DEFAULT_RULES) !== JSON.stringify(next);
       room.rules = next;
+      if (rulesChanged) resetHumanRoomPlayerReadiness(room);
       const nextKey = mapPreviewKey(next, room?.players?.length || 0);
       const previewChanged = ensurePreview(room, (prevKey !== nextKey) || !room.preview);
       broadcastRoom(room);
@@ -10149,6 +10213,12 @@ if (msg.type === 'create_room') {
           ? 'Classic 5–6 requires 5 or 6 players.'
           : (isSix ? 'Seafarers 5–6 scenarios require 5 or 6 players.' : (allowSolo ? 'Need at least 1 player.' : 'Need at least 2 players.' ));
         sendJson(ws, { type: 'error', error: msgErr });
+        return;
+      }
+      const unready = unreadyHumanRoomPlayers(room);
+      if (unready.length > 0) {
+        const names = unready.map((player) => String(player.name || 'Player')).join(', ');
+        sendJson(ws, { type: 'error', error: `All players must be ready before starting. Waiting for: ${names}.` });
         return;
       }
       const ok = startGame(room);
@@ -10514,13 +10584,16 @@ function handleTimeout(room) {
       const t = game.geom.tiles[i];
       if (i === current) continue;
       if (!robberCanOccupyTile(game, i)) continue;
+      if (robberTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
     const shuffled = shuffle(cands);
+    let moved = false;
     for (const tid of shuffled) {
       const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_robber', tileId: tid }));
-      if (r && r.ok) break;
+      if (r && r.ok) { moved = true; break; }
     }
+    if (!moved) finishAutomaticThiefMoveWithoutTarget(game, pid, 'robber');
     syncTimer(game);
     return true;
   }
@@ -10537,15 +10610,16 @@ function handleTimeout(room) {
       const t = game.geom.tiles[i];
       if (!t) continue;
       if (pirateCanOccupyGameTile(game, i)) {
-        if (i !== currentPirate) sea.push(i);
+        if (i !== currentPirate && !pirateTileTargetsPlayer(game, i, pid)) sea.push(i);
       } else if (i !== currentRobber && robberCanOccupyTile(game, i)) {
-        land.push(i);
+        if (!robberTileTargetsPlayer(game, i, pid)) land.push(i);
       }
     }
     shuffle(land);
     shuffle(sea);
     if (land.length) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_robber', tileId: land[0] }));
     else if (sea.length) runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_pirate', tileId: sea[0] }));
+    else finishAutomaticThiefMoveWithoutTarget(game, pid, 'robber or pirate');
     syncTimer(game);
     return true;
   }
@@ -10559,13 +10633,16 @@ function handleTimeout(room) {
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const t = game.geom.tiles[i];
       if (!pirateCanOccupyGameTile(game, i) || i === current) continue;
+      if (pirateTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
     const shuffled = shuffle(cands);
+    let moved = false;
     for (const tid of shuffled) {
       const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'move_pirate', tileId: tid }));
-      if (r && r.ok) break;
+      if (r && r.ok) { moved = true; break; }
     }
+    if (!moved) finishAutomaticThiefMoveWithoutTarget(game, pid, 'pirate');
     syncTimer(game);
     return true;
   }
@@ -11581,8 +11658,9 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     for (let i = 0; i < game.geom.tiles.length; i++) {
       const tt = game.geom.tiles[i];
       if (!tt) continue;
-      if (pirateCanOccupyGameTile(game, i)) { if (i !== curP) sea.push(i); }
-      else if (i !== curR && robberCanOccupyTile(game, i)) land.push(i);
+      if (pirateCanOccupyGameTile(game, i)) {
+        if (i !== curP && !pirateTileTargetsPlayer(game, i, pid)) sea.push(i);
+      } else if (i !== curR && robberCanOccupyTile(game, i) && !robberTileTargetsPlayer(game, i, pid)) land.push(i);
     }
     const robberTarget = bestScoredTarget(land, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
     const pirateTarget = bestScoredTarget(sea, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
@@ -11596,6 +11674,11 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       const r = applyAction(room, pid, action);
       if (r && r.ok) { delay(220, 360); return true; }
     }
+    if (!choices.length) {
+      finishAutomaticThiefMoveWithoutTarget(game, pid, 'robber or pirate');
+      delay(220, 360);
+      return true;
+    }
     delay(220, 360);
     return false;
   }
@@ -11608,12 +11691,18 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       if (!tt) continue;
       if (i === cur) continue;
       if (!robberCanOccupyTile(game, i)) continue;
+      if (robberTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
     const target = bestScoredTarget(cands, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
     if (target.id != null) {
       const r = applyAction(room, pid, { kind: 'move_robber', tileId: target.id });
       if (r && r.ok) { delay(220, 360); return true; }
+    }
+    if (target.id == null) {
+      finishAutomaticThiefMoveWithoutTarget(game, pid, 'robber');
+      delay(220, 360);
+      return true;
     }
     delay(220, 360);
     return false;
@@ -11635,12 +11724,18 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       if (!tt) continue;
       if (i === cur) continue;
       if (!pirateCanOccupyGameTile(game, i)) continue;
+      if (pirateTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
     const target = bestScoredTarget(cands, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
     if (target.id != null) {
       const r = applyAction(room, pid, { kind: 'move_pirate', tileId: target.id });
       if (r && r.ok) { delay(220, 360); return true; }
+    }
+    if (target.id == null) {
+      finishAutomaticThiefMoveWithoutTarget(game, pid, 'pirate');
+      delay(220, 360);
+      return true;
     }
     delay(220, 360);
     return false;
