@@ -27,7 +27,18 @@ test('other-player texture packs wait for a confirmed room and can be fetched fr
   assert.match(appJs, /if \(!roomConnectionReady \|\| !room \|\| !room\.code/);
   assert.match(appJs, /useBtn\.textContent = `Use \$\{playerPackName\}`/);
   assert.match(appJs, /handlePlayerTexturePackChoice\(p\)/);
+  assert.match(appJs, /downloadSharedTexturePack\(targetId\)/);
+  assert.match(appJs, /publishTexturePackToRoom\(announcingRoomCode, active\.id\)/);
+  assert.match(serverJs, /handleTexturePackHttp\(req, res, urlPath\)/);
+  assert.match(serverJs, /type: 'texture_pack_manifest'/);
   assert.match(serverJs, /msg\.type === 'get_texture_pack'/);
+});
+
+test('Simplified is exposed as a built-in texture pack for every player', () => {
+  assert.match(appJs, /const SIMPLIFIED_TEXTURE_PACK_ID = 'simplified'/);
+  assert.match(appJs, /name: 'Simplified'[^\n]*builtin: true/);
+  assert.match(appJs, /`\/texture-packs\/\$\{encodeURIComponent\(builtin\.id\)\}/);
+  assert.match(serverJs, /builtinTexturePack\(packId\)/);
 });
 
 test('setup highlights exclude ocean and unrevealed-fog-only nodes', () => {

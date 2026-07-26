@@ -16,6 +16,15 @@ const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persisten
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
 const { parseClientMessage } = require('./server/protocol');
+const {
+  TEXTURE_PACK_ASSET_REL,
+  builtinTexturePack,
+  isPngBuffer,
+  pngBufferFromDataUrl,
+  sanitizeTexturePackName,
+  validTexturePackAssetRelPath,
+  validTexturePackId,
+} = require('./server/texture-packs');
 const { clientAddress, forwardedHost, isAllowedWebSocketOrigin, runtimeConfig, securityHeaders } = require('./server/runtime-config');
 const {
   BUILTIN_ADMIN_DISPLAY_NAME,
@@ -8684,6 +8693,255 @@ function sendHttpJson(req, res, statusCode, payload, extraHeaders = {}) {
   res.end(body);
 }
 
+const TEXTURE_PACK_ASSET_MAX_BYTES = 8 * 1024 * 1024;
+const TEXTURE_PACK_TOTAL_MAX_BYTES = 40 * 1024 * 1024;
+const TEXTURE_PACK_UPLOAD_TTL_MS = 10 * 60 * 1000;
+
+function readBinaryBody(request, maxBytes) {
+  return new Promise((resolve, reject) => {
+    let total = 0;
+    let settled = false;
+    let tooLarge = false;
+    const chunks = [];
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    request.on('data', (chunk) => {
+      if (settled) return;
+      total += chunk.length;
+      if (total > maxBytes) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      if (!tooLarge) chunks.push(chunk);
+    });
+    request.on('end', () => {
+      if (settled) return;
+      if (tooLarge) {
+        const error = new Error('Texture image is too large.');
+        error.statusCode = 413;
+        fail(error);
+        return;
+      }
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    request.on('aborted', () => {
+      const error = new Error('Request was aborted.');
+      error.statusCode = 400;
+      fail(error);
+    });
+    request.on('error', fail);
+  });
+}
+
+function texturePackUploadsForRoom(room) {
+  if (!room.texturePackUploads || typeof room.texturePackUploads !== 'object') room.texturePackUploads = Object.create(null);
+  const cutoff = now() - TEXTURE_PACK_UPLOAD_TTL_MS;
+  for (const [packId, upload] of Object.entries(room.texturePackUploads)) {
+    if (!upload || Number(upload.updatedAt || upload.createdAt || 0) < cutoff) delete room.texturePackUploads[packId];
+  }
+  return room.texturePackUploads;
+}
+
+function sendHttpPng(req, res, buffer) {
+  res.writeHead(200, {
+    ...securityHeaders({ isTls: requestIsTls(req, APP_CONFIG.trustProxy) }),
+    'Cache-Control': 'private, no-store',
+    'Content-Type': 'image/png',
+    'Content-Length': buffer.length,
+  });
+  res.end(buffer);
+}
+
+async function handleTexturePackHttp(req, res, urlPath) {
+  const prefix = '/api/texture-packs/';
+  const parts = urlPath.slice(prefix.length).split('/').filter(Boolean);
+  const roomCode = normalizeRoomCode(parts[0]);
+  const packId = validTexturePackId(parts[1]);
+  if (!roomCode || !packId) {
+    sendHttpJson(req, res, 400, { ok: false, error: 'Invalid texture pack request.' });
+    return;
+  }
+
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+  const viewer = authenticateByToken(token);
+  if (!viewer) {
+    sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' });
+    return;
+  }
+  const room = roomByCodeWithPersistence(roomCode);
+  if (!room) {
+    sendHttpJson(req, res, 404, { ok: false, error: 'Room not found.' });
+    return;
+  }
+  const member = findRoomMember(room, viewer.id);
+  if (!member) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Join this room before using its texture packs.' });
+    return;
+  }
+
+  const mutating = req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE';
+  if (mutating && !isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' });
+    return;
+  }
+
+  const builtin = builtinTexturePack(packId);
+  const store = room.sharedTexturePacks || (room.sharedTexturePacks = Object.create(null));
+  const shared = store[packId] || null;
+
+  if (req.method === 'GET' && parts.length === 2) {
+    if (builtin) {
+      sendHttpJson(req, res, 200, { ok: true, pack: { ...builtin, builtin: true, assets: TEXTURE_PACK_ASSET_REL } });
+      return;
+    }
+    if (!shared) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'Texture pack not found in this lobby.' });
+      return;
+    }
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      pack: {
+        id: String(shared.id || packId),
+        name: sanitizeTexturePackName(shared.name),
+        ownerId: String(shared.ownerId || ''),
+        assets: Object.keys(shared.assets || {}).map(validTexturePackAssetRelPath).filter(Boolean),
+      },
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && parts[2] === 'assets') {
+    const rel = validTexturePackAssetRelPath(parts.slice(3).join('/'));
+    if (!rel) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'Texture image not found.' });
+      return;
+    }
+    if (builtin) {
+      const baseDir = builtin.id === 'simplified' ? path.join(PUBLIC_DIR, 'texture-packs', 'simplified') : path.join(PUBLIC_DIR, 'texture pack');
+      const filePath = path.join(baseDir, ...rel.split('/'));
+      try {
+        const buffer = await fs.promises.readFile(filePath);
+        if (!isPngBuffer(buffer)) throw new Error('Invalid PNG');
+        sendHttpPng(req, res, buffer);
+      } catch (_) {
+        sendHttpJson(req, res, 404, { ok: false, error: 'Texture image not found.' });
+      }
+      return;
+    }
+    const buffer = shared && pngBufferFromDataUrl(shared.assets && shared.assets[rel]);
+    if (!buffer) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'Texture image not found.' });
+      return;
+    }
+    sendHttpPng(req, res, buffer);
+    return;
+  }
+
+  if (builtin) {
+    sendHttpJson(req, res, 400, { ok: false, error: 'Built-in texture packs cannot be overwritten.' });
+    return;
+  }
+
+  const uploads = texturePackUploadsForRoom(room);
+  if (req.method === 'PUT' && parts.length === 2) {
+    if (shared) {
+      sendHttpJson(req, res, 200, { ok: true, alreadyAvailable: true, assetCount: Object.keys(shared.assets || {}).length });
+      return;
+    }
+    let body;
+    try { body = await readJsonBody(req); }
+    catch (error) {
+      sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Invalid request.' });
+      return;
+    }
+    const existingUpload = uploads[packId];
+    if (existingUpload && existingUpload.ownerId !== viewer.id) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'That texture pack ID is already being uploaded.' });
+      return;
+    }
+    uploads[packId] = {
+      id: packId,
+      name: sanitizeTexturePackName(body.name),
+      ownerId: viewer.id,
+      createdAt: existingUpload ? existingUpload.createdAt : now(),
+      updatedAt: now(),
+      assets: existingUpload && existingUpload.assets ? existingUpload.assets : Object.create(null),
+      totalBytes: Number(existingUpload && existingUpload.totalBytes || 0),
+    };
+    sendHttpJson(req, res, 200, { ok: true, alreadyAvailable: false });
+    return;
+  }
+
+  if (req.method === 'PUT' && parts[2] === 'assets') {
+    const upload = uploads[packId];
+    if (!upload || upload.ownerId !== viewer.id) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'Start this texture-pack upload again.' });
+      return;
+    }
+    const rel = validTexturePackAssetRelPath(parts.slice(3).join('/'));
+    if (!rel) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Invalid texture image path.' });
+      return;
+    }
+    let buffer;
+    try { buffer = await readBinaryBody(req, TEXTURE_PACK_ASSET_MAX_BYTES); }
+    catch (error) {
+      sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Texture image upload failed.' });
+      return;
+    }
+    if (!isPngBuffer(buffer)) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Texture assets must be valid PNG images.' });
+      return;
+    }
+    const previousBytes = Buffer.isBuffer(upload.assets[rel]) ? upload.assets[rel].length : 0;
+    const nextTotal = Math.max(0, Number(upload.totalBytes || 0) - previousBytes + buffer.length);
+    if (nextTotal > TEXTURE_PACK_TOTAL_MAX_BYTES) {
+      sendHttpJson(req, res, 413, { ok: false, error: 'Texture pack is too large.' });
+      return;
+    }
+    upload.assets[rel] = buffer;
+    upload.totalBytes = nextTotal;
+    upload.updatedAt = now();
+    sendHttpJson(req, res, 200, { ok: true, asset: rel });
+    return;
+  }
+
+  if (req.method === 'POST' && parts[2] === 'complete' && parts.length === 3) {
+    const upload = uploads[packId];
+    if (!upload || upload.ownerId !== viewer.id) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'Start this texture-pack upload again.' });
+      return;
+    }
+    const entries = Object.entries(upload.assets || {}).filter(([, buffer]) => isPngBuffer(buffer));
+    if (!entries.length) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'No valid PNGs were uploaded.' });
+      return;
+    }
+    const assets = Object.create(null);
+    for (const [rel, buffer] of entries) assets[rel] = `data:image/png;base64,${buffer.toString('base64')}`;
+    store[packId] = {
+      id: packId,
+      name: upload.name,
+      ownerId: viewer.id,
+      createdAt: now(),
+      assets,
+    };
+    delete uploads[packId];
+    member.texturePackId = packId;
+    member.texturePackName = upload.name;
+    broadcastRoom(room);
+    sendHttpJson(req, res, 200, { ok: true, pack: { id: packId, name: upload.name, assetCount: entries.length } });
+    return;
+  }
+
+  sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'GET, PUT, POST' });
+}
+
 async function handleAuthHttp(req, res, urlPath) {
   if (req.method !== 'POST') {
     sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
@@ -9099,6 +9357,10 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
+    if (urlPath.startsWith('/api/texture-packs/')) {
+      await handleTexturePackHttp(req, res, urlPath);
+      return;
+    }
     if (urlPath.startsWith('/api/auth/')) {
       await handleAuthHttp(req, res, urlPath);
       return;
@@ -9338,15 +9600,17 @@ if (msg.type === 'set_texture_pack') {
   if (!p) { sendJson(ws, { type: 'error', error: 'Player not found in room.' }); return; }
 
   const rawId = String(msg.texturePackId || 'default').trim();
-  const packId = rawId || 'default';
+  const packId = validTexturePackId(rawId || 'default');
+  if (!packId) { sendJson(ws, { type: 'error', error: 'Invalid texture pack ID.' }); return; }
   let packName = String(msg.texturePackName || '').trim();
 
-  if (packId === 'default') {
-    if (String((p && p.texturePackId) || 'default') === 'default' && String((p && p.texturePackName) || 'Default') === 'Default') {
+  const builtin = builtinTexturePack(packId);
+  if (builtin) {
+    if (String((p && p.texturePackId) || 'default') === builtin.id && String((p && p.texturePackName) || 'Default') === builtin.name) {
       return;
     }
-    p.texturePackId = 'default';
-    p.texturePackName = 'Default';
+    p.texturePackId = builtin.id;
+    p.texturePackName = builtin.name;
     broadcastRoom(room);
     return;
   }
@@ -9358,7 +9622,7 @@ if (msg.type === 'set_texture_pack') {
     return;
   }
 
-  const nextName = packName || String(shared.name || 'Custom Pack');
+  const nextName = sanitizeTexturePackName(shared.name || packName);
   if (String((p && p.texturePackId) || '') === packId && String((p && p.texturePackName) || '') === nextName) {
     return;
   }
@@ -9373,23 +9637,27 @@ if (msg.type === 'texture_pack_publish') {
   if (!room || !ws._userId) { sendJson(ws, { type: 'error', error: 'Join a room first.' }); return; }
 
   const pack = (msg && msg.pack) ? msg.pack : null;
-  const packId = String(pack && pack.id || '').trim();
-  const packNameRaw = String(pack && pack.name || 'Custom Pack').trim();
-  const packName = (packNameRaw || 'Custom Pack').slice(0, 48);
+  const packId = validTexturePackId(pack && pack.id);
+  const packName = sanitizeTexturePackName(pack && pack.name);
   const assets = (pack && typeof pack.assets === 'object' && pack.assets) ? pack.assets : null;
-  if (!packId || packId === 'default' || !assets) {
+  if (!packId || builtinTexturePack(packId) || !assets) {
     sendJson(ws, { type: 'error', error: 'Invalid texture pack payload.' });
     return;
   }
 
   const cleanAssets = Object.create(null);
   let assetCount = 0;
+  let totalBytes = 0;
   for (const [k, v] of Object.entries(assets)) {
-    const rel = String(k || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
-    const dataUrl = String(v || '').trim();
-    if (!rel || !/\.png$/i.test(rel)) continue;
-    if (!/^data:image\/png;base64,/i.test(dataUrl)) continue;
-    cleanAssets[rel] = dataUrl;
+    const rel = validTexturePackAssetRelPath(k);
+    const buffer = pngBufferFromDataUrl(v);
+    if (!rel || !buffer || buffer.length > TEXTURE_PACK_ASSET_MAX_BYTES) continue;
+    totalBytes += buffer.length;
+    if (totalBytes > TEXTURE_PACK_TOTAL_MAX_BYTES) {
+      sendJson(ws, { type: 'error', error: 'Texture pack is too large.' });
+      return;
+    }
+    cleanAssets[rel] = `data:image/png;base64,${buffer.toString('base64')}`;
     assetCount += 1;
     if (assetCount >= 80) break;
   }
@@ -9422,10 +9690,11 @@ if (msg.type === 'get_texture_pack') {
   const room = ws._roomCode ? rooms.get(ws._roomCode) : null;
   if (!room || !ws._userId) { sendJson(ws, { type: 'error', error: 'Join a room first.' }); return; }
 
-  const packId = String(msg.packId || '').trim();
+  const packId = validTexturePackId(msg.packId);
   if (!packId) { sendJson(ws, { type: 'error', error: 'Missing texture pack ID.' }); return; }
-  if (packId === 'default') {
-    sendJson(ws, { type: 'texture_pack_payload', pack: { id: 'default', name: 'Default', assets: {} } });
+  const builtin = builtinTexturePack(packId);
+  if (builtin) {
+    sendJson(ws, { type: 'texture_pack_manifest', pack: { ...builtin, builtin: true, assets: TEXTURE_PACK_ASSET_REL } });
     return;
   }
 
@@ -9437,12 +9706,12 @@ if (msg.type === 'get_texture_pack') {
   }
 
   sendJson(ws, {
-    type: 'texture_pack_payload',
+    type: 'texture_pack_manifest',
     pack: {
       id: String(shared.id || ''),
       name: String(shared.name || 'Custom Pack'),
       ownerId: String(shared.ownerId || ''),
-      assets: shared.assets || {},
+      assets: Object.keys(shared.assets || {}).map(validTexturePackAssetRelPath).filter(Boolean),
     }
   });
   return;

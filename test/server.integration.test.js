@@ -549,6 +549,99 @@ test('browser authentication uses an HTTP-only cookie for WebSocket sessions', {
   assert.match(page.headers.get('content-security-policy'), /default-src 'self'/);
 });
 
+test('players can upload, download, and select shared texture packs without giant WebSocket payloads', { timeout: 25_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-textures-'));
+  const server = await startServer(port, dataDir);
+  const peers = [];
+  t.after(async () => {
+    for (const peer of peers) peer.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const origin = `http://127.0.0.1:${port}`;
+  const suffix = Date.now().toString(36).slice(-8);
+  async function register(username, displayName) {
+    const response = await fetch(`${origin}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({ username, password: 'texture sharing pass', displayName }),
+    });
+    assert.equal(response.status, 200);
+    return String(response.headers.get('set-cookie') || '').split(';')[0];
+  }
+  async function request(route, method, cookie, body, contentType = 'application/json') {
+    const response = await fetch(`${origin}${route}`, {
+      method,
+      headers: { Cookie: cookie, Origin: origin, ...(contentType ? { 'Content-Type': contentType } : {}) },
+      body,
+    });
+    let payload = null;
+    if (String(response.headers.get('content-type') || '').includes('application/json')) payload = await response.json();
+    return { response, payload };
+  }
+
+  const hostCookie = await register(`texture_host_${suffix}`, 'Texture Host');
+  const guestCookie = await register(`texture_guest_${suffix}`, 'Texture Guest');
+  const host = await Peer.connect(port, { headers: { Cookie: hostCookie } });
+  const guest = await Peer.connect(port, { headers: { Cookie: guestCookie } });
+  peers.push(host, guest);
+  await host.waitFor((message) => message.type === 'auth_ok');
+  await guest.waitFor((message) => message.type === 'auth_ok');
+
+  host.send({ type: 'create_room', displayName: 'Texture Host' });
+  const joined = await host.waitFor((message) => message.type === 'joined');
+  guest.send({ type: 'join_room', code: joined.room.code, displayName: 'Texture Guest' });
+  const guestJoined = await guest.waitFor((message) => message.type === 'joined');
+  const hostId = joined.playerId;
+  const guestId = guestJoined.playerId;
+
+  const packId = `tp-shared-${suffix}`;
+  const base = `/api/texture-packs/${joined.room.code}/${packId}`;
+  const assetRel = 'Dev Cards/Invention.png';
+  const assetRoute = 'Dev%20Cards/Invention.png';
+  const png = fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'texture pack', ...assetRel.split('/')));
+  const begun = await request(base, 'PUT', hostCookie, JSON.stringify({ name: 'Shared Test Pack' }));
+  assert.equal(begun.response.status, 200);
+  assert.equal(begun.payload.alreadyAvailable, false);
+  const uploaded = await request(`${base}/assets/${assetRoute}`, 'PUT', hostCookie, png, 'image/png');
+  assert.equal(uploaded.response.status, 200);
+
+  const sharedRoomUpdate = guest.waitFor((message) => message.type === 'room'
+    && message.room.players.some((player) => player.id === hostId && player.texturePackId === packId));
+  const completed = await request(`${base}/complete`, 'POST', hostCookie, undefined, '');
+  assert.equal(completed.response.status, 200);
+  await sharedRoomUpdate;
+
+  const manifest = await request(base, 'GET', guestCookie, undefined, '');
+  assert.equal(manifest.response.status, 200);
+  assert.deepEqual(manifest.payload.pack.assets, [assetRel]);
+  const downloaded = await request(`${base}/assets/${assetRoute}`, 'GET', guestCookie, undefined, '');
+  assert.equal(downloaded.response.status, 200);
+  assert.deepEqual(Buffer.from(await downloaded.response.arrayBuffer()), png);
+
+  guest.send({ type: 'get_texture_pack', packId });
+  const websocketManifest = await guest.waitFor((message) => message.type === 'texture_pack_manifest' && message.pack.id === packId);
+  assert.deepEqual(websocketManifest.pack.assets, [assetRel]);
+  assert.equal(websocketManifest.pack.assets[assetRel], undefined);
+
+  const guestSelection = host.waitFor((message) => message.type === 'room'
+    && message.room.players.some((player) => player.id === guestId && player.texturePackId === packId));
+  guest.send({ type: 'set_texture_pack', texturePackId: packId, texturePackName: 'Shared Test Pack' });
+  await guestSelection;
+
+  const simplifiedSelection = host.waitFor((message) => message.type === 'room'
+    && message.room.players.some((player) => player.id === guestId && player.texturePackId === 'simplified'));
+  guest.send({ type: 'set_texture_pack', texturePackId: 'simplified', texturePackName: 'Wrong Name' });
+  const simplifiedRoom = await simplifiedSelection;
+  assert.equal(simplifiedRoom.room.players.find((player) => player.id === guestId).texturePackName, 'Simplified');
+  const simplifiedManifest = await request(`/api/texture-packs/${joined.room.code}/simplified`, 'GET', guestCookie, undefined, '');
+  assert.equal(simplifiedManifest.response.status, 200);
+  assert.equal(simplifiedManifest.payload.pack.builtin, true);
+  assert.equal(simplifiedManifest.payload.pack.assets.length, 42);
+});
+
 test('compiled TypeScript bootstrap serves the current game entry point', { timeout: 15_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-dist-'));
