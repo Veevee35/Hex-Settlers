@@ -15,27 +15,32 @@ const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT
 const TOTAL_GAMES = Math.max(1, Math.floor(Number(process.env.SIMS || 500)));
 const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 25)));
 const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 5)));
-const VP_TO_WIN = Math.max(3, Math.floor(Number(process.env.VP_TO_WIN || 7)));
+const CURRICULUM_OFFSET = Math.max(0, Math.floor(Number(process.env.CURRICULUM_OFFSET || 0)));
+const VP_TO_WIN_RAW = String(process.env.VP_TO_WIN || '').trim();
+const VP_TO_WIN_PARSED = Math.floor(Number(VP_TO_WIN_RAW));
+const VP_TO_WIN_OVERRIDE = VP_TO_WIN_RAW && Number.isFinite(VP_TO_WIN_PARSED) ? Math.max(3, VP_TO_WIN_PARSED) : null;
 const GAME_TIMEOUT_MS = Math.max(20_000, Math.floor(Number(process.env.GAME_TIMEOUT_MS || 180_000)));
 const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() === '1';
-const OUTPUT_PATH = path.resolve(process.env.TRAINING_OUTPUT || path.join(PROJECT_ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_all_maps.json`));
+const OUTPUT_PATH = path.resolve(process.env.TRAINING_OUTPUT || path.join(PROJECT_ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_fast_victory_all_scenarios.json`));
 
-// Test Builder is a player-authored editor rather than a canonical map. Every
-// standard, generated, and draftable map offered by the lobby is represented.
+// Every lobby scenario is represented. Test Builder has no authored default
+// board, so those rounds paint a varied, valid Gold-bearing training board.
 const MAPS = Object.freeze([
-  { id: 'classic', label: 'Classic', mapMode: 'classic', scenario: 'four_islands', players: 4 },
-  { id: 'classic56', label: 'Classic 5-6', mapMode: 'classic56', scenario: 'four_islands', players: 6 },
-  { id: 'four_islands', label: 'Four Islands', mapMode: 'seafarers', scenario: 'four_islands', players: 4, gold: true },
-  { id: 'through_the_desert', label: 'Through the Desert', mapMode: 'seafarers', scenario: 'through_the_desert', players: 4, gold: true },
-  { id: 'fog_island', label: 'Fog Island', mapMode: 'seafarers', scenario: 'fog_island', players: 4, gold: true },
-  { id: 'heading_for_new_shores', label: 'Heading for New Shores', mapMode: 'seafarers', scenario: 'heading_for_new_shores', players: 4, gold: true },
-  { id: 'cartographer_4_manual', label: 'Cartographer 4', mapMode: 'seafarers', scenario: 'cartographer_4_manual', players: 4, gold: true },
-  { id: 'cartographer_4_random', label: 'Scattered Tiles 4', mapMode: 'seafarers', scenario: 'cartographer_4_random', players: 4, gold: true },
-  { id: 'six_islands', label: 'Six Islands', mapMode: 'seafarers', scenario: 'six_islands', players: 6, gold: true },
-  { id: 'through_the_desert_56', label: 'Through the Desert 5-6', mapMode: 'seafarers', scenario: 'through_the_desert_56', players: 6, gold: true },
-  { id: 'fog_island_56', label: 'Fog Island 5-6', mapMode: 'seafarers', scenario: 'fog_island_56', players: 6, gold: true },
-  { id: 'cartographer_56_manual', label: 'Cartographer 5-6', mapMode: 'seafarers', scenario: 'cartographer_56_manual', players: 6, gold: true },
-  { id: 'cartographer_56_random', label: 'Scattered Tiles 5-6', mapMode: 'seafarers', scenario: 'cartographer_56_random', players: 6, gold: true },
+  { id: 'classic', label: 'Classic', mapMode: 'classic', scenario: 'four_islands', players: 4, victoryPoints: 10 },
+  { id: 'classic56', label: 'Classic 5-6', mapMode: 'classic56', scenario: 'four_islands', players: 6, victoryPoints: 10 },
+  { id: 'four_islands', label: 'Four Islands', mapMode: 'seafarers', scenario: 'four_islands', players: 4, victoryPoints: 13, gold: true },
+  { id: 'through_the_desert', label: 'Through the Desert', mapMode: 'seafarers', scenario: 'through_the_desert', players: 4, victoryPoints: 14, gold: true },
+  { id: 'fog_island', label: 'Fog Island', mapMode: 'seafarers', scenario: 'fog_island', players: 4, victoryPoints: 12, gold: true },
+  { id: 'heading_for_new_shores', label: 'Heading for New Shores', mapMode: 'seafarers', scenario: 'heading_for_new_shores', players: 4, victoryPoints: 14, gold: true },
+  { id: 'cartographer_4_manual', label: 'Cartographer 4', mapMode: 'seafarers', scenario: 'cartographer_4_manual', players: 4, victoryPoints: 12, gold: true },
+  { id: 'cartographer_4_random', label: 'Scattered Tiles 4', mapMode: 'seafarers', scenario: 'cartographer_4_random', players: 4, victoryPoints: 12, gold: true },
+  { id: 'test_builder', label: 'Test Builder 4', mapMode: 'seafarers', scenario: 'test_builder', players: 4, victoryPoints: 13, gold: true, customBuilder: true },
+  { id: 'six_islands', label: 'Six Islands', mapMode: 'seafarers', scenario: 'six_islands', players: 6, victoryPoints: 14, gold: true },
+  { id: 'through_the_desert_56', label: 'Through the Desert 5-6', mapMode: 'seafarers', scenario: 'through_the_desert_56', players: 6, victoryPoints: 14, gold: true },
+  { id: 'fog_island_56', label: 'Fog Island 5-6', mapMode: 'seafarers', scenario: 'fog_island_56', players: 6, victoryPoints: 12, gold: true },
+  { id: 'cartographer_56_manual', label: 'Cartographer 5-6', mapMode: 'seafarers', scenario: 'cartographer_56_manual', players: 6, victoryPoints: 12, gold: true },
+  { id: 'cartographer_56_random', label: 'Scattered Tiles 5-6', mapMode: 'seafarers', scenario: 'cartographer_56_random', players: 6, victoryPoints: 12, gold: true },
+  { id: 'test_builder_56', label: 'Test Builder 5-6', mapMode: 'seafarers', scenario: 'test_builder_56', players: 6, victoryPoints: 13, gold: true, customBuilder: true },
 ]);
 
 function readModel(filePath) {
@@ -86,6 +91,7 @@ async function startTrainingServer(dataDir) {
       DATA_DIR: dataDir,
       NODE_ENV: 'test',
       AI_FAST: '1',
+      AI_TRAINING: '1',
       HEX_BUILTIN_ADMIN_ENABLED: '0',
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -188,6 +194,62 @@ function goldProductionCards(state) {
   return total;
 }
 
+function seededRandom(seed) {
+  let value = (Math.floor(Number(seed || 1)) || 1) >>> 0;
+  return () => {
+    value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
+    return value / 0x100000000;
+  };
+}
+
+function shuffleWith(items, random) {
+  const result = items.slice();
+  for (let index = result.length - 1; index > 0; index--) {
+    const swap = Math.floor(random() * (index + 1));
+    [result[index], result[swap]] = [result[swap], result[index]];
+  }
+  return result;
+}
+
+function paintTrainingTestBuilder(peer, state, item) {
+  const tiles = state?.geom?.tiles || [];
+  if (!tiles.length) throw new Error(`No Test Builder preview geometry for ${item.map.id}`);
+  const random = seededRandom(item.curriculumIndex + 0x5eed);
+  const landRadius = item.map.players > 4 ? 3 : 2;
+  const land = tiles.filter((tile) => {
+    const q = Number(tile.q || 0);
+    const r = Number(tile.r || 0);
+    return Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= landRadius;
+  });
+  const center = land.find((tile) => Number(tile.q || 0) === 0 && Number(tile.r || 0) === 0) || land[0];
+  if (!center || land.length < (item.map.players > 4 ? 28 : 19)) {
+    throw new Error(`Test Builder land frame is too small for ${item.map.id}: ${land.length}`);
+  }
+
+  const resourcePool = shuffleWith(
+    land.filter((tile) => tile.id !== center.id).map((_, index) => {
+      if (index % 7 === 0) return 'gold';
+      return ['forest', 'hills', 'pasture', 'field', 'mountains'][index % 5];
+    }),
+    random,
+  );
+  const numbers = shuffleWith([2, 3, 3, 4, 4, 5, 5, 6, 8, 9, 9, 10, 10, 11, 11, 12], random);
+  let resourceIndex = 0;
+  for (const tile of shuffleWith(land, random)) {
+    if (tile.id === center.id) {
+      peer.send({ type: 'edit_preview_tile', tileId: tile.id, tileType: 'desert', number: null });
+      continue;
+    }
+    peer.send({
+      type: 'edit_preview_tile',
+      tileId: tile.id,
+      tileType: resourcePool[resourceIndex],
+      number: numbers[resourceIndex % numbers.length],
+    });
+    resourceIndex += 1;
+  }
+}
+
 async function runOneGame(port, token, item) {
   const peer = await Peer.connect(port);
   try {
@@ -212,7 +274,7 @@ async function runOneGame(port, token, item) {
       rules: {
         mapMode: item.map.mapMode,
         seafarersScenario: item.map.scenario,
-        victoryPointsToWin: VP_TO_WIN,
+        victoryPointsToWin: VP_TO_WIN_OVERRIDE || item.map.victoryPoints,
         setupTurnMs: 30_000,
         playTurnMs: 30_000,
         microPhaseMs: 15_000,
@@ -222,6 +284,13 @@ async function runOneGame(port, token, item) {
     await peer.waitFor((message) => message.type === 'room'
       && message.room.rules?.mapMode === item.map.mapMode
       && (item.map.mapMode !== 'seafarers' || message.room.rules?.seafarersScenario === item.map.scenario));
+
+    if (item.map.customBuilder) {
+      const preview = await peer.waitFor((message) => message.type === 'state'
+        && message.state?.phase === 'lobby'
+        && message.state?.previewKey === `seafarers:${item.map.scenario}`);
+      paintTrainingTestBuilder(peer, preview.state, item);
+    }
 
     peer.send({ type: 'fill_ai', targetCount: item.map.players });
     await peer.waitFor((message) => message.type === 'room' && (message.room.players || []).length === item.map.players);
@@ -233,9 +302,11 @@ async function runOneGame(port, token, item) {
       || (state.players || []).reduce((best, player) => (!best || Number(player.vp || 0) > Number(best.vp || 0)) ? player : best, null);
     return {
       sessionIndex: item.sessionIndex,
+      curriculumIndex: item.curriculumIndex,
       mapId: item.map.id,
       mapLabel: item.map.label,
       players: item.map.players,
+      victoryPointsToWin: VP_TO_WIN_OVERRIDE || item.map.victoryPoints,
       turnNumber: Number(state.turnNumber || 0),
       winner: String(winner?.name || winner?.id || 'unknown'),
       winnerVp: Number(winner?.vp || 0),
@@ -251,7 +322,8 @@ function curriculum(total) {
   // maps make up most of the lobby's standard map catalog by design.
   return Array.from({ length: total }, (_, sessionIndex) => ({
     sessionIndex,
-    map: MAPS[sessionIndex % MAPS.length],
+    curriculumIndex: CURRICULUM_OFFSET + sessionIndex,
+    map: MAPS[(CURRICULUM_OFFSET + sessionIndex) % MAPS.length],
   }));
 }
 
@@ -287,7 +359,7 @@ async function runBatch(server, token, items, completedBefore) {
 
 function summarize(results) {
   const byMap = {};
-  for (const map of MAPS) byMap[map.id] = { label: map.label, games: 0, turns: 0, minTurn: Infinity, maxTurn: 0, goldProductionCards: 0 };
+  for (const map of MAPS) byMap[map.id] = { label: map.label, victoryPointsToWin: VP_TO_WIN_OVERRIDE || map.victoryPoints, games: 0, turns: 0, minTurn: Infinity, maxTurn: 0, goldProductionCards: 0 };
   for (const result of results) {
     const summary = byMap[result.mapId];
     summary.games += 1;
@@ -345,13 +417,16 @@ async function main() {
       completedGames: results.length,
       batchSize: BATCH_SIZE,
       concurrency: CONCURRENCY,
-      victoryPointsToWin: VP_TO_WIN,
+      curriculumOffset: CURRICULUM_OFFSET,
+      victoryPointsToWin: VP_TO_WIN_OVERRIDE || 'scenario-defaults',
+      trainingObjective: 'discounted-fastest-victory-v1',
       mapsCovered: MAPS.map((map) => map.id),
       startingTrainedGames: Number(startingModel.trainedGames || 0),
       finalTrainedGames: Number(finalModel.trainedGames || 0),
       startingModelSha256: startingHash,
       finalModelSha256: modelHash(MODEL_PATH),
       totalGoldProductionCards: results.reduce((sum, result) => sum + result.goldProductionCards, 0),
+      averageVictoryTurn: results.reduce((sum, result) => sum + result.turnNumber, 0) / Math.max(1, results.length),
       byMap: summarize(results),
       games: results,
       completedAt: new Date().toISOString(),

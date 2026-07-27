@@ -181,7 +181,7 @@ const NEURAL_AI_MODEL_WRITER = new JsonFileWriter(NEURAL_AI_MODEL_PATH);
 let HISTORY_DB = { version: 1, games: [] };
 let NEURAL_AI_MODEL = null;
 const NEURAL_FEATURE_NAMES = Object.freeze([
-  'vp_progress', 'gold_income', 'vp_pressure', 'late_game_vp', 'hand_size', 'city_readiness',
+  'vp_progress', 'gold_income', 'victory_pace', 'late_game_vp', 'hand_size', 'city_readiness',
   'settlement_readiness', 'dev_readiness', 'city_upgrades', 'network_size', 'unplayed_dev', 'bias',
 ]);
 
@@ -196,7 +196,7 @@ function createDefaultNeuralAiModel() {
   const w2 = mkRow(hiddenSize, 0.1);
   const b2 = 0.2;
 
-  // Seed extra emphasis on VP-ish features (indexes 0/1/2/3 in feature vector below).
+  // Seed emphasis on victory progress/pace, late-game points, and Gold income.
   for (let h = 0; h < hiddenSize; h++) {
     w1[h][0] += 0.5;
     w1[h][1] += 0.4;
@@ -211,8 +211,9 @@ function createDefaultNeuralAiModel() {
     meta: {
       inputSize,
       hiddenSize,
-      featureVersion: 2,
+      featureVersion: 3,
       featureNames: [...NEURAL_FEATURE_NAMES],
+      trainingObjective: 'discounted-fastest-victory-v1',
     },
     params: { w1, b1, w2, b2 },
   };
@@ -232,8 +233,9 @@ function loadNeuralAiModel() {
       ...(parsed.meta || {}),
       inputSize: 12,
       hiddenSize: Array.isArray(parsed.params.w1) ? parsed.params.w1.length : 8,
-      featureVersion: 2,
+      featureVersion: 3,
       featureNames: [...NEURAL_FEATURE_NAMES],
+      trainingObjective: 'discounted-fastest-victory-v1',
     };
     NEURAL_AI_MODEL = parsed;
   } catch (e) {
@@ -3035,7 +3037,11 @@ function neuralFeaturesFromState(state, pid) {
   computeVP(state);
   const vpTarget = Math.max(3, Math.floor(Number(state?.rules?.victoryPointsToWin || 10)));
   const vp = Math.max(0, Number(p.vp || 0));
-  const vpToWin = Math.max(0, vpTarget - vp);
+  const playerCount = Math.max(2, Number(state?.players?.length || 2));
+  const elapsedRounds = Math.max(0, Number(state?.turnNumber || 0)) / playerCount;
+  // Unlike raw VP progress, victory pace declines as the same score takes more
+  // rounds to earn. This gives the policy a direct signal for faster wins.
+  const victoryPace = (vp / vpTarget) * Math.exp(-elapsedRounds / Math.max(8, vpTarget * 2.5));
   const res = p.resources || {};
   const resTotal = RESOURCE_KINDS.reduce((n, k) => n + Math.max(0, Number(res[k] || 0)), 0);
   const missCity = missingFor(res, BUILD_COSTS.city).total;
@@ -3064,7 +3070,7 @@ function neuralFeaturesFromState(state, pid) {
   return [
     vp / vpTarget,
     Math.min(1, goldIncome / 15),
-    1 - Math.min(1, vpToWin / vpTarget),
+    Math.min(1, victoryPace),
     Math.max(0, (vp - 6) / vpTarget),
     Math.min(1, resTotal / 12),
     1 - Math.min(1, missCity / 5),
@@ -3098,6 +3104,53 @@ function neuralActionValue(state, pid, fallback = 0) {
   return pred * 1200 + Number(fallback || 0);
 }
 
+function neuralPlayersInGame(game) {
+  return (game?.players || []).filter((player) => {
+    if (!player || !player.isAI) return false;
+    const difficulty = String(player.aiDifficulty || game?.aiDifficulty || '').toLowerCase().replace(/-/g, '_');
+    return difficulty === 'neural_net' || difficulty === 'neural';
+  });
+}
+
+function recordNeuralAiTrainingSnapshot(game) {
+  if (!game || game._dryRun || neuralPlayersInGame(game).length === 0) return;
+  if (!Object.prototype.hasOwnProperty.call(game, '_neuralTrainingTrace')) {
+    // Training traces are intentionally non-enumerable so they are not copied
+    // into lookahead games, active-room persistence, or client broadcasts.
+    Object.defineProperty(game, '_neuralTrainingTrace', { value: [], writable: true, configurable: true, enumerable: false });
+  }
+  const byPlayer = {};
+  for (const player of neuralPlayersInGame(game)) {
+    byPlayer[player.id] = neuralFeaturesFromState(game, player.id);
+  }
+  game._neuralTrainingTrace.push({ turn: Math.max(0, Number(game.turnNumber || 0)), byPlayer });
+  if (game._neuralTrainingTrace.length > 240) game._neuralTrainingTrace.shift();
+}
+
+function trainNeuralExample(prm, features, rawTarget, learningRate) {
+  const target = Math.max(-0.98, Math.min(0.98, Number(rawTarget || 0)));
+  const x = Array.isArray(features) ? features : [];
+  const { hidden, out } = neuralModelPredict(x);
+  const err = out - target;
+  const dOut = Math.max(-2, Math.min(2, (1 - out * out) * err));
+  const previousW2 = prm.w2.map((weight) => Number(weight || 0));
+  const clampWeight = (weight) => Math.max(-8, Math.min(8, Number(weight || 0)));
+
+  for (let i = 0; i < prm.w2.length; i++) {
+    prm.w2[i] = clampWeight(Number(prm.w2[i] || 0) - learningRate * dOut * Number(hidden[i] || 0));
+  }
+  prm.b2 = clampWeight(Number(prm.b2 || 0) - learningRate * dOut);
+
+  for (let i = 0; i < prm.w1.length; i++) {
+    const h = Number(hidden[i] || 0);
+    const dHidden = (1 - h * h) * previousW2[i] * dOut;
+    for (let j = 0; j < x.length; j++) {
+      prm.w1[i][j] = clampWeight(Number(prm.w1[i][j] || 0) - learningRate * dHidden * Number(x[j] || 0));
+    }
+    prm.b1[i] = clampWeight(Number(prm.b1[i] || 0) - learningRate * dHidden);
+  }
+}
+
 function trainNeuralAiFromFinishedGame(game) {
   try {
     if (!game || game._neuralTrained) return;
@@ -3105,36 +3158,55 @@ function trainNeuralAiFromFinishedGame(game) {
     if (!Array.isArray(game.players) || game.players.length < 2) return;
     const winnerId = String(game.winnerId || '').trim();
     if (!winnerId) return;
+    const neuralPlayers = neuralPlayersInGame(game);
+    if (neuralPlayers.length === 0) return;
 
     if (!NEURAL_AI_MODEL || !NEURAL_AI_MODEL.params) NEURAL_AI_MODEL = createDefaultNeuralAiModel();
     const prm = NEURAL_AI_MODEL.params;
-    const lr = 0.035;
+    const vpTarget = Math.max(3, Math.floor(Number(game?.rules?.victoryPointsToWin || 10)));
+    const totalTurns = Math.max(1, Number(game.turnNumber || 1));
+    const expectedTurns = Math.max(20, vpTarget * Math.max(2, neuralPlayers.length) * 2);
+    // A win is always positive, while reaching it sooner produces a stronger
+    // reward. The curve stays bounded to prevent short outliers destabilizing
+    // a model during large self-play curricula.
+    const winnerReward = 0.3 + 0.68 * Math.exp(-totalTurns / (expectedTurns * 1.5));
+    const trace = Array.isArray(game._neuralTrainingTrace) ? game._neuralTrainingTrace : [];
+    const sampleCount = Math.min(12, trace.length);
 
-    for (const gp of game.players) {
+    for (const gp of neuralPlayers) {
       const pid = String(gp?.id || '').trim();
       if (!pid) continue;
-      const target = (pid === winnerId) ? 1 : -1;
-      const x = neuralFeaturesFromState(game, pid);
-      const { hidden, out } = neuralModelPredict(x);
-      const err = out - target;
-      const dOut = (1 - out * out) * err;
-
-      for (let i = 0; i < prm.w2.length; i++) {
-        prm.w2[i] = Number(prm.w2[i] || 0) - lr * dOut * Number(hidden[i] || 0);
+      const outcome = pid === winnerId ? 1 : -1;
+      for (let sample = 0; sample < sampleCount; sample++) {
+        const index = sampleCount === 1 ? trace.length - 1 : Math.round(sample * (trace.length - 1) / (sampleCount - 1));
+        const snapshot = trace[index];
+        const features = snapshot?.byPlayer?.[pid];
+        if (!Array.isArray(features)) continue;
+        const remainingTurns = Math.max(0, totalTurns - Number(snapshot.turn || 0));
+        const discount = Math.exp(-remainingTurns / expectedTurns);
+        const target = outcome * winnerReward * (0.55 + 0.45 * discount);
+        trainNeuralExample(prm, features, target, 0.0035);
       }
-      prm.b2 = Number(prm.b2 || 0) - lr * dOut;
-
-      for (let i = 0; i < prm.w1.length; i++) {
-        const h = Number(hidden[i] || 0);
-        const dHidden = (1 - h * h) * Number(prm.w2[i] || 0) * dOut;
-        for (let j = 0; j < x.length; j++) {
-          prm.w1[i][j] = Number(prm.w1[i][j] || 0) - lr * dHidden * Number(x[j] || 0);
-        }
-        prm.b1[i] = Number(prm.b1[i] || 0) - lr * dHidden;
-      }
+      trainNeuralExample(prm, neuralFeaturesFromState(game, pid), outcome * winnerReward, 0.008);
     }
 
     NEURAL_AI_MODEL.trainedGames = Math.max(0, Number(NEURAL_AI_MODEL.trainedGames || 0)) + 1;
+    NEURAL_AI_MODEL.meta = {
+      ...(NEURAL_AI_MODEL.meta || {}),
+      inputSize: 12,
+      hiddenSize: Array.isArray(prm.w1) ? prm.w1.length : 8,
+      featureVersion: 3,
+      featureNames: [...NEURAL_FEATURE_NAMES],
+      trainingObjective: 'discounted-fastest-victory-v1',
+    };
+    const speedStats = (NEURAL_AI_MODEL.speedTraining && typeof NEURAL_AI_MODEL.speedTraining === 'object')
+      ? NEURAL_AI_MODEL.speedTraining
+      : { games: 0, totalTurns: 0, bestTurns: null };
+    speedStats.games = Math.max(0, Number(speedStats.games || 0)) + 1;
+    speedStats.totalTurns = Math.max(0, Number(speedStats.totalTurns || 0)) + totalTurns;
+    speedStats.bestTurns = speedStats.bestTurns == null ? totalTurns : Math.min(Number(speedStats.bestTurns), totalTurns);
+    speedStats.averageTurns = speedStats.totalTurns / speedStats.games;
+    NEURAL_AI_MODEL.speedTraining = speedStats;
     game._neuralTrained = true;
     saveNeuralAiModel();
   } catch (e) {
@@ -7649,6 +7721,7 @@ if (kind === 'pirate_steal') {
     game.pirateSteal = null;
 
     recordTurnEnd(game, playerId);
+    recordNeuralAiTrainingSnapshot(game);
 
     // Classic 5–6 paired player turn system.
     {
@@ -10909,6 +10982,14 @@ if (msg.type === 'create_room') {
     // Only remove if this socket is still the active one for the player.
     if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
 
+    // Completed headless training rooms have no reconnecting humans and retain
+    // large replay/geometry objects. Release them as soon as the trainer reads
+    // the terminal state so long curricula keep a flat memory profile.
+    if (AI_TRAINING_MODE && room.game?.phase === 'game-over' && room.sockets.size === 0) {
+      rooms.delete(code);
+      return;
+    }
+
     // keep players list (rejoin not implemented)
     broadcastRoom(room);
   });
@@ -12516,7 +12597,8 @@ const wouldAcceptTrade = (pid, trade, diff) => {
 }
 
 // Timer loop: server-authoritative timeouts (no per-tick broadcasts; clients count down locally)
-const AI_TICK_MS = (String(process.env.AI_FAST || '').toLowerCase() === '1') ? 10 : 250;
+const AI_TRAINING_MODE = String(process.env.AI_TRAINING || '').toLowerCase() === '1';
+const AI_TICK_MS = AI_TRAINING_MODE ? 1 : ((String(process.env.AI_FAST || '').toLowerCase() === '1') ? 10 : 250);
 
 const EXPERT_AI_TUNING_DEFAULTS = Object.freeze({
   vpGainWeight: Number(process.env.EXPERT_AI_VP_GAIN_WEIGHT || 220),
@@ -12555,7 +12637,9 @@ const aiTickInterval = setInterval(() => {
     if (!room.game) continue;
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
     const changed = handleTimeout(room) || handleAI(room);
-    if (changed) broadcastState(room);
+    // Headless self-play only needs the terminal state. Avoid serializing and
+    // sending every intermediate action, which otherwise dominates CPU/memory.
+    if (changed && (!AI_TRAINING_MODE || room.game.phase === 'game-over')) broadcastState(room);
   }
 }, AI_TICK_MS);
 
