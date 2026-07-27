@@ -12475,13 +12475,13 @@ function handleProductionGoldPrompt() {
         else if (thiefHighlightPhase === 'pirate-move') showChoice = canPirateHere;
 
         if (showChoice) {
-          const legalFill = isSeaTile ? 'rgba(55,190,255,.58)' : 'rgba(255,201,48,.58)';
-          const legalStroke = isSeaTile ? 'rgba(145,235,255,.72)' : 'rgba(255,239,145,.72)';
+          const legalFill = isSeaTile ? 'rgba(55,190,255,.88)' : 'rgba(255,201,48,.88)';
+          const legalStroke = isSeaTile ? 'rgba(145,235,255,.90)' : 'rgba(255,239,145,.90)';
 
-          // Keep the destination wash subtle. This pass is intentionally drawn with
-          // the terrain so roads, ships, settlements, and cities remain above it.
+          // Keep the destination wash clearly visible while drawing it with the
+          // terrain so roads, ships, settlements, cities, and tokens remain above it.
           ctx.save();
-          ctx.globalAlpha = 0.12 + 0.06 * thiefPulse;
+          ctx.globalAlpha = 0.26 + 0.12 * thiefPulse;
           ctx.fillStyle = legalFill;
           ctx.beginPath();
           poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
@@ -12491,7 +12491,7 @@ function handleProductionGoldPrompt() {
 
           // A dark halo separates the legal outline from bright terrain and sea artwork.
           ctx.save();
-          ctx.globalAlpha = 0.42;
+          ctx.globalAlpha = 0.60;
           ctx.strokeStyle = 'rgba(0,0,0,.70)';
           ctx.lineWidth = Math.max(6, view.scale * 0.065);
           ctx.lineJoin = 'round';
@@ -12503,7 +12503,7 @@ function handleProductionGoldPrompt() {
 
           // Bright pulsing double border marks the exact clickable hex.
           ctx.save();
-          ctx.globalAlpha = 0.46 + 0.10 * thiefPulse;
+          ctx.globalAlpha = 0.72 + 0.16 * thiefPulse;
           ctx.strokeStyle = legalStroke;
           ctx.lineWidth = Math.max(4, view.scale * 0.045);
           ctx.lineJoin = 'round';
@@ -12516,7 +12516,7 @@ function handleProductionGoldPrompt() {
           ctx.restore();
 
           ctx.save();
-          ctx.globalAlpha = 0.30 + 0.08 * thiefPulse;
+          ctx.globalAlpha = 0.55 + 0.12 * thiefPulse;
           ctx.strokeStyle = 'rgba(255,255,255,.72)';
           ctx.lineWidth = Math.max(2, view.scale * 0.022);
           ctx.setLineDash([Math.max(7, view.scale * 0.085), Math.max(4, view.scale * 0.05)]);

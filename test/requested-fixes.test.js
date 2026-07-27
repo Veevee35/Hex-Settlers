@@ -87,9 +87,9 @@ test('buy development card is placed in the turn action bar instead of the devel
 
 
 
-test('robber and pirate legal placement tiles are translucent and render below player structures without checkmarks', () => {
-  assert.match(appJs, /const legalFill = isSeaTile \? 'rgba\(55,190,255,\.58\)' : 'rgba\(255,201,48,\.58\)'/);
-  assert.match(appJs, /ctx\.globalAlpha = 0\.12 \+ 0\.06 \* thiefPulse/);
+test('robber and pirate legal placement tiles are noticeable and render below player structures without checkmarks', () => {
+  assert.match(appJs, /const legalFill = isSeaTile \? 'rgba\(55,190,255,\.88\)' : 'rgba\(255,201,48,\.88\)'/);
+  assert.match(appJs, /ctx\.globalAlpha = 0\.26 \+ 0\.12 \* thiefPulse/);
   assert.match(appJs, /ctx\.setLineDash\(/);
   assert.doesNotMatch(appJs, /drawThiefLegalTileOverlayPass/);
   const highlight = appJs.indexOf("const legalFill = isSeaTile");
