@@ -458,6 +458,14 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
   );
   assert.equal(finalReplayFrame.phase, 'game-over');
   assert.equal(finalReplayFrame.players.find((player) => player.id === guestAuth.user.id).departed, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const persistedHistory = JSON.parse(fs.readFileSync(path.join(dataDir, 'game_history.json'), 'utf8'));
+  const compactEntry = persistedHistory.games.find((game) => game.id === saved.id);
+  assert.equal(typeof compactEntry.logJson, 'string');
+  assert.equal(typeof compactEntry.replayJson, 'string');
+  assert.equal(compactEntry.log, undefined);
+  assert.equal(compactEntry.replay, undefined);
 });
 
 test('accounts, active rooms, expert tuning, and neural model survive a clean restart', { timeout: 20_000 }, async (t) => {
@@ -620,6 +628,15 @@ test('players can upload, download, and select shared texture packs without gian
   const downloaded = await request(`${base}/assets/${assetRoute}`, 'GET', guestCookie, undefined, '');
   assert.equal(downloaded.response.status, 200);
   assert.deepEqual(Buffer.from(await downloaded.response.arrayBuffer()), png);
+
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  const activeRooms = JSON.parse(fs.readFileSync(path.join(dataDir, 'active_rooms.json'), 'utf8'));
+  const persistedRoom = activeRooms.rooms.find((room) => room.code === joined.room.code);
+  const persistedPack = persistedRoom.sharedTexturePacks[packId];
+  assert.equal(Array.isArray(persistedPack.assets), true);
+  assert.deepEqual(persistedPack.assets, [assetRel]);
+  assert.doesNotMatch(JSON.stringify(persistedPack), /data:image\/png;base64/i);
+  assert.equal(fs.existsSync(path.join(dataDir, 'texture-packs', persistedPack.storageKey, ...assetRel.split('/'))), true);
 
   guest.send({ type: 'get_texture_pack', packId });
   const websocketManifest = await guest.waitFor((message) => message.type === 'texture_pack_manifest' && message.pack.id === packId);

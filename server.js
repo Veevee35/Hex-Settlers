@@ -164,7 +164,7 @@ const BUILTIN_ADMIN_ENABLED = (() => {
   return String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'test';
 })();
 const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
-const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH);
+const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH, { space: 0 });
 
 let USERS_DB = { version: 2, users: [] };
 let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticate without fighting each other
@@ -175,7 +175,7 @@ let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticat
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
 const HISTORY_MAX_GAMES = 500;
 const NEURAL_AI_MODEL_PATH = path.join(DATA_DIR, 'neural_ai_model.json');
-const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH);
+const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH, { space: 0 });
 const NEURAL_AI_MODEL_WRITER = new JsonFileWriter(NEURAL_AI_MODEL_PATH);
 
 let HISTORY_DB = { version: 1, games: [] };
@@ -253,6 +253,7 @@ function loadHistoryDb() {
           const before = Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : [];
           const cleaned = [];
           const seen = new Set();
+          let migratedPackedDetails = false;
           for (const g of before) {
             if (!isValidHistoryEntry(g)) continue;
             const ids = (Array.isArray(g.players) ? g.players : [])
@@ -264,10 +265,12 @@ function loadHistoryDb() {
             const key = `${String(g.roomCode || '').trim()}|${t}|${String(g.winnerId || '').trim()}|${ids}`;
             if (seen.has(key)) continue;
             seen.add(key);
-            cleaned.push(g);
+            const packed = packHistoryEntry(g);
+            if (packed !== g) migratedPackedDetails = true;
+            cleaned.push(packed);
           }
-          if (cleaned.length !== before.length) {
-            HISTORY_DB.games = cleaned;
+          HISTORY_DB.games = cleaned;
+          if (cleaned.length !== before.length || migratedPackedDetails) {
             saveHistoryDb();
           }
         } catch (_) {}
@@ -301,6 +304,32 @@ function isValidHistoryEntry(g) {
   if (!g.snapshot || typeof g.snapshot !== 'object') return false;
   if (String(g.snapshot.phase || '').toLowerCase() !== 'game-over') return false;
   return true;
+}
+
+function packHistoryEntry(entry) {
+  if (!entry || typeof entry !== 'object') return entry;
+  if (typeof entry.logJson === 'string' && typeof entry.replayJson === 'string'
+    && entry.log === undefined && entry.replay === undefined) return entry;
+  const replay = entry.replay || null;
+  const packed = { ...entry };
+  delete packed.log;
+  delete packed.replay;
+  packed.replayStepCount = Math.max(0, Number(Array.isArray(replay && replay.steps) ? replay.steps.length : 0));
+  packed.logJson = JSON.stringify(Array.isArray(entry.log) ? entry.log : []);
+  packed.replayJson = JSON.stringify(replay);
+  return packed;
+}
+
+function unpackHistoryEntry(entry) {
+  if (!entry || typeof entry !== 'object') return entry;
+  if (entry.log !== undefined || entry.replay !== undefined) return entry;
+  const unpacked = { ...entry };
+  try { unpacked.log = JSON.parse(String(entry.logJson || '[]')); } catch (_) { unpacked.log = []; }
+  try { unpacked.replay = JSON.parse(String(entry.replayJson || 'null')); } catch (_) { unpacked.replay = null; }
+  delete unpacked.logJson;
+  delete unpacked.replayJson;
+  delete unpacked.replayStepCount;
+  return unpacked;
 }
 
 function _historyPlayerSummary(p) {
@@ -378,7 +407,7 @@ function persistGameHistoryFromGame(room, game, winnerId) {
 
   try {
     if (!Array.isArray(HISTORY_DB.games)) HISTORY_DB.games = [];
-    HISTORY_DB.games.push(entry);
+    HISTORY_DB.games.push(packHistoryEntry(entry));
     saveHistoryDb();
     game._historyPersisted = true;
   } catch (e) {
@@ -403,7 +432,7 @@ function listGameHistory(limit = 200) {
     winnerName: g.winnerName,
     rules: g.rules || null,
     players: g.players || [],
-    replaySteps: Math.max(0, Number(g.replay && Array.isArray(g.replay.steps) ? g.replay.steps.length : 0)),
+    replaySteps: Math.max(0, Number(g.replayStepCount ?? (g.replay && Array.isArray(g.replay.steps) ? g.replay.steps.length : 0))),
   }));
 }
 
@@ -413,7 +442,7 @@ function getGameHistoryEntry(id) {
   const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
   for (let i = games.length - 1; i >= 0; i--) {
     const g = games[i];
-    if (g && g.id === gid) return g;
+    if (g && g.id === gid) return unpackHistoryEntry(g);
   }
   return null;
 }
@@ -2392,46 +2421,27 @@ function recordShipMove(game, playerId) {
 
 function filterStatsForViewer(stats, viewerId) {
   if (!stats || !viewerId) return null;
-  const s = JSON.parse(JSON.stringify(stats));
-  // Keep global roll totals, but only keep per-player sensitive sections for the viewer.
-  for (const pid of Object.keys(s.rolls?.byPlayer || {})) {
-    if (pid !== viewerId) delete s.rolls.byPlayer[pid];
+  const onlyViewer = (records) => (records && Object.prototype.hasOwnProperty.call(records, viewerId))
+    ? { [viewerId]: records[viewerId] }
+    : {};
+  // These views are serialized immediately and never mutated, so shallowly copy
+  // only the branches whose per-player records must be filtered.
+  const s = { ...stats };
+  for (const key of ['rolls', 'turnTimes', 'resources', 'builds', 'trades', 'dev', 'actions']) {
+    if (stats[key]) s[key] = { ...stats[key], byPlayer: onlyViewer(stats[key].byPlayer) };
   }
-  for (const pid of Object.keys(s.turnTimes?.byPlayer || {})) {
-    if (pid !== viewerId) delete s.turnTimes.byPlayer[pid];
-  }
-  for (const pid of Object.keys(s.resources?.byPlayer || {})) {
-    if (pid !== viewerId) delete s.resources.byPlayer[pid];
-  }
-  for (const pid of Object.keys(s.builds?.byPlayer || {})) {
-    if (pid !== viewerId) delete s.builds.byPlayer[pid];
-  }
-  for (const pid of Object.keys(s.trades?.byPlayer || {})) {
-    if (pid !== viewerId) delete s.trades.byPlayer[pid];
-  }
-  for (const pid of Object.keys(s.dev?.byPlayer || {})) {
-    if (pid !== viewerId) delete s.dev.byPlayer[pid];
-  }
-  for (const pid of Object.keys(s.actions?.byPlayer || {})) {
-    if (pid !== viewerId) delete s.actions.byPlayer[pid];
-  }
-  for (const pid of Object.keys(s.thieves?.robber?.movesByPlayer || {})) {
-    if (pid !== viewerId) delete s.thieves.robber.movesByPlayer[pid];
-  }
-  for (const pid of Object.keys(s.thieves?.robber?.stealsByPlayer || {})) {
-    if (pid !== viewerId) delete s.thieves.robber.stealsByPlayer[pid];
-  }
-  for (const pid of Object.keys(s.thieves?.robber?.stolenFromByPlayer || {})) {
-    if (pid !== viewerId) delete s.thieves.robber.stolenFromByPlayer[pid];
-  }
-  for (const pid of Object.keys(s.thieves?.pirate?.movesByPlayer || {})) {
-    if (pid !== viewerId) delete s.thieves.pirate.movesByPlayer[pid];
-  }
-  for (const pid of Object.keys(s.thieves?.pirate?.stealsByPlayer || {})) {
-    if (pid !== viewerId) delete s.thieves.pirate.stealsByPlayer[pid];
-  }
-  for (const pid of Object.keys(s.thieves?.pirate?.stolenFromByPlayer || {})) {
-    if (pid !== viewerId) delete s.thieves.pirate.stolenFromByPlayer[pid];
+  if (stats.thieves) {
+    const filterThief = (thief) => thief ? {
+      ...thief,
+      movesByPlayer: onlyViewer(thief.movesByPlayer),
+      stealsByPlayer: onlyViewer(thief.stealsByPlayer),
+      stolenFromByPlayer: onlyViewer(thief.stolenFromByPlayer),
+    } : thief;
+    s.thieves = {
+      ...stats.thieves,
+      robber: filterThief(stats.thieves.robber),
+      pirate: filterThief(stats.thieves.pirate),
+    };
   }
   return s;
 }
@@ -8060,17 +8070,29 @@ function sendToRoomMember(room, playerId, payload) {
 }
 
 const rooms = new Map(); // code -> room
+const ACTIVE_ROOMS_SAVE_DEBOUNCE_MS = 400;
+let activeRoomsSaveTimer = null;
 
 function activeRoomSnapshot() {
   return { version: 1, rooms: Array.from(rooms.values()).map(serializeRoom).filter(Boolean) };
 }
 
 function scheduleActiveRoomsSave({ throwOnError = false } = {}) {
-  const write = ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot());
-  if (throwOnError) return write;
-  return write.catch((error) => {
-    console.error('[rooms] Failed to save active_rooms.json:', error && error.message ? error.message : error);
-  });
+  const persist = () => ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot());
+  if (throwOnError) {
+    if (activeRoomsSaveTimer) clearTimeout(activeRoomsSaveTimer);
+    activeRoomsSaveTimer = null;
+    return persist();
+  }
+  if (activeRoomsSaveTimer) return Promise.resolve();
+  activeRoomsSaveTimer = setTimeout(() => {
+    activeRoomsSaveTimer = null;
+    persist().catch((error) => {
+      console.error('[rooms] Failed to save active_rooms.json:', error && error.message ? error.message : error);
+    });
+  }, ACTIVE_ROOMS_SAVE_DEBOUNCE_MS);
+  if (typeof activeRoomsSaveTimer.unref === 'function') activeRoomsSaveTimer.unref();
+  return Promise.resolve();
 }
 
 function loadActiveRooms() {
@@ -8442,9 +8464,10 @@ function makePreviewGame(room) {
 function broadcastPreviewState(room) {
   if (!room) return;
   const previewGame = makePreviewGame(room);
+  const baseState = buildSanitizableState(previewGame);
   for (const [pid, ws] of room.sockets.entries()) {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      sendJson(ws, { type: 'state', state: sanitizeStateFor(previewGame, pid) });
+      sendJson(ws, { type: 'state', state: sanitizeStateFor(previewGame, pid, baseState) });
     }
   }
 }
@@ -8514,13 +8537,40 @@ function broadcastSfx(room, name, extra) {
 
 
 
-function sanitizeStateFor(game, viewerId) {
+function buildSanitizableState(game) {
+  const state = JSON.parse(JSON.stringify({
+    ...game,
+    replay: undefined,
+    devDeck: undefined,
+    stats: undefined,
+    log: undefined,
+  }));
+  state.devDeckCount = (game.devDeck || []).length;
+  state.stats = game.stats;
+  state.log = game.log || [];
+
+  // Fog visibility and legacy timer internals are the same for every viewer, so
+  // strip them once per broadcast instead of once per connected player.
+  if (state.geom && Array.isArray(state.geom.tiles)) {
+    for (const tile of state.geom.tiles) {
+      if (tile && tile.fog && !tile.revealed) {
+        delete tile.hiddenType;
+        delete tile.hiddenNumber;
+      }
+    }
+  }
+  delete state.tradeTimerPause;
+  return state;
+}
+
+function sanitizeStateFor(game, viewerId, baseState = null) {
   // Per-player state view: keeps dev deck order hidden and other players' hands private.
   // Replay history is retrieved explicitly from game history; never broadcast it
   // with every live state update.
-  const state = JSON.parse(JSON.stringify({ ...game, replay: undefined }));
-  state.devDeckCount = (game.devDeck || []).length;
-  delete state.devDeck;
+  const source = baseState || buildSanitizableState(game);
+  const state = { ...source };
+  state.players = (source.players || []).map((player) => ({ ...player }));
+  if (source.lastEvent && typeof source.lastEvent === 'object') state.lastEvent = { ...source.lastEvent };
 
   const isGameOver = state.phase === 'game-over';
 
@@ -8560,26 +8610,19 @@ function sanitizeStateFor(game, viewerId) {
 
   state.log = sanitizeLogEntriesForViewer(state.log, viewerId);
 
-  // Hide Fog Island hidden tile information from clients.
-  if (state.geom && Array.isArray(state.geom.tiles)) {
-    for (const t of state.geom.tiles) {
-      if (t && t.fog && !t.revealed) {
-        try { delete t.hiddenType; } catch (_) {}
-        try { delete t.hiddenNumber; } catch (_) {}
-      }
-    }
-  }
-
-
-  try { delete state.tradeTimerPause; } catch (_) {}
-
   return state;
 }
 
-function stateForRoomSocket(room, ws, memberId) {
+function stateForRoomSocket(room, ws, memberId, baseState = null, stateCache = null) {
   const game = room && room.game;
   if (!game) return null;
-  if (roomRole(room, memberId) !== 'spectator') return sanitizeStateFor(game, memberId);
+  if (roomRole(room, memberId) !== 'spectator') {
+    const cacheKey = `player:${memberId}`;
+    if (stateCache && stateCache.has(cacheKey)) return stateCache.get(cacheKey);
+    const state = sanitizeStateFor(game, memberId, baseState);
+    if (stateCache) stateCache.set(cacheKey, state);
+    return state;
+  }
   const activePlayers = (game.players || []).filter((player) => player && !player.departed && (game.turnOrder || []).includes(player.id));
   let viewId = String(ws && ws._spectatorViewId || '');
   if (!activePlayers.some((player) => player.id === viewId)) {
@@ -8588,9 +8631,12 @@ function stateForRoomSocket(room, ws, memberId) {
       : (activePlayers[0] && activePlayers[0].id) || '';
     if (ws) ws._spectatorViewId = viewId || null;
   }
-  const state = sanitizeStateFor(game, viewId || memberId);
+  const cacheKey = `spectator:${viewId || memberId}`;
+  if (stateCache && stateCache.has(cacheKey)) return stateCache.get(cacheKey);
+  const state = sanitizeStateFor(game, viewId || memberId, baseState);
   state.spectatorMode = true;
   state.spectatorViewPlayerId = viewId || null;
+  if (stateCache) stateCache.set(cacheKey, state);
   return state;
 }
 
@@ -8599,27 +8645,45 @@ function broadcastState(room) {
   room.lastActiveAt = now();
   clearLegacyTradeTimerPause(room.game);
   syncTimer(room.game);
+  const baseState = buildSanitizableState(room.game);
+  const stateCache = new Map();
 
   for (const [pid, ws] of room.sockets.entries()) {
     if (ws.readyState !== WebSocket.OPEN) continue;
-    const state = stateForRoomSocket(room, ws, pid);
+    const state = stateForRoomSocket(room, ws, pid, baseState, stateCache);
     sendJson(ws, { type: 'state', state });
   }
   scheduleActiveRoomsSave();
 }
 
 
+function roomHasOpenSocket(room) {
+  if (!room || !room.sockets) return false;
+  for (const ws of room.sockets.values()) {
+    if (ws && ws.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
+}
+
 function cleanupRooms() {
   const cutoff = now() - (1000 * 60 * 60 * 8); // 8 hours
   let changed = false;
+  const removedTextureStorageKeys = new Set();
   for (const [code, room] of rooms.entries()) {
-    const anyOpen = Array.from(room.sockets.values()).some(ws => ws.readyState === WebSocket.OPEN);
+    texturePackUploadsForRoom(room);
+    const anyOpen = roomHasOpenSocket(room);
     const lastActiveAt = Math.max(Number(room.createdAt || 0), Number(room.lastActiveAt || 0));
     if (!anyOpen && lastActiveAt < cutoff) {
+      for (const upload of Object.values(room.texturePackUploads || {})) removeTexturePackUpload(upload);
+      for (const shared of Object.values(room.sharedTexturePacks || {})) {
+        const storageKey = validTexturePackStorageKey(shared && shared.storageKey);
+        if (storageKey) removedTextureStorageKeys.add(storageKey);
+      }
       rooms.delete(code);
       changed = true;
     }
   }
+  for (const storageKey of removedTextureStorageKeys) removeTexturePackStorageIfUnreferenced(storageKey);
   if (changed) scheduleActiveRoomsSave();
 }
 
@@ -8696,6 +8760,123 @@ function sendHttpJson(req, res, statusCode, payload, extraHeaders = {}) {
 const TEXTURE_PACK_ASSET_MAX_BYTES = 8 * 1024 * 1024;
 const TEXTURE_PACK_TOTAL_MAX_BYTES = 40 * 1024 * 1024;
 const TEXTURE_PACK_UPLOAD_TTL_MS = 10 * 60 * 1000;
+const TEXTURE_PACK_STORAGE_DIR = path.join(DATA_DIR, 'texture-packs');
+const TEXTURE_PACK_UPLOAD_DIR = path.join(TEXTURE_PACK_STORAGE_DIR, '.uploads');
+
+try { fs.rmSync(TEXTURE_PACK_UPLOAD_DIR, { recursive: true, force: true }); } catch (_) {}
+
+function newTexturePackStorageKey() {
+  return crypto.randomBytes(18).toString('hex');
+}
+
+function validTexturePackStorageKey(value) {
+  const key = String(value || '').trim().toLowerCase();
+  return /^[a-f0-9]{36}$/.test(key) ? key : '';
+}
+
+function texturePackAssetNames(shared) {
+  if (!shared || typeof shared !== 'object') return [];
+  const candidates = Array.isArray(shared.assets) ? shared.assets : Object.keys(shared.assets || {});
+  return [...new Set(candidates.map(validTexturePackAssetRelPath).filter(Boolean))];
+}
+
+function texturePackStoragePath(storageKey, rel = '', temporary = false) {
+  const key = validTexturePackStorageKey(storageKey);
+  const assetRel = rel ? validTexturePackAssetRelPath(rel) : '';
+  if (!key || (rel && !assetRel)) return '';
+  const base = path.join(temporary ? TEXTURE_PACK_UPLOAD_DIR : TEXTURE_PACK_STORAGE_DIR, key);
+  return assetRel ? path.join(base, ...assetRel.split('/')) : base;
+}
+
+async function writeTexturePackUploadAsset(storageKey, rel, buffer) {
+  const filePath = texturePackStoragePath(storageKey, rel, true);
+  if (!filePath || !isPngBuffer(buffer)) throw new Error('Invalid texture image.');
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.promises.writeFile(filePath, buffer, { mode: 0o600 });
+}
+
+async function completeTexturePackStorage(storageKey) {
+  const source = texturePackStoragePath(storageKey, '', true);
+  const destination = texturePackStoragePath(storageKey);
+  if (!source || !destination) throw new Error('Invalid texture pack storage.');
+  await fs.promises.mkdir(TEXTURE_PACK_STORAGE_DIR, { recursive: true });
+  await fs.promises.rename(source, destination);
+}
+
+function removeTexturePackUpload(upload) {
+  const uploadPath = upload && texturePackStoragePath(upload.storageKey, '', true);
+  if (uploadPath) fs.promises.rm(uploadPath, { recursive: true, force: true }).catch(() => {});
+}
+
+function removeTexturePackStorageIfUnreferenced(storageKey) {
+  const key = validTexturePackStorageKey(storageKey);
+  if (!key) return;
+  for (const room of rooms.values()) {
+    for (const shared of Object.values(room.sharedTexturePacks || {})) {
+      if (validTexturePackStorageKey(shared && shared.storageKey) === key) return;
+    }
+  }
+  const storagePath = texturePackStoragePath(key);
+  if (storagePath) fs.promises.rm(storagePath, { recursive: true, force: true }).catch(() => {});
+}
+
+async function readSharedTexturePackAsset(shared, rel) {
+  const storagePath = shared && texturePackStoragePath(shared.storageKey, rel);
+  if (storagePath) {
+    try {
+      const buffer = await fs.promises.readFile(storagePath);
+      return isPngBuffer(buffer) ? buffer : null;
+    } catch (_) { return null; }
+  }
+  // Backward compatibility for rooms persisted by the older in-memory format.
+  return pngBufferFromDataUrl(shared && !Array.isArray(shared.assets) && shared.assets && shared.assets[rel]);
+}
+
+async function storeTexturePackBuffers(entries) {
+  const storageKey = newTexturePackStorageKey();
+  const assetNames = [];
+  try {
+    for (const [rel, buffer] of entries) {
+      await writeTexturePackUploadAsset(storageKey, rel, buffer);
+      assetNames.push(rel);
+    }
+    await completeTexturePackStorage(storageKey);
+    return { storageKey, assets: assetNames };
+  } catch (error) {
+    const uploadPath = texturePackStoragePath(storageKey, '', true);
+    if (uploadPath) await fs.promises.rm(uploadPath, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function migrateLegacySharedTexturePacks() {
+  let changed = false;
+  for (const room of rooms.values()) {
+    for (const shared of Object.values(room.sharedTexturePacks || {})) {
+      if (!shared || validTexturePackStorageKey(shared.storageKey) || Array.isArray(shared.assets)) continue;
+      const entries = [];
+      let totalBytes = 0;
+      for (const [candidate, dataUrl] of Object.entries(shared.assets || {})) {
+        const rel = validTexturePackAssetRelPath(candidate);
+        const buffer = pngBufferFromDataUrl(dataUrl);
+        if (!rel || !buffer) continue;
+        totalBytes += buffer.length;
+        if (totalBytes > TEXTURE_PACK_TOTAL_MAX_BYTES) break;
+        entries.push([rel, buffer]);
+      }
+      if (!entries.length || totalBytes > TEXTURE_PACK_TOTAL_MAX_BYTES) continue;
+      try {
+        const stored = await storeTexturePackBuffers(entries);
+        shared.storageKey = stored.storageKey;
+        shared.assets = stored.assets;
+        changed = true;
+      } catch (error) {
+        console.error('[texture-packs] Failed to migrate a legacy pack:', error && error.message ? error.message : error);
+      }
+    }
+  }
+  if (changed) scheduleActiveRoomsSave();
+}
 
 function readBinaryBody(request, maxBytes) {
   return new Promise((resolve, reject) => {
@@ -8742,10 +8923,17 @@ function texturePackUploadsForRoom(room) {
   if (!room.texturePackUploads || typeof room.texturePackUploads !== 'object') room.texturePackUploads = Object.create(null);
   const cutoff = now() - TEXTURE_PACK_UPLOAD_TTL_MS;
   for (const [packId, upload] of Object.entries(room.texturePackUploads)) {
-    if (!upload || Number(upload.updatedAt || upload.createdAt || 0) < cutoff) delete room.texturePackUploads[packId];
+    if (!upload || Number(upload.updatedAt || upload.createdAt || 0) < cutoff) {
+      removeTexturePackUpload(upload);
+      delete room.texturePackUploads[packId];
+    }
   }
   return room.texturePackUploads;
 }
+
+migrateLegacySharedTexturePacks().catch((error) => {
+  console.error('[texture-packs] Legacy migration failed:', error && error.message ? error.message : error);
+});
 
 function sendHttpPng(req, res, buffer) {
   res.writeHead(200, {
@@ -8755,6 +8943,23 @@ function sendHttpPng(req, res, buffer) {
     'Content-Length': buffer.length,
   });
   res.end(buffer);
+}
+
+async function sendHttpPngFile(req, res, filePath) {
+  try {
+    const stat = await fs.promises.stat(filePath);
+    if (!stat.isFile()) return false;
+    res.writeHead(200, {
+      ...securityHeaders({ isTls: requestIsTls(req, APP_CONFIG.trustProxy) }),
+      'Cache-Control': 'private, no-store',
+      'Content-Type': 'image/png',
+      'Content-Length': stat.size,
+    });
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', () => { try { res.destroy(); } catch (_) {} });
+    stream.pipe(res);
+    return true;
+  } catch (_) { return false; }
 }
 
 async function handleTexturePackHttp(req, res, urlPath) {
@@ -8809,7 +9014,7 @@ async function handleTexturePackHttp(req, res, urlPath) {
         id: String(shared.id || packId),
         name: sanitizeTexturePackName(shared.name),
         ownerId: String(shared.ownerId || ''),
-        assets: Object.keys(shared.assets || {}).map(validTexturePackAssetRelPath).filter(Boolean),
+        assets: texturePackAssetNames(shared),
       },
     });
     return;
@@ -8824,16 +9029,19 @@ async function handleTexturePackHttp(req, res, urlPath) {
     if (builtin) {
       const baseDir = builtin.id === 'simplified' ? path.join(PUBLIC_DIR, 'texture-packs', 'simplified') : path.join(PUBLIC_DIR, 'texture pack');
       const filePath = path.join(baseDir, ...rel.split('/'));
-      try {
-        const buffer = await fs.promises.readFile(filePath);
-        if (!isPngBuffer(buffer)) throw new Error('Invalid PNG');
-        sendHttpPng(req, res, buffer);
-      } catch (_) {
+      if (!(await sendHttpPngFile(req, res, filePath))) {
         sendHttpJson(req, res, 404, { ok: false, error: 'Texture image not found.' });
       }
       return;
     }
-    const buffer = shared && pngBufferFromDataUrl(shared.assets && shared.assets[rel]);
+    const storedPath = shared && texturePackStoragePath(shared.storageKey, rel);
+    if (storedPath) {
+      if (!(await sendHttpPngFile(req, res, storedPath))) {
+        sendHttpJson(req, res, 404, { ok: false, error: 'Texture image not found.' });
+      }
+      return;
+    }
+    const buffer = shared && await readSharedTexturePackAsset(shared, rel);
     if (!buffer) {
       sendHttpJson(req, res, 404, { ok: false, error: 'Texture image not found.' });
       return;
@@ -8850,7 +9058,7 @@ async function handleTexturePackHttp(req, res, urlPath) {
   const uploads = texturePackUploadsForRoom(room);
   if (req.method === 'PUT' && parts.length === 2) {
     if (shared) {
-      sendHttpJson(req, res, 200, { ok: true, alreadyAvailable: true, assetCount: Object.keys(shared.assets || {}).length });
+      sendHttpJson(req, res, 200, { ok: true, alreadyAvailable: true, assetCount: texturePackAssetNames(shared).length });
       return;
     }
     let body;
@@ -8870,6 +9078,9 @@ async function handleTexturePackHttp(req, res, urlPath) {
       ownerId: viewer.id,
       createdAt: existingUpload ? existingUpload.createdAt : now(),
       updatedAt: now(),
+      storageKey: existingUpload && validTexturePackStorageKey(existingUpload.storageKey)
+        ? existingUpload.storageKey
+        : newTexturePackStorageKey(),
       assets: existingUpload && existingUpload.assets ? existingUpload.assets : Object.create(null),
       totalBytes: Number(existingUpload && existingUpload.totalBytes || 0),
     };
@@ -8898,13 +9109,18 @@ async function handleTexturePackHttp(req, res, urlPath) {
       sendHttpJson(req, res, 400, { ok: false, error: 'Texture assets must be valid PNG images.' });
       return;
     }
-    const previousBytes = Buffer.isBuffer(upload.assets[rel]) ? upload.assets[rel].length : 0;
+    const previousBytes = Math.max(0, Number(upload.assets[rel] || 0));
     const nextTotal = Math.max(0, Number(upload.totalBytes || 0) - previousBytes + buffer.length);
     if (nextTotal > TEXTURE_PACK_TOTAL_MAX_BYTES) {
       sendHttpJson(req, res, 413, { ok: false, error: 'Texture pack is too large.' });
       return;
     }
-    upload.assets[rel] = buffer;
+    try { await writeTexturePackUploadAsset(upload.storageKey, rel, buffer); }
+    catch (_) {
+      sendHttpJson(req, res, 500, { ok: false, error: 'Texture image could not be stored.' });
+      return;
+    }
+    upload.assets[rel] = buffer.length;
     upload.totalBytes = nextTotal;
     upload.updatedAt = now();
     sendHttpJson(req, res, 200, { ok: true, asset: rel });
@@ -8917,19 +9133,25 @@ async function handleTexturePackHttp(req, res, urlPath) {
       sendHttpJson(req, res, 409, { ok: false, error: 'Start this texture-pack upload again.' });
       return;
     }
-    const entries = Object.entries(upload.assets || {}).filter(([, buffer]) => isPngBuffer(buffer));
+    const entries = Object.entries(upload.assets || {})
+      .map(([rel, bytes]) => [validTexturePackAssetRelPath(rel), Math.max(0, Number(bytes || 0))])
+      .filter(([rel, bytes]) => rel && bytes > 0);
     if (!entries.length) {
       sendHttpJson(req, res, 400, { ok: false, error: 'No valid PNGs were uploaded.' });
       return;
     }
-    const assets = Object.create(null);
-    for (const [rel, buffer] of entries) assets[rel] = `data:image/png;base64,${buffer.toString('base64')}`;
+    try { await completeTexturePackStorage(upload.storageKey); }
+    catch (_) {
+      sendHttpJson(req, res, 500, { ok: false, error: 'Texture pack could not be finalized.' });
+      return;
+    }
     store[packId] = {
       id: packId,
       name: upload.name,
       ownerId: viewer.id,
       createdAt: now(),
-      assets,
+      storageKey: upload.storageKey,
+      assets: entries.map(([rel]) => rel),
     };
     delete uploads[packId];
     member.texturePackId = packId;
@@ -9645,7 +9867,7 @@ if (msg.type === 'texture_pack_publish') {
     return;
   }
 
-  const cleanAssets = Object.create(null);
+  const cleanAssets = [];
   let assetCount = 0;
   let totalBytes = 0;
   for (const [k, v] of Object.entries(assets)) {
@@ -9657,7 +9879,7 @@ if (msg.type === 'texture_pack_publish') {
       sendJson(ws, { type: 'error', error: 'Texture pack is too large.' });
       return;
     }
-    cleanAssets[rel] = `data:image/png;base64,${buffer.toString('base64')}`;
+    cleanAssets.push([rel, buffer]);
     assetCount += 1;
     if (assetCount >= 80) break;
   }
@@ -9667,14 +9889,26 @@ if (msg.type === 'texture_pack_publish') {
     return;
   }
 
+  let stored;
+  try { stored = await storeTexturePackBuffers(cleanAssets); }
+  catch (_) {
+    sendJson(ws, { type: 'error', error: 'Texture pack could not be stored.' });
+    return;
+  }
+
   const store = room.sharedTexturePacks || (room.sharedTexturePacks = Object.create(null));
+  const previousStorageKey = validTexturePackStorageKey(store[packId] && store[packId].storageKey);
   store[packId] = {
     id: packId,
     name: packName,
     ownerId: ws._userId,
     createdAt: now(),
-    assets: cleanAssets,
+    storageKey: stored.storageKey,
+    assets: stored.assets,
   };
+  if (previousStorageKey && previousStorageKey !== stored.storageKey) {
+    removeTexturePackStorageIfUnreferenced(previousStorageKey);
+  }
 
   const p = findRoomMember(room, ws._userId);
   if (p) {
@@ -9711,7 +9945,7 @@ if (msg.type === 'get_texture_pack') {
       id: String(shared.id || ''),
       name: String(shared.name || 'Custom Pack'),
       ownerId: String(shared.ownerId || ''),
-      assets: Object.keys(shared.assets || {}).map(validTexturePackAssetRelPath).filter(Boolean),
+      assets: texturePackAssetNames(shared),
     }
   });
   return;
@@ -12218,6 +12452,9 @@ function expertAiVpGainWeightForSeat(game, pid, tuning) {
 
 const aiTickInterval = setInterval(() => {
   for (const room of rooms.values()) {
+    // Disconnected AI games resume on reconnect; do not keep simulating and
+    // growing replay state for hours when nobody is present to play or watch.
+    if (!roomHasOpenSocket(room)) continue;
     if (!room.game) continue;
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
     const changed = handleTimeout(room) || handleAI(room);
@@ -12230,6 +12467,7 @@ const aiTickInterval = setInterval(() => {
 // clients that were busy in another modal or temporarily stalled still receive it.
 const endVoteRebroadcastInterval = setInterval(() => {
   for (const room of rooms.values()) {
+    if (!roomHasOpenSocket(room)) continue;
     const g = room && room.game;
     if (!g || g.phase === 'lobby' || g.phase === 'game-over') continue;
     if (!(g.endVote && g.endVote.id)) continue;
@@ -12238,7 +12476,7 @@ const endVoteRebroadcastInterval = setInterval(() => {
     room._nextEndVoteRebroadcastAt = t + 1000;
     try { broadcastState(room); } catch (_) {}
   }
-}, 250);
+}, 1000);
 
 const wsHeartbeatInterval = setInterval(() => {
   for (const client of wss.clients) {
@@ -12278,7 +12516,7 @@ async function gracefulShutdown(exitCode = 0) {
     try { client.close(1001, 'Server shutting down'); } catch (_) {}
   }
 
-  scheduleActiveRoomsSave();
+  scheduleActiveRoomsSave({ throwOnError: true });
   saveUsersDb();
   saveHistoryDb();
   saveNeuralAiModel();

@@ -37,3 +37,24 @@ test('coalescing writer persists the latest rapidly-updated snapshot', async (t)
   await writer.flush();
   assert.deepEqual(JSON.parse(await fs.promises.readFile(file, 'utf8')), { version: 3 });
 });
+
+test('coalescing writer defers serialization of a replacement snapshot', async (t) => {
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hex-coalescing-memory-'));
+  t.after(() => fs.promises.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'rooms.json');
+  const writer = new CoalescingJsonFileWriter(file);
+  let replacementSerializations = 0;
+
+  writer.write({ version: 1, payload: 'x'.repeat(256 * 1024) });
+  writer.write({
+    toJSON() {
+      replacementSerializations += 1;
+      return { version: 2 };
+    },
+  });
+
+  assert.equal(replacementSerializations, 0);
+  await writer.flush();
+  assert.equal(replacementSerializations, 1);
+  assert.deepEqual(JSON.parse(await fs.promises.readFile(file, 'utf8')), { version: 2 });
+});
