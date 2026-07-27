@@ -1,8 +1,7 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'texturepack-v8';
+const CACHE_NAME = CACHE_PREFIX + 'texturepack-v9';
 const PRECACHE_URLS = [
-  "/assets/gold-resource.png",
   "/assets/sfx/dev_card.wav",
   "/assets/sfx/dice_roll.wav",
   "/assets/sfx/gold_field_production.wav",
@@ -15,6 +14,7 @@ const PRECACHE_URLS = [
   "/assets/sfx/trade_success.wav",
   "/assets/sfx/turn_bell.wav",
   "/favicon.png",
+  "/texture%20pack/gold-resource.png",
   "/texture%20pack/Dev%20Cards/Invention.png",
   "/texture%20pack/Dev%20Cards/Knight.png",
   "/texture%20pack/Dev%20Cards/Monopoly.png",

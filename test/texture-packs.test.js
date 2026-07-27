@@ -31,6 +31,13 @@ test('Simplified is a complete built-in texture pack', () => {
   for (const rel of files) assert.equal(isPngBuffer(fs.readFileSync(path.join(base, ...rel.split('/')))), true, rel);
 });
 
+test('Gold resource icon lives at each texture-pack root', () => {
+  assert.equal(fs.existsSync(path.join(projectRoot, 'public', 'assets', 'gold-resource.png')), false);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'public', 'texture pack', 'gold-resource.png')), true);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'public', 'texture-packs', 'simplified', 'gold-resource.png')), true);
+  assert.ok(TEXTURE_PACK_ASSET_REL.includes('gold-resource.png'));
+});
+
 test('texture-pack identifiers and asset paths are normalized safely', () => {
   assert.equal(validTexturePackId('tp-simple_1.2'), 'tp-simple_1.2');
   assert.equal(validTexturePackId('../outside'), '');

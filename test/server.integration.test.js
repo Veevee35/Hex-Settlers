@@ -656,7 +656,7 @@ test('players can upload, download, and select shared texture packs without gian
   const simplifiedManifest = await request(`/api/texture-packs/${joined.room.code}/simplified`, 'GET', guestCookie, undefined, '');
   assert.equal(simplifiedManifest.response.status, 200);
   assert.equal(simplifiedManifest.payload.pack.builtin, true);
-  assert.equal(simplifiedManifest.payload.pack.assets.length, 42);
+  assert.equal(simplifiedManifest.payload.pack.assets.length, 43);
 });
 
 test('compiled TypeScript bootstrap serves the current game entry point', { timeout: 15_000 }, async (t) => {

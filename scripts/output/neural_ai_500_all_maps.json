@@ -1,0 +1,5137 @@
+{
+  "mode": "neural_net_self_play",
+  "requestedGames": 500,
+  "completedGames": 500,
+  "batchSize": 25,
+  "concurrency": 5,
+  "victoryPointsToWin": 7,
+  "mapsCovered": [
+    "classic",
+    "classic56",
+    "four_islands",
+    "through_the_desert",
+    "fog_island",
+    "heading_for_new_shores",
+    "cartographer_4_manual",
+    "cartographer_4_random",
+    "six_islands",
+    "through_the_desert_56",
+    "fog_island_56",
+    "cartographer_56_manual",
+    "cartographer_56_random"
+  ],
+  "startingTrainedGames": 2084,
+  "finalTrainedGames": 2584,
+  "startingModelSha256": "78a78d426471146ac0c19740018b45e38813f398e6250cc8271c61ee7bcb4708",
+  "finalModelSha256": "bed247b7bdead0a5d2c3d62bf31d9d1cadf62fb7b25f4ad981697a7c220b74d1",
+  "totalGoldProductionCards": 4129,
+  "byMap": {
+    "classic": {
+      "label": "Classic",
+      "games": 39,
+      "minTurn": 24,
+      "maxTurn": 76,
+      "goldProductionCards": 0,
+      "averageTurn": 55.38461538461539
+    },
+    "classic56": {
+      "label": "Classic 5-6",
+      "games": 39,
+      "minTurn": 28,
+      "maxTurn": 85,
+      "goldProductionCards": 0,
+      "averageTurn": 51.23076923076923
+    },
+    "four_islands": {
+      "label": "Four Islands",
+      "games": 39,
+      "minTurn": 20,
+      "maxTurn": 129,
+      "goldProductionCards": 0,
+      "averageTurn": 56.743589743589745
+    },
+    "through_the_desert": {
+      "label": "Through the Desert",
+      "games": 39,
+      "minTurn": 21,
+      "maxTurn": 89,
+      "goldProductionCards": 0,
+      "averageTurn": 62.794871794871796
+    },
+    "fog_island": {
+      "label": "Fog Island",
+      "games": 39,
+      "minTurn": 30,
+      "maxTurn": 94,
+      "goldProductionCards": 0,
+      "averageTurn": 61.48717948717949
+    },
+    "heading_for_new_shores": {
+      "label": "Heading for New Shores",
+      "games": 39,
+      "minTurn": 26,
+      "maxTurn": 97,
+      "goldProductionCards": 0,
+      "averageTurn": 54.17948717948718
+    },
+    "cartographer_4_manual": {
+      "label": "Cartographer 4",
+      "games": 38,
+      "minTurn": 24,
+      "maxTurn": 84,
+      "goldProductionCards": 807,
+      "averageTurn": 50
+    },
+    "cartographer_4_random": {
+      "label": "Scattered Tiles 4",
+      "games": 38,
+      "minTurn": 26,
+      "maxTurn": 87,
+      "goldProductionCards": 804,
+      "averageTurn": 51.1578947368421
+    },
+    "six_islands": {
+      "label": "Six Islands",
+      "games": 38,
+      "minTurn": 29,
+      "maxTurn": 92,
+      "goldProductionCards": 0,
+      "averageTurn": 56.578947368421055
+    },
+    "through_the_desert_56": {
+      "label": "Through the Desert 5-6",
+      "games": 38,
+      "minTurn": 27,
+      "maxTurn": 102,
+      "goldProductionCards": 0,
+      "averageTurn": 64.78947368421052
+    },
+    "fog_island_56": {
+      "label": "Fog Island 5-6",
+      "games": 38,
+      "minTurn": 23,
+      "maxTurn": 81,
+      "goldProductionCards": 0,
+      "averageTurn": 56.63157894736842
+    },
+    "cartographer_56_manual": {
+      "label": "Cartographer 5-6",
+      "games": 38,
+      "minTurn": 18,
+      "maxTurn": 83,
+      "goldProductionCards": 1272,
+      "averageTurn": 47.526315789473685
+    },
+    "cartographer_56_random": {
+      "label": "Scattered Tiles 5-6",
+      "games": 38,
+      "minTurn": 21,
+      "maxTurn": 75,
+      "goldProductionCards": 1246,
+      "averageTurn": 45.68421052631579
+    }
+  },
+  "games": [
+    {
+      "sessionIndex": 0,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 48,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 1,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 83,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 2,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 75,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 3,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 4,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 74,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 5,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 6,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 64,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 19
+    },
+    {
+      "sessionIndex": 7,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 27,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 19
+    },
+    {
+      "sessionIndex": 8,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 72,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 9,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 91,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 10,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 30,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 11,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 24,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 28
+    },
+    {
+      "sessionIndex": 12,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 72,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 54
+    },
+    {
+      "sessionIndex": 13,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 36,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 14,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 39,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 15,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 48,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 16,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 40,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 17,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 58,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 18,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 19,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 48,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 3
+    },
+    {
+      "sessionIndex": 20,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 12
+    },
+    {
+      "sessionIndex": 21,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 62,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 22,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 23,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 44,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 24,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 38,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 29
+    },
+    {
+      "sessionIndex": 25,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 37
+    },
+    {
+      "sessionIndex": 26,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 27,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 73,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 28,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 45,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 29,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 63,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 30,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 52,
+      "winner": "AI 2",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 31,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 32,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 3",
+      "winnerVp": 9,
+      "goldProductionCards": 24
+    },
+    {
+      "sessionIndex": 33,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 7
+    },
+    {
+      "sessionIndex": 34,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 74,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 35,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 36,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 37,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 44,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 31
+    },
+    {
+      "sessionIndex": 38,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 47,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 46
+    },
+    {
+      "sessionIndex": 39,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 40,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 35,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 41,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 44,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 42,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 43,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 57,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 44,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 44,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 45,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 45,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 20
+    },
+    {
+      "sessionIndex": 46,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 72,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 20
+    },
+    {
+      "sessionIndex": 47,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 66,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 48,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 74,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 49,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 74,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 50,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 42,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 25
+    },
+    {
+      "sessionIndex": 51,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 30,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 15
+    },
+    {
+      "sessionIndex": 52,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 53,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 37,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 54,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 74,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 55,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 56,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 65,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 57,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 26,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 58,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 36,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 23
+    },
+    {
+      "sessionIndex": 59,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 58,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 27
+    },
+    {
+      "sessionIndex": 60,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 37,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 61,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 62,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 79,
+      "winner": "AI 6",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 63,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 37
+    },
+    {
+      "sessionIndex": 64,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 42,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 50
+    },
+    {
+      "sessionIndex": 65,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 76,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 66,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 60,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 67,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 20,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 68,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 68,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 69,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 70,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 36,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 71,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 15
+    },
+    {
+      "sessionIndex": 72,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 64,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 19
+    },
+    {
+      "sessionIndex": 73,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 66,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 74,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 83,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 75,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 80,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 76,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 75,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 55
+    },
+    {
+      "sessionIndex": 77,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 33,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 26
+    },
+    {
+      "sessionIndex": 78,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 51,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 79,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 54,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 80,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 81,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 89,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 82,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 83,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 43,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 84,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 41,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 24
+    },
+    {
+      "sessionIndex": 85,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 20
+    },
+    {
+      "sessionIndex": 86,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 42,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 87,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 27,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 88,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 51,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 89,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 83,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 31
+    },
+    {
+      "sessionIndex": 90,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 46,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 41
+    },
+    {
+      "sessionIndex": 91,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 92,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 42,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 93,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 94,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 45,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 95,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 80,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 96,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 97,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 28,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 16
+    },
+    {
+      "sessionIndex": 98,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 38,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 27
+    },
+    {
+      "sessionIndex": 99,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 63,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 100,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 54,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 101,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 44,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 102,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 61,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 21
+    },
+    {
+      "sessionIndex": 103,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 26,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 18
+    },
+    {
+      "sessionIndex": 104,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 47,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 105,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 41,
+      "winner": "AI 5",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 106,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 40,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 107,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 82,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 108,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 74,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 109,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 110,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 40,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 26
+    },
+    {
+      "sessionIndex": 111,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 42
+    },
+    {
+      "sessionIndex": 112,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 113,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 114,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 115,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 31,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 17
+    },
+    {
+      "sessionIndex": 116,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 38,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 23
+    },
+    {
+      "sessionIndex": 117,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 118,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 31,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 119,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 37,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 120,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 28,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 121,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 4",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 122,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 31,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 123,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 50,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 28
+    },
+    {
+      "sessionIndex": 124,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 40,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 38
+    },
+    {
+      "sessionIndex": 125,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 46,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 126,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 127,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 128,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 44,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 44
+    },
+    {
+      "sessionIndex": 129,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 52,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 34
+    },
+    {
+      "sessionIndex": 130,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 48,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 131,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 47,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 132,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 58,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 133,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 64,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 134,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 35,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 135,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 4",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 136,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 58,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 14
+    },
+    {
+      "sessionIndex": 137,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 31,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 7
+    },
+    {
+      "sessionIndex": 138,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 3",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 139,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 69,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 140,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 46,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 141,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 63,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 35
+    },
+    {
+      "sessionIndex": 142,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 75,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 45
+    },
+    {
+      "sessionIndex": 143,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 62,
+      "winner": "AI 2",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 144,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 145,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 29,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 146,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 147,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 148,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 65,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 149,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 44,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 27
+    },
+    {
+      "sessionIndex": 150,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 34
+    },
+    {
+      "sessionIndex": 151,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 68,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 152,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 55,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 153,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 63,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 154,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 31
+    },
+    {
+      "sessionIndex": 155,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 47,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 19
+    },
+    {
+      "sessionIndex": 156,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 157,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 55,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 158,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 159,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 70,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 160,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 72,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 161,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 77,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 162,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 36,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 18
+    },
+    {
+      "sessionIndex": 163,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 64,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 19
+    },
+    {
+      "sessionIndex": 164,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 55,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 165,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 78,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 166,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 36,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 167,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 59,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 56
+    },
+    {
+      "sessionIndex": 168,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 57,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 26
+    },
+    {
+      "sessionIndex": 169,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 63,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 170,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 171,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 172,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 51,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 173,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 68,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 174,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 84,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 175,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 70,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 22
+    },
+    {
+      "sessionIndex": 176,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 24
+    },
+    {
+      "sessionIndex": 177,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 74,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 178,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 43,
+      "winner": "AI 5",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 179,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 62,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 180,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 54,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 32
+    },
+    {
+      "sessionIndex": 181,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 6",
+      "winnerVp": 8,
+      "goldProductionCards": 43
+    },
+    {
+      "sessionIndex": 182,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 183,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 28,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 184,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 92,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 185,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 186,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 187,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 2",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 188,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 25
+    },
+    {
+      "sessionIndex": 189,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 51,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 33
+    },
+    {
+      "sessionIndex": 190,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 61,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 191,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 90,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 192,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 26,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 193,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 36,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 22
+    },
+    {
+      "sessionIndex": 194,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 39,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 39
+    },
+    {
+      "sessionIndex": 195,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 61,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 196,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 62,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 197,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 71,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 198,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 199,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 48,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 200,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 70,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 201,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 39,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 30
+    },
+    {
+      "sessionIndex": 202,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 68,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 3
+    },
+    {
+      "sessionIndex": 203,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 92,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 204,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 82,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 205,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 76,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 206,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 42,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 10
+    },
+    {
+      "sessionIndex": 207,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 63,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 33
+    },
+    {
+      "sessionIndex": 208,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 24,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 209,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 32,
+      "winner": "AI 6",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 210,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 90,
+      "winner": "AI 2",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 211,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 89,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 212,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 81,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 213,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 214,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 63,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 34
+    },
+    {
+      "sessionIndex": 215,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 48,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 20
+    },
+    {
+      "sessionIndex": 216,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 41,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 217,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 65,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 218,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 71,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 219,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 40,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 19
+    },
+    {
+      "sessionIndex": 220,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 36,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 23
+    },
+    {
+      "sessionIndex": 221,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 41,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 222,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 223,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 62,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 224,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 225,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 94,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 226,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 227,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 40,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 38
+    },
+    {
+      "sessionIndex": 228,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 45,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 26
+    },
+    {
+      "sessionIndex": 229,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 230,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 94,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 231,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 232,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 51,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 33
+    },
+    {
+      "sessionIndex": 233,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 58,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 16
+    },
+    {
+      "sessionIndex": 234,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 45,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 235,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 46,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 236,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 32,
+      "winner": "AI 4",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 237,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 58,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 238,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 84,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 239,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 240,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 32,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 20
+    },
+    {
+      "sessionIndex": 241,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 64,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 23
+    },
+    {
+      "sessionIndex": 242,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 46,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 243,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 54,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 244,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 23,
+      "winner": "AI 6",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 245,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 62,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 21
+    },
+    {
+      "sessionIndex": 246,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 44
+    },
+    {
+      "sessionIndex": 247,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 50,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 248,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 49,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 249,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 39,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 250,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 80,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 251,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 252,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 253,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 40,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 10
+    },
+    {
+      "sessionIndex": 254,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 41,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 18
+    },
+    {
+      "sessionIndex": 255,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 60,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 256,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 67,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 257,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 44,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 258,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 75,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 66
+    },
+    {
+      "sessionIndex": 259,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 33
+    },
+    {
+      "sessionIndex": 260,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 68,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 261,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 262,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 263,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 264,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 38,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 265,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 79,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 266,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 84,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 28
+    },
+    {
+      "sessionIndex": 267,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 84,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 10
+    },
+    {
+      "sessionIndex": 268,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 42,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 269,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 35,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 270,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 34,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 271,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 59,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 27
+    },
+    {
+      "sessionIndex": 272,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 38,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 27
+    },
+    {
+      "sessionIndex": 273,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 274,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 35,
+      "winner": "AI 6",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 275,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 276,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 73,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 277,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 278,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 279,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 64,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 23
+    },
+    {
+      "sessionIndex": 280,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 48,
+      "winner": "AI 2",
+      "winnerVp": 8,
+      "goldProductionCards": 22
+    },
+    {
+      "sessionIndex": 281,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 61,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 282,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 56,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 283,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 71,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 284,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 41,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 41
+    },
+    {
+      "sessionIndex": 285,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 24,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 8
+    },
+    {
+      "sessionIndex": 286,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 66,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 287,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 69,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 288,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 129,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 289,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 40,
+      "winner": "AI 3",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 290,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 47,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 291,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 63,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 292,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 39,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 15
+    },
+    {
+      "sessionIndex": 293,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 37,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 18
+    },
+    {
+      "sessionIndex": 294,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 49,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 295,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 93,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 296,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 75,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 297,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 39,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 11
+    },
+    {
+      "sessionIndex": 298,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 28,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 24
+    },
+    {
+      "sessionIndex": 299,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 58,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 300,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 28,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 301,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 302,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 73,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 303,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 75,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 304,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 38,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 305,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 14
+    },
+    {
+      "sessionIndex": 306,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 44,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 13
+    },
+    {
+      "sessionIndex": 307,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 49,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 308,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 57,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 309,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 81,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 310,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 18,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 17
+    },
+    {
+      "sessionIndex": 311,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 52,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 54
+    },
+    {
+      "sessionIndex": 312,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 47,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 313,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 59,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 314,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 49,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 315,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 70,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 316,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 86,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 317,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 41,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 318,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 52,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 24
+    },
+    {
+      "sessionIndex": 319,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 22
+    },
+    {
+      "sessionIndex": 320,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 36,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 321,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 56,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 322,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 54,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 323,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 81,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 90
+    },
+    {
+      "sessionIndex": 324,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 43,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 26
+    },
+    {
+      "sessionIndex": 325,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 326,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 46,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 327,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 328,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 76,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 329,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 51,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 330,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 63,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 331,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 45,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 50
+    },
+    {
+      "sessionIndex": 332,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 38,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 12
+    },
+    {
+      "sessionIndex": 333,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 51,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 334,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 2",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 335,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 74,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 336,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 39,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 23
+    },
+    {
+      "sessionIndex": 337,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 30,
+      "winner": "AI 2",
+      "winnerVp": 8,
+      "goldProductionCards": 11
+    },
+    {
+      "sessionIndex": 338,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 339,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 340,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 83,
+      "winner": "AI 2",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 341,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 63,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 342,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 45,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 343,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 78,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 344,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 78,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 16
+    },
+    {
+      "sessionIndex": 345,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 22
+    },
+    {
+      "sessionIndex": 346,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 67,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 347,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 66,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 348,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 28,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 349,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 26,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 25
+    },
+    {
+      "sessionIndex": 350,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 27
+    },
+    {
+      "sessionIndex": 351,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 36,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 352,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 353,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 354,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 64,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 355,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 356,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 74,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 357,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 57,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 5
+    },
+    {
+      "sessionIndex": 358,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 87,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 42
+    },
+    {
+      "sessionIndex": 359,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 57,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 360,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 77,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 361,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 56,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 362,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 56,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 49
+    },
+    {
+      "sessionIndex": 363,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 63,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 40
+    },
+    {
+      "sessionIndex": 364,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 50,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 365,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 85,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 366,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 367,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 368,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 68,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 369,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 31,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 370,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 24,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 20
+    },
+    {
+      "sessionIndex": 371,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 8
+    },
+    {
+      "sessionIndex": 372,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 60,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 373,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 58,
+      "winner": "AI 5",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 374,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 375,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 43,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 18
+    },
+    {
+      "sessionIndex": 376,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 71,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 45
+    },
+    {
+      "sessionIndex": 377,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 75,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 378,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 59,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 379,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 380,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 67,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 381,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 30,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 382,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 383,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 11
+    },
+    {
+      "sessionIndex": 384,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 32,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 26
+    },
+    {
+      "sessionIndex": 385,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 42,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 386,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 62,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 387,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 77,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 388,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 49,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 36
+    },
+    {
+      "sessionIndex": 389,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 61,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 37
+    },
+    {
+      "sessionIndex": 390,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 53,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 391,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 64,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 392,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 52,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 393,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 62,
+      "winner": "AI 2",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 394,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 52,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 395,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 396,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 8
+    },
+    {
+      "sessionIndex": 397,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 29,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 8
+    },
+    {
+      "sessionIndex": 398,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 399,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 98,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 400,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 54,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 401,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 33,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 37
+    },
+    {
+      "sessionIndex": 402,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 33,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 29
+    },
+    {
+      "sessionIndex": 403,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 68,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 404,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 405,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 406,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 65,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 407,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 408,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 65,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 409,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 34,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 33
+    },
+    {
+      "sessionIndex": 410,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 72,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 28
+    },
+    {
+      "sessionIndex": 411,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 43,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 412,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 413,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 75,
+      "winner": "AI 5",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 414,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 24
+    },
+    {
+      "sessionIndex": 415,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 57,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 23
+    },
+    {
+      "sessionIndex": 416,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 417,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 71,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 418,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 70,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 419,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 67,
+      "winner": "AI 3",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 420,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 57,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 421,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 422,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 26
+    },
+    {
+      "sessionIndex": 423,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 41,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 15
+    },
+    {
+      "sessionIndex": 424,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 29,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 425,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 92,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 426,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 65,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 427,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 25,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 38
+    },
+    {
+      "sessionIndex": 428,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 51,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 51
+    },
+    {
+      "sessionIndex": 429,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 57,
+      "winner": "AI 2",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 430,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 64,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 431,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 57,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 432,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 433,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 434,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 38,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 435,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 31
+    },
+    {
+      "sessionIndex": 436,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 12
+    },
+    {
+      "sessionIndex": 437,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 56,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 438,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 31,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 439,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 60,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 440,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 30,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 34
+    },
+    {
+      "sessionIndex": 441,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 48,
+      "winner": "AI 6",
+      "winnerVp": 8,
+      "goldProductionCards": 55
+    },
+    {
+      "sessionIndex": 442,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 443,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 46,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 444,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 43,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 445,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 21,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 446,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 52,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 447,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 69,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 448,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 39,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 11
+    },
+    {
+      "sessionIndex": 449,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 26,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 24
+    },
+    {
+      "sessionIndex": 450,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 77,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 451,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 102,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 452,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 68,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 453,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 52,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 45
+    },
+    {
+      "sessionIndex": 454,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 30,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 25
+    },
+    {
+      "sessionIndex": 455,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 55,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 456,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 50,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 457,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 458,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 73,
+      "winner": "AI 2",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 459,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 91,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 460,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 97,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 461,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 42,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 27
+    },
+    {
+      "sessionIndex": 462,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 52,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 25
+    },
+    {
+      "sessionIndex": 463,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 85,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 464,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 49,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 465,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 72,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 466,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 57,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 55
+    },
+    {
+      "sessionIndex": 467,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 21,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 16
+    },
+    {
+      "sessionIndex": 468,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 74,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 469,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 70,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 470,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 471,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 67,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 472,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 35,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 473,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 37,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 474,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 59,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 17
+    },
+    {
+      "sessionIndex": 475,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 1",
+      "winnerVp": 8,
+      "goldProductionCards": 17
+    },
+    {
+      "sessionIndex": 476,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 47,
+      "winner": "AI 5",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 477,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 94,
+      "winner": "AI 6",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 478,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 55,
+      "winner": "AI 3",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 479,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 35,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 21
+    },
+    {
+      "sessionIndex": 480,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 45,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 52
+    },
+    {
+      "sessionIndex": 481,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 482,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 40,
+      "winner": "AI 6",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 483,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 50,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 484,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 82,
+      "winner": "AI 4",
+      "winnerVp": 9,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 485,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 75,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 486,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 487,
+      "mapId": "cartographer_4_manual",
+      "mapLabel": "Cartographer 4",
+      "players": 4,
+      "turnNumber": 49,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 12
+    },
+    {
+      "sessionIndex": 488,
+      "mapId": "cartographer_4_random",
+      "mapLabel": "Scattered Tiles 4",
+      "players": 4,
+      "turnNumber": 60,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 42
+    },
+    {
+      "sessionIndex": 489,
+      "mapId": "six_islands",
+      "mapLabel": "Six Islands",
+      "players": 6,
+      "turnNumber": 68,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 490,
+      "mapId": "through_the_desert_56",
+      "mapLabel": "Through the Desert 5-6",
+      "players": 6,
+      "turnNumber": 69,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 491,
+      "mapId": "fog_island_56",
+      "mapLabel": "Fog Island 5-6",
+      "players": 6,
+      "turnNumber": 68,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 492,
+      "mapId": "cartographer_56_manual",
+      "mapLabel": "Cartographer 5-6",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 1",
+      "winnerVp": 7,
+      "goldProductionCards": 38
+    },
+    {
+      "sessionIndex": 493,
+      "mapId": "cartographer_56_random",
+      "mapLabel": "Scattered Tiles 5-6",
+      "players": 6,
+      "turnNumber": 36,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 31
+    },
+    {
+      "sessionIndex": 494,
+      "mapId": "classic",
+      "mapLabel": "Classic",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 495,
+      "mapId": "classic56",
+      "mapLabel": "Classic 5-6",
+      "players": 6,
+      "turnNumber": 53,
+      "winner": "AI 2",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 496,
+      "mapId": "four_islands",
+      "mapLabel": "Four Islands",
+      "players": 4,
+      "turnNumber": 46,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 497,
+      "mapId": "through_the_desert",
+      "mapLabel": "Through the Desert",
+      "players": 4,
+      "turnNumber": 66,
+      "winner": "AI 3",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 498,
+      "mapId": "fog_island",
+      "mapLabel": "Fog Island",
+      "players": 4,
+      "turnNumber": 54,
+      "winner": "AI 4",
+      "winnerVp": 7,
+      "goldProductionCards": 0
+    },
+    {
+      "sessionIndex": 499,
+      "mapId": "heading_for_new_shores",
+      "mapLabel": "Heading for New Shores",
+      "players": 4,
+      "turnNumber": 56,
+      "winner": "AI 4",
+      "winnerVp": 8,
+      "goldProductionCards": 0
+    }
+  ],
+  "completedAt": "2026-07-27T01:04:08.288Z"
+}

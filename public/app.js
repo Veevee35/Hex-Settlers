@@ -287,7 +287,7 @@
   const TEXTURE_PACK_META_KEY = 'hexsettlers_texture_pack_meta_v1';
   const TEXTURE_PACK_BROWSER_CACHE = 'hexsettlers-asset-cache-texturepack-v1';
   const TEXTURE_PACK_TEMPLATE_URL = '/texture-pack-template.zip';
-  const DEFAULT_TEXTURE_ASSET_REL = ["Dev Cards/Invention.png", "Dev Cards/Knight.png", "Dev Cards/Monopoly.png", "Dev Cards/RoadBuilding.png", "Dev Cards/VictoryPoint.png", "Numbers/10.png", "Numbers/11.png", "Numbers/12.png", "Numbers/2.png", "Numbers/3.png", "Numbers/4.png", "Numbers/5.png", "Numbers/6.png", "Numbers/8.png", "Numbers/9.png", "Ports/brick.png", "Ports/generic.png", "Ports/grain.png", "Ports/lumber.png", "Ports/ore.png", "Ports/wool.png", "Resource Hexes/Desert.png", "Resource Hexes/Field.png", "Resource Hexes/Forest.png", "Resource Hexes/GoldFields.png", "Resource Hexes/Hills.png", "Resource Hexes/Mountains.png", "Resource Hexes/Pasture.png", "Resource Hexes/Seas.png", "Resource Hexes/Unexplored.png", "Robber Pirate/thief_pirate.png", "Robber Pirate/thief_robber.png", "Tokens/tokens_black.png", "Tokens/tokens_blue.png", "Tokens/tokens_green.png", "Tokens/tokens_orange.png", "Tokens/tokens_pink.png", "Tokens/tokens_purple.png", "Tokens/tokens_red.png", "Tokens/tokens_teal.png", "Tokens/tokens_white.png", "Tokens/tokens_yellow.png"];
+  const DEFAULT_TEXTURE_ASSET_REL = ["gold-resource.png", "Dev Cards/Invention.png", "Dev Cards/Knight.png", "Dev Cards/Monopoly.png", "Dev Cards/RoadBuilding.png", "Dev Cards/VictoryPoint.png", "Numbers/10.png", "Numbers/11.png", "Numbers/12.png", "Numbers/2.png", "Numbers/3.png", "Numbers/4.png", "Numbers/5.png", "Numbers/6.png", "Numbers/8.png", "Numbers/9.png", "Ports/brick.png", "Ports/generic.png", "Ports/grain.png", "Ports/lumber.png", "Ports/ore.png", "Ports/wool.png", "Resource Hexes/Desert.png", "Resource Hexes/Field.png", "Resource Hexes/Forest.png", "Resource Hexes/GoldFields.png", "Resource Hexes/Hills.png", "Resource Hexes/Mountains.png", "Resource Hexes/Pasture.png", "Resource Hexes/Seas.png", "Resource Hexes/Unexplored.png", "Robber Pirate/thief_pirate.png", "Robber Pirate/thief_robber.png", "Tokens/tokens_black.png", "Tokens/tokens_blue.png", "Tokens/tokens_green.png", "Tokens/tokens_orange.png", "Tokens/tokens_pink.png", "Tokens/tokens_purple.png", "Tokens/tokens_red.png", "Tokens/tokens_teal.png", "Tokens/tokens_white.png", "Tokens/tokens_yellow.png"];
   const DEFAULT_TEXTURE_ASSET_SET = new Set(DEFAULT_TEXTURE_ASSET_REL);
   const DEFAULT_TEXTURE_PACK_LABEL = 'Default';
   const BUILTIN_TEXTURE_PACKS = Object.freeze([
@@ -2600,7 +2600,7 @@ function renderPostgameTab(tab) {
     goldModeCheckbox.checked = !!postgameState.showGoldProductionAsGold;
     goldModeCheckbox.setAttribute('aria-label', 'Show Gold Field production as Gold');
     const goldModeIcon = document.createElement('img');
-    goldModeIcon.src = '/assets/gold-resource.png';
+    goldModeIcon.src = getTextureAssetUrl('gold-resource.png');
     goldModeIcon.alt = '';
     goldModeIcon.draggable = false;
     const goldModeText = document.createElement('span');
@@ -2706,7 +2706,7 @@ function renderPostgameTab(tab) {
             block.title = `${laneSpec.label} ${value} ${RESOURCE_LABEL[key]}`;
 
             const image = document.createElement('img');
-            image.src = key === 'gold' ? '/assets/gold-resource.png' : getTextureAssetUrl(`Ports/${key}.png`);
+            image.src = getTextureAssetUrl(key === 'gold' ? 'gold-resource.png' : `Ports/${key}.png`);
             image.alt = RESOURCE_LABEL[key];
             image.draggable = false;
             const amount = document.createElement('span');

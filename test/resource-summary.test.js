@@ -125,7 +125,7 @@ test('resources overview exposes the ten requested toggles in order', () => {
 test('resources overview compares gained and lost resources in separate full-color lanes', () => {
   assert.match(appJs, /\{ direction: 'gain', label: 'Gained', values: summary\.gained/);
   assert.match(appJs, /\{ direction: 'loss', label: 'Lost', values: summary\.lost/);
-  assert.match(appJs, /image\.src = key === 'gold' \? '\/assets\/gold-resource\.png' : getTextureAssetUrl\(`Ports\/\$\{key\}\.png`\)/);
+  assert.match(appJs, /image\.src = getTextureAssetUrl\(key === 'gold' \? 'gold-resource\.png' : `Ports\/\$\{key\}\.png`\)/);
   assert.match(stylesCss, /\.pgResPlayerLanes\s*\{[^}]*grid-template-columns:repeat\(2,/s);
   assert.doesNotMatch(stylesCss, /\.pgResStackBlock img\s*\{[^}]*brightness\(0\)/s);
 });
@@ -135,11 +135,12 @@ test('resources overview can display Gold Field production and blocked Gold with
   assert.match(appJs, /source === 'gold_production' && postgameState\.showGoldProductionAsGold/);
   assert.match(appJs, /goldModeCheckbox\.type = 'checkbox'/);
   assert.match(appJs, /Show Gold Field production as Gold/);
-  assert.match(appJs, /goldModeIcon\.src = '\/assets\/gold-resource\.png'/);
+  assert.match(appJs, /goldModeIcon\.src = getTextureAssetUrl\('gold-resource\.png'\)/);
   assert.match(stylesCss, /\.pgResStackBlock\.gold\{/);
   assert.match(serverJs, /const blockedKind = isGold \? 'gold' : resKind/);
   assert.match(serverJs, /grantFromBankStats\(game, playerId, p\.resources, rk, 1, 'gold_production'\)/);
-  assert.ok(fs.existsSync(path.join(projectRoot, 'public', 'assets', 'gold-resource.png')));
+  assert.ok(fs.existsSync(path.join(projectRoot, 'public', 'texture pack', 'gold-resource.png')));
+  assert.match(appJs, /getTextureAssetUrl\('gold-resource\.png'\)/);
 });
 
 test('development purchases count as spent and Monopoly victims use their own loss source', () => {

@@ -180,6 +180,10 @@ const NEURAL_AI_MODEL_WRITER = new JsonFileWriter(NEURAL_AI_MODEL_PATH);
 
 let HISTORY_DB = { version: 1, games: [] };
 let NEURAL_AI_MODEL = null;
+const NEURAL_FEATURE_NAMES = Object.freeze([
+  'vp_progress', 'gold_income', 'vp_pressure', 'late_game_vp', 'hand_size', 'city_readiness',
+  'settlement_readiness', 'dev_readiness', 'city_upgrades', 'network_size', 'unplayed_dev', 'bias',
+]);
 
 function createDefaultNeuralAiModel() {
   // Tiny MLP: 12 normalized inputs -> 8 hidden -> 1 output.
@@ -204,7 +208,12 @@ function createDefaultNeuralAiModel() {
   return {
     version: 1,
     trainedGames: 0,
-    meta: { inputSize, hiddenSize },
+    meta: {
+      inputSize,
+      hiddenSize,
+      featureVersion: 2,
+      featureNames: [...NEURAL_FEATURE_NAMES],
+    },
     params: { w1, b1, w2, b2 },
   };
 }
@@ -219,6 +228,13 @@ function loadNeuralAiModel() {
     const raw = fs.readFileSync(NEURAL_AI_MODEL_PATH, 'utf-8');
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || !parsed.params) throw new Error('invalid model');
+    parsed.meta = {
+      ...(parsed.meta || {}),
+      inputSize: 12,
+      hiddenSize: Array.isArray(parsed.params.w1) ? parsed.params.w1.length : 8,
+      featureVersion: 2,
+      featureNames: [...NEURAL_FEATURE_NAMES],
+    };
     NEURAL_AI_MODEL = parsed;
   } catch (e) {
     console.error('[neural-ai] Failed to load model, resetting:', e && e.message ? e.message : e);
@@ -3030,12 +3046,24 @@ function neuralFeaturesFromState(state, pid) {
   const edges = state?.geom?.edges || [];
   const citySpots = nodes.reduce((n, node) => n + ((node?.building?.owner === pid && node?.building?.type === 'settlement') ? 1 : 0), 0);
   const roads = edges.reduce((n, e) => n + ((e?.roadOwner === pid || e?.shipOwner === pid) ? 1 : 0), 0);
+  const neuralDicePips = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
+  let goldIncome = 0;
+  for (const node of nodes) {
+    const building = node && node.building;
+    if (!building || building.owner !== pid) continue;
+    const multiplier = building.type === 'city' ? 2 : 1;
+    for (const tileId of (state?.geom?.nodeAdjTiles?.[node.id] || [])) {
+      const tile = state?.geom?.tiles?.[tileId];
+      if (!tile || String(tile.type || '').toLowerCase() !== 'gold' || (tile.fog && !tile.revealed)) continue;
+      goldIncome += Number(neuralDicePips[tile.number] || 0) * multiplier;
+    }
+  }
 
   const devUnplayed = (p.devCards || []).filter(c => c && !c.played).length;
 
   return [
     vp / vpTarget,
-    (vpTarget - vpToWin) / vpTarget,
+    Math.min(1, goldIncome / 15),
     1 - Math.min(1, vpToWin / vpTarget),
     Math.max(0, (vp - 6) / vpTarget),
     Math.min(1, resTotal / 12),
@@ -3137,7 +3165,9 @@ function checkWin(room, state, pid) {
 
     if (!wasOver) {
       try { persistUserStatsFromGame(room, state, pid); } catch (_) {}
-      try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
+      if (!(room && room._dryRun)) {
+        try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
+      }
     }
   }
 }
@@ -7594,7 +7624,9 @@ if (kind === 'pirate_steal') {
 
     if (!wasOver) {
       try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
-      try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
+      if (!(room && room._dryRun)) {
+        try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
+      }
     }
 
     return { ok: true };
@@ -11308,7 +11340,7 @@ function handleAI(room) {
   };
 
   const playerResourceIncome = (pid) => {
-    const out = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+    const out = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0, gold: 0 };
     for (const n of (game.geom.nodes || [])) {
       const b = n?.building;
       if (!b || b.owner !== pid) continue;
@@ -11317,9 +11349,13 @@ function handleAI(room) {
       for (const tid of adj) {
         const t = game.geom.tiles?.[tid];
         if (!t) continue;
+        const pips = DICE_PIPS[t.number] || 0;
+        if (String(t.type || '').toLowerCase() === 'gold') {
+          out.gold += pips * mult;
+          continue;
+        }
         const rk = tileResourceKind(t.type);
         if (!rk) continue;
-        const pips = DICE_PIPS[t.number] || 0;
         out[rk] += pips * mult;
       }
     }
@@ -11335,9 +11371,18 @@ function handleAI(room) {
     for (const tid of adj) {
       const t = game.geom.tiles?.[tid];
       if (!t) continue;
+      const pips = DICE_PIPS[t.number] || 0;
+      if (String(t.type || '').toLowerCase() === 'gold') {
+        // Gold is flexible production, so a Gold pip is more useful than a pip
+        // locked to one resource—especially when the player's income is uneven.
+        const weakestIncome = Math.min(...RESOURCE_KINDS.map((kind) => myIncome[kind] || 0));
+        const flexibilityBoost = Math.max(0, 5 - Math.min(5, weakestIncome / 2));
+        pipScore += pips * (1.3 + flexibilityBoost * 0.06);
+        seen.add('gold');
+        continue;
+      }
       const rk = tileResourceKind(t.type);
       if (!rk) continue;
-      const pips = DICE_PIPS[t.number] || 0;
       const scarcityBoost = Math.max(0, 6 - Math.min(6, (myIncome[rk] || 0) / 2));
       pipScore += pips * (1 + scarcityBoost * 0.08);
       seen.add(rk);
@@ -11573,6 +11618,58 @@ function handleAI(room) {
     }
     while (picks.length < 2) picks.push(byScarcity[0] || 'grain');
     return picks.slice(0, 2);
+  };
+
+  const chooseGoldResourceChoices = (pid, amount) => {
+    const player = playerById(game, pid);
+    if (!player) return randomGoldChoicesFromBank(game, amount);
+    ensureBank(game);
+
+    const resources = { ...(player.resources || {}) };
+    const available = Object.fromEntries(RESOURCE_KINDS.map((kind) => [kind, Math.max(0, Number(game.bank?.[kind] || 0))]));
+    const hasCityUpgrade = listCityUpgrades(pid).length > 0;
+    const hasSettlementPath = listSettlementPlacements(pid).length > 0;
+    const income = playerResourceIncome(pid);
+
+    const planUtility = (candidate) => {
+      const scoreCost = (cost, weight, enabled = true) => {
+        if (!enabled) return 0;
+        const total = RESOURCE_KINDS.reduce((sum, kind) => sum + Number(cost?.[kind] || 0), 0) || 1;
+        const missing = missingFor(candidate, cost).total;
+        const progress = (total - Math.min(total, missing)) / total;
+        return progress * weight + (missing === 0 ? weight * 0.8 : 0);
+      };
+      let score = 0;
+      score += scoreCost(BUILD_COSTS.city, 38, hasCityUpgrade);
+      score += scoreCost(BUILD_COSTS.settlement, 34, hasSettlementPath);
+      score += scoreCost(DEV_CARD_COST, 13, (game.devDeck || []).length > 0);
+      score += scoreCost(BUILD_COSTS.road, 6);
+      score += scoreCost(BUILD_COSTS.ship, 8, isSeafarers);
+      for (const kind of RESOURCE_KINDS) {
+        const scarcity = Math.max(0, 6 - Math.min(6, Number(income[kind] || 0) / 2));
+        score += Math.min(4, Number(candidate[kind] || 0)) * scarcity * 0.08;
+        score -= Math.max(0, Number(candidate[kind] || 0) - 6) * 0.3;
+      }
+      return score;
+    };
+
+    const picks = [];
+    const count = Math.max(1, Math.floor(Number(amount || 1)));
+    for (let index = 0; index < count; index++) {
+      let best = null;
+      for (const kind of RESOURCE_KINDS) {
+        if (available[kind] <= 0) continue;
+        const candidate = { ...resources, [kind]: Number(resources[kind] || 0) + 1 };
+        const score = planUtility(candidate);
+        if (!best || score > best.score) best = { kind, score };
+      }
+      if (!best) break;
+      picks.push(best.kind);
+      resources[best.kind] = Number(resources[best.kind] || 0) + 1;
+      available[best.kind] -= 1;
+    }
+    if (picks.length < count) picks.push(...randomGoldChoicesFromBank(game, count - picks.length));
+    return picks.slice(0, count);
   };
 
   const chooseMonopolyResource = (pid) => {
@@ -12037,12 +12134,12 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     const p = playerById(game, pid);
     if (p && p.isAI) {
       if (game.special.kind === 'discovery_gold') {
-        const rk = RESOURCE_KINDS[Math.floor(Math.random() * RESOURCE_KINDS.length)];
+        const rk = chooseGoldResourceChoices(pid, 1)[0];
         const r = applyAction(room, pid, { kind: 'choose_discovery', resourceKind: rk });
         if (r && r.ok) { delay(140, 260); return true; }
       } else if (game.special.kind === 'production_gold') {
         const amount = Math.max(1, Math.floor(Number(game.special.amount || 1)));
-        const choices = randomGoldChoicesFromBank(game, amount);
+        const choices = chooseGoldResourceChoices(pid, amount);
         const r = applyAction(room, pid, { kind: 'choose_production_gold', choices });
         if (r && r.ok) { delay(140, 260); return true; }
       }

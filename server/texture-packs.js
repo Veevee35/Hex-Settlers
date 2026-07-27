@@ -1,6 +1,7 @@
 'use strict';
 
 const TEXTURE_PACK_ASSET_REL = Object.freeze([
+  'gold-resource.png',
   'Dev Cards/Invention.png',
   'Dev Cards/Knight.png',
   'Dev Cards/Monopoly.png',
