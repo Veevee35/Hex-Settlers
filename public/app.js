@@ -1054,6 +1054,8 @@
     { key: 'dev_card', label: 'Dev Card' },
     { key: 'trade_proposed', label: 'Trade Proposed' },
     { key: 'trade_success', label: 'Trade Success' },
+    { key: 'game_winner', label: 'Winner Sound' },
+    { key: 'game_loser', label: 'Loser Sound' },
   ];
   let audioSfxLevels = Object.create(null);
   let audioPanel = null;
@@ -5337,6 +5339,8 @@ function syncPostgameToState() {
     trade_proposed: makeSfxPool('assets/sfx/trade_proposed.wav', 0.9, 1),
     trade_success: makeSfxPool('assets/sfx/trade_success.wav', 0.9, 1),
     paired_turn: makeSfxPool('assets/sfx/paired_turn.wav', 0.85, 1),
+    game_winner: makeSfxPool('assets/sfx/game_winner.wav', 0.9, 1),
+    game_loser: makeSfxPool('assets/sfx/game_loser.wav', 0.9, 1),
   };
 
   function applyAudioSfxLevels(levels, opts = {}) {

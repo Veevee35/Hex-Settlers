@@ -3238,6 +3238,7 @@ function checkWin(room, state, pid) {
     if (!wasOver) {
       try { persistUserStatsFromGame(room, state, pid); } catch (_) {}
       if (!(room && room._dryRun)) {
+        try { sendGameResultSfx(room, state, pid); } catch (_) {}
         try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
       }
     }
@@ -7697,6 +7698,7 @@ if (kind === 'pirate_steal') {
     if (!wasOver) {
       try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
       if (!(room && room._dryRun)) {
+        try { sendGameResultSfx(room, game, winnerId); } catch (_) {}
         try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
       }
     }
@@ -8623,6 +8625,18 @@ function sendPlayerSfx(room, playerId, name, extra) {
     for (const k of Object.keys(extra)) payload[k] = extra[k];
   }
   sendJson(ws, payload);
+}
+
+function sendGameResultSfx(room, game, winnerId) {
+  if (!room || room._dryRun || !game || !winnerId) return;
+  for (const player of (game.players || [])) {
+    if (!player || player.departed || !player.id) continue;
+    const won = String(player.id) === String(winnerId);
+    sendPlayerSfx(room, player.id, won ? 'game_winner' : 'game_loser', {
+      winnerId: String(winnerId),
+      playerId: String(player.id),
+    });
+  }
 }
 
 function broadcastSfx(room, name, extra) {

@@ -1,10 +1,12 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'texturepack-v9';
+const CACHE_NAME = CACHE_PREFIX + 'texturepack-v10';
 const PRECACHE_URLS = [
   "/assets/sfx/dev_card.wav",
   "/assets/sfx/dice_roll.wav",
   "/assets/sfx/gold_field_production.wav",
+  "/assets/sfx/game_loser.wav",
+  "/assets/sfx/game_winner.wav",
   "/assets/sfx/end_turn.wav",
   "/assets/sfx/paired_turn.wav",
   "/assets/sfx/robber_pirate.wav",

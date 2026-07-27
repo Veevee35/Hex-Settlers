@@ -7,6 +7,7 @@ const { test } = require('node:test');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appJs = fs.readFileSync(path.join(projectRoot, 'public', 'app.js'), 'utf8');
+const serviceWorkerJs = fs.readFileSync(path.join(projectRoot, 'public', 'sw.js'), 'utf8');
 const serverJs = fs.readFileSync(path.join(projectRoot, 'server.js'), 'utf8');
 
 test('audio settings expose separate local volumes for your rolls and other players rolls', () => {
@@ -44,4 +45,23 @@ test('successful robber, pirate, and monopoly losses send stolen-from audio only
   assert.match(serverJs, /sendPlayerSfx\(room, victimId, 'stolen_from', \{ source: 'robber', thiefId: playerId, amount: 1 \}\)/);
   assert.match(serverJs, /sendPlayerSfx\(room, victimId, 'stolen_from', \{ source: 'pirate', thiefId: playerId, amount: 1 \}\)/);
   assert.match(serverJs, /if \(n > 0\) \{[\s\S]*sendPlayerSfx\(room, op\.id, 'stolen_from', \{ source: 'monopoly', thiefId: playerId, amount: n \}\)/);
+});
+
+test('winner and loser sounds have independent sliders and local assets', () => {
+  assert.match(appJs, /\{ key: 'game_winner', label: 'Winner Sound' \}/);
+  assert.match(appJs, /\{ key: 'game_loser', label: 'Loser Sound' \}/);
+  assert.match(appJs, /game_winner: makeSfxPool\('assets\/sfx\/game_winner\.wav'/);
+  assert.match(appJs, /game_loser: makeSfxPool\('assets\/sfx\/game_loser\.wav'/);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'public', 'assets', 'sfx', 'game_winner.wav')), true);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'public', 'assets', 'sfx', 'game_loser.wav')), true);
+  assert.match(serviceWorkerJs, /"\/assets\/sfx\/game_winner\.wav"/);
+  assert.match(serviceWorkerJs, /"\/assets\/sfx\/game_loser\.wav"/);
+});
+
+test('game-result audio is routed only to the matching winner or loser player', () => {
+  assert.match(serverJs, /function sendGameResultSfx\(room, game, winnerId\)/);
+  assert.match(serverJs, /won \? 'game_winner' : 'game_loser'/);
+  assert.match(serverJs, /sendGameResultSfx\(room, state, pid\)/);
+  assert.match(serverJs, /sendGameResultSfx\(room, game, winnerId\)/);
+  assert.match(serverJs, /if \(!room \|\| room\._dryRun \|\| !game \|\| !winnerId\) return/);
 });
