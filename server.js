@@ -8396,7 +8396,7 @@ function createRematchRoomFrom(prevRoom) {
 }
 
 
-function joinRoom(code, userId, name) {
+function joinRoom(code, userId, name, options = {}) {
   const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
   ensureRoomRoleLists(room);
@@ -8416,7 +8416,9 @@ function joinRoom(code, userId, name) {
     return { ok: true, room, playerId: pid, role: roomRole(room, pid) || 'player' };
   }
 
-  const joinAsSpectator = !!(room.game && room.game.phase !== 'lobby') || (room.players.length >= maxPlayersForRules(room.rules || DEFAULT_RULES));
+  const joinAsSpectator = !!(options && options.spectator)
+    || !!(room.game && room.game.phase !== 'lobby')
+    || (room.players.length >= maxPlayersForRules(room.rules || DEFAULT_RULES));
 
   if (joinAsSpectator) {
     const spectator = {
@@ -10109,7 +10111,7 @@ if (msg.type === 'create_room') {
         saveUsersDb();
       }
 
-      const result = joinRoom(code, ws._userId, desiredName);
+      const result = joinRoom(code, ws._userId, desiredName, { spectator: !!msg.spectator });
       if (!result.ok) {
         sendJson(ws, { type: 'error', error: result.error });
         return;

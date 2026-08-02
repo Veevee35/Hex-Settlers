@@ -401,6 +401,16 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
   const guestJoined = await guest.waitFor((message) => message.type === 'joined');
   assert.equal(guestJoined.room.players.length, 2);
 
+  const spectator = await Peer.connect(port);
+  peers.push(spectator);
+  spectator.send({ type: 'auth_register', username: `spectator_${suffix}`, password: 'correct horse', displayName: 'Spectator' });
+  await spectator.waitFor((message) => message.type === 'auth_ok');
+  spectator.send({ type: 'join_room', code: hostJoined.room.code, name: 'Spectator', spectator: true });
+  const spectatorJoined = await spectator.waitFor((message) => message.type === 'joined');
+  assert.equal(spectatorJoined.role, 'spectator');
+  assert.equal(spectatorJoined.room.players.length, 2);
+  assert.equal(spectatorJoined.room.spectators.length, 1);
+
   guest.send({ type: 'chat', text: 'hello from integration test' });
   const roomWithChat = await host.waitFor((message) =>
     message.type === 'room' && message.room.chat.some((entry) => entry.text === 'hello from integration test'));

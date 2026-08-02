@@ -87,15 +87,25 @@ test('buy development card is placed in the turn action bar instead of the devel
 
 
 
-test('robber and pirate legal placement tiles are noticeable and render below player structures without checkmarks', () => {
+test('robber and pirate placement tiles show clear legal and illegal marks above the board', () => {
   assert.match(appJs, /const legalFill = isSeaTile \? 'rgba\(55,190,255,\.88\)' : 'rgba\(255,201,48,\.88\)'/);
   assert.match(appJs, /ctx\.globalAlpha = 0\.26 \+ 0\.12 \* thiefPulse/);
   assert.match(appJs, /ctx\.setLineDash\(/);
-  assert.doesNotMatch(appJs, /drawThiefLegalTileOverlayPass/);
+  assert.match(appJs, /drawThiefPlacementMarksOverlayPass\(activePlayerThiefMove, thiefHighlightPhase, thiefPulse\)/);
+  assert.match(appJs, /const markColor = legal \? '#35e66b' : '#ff3347'/);
+  assert.match(appJs, /const markY = \(!isSeaTile && hasVisibleNumber\) \? center\.y - numberSize \* 0\.76 : center\.y/);
   const highlight = appJs.indexOf("const legalFill = isSeaTile");
   const roads = appJs.indexOf('// Draw roads + ships');
   const buildings = appJs.indexOf('// Draw nodes + buildings');
   assert.ok(highlight >= 0 && highlight < roads && roads < buildings);
+});
+
+test('Room IDs includes a spectator link that joins directly as a spectator', () => {
+  assert.match(appJs, /function buildSpectatorJoinUrl\(roomCode\)/);
+  assert.match(appJs, /spectatorLinkLabel\.textContent = 'Spectator link:'/);
+  assert.match(appJs, /send\(\{ type: 'join_room', code: targetCode, displayName, spectator: joinAsSpectator \}\)/);
+  assert.match(serverJs, /joinRoom\(code, ws\._userId, desiredName, \{ spectator: !!msg\.spectator \}\)/);
+  assert.match(serverJs, /const joinAsSpectator = !!\(options && options\.spectator\)/);
 });
 
 test('paired extra action turns show a red Extra Turn banner above the action bar', () => {

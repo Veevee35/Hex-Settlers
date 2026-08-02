@@ -1082,6 +1082,7 @@
   let authToken = null;
   let pendingAutoRejoin = false;
   let pendingDirectJoinRoomCode = null;
+  let pendingDirectJoinAsSpectator = false;
 
   function formatStatsLine(stats) {
     if (!stats) return '';
@@ -5586,6 +5587,15 @@ function syncPostgameToState() {
     }
   }
 
+  function parseDirectJoinSpectatorFromUrl() {
+    try {
+      const value = String(new URLSearchParams(window.location.search || '').get('spectator') || '').trim().toLowerCase();
+      return value === '1' || value === 'true' || value === 'yes';
+    } catch (_) {
+      return false;
+    }
+  }
+
 let localShareOriginOverride = '';
 let localShareOriginLookupPromise = null;
 
@@ -5638,9 +5648,10 @@ function ensureLocalShareOriginOverride() {
   } catch (_) {}
 }
 
-function buildDirectJoinUrl(roomCode) {
+function buildDirectJoinUrl(roomCode, options = {}) {
   const code = String(roomCode || '').trim().toUpperCase();
   if (!code) return '';
+  const spectator = !!(options && options.spectator);
   try {
     ensureLocalShareOriginOverride();
     const u = new URL(window.location.href);
@@ -5651,6 +5662,8 @@ function buildDirectJoinUrl(roomCode) {
       u.port = base.port;
     }
     u.searchParams.set('room', code);
+    if (spectator) u.searchParams.set('spectator', '1');
+    else u.searchParams.delete('spectator');
     return u.toString();
   } catch (_) {
     let origin = (window.location && window.location.origin) || '';
@@ -5660,8 +5673,12 @@ function buildDirectJoinUrl(roomCode) {
         origin = localShareOriginOverride;
       }
     } catch (_) {}
-    return `${origin}${(window.location && window.location.pathname) || '/'}?room=${encodeURIComponent(code)}`;
+    return `${origin}${(window.location && window.location.pathname) || '/'}?room=${encodeURIComponent(code)}${spectator ? '&spectator=1' : ''}`;
   }
+}
+
+function buildSpectatorJoinUrl(roomCode) {
+  return buildDirectJoinUrl(roomCode, { spectator: true });
 }
 
 function refreshLobbyJoinLinkUi() {
@@ -5919,14 +5936,19 @@ function refreshLobbyJoinLinkUi() {
 
         if (pendingDirectJoinRoomCode && authUser) {
           const targetCode = String(pendingDirectJoinRoomCode || '').trim().toUpperCase();
+          const joinAsSpectator = !!pendingDirectJoinAsSpectator;
           const alreadyThere = !!(room && String(room.code || '').trim().toUpperCase() === targetCode);
           if (targetCode && !alreadyThere) {
             pendingDirectJoinRoomCode = null; // one-shot
+            pendingDirectJoinAsSpectator = false;
             const displayName = (ui.nameInput?.value || '').trim() || authUser.displayName || authUser.username || 'Player';
-            send({ type: 'join_room', code: targetCode, displayName });
+            send({ type: 'join_room', code: targetCode, displayName, spectator: joinAsSpectator });
             return;
           }
-          if (alreadyThere) pendingDirectJoinRoomCode = null;
+          if (alreadyThere) {
+            pendingDirectJoinRoomCode = null;
+            pendingDirectJoinAsSpectator = false;
+          }
         }
 
         if (pendingAutoRejoin) {
@@ -6221,6 +6243,7 @@ function refreshLobbyJoinLinkUi() {
   }
 
   pendingDirectJoinRoomCode = parseDirectJoinCodeFromUrl();
+  pendingDirectJoinAsSpectator = parseDirectJoinSpectatorFromUrl();
   updateAuthUi();
   connect();
   setTimeout(handleAccountActionLinkFromUrl, 0);
@@ -7038,6 +7061,39 @@ function refreshLobbyJoinLinkUi() {
     codeRow.appendChild(codeVal);
     codeRow.appendChild(copyCode);
     content.appendChild(codeRow);
+
+    const spectatorLinkRow = document.createElement('div');
+    spectatorLinkRow.style.marginBottom = '14px';
+
+    const spectatorLinkLabel = document.createElement('div');
+    spectatorLinkLabel.textContent = 'Spectator link:';
+    spectatorLinkLabel.style.color = '#9fb0c6';
+    spectatorLinkLabel.style.marginBottom = '6px';
+
+    const spectatorLinkControls = document.createElement('div');
+    spectatorLinkControls.style.display = 'flex';
+    spectatorLinkControls.style.alignItems = 'center';
+    spectatorLinkControls.style.gap = '8px';
+
+    const spectatorLink = document.createElement('input');
+    spectatorLink.className = 'input';
+    spectatorLink.readOnly = true;
+    spectatorLink.value = buildSpectatorJoinUrl(room.code || '');
+    spectatorLink.style.flex = '1';
+    spectatorLink.style.minWidth = '0';
+    spectatorLink.style.fontFamily = 'ui-monospace, monospace';
+    spectatorLink.style.fontSize = '11px';
+
+    const copySpectatorLink = document.createElement('button');
+    copySpectatorLink.className = 'btn';
+    copySpectatorLink.textContent = 'Copy Link';
+    copySpectatorLink.addEventListener('click', () => copyText(buildSpectatorJoinUrl(room.code || '')));
+
+    spectatorLinkControls.appendChild(spectatorLink);
+    spectatorLinkControls.appendChild(copySpectatorLink);
+    spectatorLinkRow.appendChild(spectatorLinkLabel);
+    spectatorLinkRow.appendChild(spectatorLinkControls);
+    content.appendChild(spectatorLinkRow);
 
     const list = document.createElement('div');
     list.style.display = 'flex';
@@ -11988,6 +12044,19 @@ function handleProductionGoldPrompt() {
     return true;
   }
 
+  function thiefPlacementTileLegalClient(t, phase = state && state.phase) {
+    if (!t) return false;
+    const movePhase = String(phase || '');
+    const isSeaTile = t.type === 'sea';
+    const canRobberHere = (!isSeaTile && !t.robber && !friendlyRobberTileBlockedClient(t.id));
+    const canPirateHere = (isSeaTile && !(t.fog && !t.revealed) && !t.pirate && !friendlyRobberTileBlockedClient(t.id));
+
+    if (movePhase === 'pirate-or-robber') return canRobberHere || canPirateHere;
+    if (movePhase === 'robber-move') return canRobberHere;
+    if (movePhase === 'pirate-move') return canPirateHere;
+    return false;
+  }
+
   // Click on board
   ui.canvas.addEventListener('click', (e) => {
     // Ignore delayed native click after synthetic mobile tap dispatch.
@@ -12471,12 +12540,7 @@ function handleProductionGoldPrompt() {
 
       if (activePlayerThiefMove) {
         const isSeaTile = t.type === 'sea';
-        const canRobberHere = (!isSeaTile && !t.robber && !friendlyRobberTileBlockedClient(t.id));
-        const canPirateHere = (isSeaTile && !(t.fog && !t.revealed) && !t.pirate && !friendlyRobberTileBlockedClient(t.id));
-        let showChoice = false;
-        if (thiefHighlightPhase === 'pirate-or-robber') showChoice = (canRobberHere || canPirateHere);
-        else if (thiefHighlightPhase === 'robber-move') showChoice = canRobberHere;
-        else if (thiefHighlightPhase === 'pirate-move') showChoice = canPirateHere;
+        const showChoice = thiefPlacementTileLegalClient(t, thiefHighlightPhase);
 
         if (showChoice) {
           const legalFill = isSeaTile ? 'rgba(55,190,255,.88)' : 'rgba(255,201,48,.88)';
@@ -12949,6 +13013,7 @@ function handleProductionGoldPrompt() {
     // highlights stay in the terrain pass below every player-built piece.
     drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse);
     drawColorblindPieceMarksOverlayPass();
+    drawThiefPlacementMarksOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse);
 
     // Overlay current selection mode
     if (state.currentPlayerId === myPlayerId) {
@@ -13046,6 +13111,63 @@ function handleProductionGoldPrompt() {
         }
         ctx.restore();
       }
+    }
+  }
+
+  function drawThiefPlacementMarksOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse) {
+    if (!activePlayerThiefMove || !state || !state.geom || !Array.isArray(state.geom.tiles)) return;
+
+    const drawMarkPath = (legal, x, y, size) => {
+      ctx.beginPath();
+      if (legal) {
+        ctx.moveTo(x - size * 0.58, y - size * 0.02);
+        ctx.lineTo(x - size * 0.16, y + size * 0.42);
+        ctx.lineTo(x + size * 0.64, y - size * 0.52);
+      } else {
+        ctx.moveTo(x - size * 0.52, y - size * 0.52);
+        ctx.lineTo(x + size * 0.52, y + size * 0.52);
+        ctx.moveTo(x + size * 0.52, y - size * 0.52);
+        ctx.lineTo(x - size * 0.52, y + size * 0.52);
+      }
+    };
+
+    for (const tile of state.geom.tiles) {
+      if (!tile || shouldHideOuterSeaBorderTileClient(tile)) continue;
+      const legal = thiefPlacementTileLegalClient(tile, thiefHighlightPhase);
+      const center = worldToScreen({ x: tile.cx, y: tile.cy });
+      const isSeaTile = tile.type === 'sea';
+      const hexHeight = 2 * view.scale;
+      const numberSize = Math.round(hexHeight / 3);
+      const hasVisibleNumber = !!(tile.number && !(tile.fog && !tile.revealed));
+      const markX = center.x;
+      const markY = (!isSeaTile && hasVisibleNumber) ? center.y - numberSize * 0.76 : center.y;
+      const markSize = Math.max(10, Math.min(27, hexHeight * 0.13));
+      const markColor = legal ? '#35e66b' : '#ff3347';
+
+      ctx.save();
+      ctx.globalAlpha = 0.92 + 0.08 * thiefPulse;
+      ctx.fillStyle = 'rgba(6,12,20,.78)';
+      ctx.strokeStyle = markColor;
+      ctx.lineWidth = Math.max(2, markSize * 0.12);
+      ctx.shadowColor = 'rgba(0,0,0,.9)';
+      ctx.shadowBlur = Math.max(4, markSize * 0.34);
+      ctx.beginPath();
+      ctx.arc(markX, markY, markSize * 0.84, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0,0,0,.92)';
+      ctx.lineWidth = Math.max(5, markSize * 0.38);
+      drawMarkPath(legal, markX, markY, markSize);
+      ctx.stroke();
+      ctx.strokeStyle = markColor;
+      ctx.lineWidth = Math.max(3, markSize * 0.22);
+      drawMarkPath(legal, markX, markY, markSize);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
