@@ -19,12 +19,14 @@ test('lobby readiness is visible and enforced by the server', () => {
   assert.match(serverJs, /All players must be ready before starting/);
 });
 
-test('proposed trades retry deferred prompts and use bottom response controls', () => {
+test('proposed trades stay open while responders can change their response', () => {
   assert.match(appJs, /let pendingTradePromptId = 0/);
   assert.match(appJs, /try \{ handlePendingTradePrompt\(\); \} catch \(_\) \{\}/);
   assert.match(appJs, /modalActions\.push\(\{ label: 'Reject'/);
   assert.match(appJs, /modalActions\.push\(\{ label: 'Accept', primary: true/);
+  assert.match(appJs, /const respond = \(accept\) => \{\s*sendGameAction\(\{ kind: 'respond_trade', tradeId: t\.id, accept \}\);\s*\}/);
   assert.doesNotMatch(appJs, /clicking an accepted player's checkmark/);
+  assert.doesNotMatch(serverJs, /allReject/);
   assert.match(serverJs, /If a player clicks approve but cannot afford[\s\S]*?accept = false/);
 });
 

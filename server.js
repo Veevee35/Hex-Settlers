@@ -7532,14 +7532,6 @@ if (kind === 'pirate_steal') {
 
     game.message = `${playerName(game, playerId)} rejected the trade offer.`;
     pushLog(game, `${playerName(game, playerId)} rejected a trade offer from ${playerName(game, t.fromId)}.`, 'trade', { kind: 'reject_offer', tradeId });
-
-    const vals = Object.values(t.responses || {});
-    const allReject = vals.length > 0 && vals.every(v => v === 'reject');
-    if (allReject) {
-      game.pendingTrade = null;
-      game.message = `All players rejected the trade offer.`;
-      pushLog(game, `All players rejected ${playerName(game, t.fromId)}'s trade offer.`, 'trade', { kind: 'reject_all', tradeId });
-    }
     return { ok: true };
   }
 
@@ -7581,13 +7573,6 @@ if (kind === 'pirate_steal') {
     for (const [k, n] of Object.entries(t.request || {})) {
       if ((toP.resources[k] || 0) < n) {
         if (t.responses) t.responses[withPlayerId] = 'reject';
-        const vals = Object.values(t.responses || {});
-        const allReject = vals.length > 0 && vals.every(v => v === 'reject');
-        if (allReject) {
-          game.pendingTrade = null;
-          game.message = `All players rejected the trade offer.`;
-          pushLog(game, `All players rejected ${playerName(game, t.fromId)}'s trade offer.`, 'trade', { kind: 'reject_all', tradeId });
-        }
         return { ok: false, error: `${playerName(game, withPlayerId)} no longer has enough ${k} to complete this trade.` };
       }
     }

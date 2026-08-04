@@ -6287,7 +6287,7 @@ function refreshLobbyJoinLinkUi() {
 
     // If a player dismisses the proposed-trade popup, treat it as a reject.
     try {
-      if (!suppressPendingTradeCloseReject && modalType === 'pendingTrade' && state && state.pendingTrade && myPlayerId) {
+      if (modalType === 'pendingTrade' && state && state.pendingTrade && myPlayerId) {
         const t = state.pendingTrade;
         if (t && t.id && myPlayerId !== t.fromId) {
           // Always reject on close (even if previously accepted).
@@ -10428,7 +10428,6 @@ if (ui.moveShipBtn) {
 
   let lastTradePromptKeySeen = '';
   let pendingTradePromptId = 0;
-  let suppressPendingTradeCloseReject = false;
   let lastEndVotePromptIdSeen = 0;
   let pendingEndVotePromptId = 0;
   // When the trade proposer hits "Revise Trade" from the proposed-trade popup,
@@ -10857,9 +10856,6 @@ if (ui.moveShipBtn) {
       modalActions.push({ label: 'Close', onClick: closeModal });
     } else {
       const respond = (accept) => {
-        suppressPendingTradeCloseReject = true;
-        closeModal();
-        suppressPendingTradeCloseReject = false;
         sendGameAction({ kind: 'respond_trade', tradeId: t.id, accept });
       };
       modalActions.push({ label: 'Reject', onClick: () => respond(false) });
