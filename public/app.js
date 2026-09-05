@@ -4577,6 +4577,8 @@ function syncPostgameToState() {
 
   // Pan/zoom
   const view = { scale: 150, ox: 0, oy: 0, autoFit: true, dragging: false, lastX: 0, lastY: 0 };
+  let boardRenderFrame = null;
+  let boardRenderRect = null;
   const touchNav = { active: false, moved: false, pinch: false, startX: 0, startY: 0, lastX: 0, lastY: 0, tapClientX: 0, tapClientY: 0, pinchLastDist: 0, pinchLastCx: 0, pinchLastCy: 0 };
   let mobileSyntheticClickSig = null;
 
@@ -6130,7 +6132,9 @@ function refreshLobbyJoinLinkUi() {
 
         updateButtons();
         updateCartographerDraftPanel();
-        renderLobby();
+        // Room packets handle membership/settings changes. Gameplay actions do
+        // not need to rebuild the hidden lobby and texture controls every time.
+        if (!prevState || prevState.phase !== state.phase || state.phase === 'lobby') renderLobby();
         render();
         syncPostgameToState();
         return;
@@ -6249,16 +6253,12 @@ function refreshLobbyJoinLinkUi() {
   function closeModal() {
     if (modalLocked) return;
 
-    // If a player dismisses the proposed-trade popup, treat it as a reject.
-    try {
-      if (modalType === 'pendingTrade' && state && state.pendingTrade && myPlayerId) {
-        const t = state.pendingTrade;
-        if (t && t.id && myPlayerId !== t.fromId) {
-          // Always reject on close (even if previously accepted).
-          send({ type: 'game_action', action: { kind: 'respond_trade', tradeId: t.id, accept: false } });
-        }
-      }
-    } catch (_) {}
+    // Dismiss only this player's popup. Their response and the offer stay intact.
+    if (modalType === 'pendingTrade') {
+      lastTradePromptKeySeen = pendingTradeKey();
+      pendingTradePromptId = 0;
+      pendingTradeModalKey = '';
+    }
 
     // If a player dismisses the end-game vote popup, treat it as a reject.
     try {
@@ -9939,7 +9939,7 @@ function ensureTimerUiInterval() {
       ui.buildSettlementBtn.disabled = true;
       ui.buildCityBtn.disabled = true;
       if (ui.bankTradeBtn) ui.bankTradeBtn.disabled = true;
-      if (ui.playerTradeBtn) ui.playerTradeBtn.disabled = true;
+      updatePlayerTradeButton();
       ui.buyDevBtn.disabled = true;
       setMode(null);
       // still render resources + dev hand (view-only)
@@ -10005,9 +10005,8 @@ if (ui.moveShipBtn) {
     ui.buildCityBtn.disabled = !(myTurn && state.phase === 'main-actions');
 
     // Trading
-    const p2Stage = isLocalPairedExtraTurn(state);
     if (ui.bankTradeBtn) ui.bankTradeBtn.disabled = !(myTurn && state.phase === 'main-actions');
-    if (ui.playerTradeBtn) ui.playerTradeBtn.disabled = !(myTurn && state.phase === 'main-actions') || p2Stage;
+    updatePlayerTradeButton();
 
     // Dev cards
     const me = myPlayer();
@@ -10394,12 +10393,38 @@ if (ui.moveShipBtn) {
 
   let lastTradePromptKeySeen = '';
   let pendingTradePromptId = 0;
+  let pendingTradeModalKey = '';
   let lastEndVotePromptIdSeen = 0;
   let pendingEndVotePromptId = 0;
   // When the trade proposer hits "Revise Trade" from the proposed-trade popup,
   // we keep track of which trade is being replaced so the server can atomically
   // close the old offer and broadcast the updated one.
   let revisingTradeId = null;
+
+  function pendingTradeKey() {
+    return state?.pendingTrade?.id
+      ? `${String(state.roomCode || room?.code || '')}:${state.pendingTrade.id}`
+      : '';
+  }
+
+  function canViewPendingTrade() {
+    const trade = state?.pendingTrade;
+    return !!(trade?.id && myPlayerId && !historyReplay.active && !amRoomSpectator()
+      && (myPlayerId === trade.fromId || Object.prototype.hasOwnProperty.call(trade.responses || {}, myPlayerId)));
+  }
+
+  function canOpenPlayerTrade() {
+    if (canViewPendingTrade()) return true;
+    return !!(state && myPlayerId && !historyReplay.active && !amRoomSpectator()
+      && !state.paused && state.phase === 'main-actions' && state.currentPlayerId === myPlayerId
+      && !isLocalPairedExtraTurn(state));
+  }
+
+  function updatePlayerTradeButton() {
+    if (!ui.playerTradeBtn) return;
+    ui.playerTradeBtn.disabled = !canOpenPlayerTrade();
+    ui.playerTradeBtn.title = canViewPendingTrade() ? 'Reopen the current trade offer.' : '';
+  }
 
   function playerHasPortClient(pid, port) {
     const nodes = state?.geom?.nodes || [];
@@ -10693,11 +10718,20 @@ if (ui.moveShipBtn) {
   }
 
   function openPendingTradeModal(forceOpen = false) {
-    if (!state || !state.pendingTrade || !myPlayerId) return;
+    if (!canViewPendingTrade()) return;
     const t = state.pendingTrade;
 
     // Don't interrupt other locked flows
     if (!forceOpen && !ui.modal.classList.contains('hidden') && modalType !== 'pendingTrade') return;
+
+    // Timer checks and unrelated state packets must not replace buttons under a
+    // player's pointer or keyboard focus. Rebuild only when the offer changes.
+    const contentKey = JSON.stringify([pendingTradeKey(), t, state.paused,
+      (state.players || []).map(p => [p.id, p.name, p.color])]);
+    lastTradePromptKeySeen = pendingTradeKey();
+    pendingTradePromptId = 0;
+    if (modalType === 'pendingTrade' && !ui.modal.classList.contains('hidden') && contentKey === pendingTradeModalKey) return;
+    pendingTradeModalKey = contentKey;
 
     const proposer = (state.players || []).find(p => p.id === t.fromId) || null;
 
@@ -10791,6 +10825,10 @@ if (ui.moveShipBtn) {
     }
 
     box.appendChild(grid);
+    const closeHint = document.createElement('div');
+    closeHint.className = 'smallNote';
+    closeHint.textContent = 'Close to keep playing. Use Player Trade to reopen this offer while it is available. Closing does not change your response.';
+    box.appendChild(closeHint);
     wrap.appendChild(box);
 
     modalType = 'pendingTrade';
@@ -10819,7 +10857,6 @@ if (ui.moveShipBtn) {
           onClick: () => sendGameAction({ kind: 'finalize_trade', tradeId: t.id, withPlayerId: player.id }),
         });
       }
-      modalActions.push({ label: 'Close', onClick: closeModal });
     } else {
       const respond = (accept) => {
         sendGameAction({ kind: 'respond_trade', tradeId: t.id, accept });
@@ -10827,6 +10864,7 @@ if (ui.moveShipBtn) {
       modalActions.push({ label: 'Reject', onClick: () => respond(false) });
       modalActions.push({ label: 'Accept', primary: true, onClick: () => respond(true) });
     }
+    modalActions.push({ label: 'Close', onClick: closeModal });
 
     openModal({
       title: 'Player Trade',
@@ -10945,7 +10983,7 @@ if (ui.moveShipBtn) {
 
 
   function openPlayerTradeModal(opts = null) {
-    if (!state || !myPlayerId) return;
+    if (!canOpenPlayerTrade()) return;
     if (isLocalPairedExtraTurn(state)) {
       setError('Player-to-player trades are unavailable during the extra action turn.');
       return;
@@ -11360,6 +11398,8 @@ if (ui.moveShipBtn) {
     if (!t || !t.id) {
       pendingTradePromptId = 0;
       if (modalType === 'pendingTrade') forceCloseModal();
+      lastTradePromptKeySeen = '';
+      pendingTradeModalKey = '';
       return;
     }
 
@@ -11371,7 +11411,7 @@ if (ui.moveShipBtn) {
     }
 
     const tradeId = Number(t.id || 0);
-    const tradePromptKey = `${String(state.roomCode || room?.code || '')}:${tradeId}`;
+    const tradePromptKey = pendingTradeKey();
 
     // Keep the proposed-trade modal live-updated while it's open
     if (modalType === 'pendingTrade' && !ui.modal.classList.contains('hidden')) {
@@ -11381,6 +11421,9 @@ if (ui.moveShipBtn) {
       return;
     }
 
+    // A dismissed offer stays dismissed, including while another menu is open.
+    if (tradePromptKey === lastTradePromptKeySeen && tradeId !== Number(pendingTradePromptId || 0)) return;
+
     // Defer behind required choices and retry when they close or on the periodic
     // prompt check. This prevents a single state packet from losing the popup.
     if (!ui.modal.classList.contains('hidden')) {
@@ -11388,7 +11431,6 @@ if (ui.moveShipBtn) {
       return;
     }
 
-    if (tradePromptKey === lastTradePromptKeySeen && tradeId !== Number(pendingTradePromptId || 0)) return;
     pendingTradePromptId = 0;
     lastTradePromptKeySeen = tradePromptKey;
 
@@ -12252,15 +12294,17 @@ function handleProductionGoldPrompt() {
   function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
   function worldToScreen(pt) {
+    const rect = boardRenderRect || ui.canvas.getBoundingClientRect();
     return {
-      x: (pt.x * view.scale) + (ui.canvas.getBoundingClientRect().width / 2) + view.ox,
-      y: (pt.y * view.scale) + (ui.canvas.getBoundingClientRect().height / 2) + view.oy,
+      x: (pt.x * view.scale) + (rect.width / 2) + view.ox,
+      y: (pt.y * view.scale) + (rect.height / 2) + view.oy,
     };
   }
   function screenToWorld(pt) {
+    const rect = boardRenderRect || ui.canvas.getBoundingClientRect();
     return {
-      x: (pt.x - (ui.canvas.getBoundingClientRect().width / 2) - view.ox) / view.scale,
-      y: (pt.y - (ui.canvas.getBoundingClientRect().height / 2) - view.oy) / view.scale,
+      x: (pt.x - (rect.width / 2) - view.ox) / view.scale,
+      y: (pt.y - (rect.height / 2) - view.oy) / view.scale,
     };
   }
 
@@ -12448,10 +12492,20 @@ function handleProductionGoldPrompt() {
   }
 
   function render() {
+    // Coalesce pointer, resize, image-load, and network bursts into one paint.
+    if (boardRenderFrame !== null) return;
+    boardRenderFrame = requestAnimationFrame(() => {
+      boardRenderFrame = null;
+      boardRenderRect = ui.canvas.getBoundingClientRect();
+      try { drawBoard(); } finally { boardRenderRect = null; }
+    });
+  }
+
+  function drawBoard() {
     if (!state) hideShipMoveCancelPopup();
     // Clear
-    const w = ui.canvas.getBoundingClientRect().width;
-    const h = ui.canvas.getBoundingClientRect().height;
+    const w = boardRenderRect.width;
+    const h = boardRenderRect.height;
     fitBoardToViewport(w, h);
     ctx.clearRect(0, 0, w, h);
 

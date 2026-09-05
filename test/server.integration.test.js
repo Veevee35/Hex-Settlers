@@ -116,6 +116,103 @@ class Peer {
   close() { try { this.ws.terminate(); } catch (_) {} }
 }
 
+test('six-player trades reach hosts and non-hosts promptly with private hands preserved', { timeout: 30_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-trade-sync-'));
+  let server = await startServer(port, dataDir);
+  const peers = [];
+  const accounts = [];
+  t.after(async () => {
+    for (const peer of peers) peer.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  let code;
+  for (let i = 0; i < 6; i++) {
+    const peer = await Peer.connect(port);
+    peers.push(peer);
+    peer.send({ type: 'auth_register', username: `trade_player_${i}`, password: 'trade synchronization test', displayName: `Player ${i + 1}` });
+    accounts.push(await peer.waitFor(message => message.type === 'auth_ok'));
+    peer.send(i === 0 ? { type: 'create_room' } : { type: 'join_room', code });
+    const joined = await peer.waitFor(message => message.type === 'joined');
+    code = joined.room.code;
+    if (i === 0) {
+      peer.send({ type: 'set_rules', rules: { mapMode: 'classic56' } });
+      await peer.waitFor(message => message.type === 'room' && message.room.rules.mapMode === 'classic56');
+    }
+    peer.send({ type: 'set_ready', ready: true });
+  }
+  await peers[0].waitFor(message => message.type === 'room' && message.room.players.length === 6 && message.room.players.every(player => player.ready));
+  peers[0].send({ type: 'start_game' });
+  await peers[0].waitFor(message => message.type === 'state' && message.state.phase !== 'lobby');
+
+  // Restore a deterministic midgame fixture using the actual persistence path.
+  // There are no debug hooks or artificial resource grants in the live server.
+  await server.stop();
+  for (const peer of peers) peer.close();
+  peers.length = 0;
+  const savePath = path.join(dataDir, 'active_rooms.json');
+  const saved = JSON.parse(fs.readFileSync(savePath, 'utf8'));
+  const game = saved.rooms.find(record => record.code === code).game;
+  const proposerId = accounts[1].user.id; // A non-host is the active trader.
+  game.phase = 'main-actions';
+  game.currentPlayerId = proposerId;
+  game.turnNumber = 3;
+  game.paired = null;
+  game.timer = null;
+  game.lastRoll = [3, 3];
+  for (const player of game.players) player.resources = { brick: 2, lumber: 2, wool: 2, grain: 2, ore: 2 };
+  for (const kind of Object.keys(game.bank)) game.bank[kind] = 12;
+  fs.writeFileSync(savePath, JSON.stringify(saved));
+  server = await startServer(port, dataDir);
+  for (const account of accounts) {
+    const peer = await Peer.connect(port);
+    peers.push(peer);
+    peer.send({ type: 'auth_token', token: account.token });
+    await peer.waitFor(message => message.type === 'auth_ok');
+    peer.send({ type: 'rejoin_room', code });
+    await peer.waitFor(message => message.type === 'joined');
+    await peer.waitFor(message => message.type === 'state' && message.state.phase === 'main-actions');
+  }
+
+  const deliveryTimes = peers.map(() => []);
+  async function actionFrom(index, action, predicate) {
+    for (const peer of peers) peer.messages = peer.messages.filter(message => message.type !== 'state');
+    const started = performance.now();
+    const deliveries = peers.map(async (peer, peerIndex) => {
+      const message = await peer.waitFor(message => message.type === 'state' && predicate(message.state), 2_000);
+      deliveryTimes[peerIndex].push(performance.now() - started);
+      assert.equal(message.state.replay, undefined);
+      assert.equal(message.state.devDeck, undefined);
+      for (const player of message.state.players) {
+        assert.equal(!!player.resources, player.id === accounts[peerIndex].user.id);
+      }
+      return message.state;
+    });
+    peers[index].send({ type: 'game_action', action });
+    return Promise.all(deliveries);
+  }
+
+  let states = await actionFrom(1, { kind: 'propose_trade', offer: { brick: 1 }, request: { ore: 1 } }, state => !!state.pendingTrade);
+  let tradeId = states[0].pendingTrade.id;
+  for (let round = 0; round < 4; round++) {
+    for (const index of [0, 2, 3, 4, 5]) {
+      const accept = round % 2 === 0;
+      const playerId = accounts[index].user.id;
+      await actionFrom(index, { kind: 'respond_trade', tradeId, accept }, state => state.pendingTrade?.responses[playerId] === (accept ? 'accept' : 'reject'));
+    }
+  }
+  states = await actionFrom(1, { kind: 'propose_trade', replaceTradeId: tradeId, offer: { lumber: 1 }, request: { grain: 1 } }, state => state.pendingTrade?.id > tradeId);
+  tradeId = states[0].pendingTrade.id;
+  assert.ok(Object.values(states[0].pendingTrade.responses).every(response => response === null));
+  const responderId = accounts[5].user.id;
+  await actionFrom(5, { kind: 'respond_trade', tradeId, accept: true }, state => state.pendingTrade?.responses[responderId] === 'accept');
+  states = await actionFrom(1, { kind: 'finalize_trade', tradeId, withPlayerId: responderId }, state => state.pendingTrade === null);
+  assert.equal(states[1].players.find(player => player.id === proposerId).resources.lumber, 1);
+  assert.equal(states[5].players.find(player => player.id === responderId).resources.lumber, 3);
+  t.diagnostic(`Local action-to-state maximum by player (host first): ${deliveryTimes.map(times => `${Math.max(...times).toFixed(1)} ms`).join(', ')}`);
+});
+
 function assertPortsUseNonAdjacentShorelineEdges(state, expectedPortCount) {
   const geom = state?.geom;
   assert.ok(geom);

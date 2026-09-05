@@ -599,7 +599,7 @@ body.in-game .hudRollDock{display:none;}
 .modalBox{position:relative; width:min(659px, calc(100% - 24px)); border:1px solid var(--line); border-radius:18px; background: linear-gradient(180deg, rgba(14,19,28,.98), rgba(10,14,20,.96)); box-shadow:0 18px 60px rgba(0,0,0,.45); padding:14px}
 .modalTitle{font-size:16px; font-weight:800; color:var(--text); margin-bottom:10px}
 .modalBody{color:var(--text); font-size:13px; line-height:1.4}
-.modalActions{display:flex; justify-content:flex-end; gap:10px; margin-top:12px}
+.modalActions{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; margin-top:12px}
 .modalImg{width:100%; max-height:70vh; object-fit:contain; border-radius:14px; border:1px solid var(--line); background: rgba(255,255,255,.02)}
 .choiceRow{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
 .choiceBtn{border:1px solid var(--line); background: rgba(0,0,0,.18); color:var(--text); border-radius:999px; padding:6px 10px; font-size:12px; cursor:pointer}
@@ -709,6 +709,21 @@ body.in-game .hudRollDock{display:none;}
 .ptResponseStatus.accept{color:var(--ok); border-color:rgba(56,210,122,.3); background:rgba(56,210,122,.1)}
 .ptResponseStatus.reject{color:var(--danger); border-color:rgba(255,91,91,.3); background:rgba(255,91,91,.08)}
 .ptResponseStatus.pending,.ptResponseStatus.offering{color:var(--muted); background:rgba(255,255,255,.03)}
+
+.modalBox:has(.ptStatusGrid){display:flex; flex-direction:column; max-height:calc(100dvh - 24px)}
+.modalBox:has(.ptStatusGrid) .modalBody{min-height:0; overflow:auto}
+.modalBox:has(.ptStatusGrid) .modalActions{flex-shrink:0}
+@media (max-width:600px){
+  .ptHead{flex-direction:column; align-items:stretch}
+  .ptChips{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:5px}
+  .ptChips .resChip{min-width:0; flex-direction:column; gap:2px; padding:6px 2px}
+  .ptChips .resChip .delta{min-width:0; text-align:center}
+  .ptGrid.ptStatusGrid{grid-template-columns:minmax(0,1fr) minmax(88px,110px)}
+  .ptNameCell{min-width:0}
+  .ptRowName{overflow-wrap:anywhere}
+  .modalBox:has(.ptStatusGrid) .modalActions:has(> :nth-child(4)){display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px}
+  .modalBox:has(.ptStatusGrid) .modalActions:has(> :nth-child(4)) .btn{min-width:0; padding:8px; font-size:12px; white-space:normal}
+}
 
 .voteBtn{width:74px; height:44px; border-radius:12px; border:1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.16); color:var(--text); cursor:pointer; font-size:28px; line-height:1; display:flex; align-items:center; justify-content:center}
 .voteBtn:hover{border-color: rgba(255,255,255,.22)}
