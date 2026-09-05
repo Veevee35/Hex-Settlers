@@ -64,6 +64,7 @@ const {
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
+const { FEATURE_NAMES: NEURAL_FEATURE_NAMES, FEATURE_VERSION: NEURAL_FEATURE_VERSION, TRAINING_OBJECTIVE: NEURAL_TRAINING_OBJECTIVE, opponentFeatures, upgradeNeuralModel, victoryTrainingTarget } = require('./server/neural-objective');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { normalizeBankTradeAction, validateBankTradeAvailability } = require('./server/bank-trade');
@@ -180,15 +181,11 @@ const NEURAL_AI_MODEL_WRITER = new JsonFileWriter(NEURAL_AI_MODEL_PATH);
 
 let HISTORY_DB = { version: 1, games: [] };
 let NEURAL_AI_MODEL = null;
-const NEURAL_FEATURE_NAMES = Object.freeze([
-  'vp_progress', 'gold_income', 'victory_pace', 'late_game_vp', 'hand_size', 'city_readiness',
-  'settlement_readiness', 'dev_readiness', 'city_upgrades', 'network_size', 'unplayed_dev', 'bias',
-]);
 
 function createDefaultNeuralAiModel() {
-  // Tiny MLP: 12 normalized inputs -> 8 hidden -> 1 output.
+  // Tiny MLP: own progress and opponent pressure -> 8 hidden -> 1 output.
   // Biases start with a strong VP preference so the policy is useful before training.
-  const inputSize = 12;
+  const inputSize = NEURAL_FEATURE_NAMES.length;
   const hiddenSize = 8;
   const mkRow = (n, scale = 0.12) => Array.from({ length: n }, () => (Math.random() * 2 - 1) * scale);
   const w1 = Array.from({ length: hiddenSize }, () => mkRow(inputSize));
@@ -211,9 +208,9 @@ function createDefaultNeuralAiModel() {
     meta: {
       inputSize,
       hiddenSize,
-      featureVersion: 3,
+      featureVersion: NEURAL_FEATURE_VERSION,
       featureNames: [...NEURAL_FEATURE_NAMES],
-      trainingObjective: 'discounted-fastest-victory-v1',
+      trainingObjective: NEURAL_TRAINING_OBJECTIVE,
     },
     params: { w1, b1, w2, b2 },
   };
@@ -229,15 +226,7 @@ function loadNeuralAiModel() {
     const raw = fs.readFileSync(NEURAL_AI_MODEL_PATH, 'utf-8');
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || !parsed.params) throw new Error('invalid model');
-    parsed.meta = {
-      ...(parsed.meta || {}),
-      inputSize: 12,
-      hiddenSize: Array.isArray(parsed.params.w1) ? parsed.params.w1.length : 8,
-      featureVersion: 3,
-      featureNames: [...NEURAL_FEATURE_NAMES],
-      trainingObjective: 'discounted-fastest-victory-v1',
-    };
-    NEURAL_AI_MODEL = parsed;
+    NEURAL_AI_MODEL = upgradeNeuralModel(parsed);
   } catch (e) {
     console.error('[neural-ai] Failed to load model, resetting:', e && e.message ? e.message : e);
     NEURAL_AI_MODEL = createDefaultNeuralAiModel();
@@ -1832,9 +1821,9 @@ function deepClone(obj) {
 
 function cloneGameForSimulation(game) {
   if (!game) return null;
-  // Replays can become sizeable over a long game. They are historical output,
-  // not gameplay input, so do not copy them into short-lived legality/AI probes.
-  return deepClone({ ...game, replay: undefined });
+  // Replays, logs, chat, and statistics are historical output. Omit these large
+  // histories from short-lived legality/AI probes; retain all gameplay state.
+  return deepClone({ ...game, replay: undefined, log: [], chat: [], stats: undefined });
 }
 
 function buildGeometry(radius = 2) {
@@ -3033,7 +3022,7 @@ function neuralTanh(x) {
 
 function neuralFeaturesFromState(state, pid) {
   const p = playerById(state, pid);
-  if (!p) return Array(12).fill(0);
+  if (!p) return Array(NEURAL_FEATURE_NAMES.length).fill(0);
   computeVP(state);
   const vpTarget = Math.max(3, Math.floor(Number(state?.rules?.victoryPointsToWin || 10)));
   const vp = Math.max(0, Number(p.vp || 0));
@@ -3080,6 +3069,7 @@ function neuralFeaturesFromState(state, pid) {
     Math.min(1, roads / 15),
     Math.min(1, devUnplayed / 4),
     1,
+    ...opponentFeatures(state, pid),
   ];
 }
 
@@ -3100,8 +3090,13 @@ function neuralModelPredict(features) {
 
 function neuralActionValue(state, pid, fallback = 0) {
   const feat = neuralFeaturesFromState(state, pid);
+  if (state.phase === 'game-over' && state.winnerId) return state.winnerId === pid ? 1e9 : -1e9;
+  return neuralFeatureValue(feat, fallback);
+}
+
+function neuralFeatureValue(feat, fallback = 0) {
   const pred = neuralModelPredict(feat).out;
-  return pred * 1200 + Number(fallback || 0);
+  return pred * 1200 + Number(fallback || 0) - 400 * feat[12] ** 4 - 160 * feat[15];
 }
 
 function neuralPlayersInGame(game) {
@@ -3153,7 +3148,7 @@ function trainNeuralExample(prm, features, rawTarget, learningRate) {
 
 function trainNeuralAiFromFinishedGame(game) {
   try {
-    if (!game || game._neuralTrained) return;
+    if (!game || game._dryRun || game._neuralTrained) return;
     if (String(game.phase || '').toLowerCase() !== 'game-over') return;
     if (!Array.isArray(game.players) || game.players.length < 2) return;
     const winnerId = String(game.winnerId || '').trim();
@@ -3165,39 +3160,35 @@ function trainNeuralAiFromFinishedGame(game) {
     const prm = NEURAL_AI_MODEL.params;
     const vpTarget = Math.max(3, Math.floor(Number(game?.rules?.victoryPointsToWin || 10)));
     const totalTurns = Math.max(1, Number(game.turnNumber || 1));
-    const expectedTurns = Math.max(20, vpTarget * Math.max(2, neuralPlayers.length) * 2);
-    // A win is always positive, while reaching it sooner produces a stronger
-    // reward. The curve stays bounded to prevent short outliers destabilizing
-    // a model during large self-play curricula.
-    const winnerReward = 0.3 + 0.68 * Math.exp(-totalTurns / (expectedTurns * 1.5));
+    const expectedTurns = Math.max(20, vpTarget * Math.max(2, game.players.length) * 2);
     const trace = Array.isArray(game._neuralTrainingTrace) ? game._neuralTrainingTrace : [];
     const sampleCount = Math.min(12, trace.length);
 
     for (const gp of neuralPlayers) {
       const pid = String(gp?.id || '').trim();
       if (!pid) continue;
-      const outcome = pid === winnerId ? 1 : -1;
+      const won = pid === winnerId;
       for (let sample = 0; sample < sampleCount; sample++) {
         const index = sampleCount === 1 ? trace.length - 1 : Math.round(sample * (trace.length - 1) / (sampleCount - 1));
         const snapshot = trace[index];
         const features = snapshot?.byPlayer?.[pid];
         if (!Array.isArray(features)) continue;
         const remainingTurns = Math.max(0, totalTurns - Number(snapshot.turn || 0));
-        const discount = Math.exp(-remainingTurns / expectedTurns);
-        const target = outcome * winnerReward * (0.55 + 0.45 * discount);
+        const target = victoryTrainingTarget({ won, totalTurns, expectedTurns, remainingTurns, opponentProgress: features[12], lead: features[14] });
         trainNeuralExample(prm, features, target, 0.0035);
       }
-      trainNeuralExample(prm, neuralFeaturesFromState(game, pid), outcome * winnerReward, 0.008);
+      const terminalFeatures = neuralFeaturesFromState(game, pid);
+      trainNeuralExample(prm, terminalFeatures, victoryTrainingTarget({ won, totalTurns, expectedTurns, opponentProgress: terminalFeatures[12], terminal: true }), 0.008);
     }
 
     NEURAL_AI_MODEL.trainedGames = Math.max(0, Number(NEURAL_AI_MODEL.trainedGames || 0)) + 1;
     NEURAL_AI_MODEL.meta = {
       ...(NEURAL_AI_MODEL.meta || {}),
-      inputSize: 12,
+      inputSize: NEURAL_FEATURE_NAMES.length,
       hiddenSize: Array.isArray(prm.w1) ? prm.w1.length : 8,
-      featureVersion: 3,
+      featureVersion: NEURAL_FEATURE_VERSION,
       featureNames: [...NEURAL_FEATURE_NAMES],
-      trainingObjective: 'discounted-fastest-victory-v1',
+      trainingObjective: NEURAL_TRAINING_OBJECTIVE,
     };
     const speedStats = (NEURAL_AI_MODEL.speedTraining && typeof NEURAL_AI_MODEL.speedTraining === 'object')
       ? NEURAL_AI_MODEL.speedTraining
@@ -7783,7 +7774,9 @@ if (kind === 'pirate_steal') {
 
 function applyAction(room, playerId, action) {
   const game = room && room.game;
-  const captureReplay = !!(game && !room._dryRun && game.phase !== 'lobby');
+  // Headless training keeps neural trajectories and result metrics; browser
+  // replay patches are unnecessary and expensive for thousands of games.
+  const captureReplay = !!(game && !AI_TRAINING_MODE && !room._dryRun && game.phase !== 'lobby');
   if (captureReplay) ensureReplay(game);
   const result = applyActionCore(room, playerId, action);
   if (captureReplay && result && result.ok) {
@@ -11943,6 +11936,20 @@ function handleAI(room) {
     return null;
   };
 
+  const thiefBaseFeatures = new Map();
+  const scoreThiefMove = (pid, kind, tileId, tacticalScore) => {
+    if (getAIDifficulty(pid) !== 'neural_net') return tacticalScore;
+    // The candidate lists already enforce legal destinations. A thief move
+    // changes blocked production before the separate steal action; project that
+    // input directly instead of cloning and applying every candidate move.
+    if (!thiefBaseFeatures.has(pid)) thiefBaseFeatures.set(pid, neuralFeaturesFromState(game, pid));
+    const base = thiefBaseFeatures.get(pid);
+    if (kind === 'move_pirate') return tacticalScore + neuralFeatureValue(base) / 20;
+    const projected = { ...game, geom: { ...game.geom, tiles: game.geom.tiles.map(tile => ({ ...tile, robber: tile.id === tileId })) } };
+    const features = [...base.slice(0, 12), ...opponentFeatures(projected, pid)];
+    return tacticalScore + neuralFeatureValue(features) / 20;
+  };
+
   const chooseBestActionCatanatron = (pid, preferExplore, mem) => {
     const p = playerById(game, pid);
     if (!p) return null;
@@ -12344,8 +12351,8 @@ const wouldAcceptTrade = (pid, trade, diff) => {
         if (i !== curP && !pirateTileTargetsPlayer(game, i, pid)) sea.push(i);
       } else if (i !== curR && robberCanOccupyTile(game, i) && !robberTileTargetsPlayer(game, i, pid)) land.push(i);
     }
-    const robberTarget = bestScoredTarget(land, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
-    const pirateTarget = bestScoredTarget(sea, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
+    const robberTarget = bestScoredTarget(land, (id) => scoreThiefMove(pid, 'move_robber', id, scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)));
+    const pirateTarget = bestScoredTarget(sea, (id) => scoreThiefMove(pid, 'move_pirate', id, scorePirateTile(game, pid, id, RESOURCE_KINDS)));
     const choices = [
       { kind: 'move_robber', target: robberTarget },
       { kind: 'move_pirate', target: pirateTarget },
@@ -12376,7 +12383,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       if (robberTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
-    const target = bestScoredTarget(cands, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS));
+    const target = bestScoredTarget(cands, (id) => scoreThiefMove(pid, 'move_robber', id, scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)));
     if (target.id != null) {
       const r = applyAction(room, pid, { kind: 'move_robber', tileId: target.id });
       if (r && r.ok) { delay(220, 360); return true; }
@@ -12409,7 +12416,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       if (pirateTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
-    const target = bestScoredTarget(cands, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS));
+    const target = bestScoredTarget(cands, (id) => scoreThiefMove(pid, 'move_pirate', id, scorePirateTile(game, pid, id, RESOURCE_KINDS)));
     if (target.id != null) {
       const r = applyAction(room, pid, { kind: 'move_pirate', tileId: target.id });
       if (r && r.ok) { delay(220, 360); return true; }

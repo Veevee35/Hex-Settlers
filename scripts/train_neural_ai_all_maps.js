@@ -9,6 +9,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const WebSocket = require('ws');
+const { TRAINING_OBJECTIVE } = require('../server/neural-objective');
+const { atomicWriteJson } = require('../server/persistence');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT, 'neural_ai_model.json'));
@@ -25,7 +27,7 @@ const OUTPUT_PATH = path.resolve(process.env.TRAINING_OUTPUT || path.join(PROJEC
 
 // Every lobby scenario is represented. Test Builder has no authored default
 // board, so those rounds paint a varied, valid Gold-bearing training board.
-const MAPS = Object.freeze([
+const ALL_MAPS = Object.freeze([
   { id: 'classic', label: 'Classic', mapMode: 'classic', scenario: 'four_islands', players: 4, victoryPoints: 10 },
   { id: 'classic56', label: 'Classic 5-6', mapMode: 'classic56', scenario: 'four_islands', players: 6, victoryPoints: 10 },
   { id: 'four_islands', label: 'Four Islands', mapMode: 'seafarers', scenario: 'four_islands', players: 4, victoryPoints: 13, gold: true },
@@ -42,6 +44,9 @@ const MAPS = Object.freeze([
   { id: 'cartographer_56_random', label: 'Scattered Tiles 5-6', mapMode: 'seafarers', scenario: 'cartographer_56_random', players: 6, victoryPoints: 12, gold: true },
   { id: 'test_builder_56', label: 'Test Builder 5-6', mapMode: 'seafarers', scenario: 'test_builder_56', players: 6, victoryPoints: 13, gold: true, customBuilder: true },
 ]);
+const MAP_SET = process.env.MAP_SET || 'all';
+if (!['all', 'standard'].includes(MAP_SET)) throw new Error(`Unknown MAP_SET: ${MAP_SET}`);
+const MAPS = Object.freeze(ALL_MAPS.filter(map => MAP_SET !== 'standard' || !map.customBuilder));
 
 function readModel(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -298,8 +303,10 @@ async function runOneGame(port, token, item) {
     peer.send({ type: 'start_game' });
     const finished = await peer.waitFor((message) => message.type === 'state' && message.state?.phase === 'game-over', GAME_TIMEOUT_MS);
     const state = finished.state;
-    const winner = (state.players || []).find((player) => player.id === state.winnerId)
-      || (state.players || []).reduce((best, player) => (!best || Number(player.vp || 0) > Number(best.vp || 0)) ? player : best, null);
+    const winner = (state.players || []).find((player) => player.id === state.winnerId);
+    const victoryTarget = VP_TO_WIN_OVERRIDE || item.map.victoryPoints;
+    if (!winner || Number(winner.vp || 0) < victoryTarget) throw new Error('Game ended without a valid victory');
+    const opponentVp = (state.players || []).filter(player => player.id !== winner.id).map(player => Number(player.vp || 0));
     return {
       sessionIndex: item.sessionIndex,
       curriculumIndex: item.curriculumIndex,
@@ -310,6 +317,8 @@ async function runOneGame(port, token, item) {
       turnNumber: Number(state.turnNumber || 0),
       winner: String(winner?.name || winner?.id || 'unknown'),
       winnerVp: Number(winner?.vp || 0),
+      highestOpponentVp: Math.max(0, ...opponentVp),
+      winnerMargin: Number(winner.vp) - Math.max(0, ...opponentVp),
       goldProductionCards: goldProductionCards(state),
     };
   } finally {
@@ -406,6 +415,8 @@ async function main() {
       if (Number(batchModel.trainedGames || 0) !== expected) {
         throw new Error(`Model trainedGames=${batchModel.trainedGames}; expected ${expected} after batch ${batchNo}`);
       }
+      // Commit completed batches together so a long interrupted run is recoverable.
+      await atomicWriteJson(`${OUTPUT_PATH}.checkpoint.json`, { startingTrainedGames: Number(startingModel.trainedGames || 0), model: batchModel, games: results });
     }
 
     results.sort((a, b) => a.sessionIndex - b.sessionIndex);
@@ -419,7 +430,8 @@ async function main() {
       concurrency: CONCURRENCY,
       curriculumOffset: CURRICULUM_OFFSET,
       victoryPointsToWin: VP_TO_WIN_OVERRIDE || 'scenario-defaults',
-      trainingObjective: 'discounted-fastest-victory-v1',
+      trainingObjective: TRAINING_OBJECTIVE,
+      mapSet: MAP_SET,
       mapsCovered: MAPS.map((map) => map.id),
       startingTrainedGames: Number(startingModel.trainedGames || 0),
       finalTrainedGames: Number(finalModel.trainedGames || 0),
@@ -440,7 +452,8 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+module.exports = { ALL_MAPS, MAPS, curriculum, summarize };
+if (require.main === module) main().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exitCode = 1;
 });

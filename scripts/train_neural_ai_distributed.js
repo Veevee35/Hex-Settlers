@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { TRAINING_OBJECTIVE, FEATURE_VERSION, upgradeNeuralModel } = require('../server/neural-objective');
+const { atomicWriteJson } = require('../server/persistence');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const TRAINER_PATH = path.join(__dirname, 'train_neural_ai_all_maps.js');
@@ -14,6 +16,7 @@ const SHARD_COUNT = Math.max(1, Math.min(TOTAL_GAMES, Math.floor(Number(process.
 const CHILD_BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 20)));
 const CHILD_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 10)));
 const OUTPUT_PATH = path.resolve(process.env.TRAINING_OUTPUT || path.join(PROJECT_ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_fast_victory_all_scenarios.json`));
+const MAP_SET = process.env.MAP_SET || 'all';
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -46,8 +49,8 @@ function mergeModels(startingModel, models, gameCounts) {
   merged.trainedGames = Math.max(0, Number(startingModel.trainedGames || 0)) + totalWeight;
   merged.meta = {
     ...(models[0]?.meta || startingModel.meta || {}),
-    featureVersion: 3,
-    trainingObjective: 'discounted-fastest-victory-v1',
+    featureVersion: FEATURE_VERSION,
+    trainingObjective: TRAINING_OBJECTIVE,
   };
 
   const initialSpeed = startingModel.speedTraining || { games: 0, totalTurns: 0, bestTurns: null };
@@ -146,10 +149,11 @@ function runShard(shard, progress, onProgress) {
 async function main() {
   if (!fs.existsSync(MODEL_PATH)) throw new Error(`Model not found: ${MODEL_PATH}`);
   const startedAt = new Date();
-  const startingModel = readJson(MODEL_PATH);
+  const startingModel = upgradeNeuralModel(readJson(MODEL_PATH));
   const startingHash = sha256(MODEL_PATH);
   const tempRoot = fs.mkdtempSync(path.join(PROJECT_ROOT, 'scripts', 'output', '.neural-shards-'));
   const shards = [];
+  fs.copyFileSync(MODEL_PATH, path.join(tempRoot, 'starting_model.json'));
   let offset = 0;
   for (let index = 0; index < SHARD_COUNT; index++) {
     const games = Math.floor(TOTAL_GAMES / SHARD_COUNT) + (index < (TOTAL_GAMES % SHARD_COUNT) ? 1 : 0);
@@ -161,6 +165,8 @@ async function main() {
     shards.push({ index, games, offset, dir, modelPath, reportPath });
     offset += games;
   }
+  fs.writeFileSync(path.join(tempRoot, 'run.json'), JSON.stringify({ modelPath: MODEL_PATH, outputPath: OUTPUT_PATH, mapSet: MAP_SET, totalGames: TOTAL_GAMES, startingHash, startedAt, shards }, null, 2));
+  console.log(`[distributed] checkpoints=${tempRoot}`);
 
   let succeeded = false;
   try {
@@ -185,7 +191,6 @@ async function main() {
     }
 
     const mergedModel = mergeModels(startingModel, models, shards.map((shard) => shard.games));
-    fs.writeFileSync(MODEL_PATH, `${JSON.stringify(mergedModel, null, 2)}\n`, 'utf8');
 
     const games = reports.flatMap((report) => report.games || [])
       .sort((a, b) => Number(a.curriculumIndex || 0) - Number(b.curriculumIndex || 0))
@@ -197,6 +202,13 @@ async function main() {
     const byMap = summarizeGames(games, mapTemplates);
     const completedGames = games.length;
     if (completedGames !== TOTAL_GAMES) throw new Error(`Merged report has ${completedGames} games; expected ${TOTAL_GAMES}`);
+    if (new Set(games.map(game => game.curriculumIndex)).size !== TOTAL_GAMES) throw new Error('Duplicate curriculum games');
+    if (MAP_SET === 'standard' && TOTAL_GAMES === 13000 &&
+        (Object.keys(byMap).length !== 13 || Object.values(byMap).some(summary => summary.games !== 1000))) {
+      throw new Error('Expected exactly 1000 games in each of the 13 standard modes');
+    }
+    if (sha256(MODEL_PATH) !== startingHash) throw new Error('Destination model changed during training; shard models retained');
+    await atomicWriteJson(MODEL_PATH, mergedModel);
 
     const report = {
       mode: 'distributed_neural_net_self_play',
@@ -206,7 +218,8 @@ async function main() {
       childBatchSize: CHILD_BATCH_SIZE,
       childConcurrency: CHILD_CONCURRENCY,
       victoryPointsToWin: 'scenario-defaults',
-      trainingObjective: 'discounted-fastest-victory-v1',
+      trainingObjective: TRAINING_OBJECTIVE,
+      mapSet: MAP_SET,
       aggregation: 'weighted-parameter-average',
       mapsCovered: Object.keys(byMap),
       startingTrainedGames: Number(startingModel.trainedGames || 0),
@@ -215,6 +228,7 @@ async function main() {
       finalModelSha256: sha256(MODEL_PATH),
       totalGoldProductionCards: games.reduce((sum, game) => sum + Number(game.goldProductionCards || 0), 0),
       averageVictoryTurn: games.reduce((sum, game) => sum + Number(game.turnNumber || 0), 0) / Math.max(1, completedGames),
+      averageWinnerMargin: games.reduce((sum, game) => sum + Number(game.winnerMargin || 0), 0) / Math.max(1, completedGames),
       byMap,
       games,
       startedAt: startedAt.toISOString(),
@@ -226,12 +240,17 @@ async function main() {
     succeeded = true;
     console.log(JSON.stringify({ ...report, games: undefined, reportPath: OUTPUT_PATH }, null, 2));
   } finally {
-    if (succeeded || String(process.env.KEEP_TRAINING_TEMP || '') !== '1') fs.rmSync(tempRoot, { recursive: true, force: true });
-    else console.error(`[distributed] retained failed shard data at ${tempRoot}`);
+    if (succeeded && String(process.env.KEEP_TRAINING_TEMP || '') !== '1') {
+      const outputRoot = path.resolve(PROJECT_ROOT, 'scripts', 'output') + path.sep;
+      if (!path.resolve(tempRoot).startsWith(outputRoot)) throw new Error('Unsafe checkpoint cleanup path');
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+    else console.error(`[distributed] retained shard data at ${tempRoot}`);
   }
 }
 
-main().catch((error) => {
+module.exports = { mergeModels, assertFiniteModel, summarizeGames };
+if (require.main === module) main().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exitCode = 1;
 });

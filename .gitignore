@@ -7,3 +7,7 @@ game_history.json
 active_rooms.json
 *.tmp
 coverage/
+scripts/output/.neural-shards-*/
+scripts/output/neural_ai_*_training.log
+scripts/output/neural_*_checks.log
+scripts/output/neural_ai_smoke_*.json

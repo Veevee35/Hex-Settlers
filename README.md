@@ -63,6 +63,41 @@ The built-in administrator uses username **Benleethom** and player name **Ben**.
 
 Expert AI weights also have optional `EXPERT_AI_*` environment overrides; see the defaults near the bottom of `server.js`.
 
+## Neural AI training
+
+The neural policy learns from every neural player's outcome in self-play. Its
+`fast-victory-opponent-denial-v2` objective rewards earlier wins and a larger lead
+over rivals, penalizes losses, and includes opponent victory progress and blocked
+production as inputs. Winning immediately takes priority over further building
+or blocking. The 17-input model preserves the original 12 learned inputs when
+loading an older model.
+
+To train 1,000 games in each of the 13 standard modes (PowerShell):
+
+```powershell
+$env:SIMS = '13000'
+$env:MAP_SET = 'standard'
+$env:SHARDS = '16'
+$env:BATCH_SIZE = '100'
+$env:CONCURRENCY = '8'
+$env:GAME_TIMEOUT_MS = '600000'
+$env:TRAINING_OUTPUT = 'scripts/output/neural_ai_13000_fast_victory_opponent_denial.json'
+node scripts/train_neural_ai_distributed.js
+```
+
+`standard` includes Classic, Classic 5–6, and the eleven standard Seafarers
+scenarios, including both Cartographer and Scattered Tiles sizes. The two Test
+Builder modes are included only with `MAP_SET=all` (the default). Each game uses
+its scenario's full victory target. Workers start with the same saved model and
+their final parameters are averaged in proportion to completed games. A game
+counts once only after a player reaches the victory target.
+
+The trainer prints a checkpoint directory and saves each completed batch there.
+It preserves failed runs for recovery and updates `neural_ai_model.json` only
+after validating the complete curriculum. The report contains individual game
+results, per-mode counts, turns to victory, victory margins, and model hashes.
+Training servers omit browser replay recording; normal games retain replays.
+
 ## Project layout
 
 - `server.js` — authoritative rules engine, lobby protocol, AI, HTTP and WebSocket runtime
