@@ -3911,6 +3911,7 @@ function syncPostgameToState() {
       rightSidebarDock.originals = {
         log: ui.logCard ? rememberOriginal(ui.logCard) : null,
         dev: ui.devCard ? rememberOriginal(ui.devCard) : null,
+        resources: ui.resourcesCard ? rememberOriginal(ui.resourcesCard) : null,
       };
     }
 
@@ -3928,6 +3929,13 @@ function syncPostgameToState() {
       } catch (_) {}
 
       const anchor = ui.rightSidebarResourcesDock || null;
+      if (ui.resourcesCard) {
+        ui.resourcesCard.dataset.dragDisabled = '1';
+        clearDockedPanelPosition(ui.resourcesCard);
+        if (ui.resourcesCard.parentNode !== ui.rightSidebarInner) {
+          ui.rightSidebarInner.insertBefore(ui.resourcesCard, ui.rightSidebarInner.firstChild);
+        }
+      }
       if (ui.logCard) {
         ui.logCard.dataset.dragDisabled = '1';
         ui.logCard.classList.add('rightSidebarDocked');
@@ -3953,6 +3961,12 @@ function syncPostgameToState() {
     ui.rightSidebar.classList.add('hidden');
     if (!rightSidebarDock.isDocked) return;
     rightSidebarDock.isDocked = false;
+
+    if (ui.resourcesCard && ui.resourcesCard.parentNode === ui.rightSidebarInner) {
+      delete ui.resourcesCard.dataset.dragDisabled;
+      clearDockedPanelPosition(ui.resourcesCard);
+      restoreOriginal(ui.resourcesCard, rightSidebarDock.originals.resources);
+    }
 
     if (ui.logCard) {
       delete ui.logCard.dataset.dragDisabled;
@@ -4072,10 +4086,12 @@ function syncPostgameToState() {
         turn: ui.turnCard ? rememberOriginal(ui.turnCard) : null,
         dev: ui.devCard ? rememberOriginal(ui.devCard) : null,
         dock: ui.rollDock ? rememberOriginal(ui.rollDock) : null,
+        error: ui.errBox ? rememberOriginal(ui.errBox) : null,
       };
 
       buildToolsHudOnce();
       buildTurnHudOnce();
+      if (ui.errBox) boardWrap.appendChild(ui.errBox);
 
       if (ui.toolsCard) {
         ui.toolsCard.classList.add('hudBar', 'hudTopLeft');
@@ -4128,6 +4144,7 @@ function syncPostgameToState() {
       restoreOriginal(ui.turnCard, hudDock.originals?.turn);
       restoreOriginal(ui.devCard, hudDock.originals?.dev);
       restoreOriginal(ui.rollDock, hudDock.originals?.dock);
+      restoreOriginal(ui.errBox, hudDock.originals?.error);
     }
   }
 
@@ -4518,7 +4535,14 @@ function syncPostgameToState() {
     ui.canvas.height = Math.floor((rect.height) * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  window.addEventListener('resize', () => { try { setRightSidebarWidth(getSavedRightSidebarWidth()); } catch (_) {} resizeCanvas(); render(); });
+  window.addEventListener('resize', () => {
+    try {
+      setRightSidebarWidth(getSavedRightSidebarWidth());
+      syncRightSidebarDock(!!state && state.phase !== 'lobby');
+    } catch (_) {}
+    resizeCanvas();
+    render();
+  });
   try {
     if (window.visualViewport) {
       const onVvResize = () => { resizeCanvas(); render(); };
@@ -4552,7 +4576,7 @@ function syncPostgameToState() {
   } catch (_) {}
 
   // Pan/zoom
-  const view = { scale: 150, ox: 0, oy: 0, dragging: false, lastX: 0, lastY: 0 };
+  const view = { scale: 150, ox: 0, oy: 0, autoFit: true, dragging: false, lastX: 0, lastY: 0 };
   const touchNav = { active: false, moved: false, pinch: false, startX: 0, startY: 0, lastX: 0, lastY: 0, tapClientX: 0, tapClientY: 0, pinchLastDist: 0, pinchLastCx: 0, pinchLastCy: 0 };
   let mobileSyntheticClickSig = null;
 
@@ -4569,6 +4593,7 @@ function syncPostgameToState() {
     };
     const nextScale = clamp(view.scale * factor, 10, 800);
     if (nextScale === view.scale) return;
+    view.autoFit = false;
     view.scale = nextScale;
     view.ox = sx - cx - (before.x * view.scale);
     view.oy = sy - cy - (before.y * view.scale);
@@ -4596,6 +4621,7 @@ function syncPostgameToState() {
     if (!view.dragging) return;
     const dx = e.clientX - view.lastX;
     const dy = e.clientY - view.lastY;
+    if (dx || dy) view.autoFit = false;
     view.lastX = e.clientX;
     view.lastY = e.clientY;
     view.ox += dx;
@@ -4673,6 +4699,7 @@ function syncPostgameToState() {
         const pdx = cx - touchNav.pinchLastCx;
         const pdy = cy - touchNav.pinchLastCy;
         if (pdx || pdy) {
+          view.autoFit = false;
           view.ox += pdx;
           view.oy += pdy;
           hideBoardHoverIndicator();
@@ -4699,6 +4726,7 @@ function syncPostgameToState() {
     const dx = t.clientX - touchNav.lastX;
     const dy = t.clientY - touchNav.lastY;
     if (dx || dy) {
+      view.autoFit = false;
       view.ox += dx;
       view.oy += dy;
       touchNav.lastX = t.clientX;
@@ -4917,6 +4945,7 @@ function syncPostgameToState() {
 
   function resetViewportForRoomChange() {
     try {
+      view.autoFit = true;
       lastTileCountForView = 0;
       view.scale = 150;
       view.ox = 0;
@@ -5596,83 +5625,20 @@ function syncPostgameToState() {
     }
   }
 
-let localShareOriginOverride = '';
-let localShareOriginLookupPromise = null;
-
-function isLikelyLocalShareLinkHost(hostname) {
-  const h = String(hostname || '').trim().toLowerCase();
-  if (!h) return false;
-  if (h === 'localhost' || h === '::1' || h === '[::1]') return true;
-  if (/^127\./.test(h)) return true;
-  if (/^10\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  const m = h.match(/^172\.(\d+)\./);
-  if (m) {
-    const n = Number(m[1]);
-    if (Number.isFinite(n) && n >= 16 && n <= 31) return true;
-  }
-  return false;
-}
-
-function formatHostForUrl(host) {
-  const h = String(host || '').trim();
-  if (!h) return '';
-  if (h.includes(':') && !/^\[.*\]$/.test(h)) return `[${h}]`;
-  return h;
-}
-
-function ensureLocalShareOriginOverride() {
-  try {
-    if (localShareOriginOverride) return;
-    if (localShareOriginLookupPromise) return;
-    if (!isLikelyLocalShareLinkHost(window.location && window.location.hostname)) return;
-    // Keep deployed Railway / public domains unchanged. Only override local/private hosting.
-    localShareOriginLookupPromise = (async () => {
-      try {
-        const r = await fetch('https://api.ipify.org?format=json', { cache: 'no-store' });
-        if (!r || !r.ok) return;
-        const j = await r.json().catch(() => null);
-        const ip = String((j && j.ip) || '').trim();
-        if (!ip) return;
-        const host = formatHostForUrl(ip);
-        if (!host) return;
-        const protocol = (window.location && window.location.protocol === 'https:') ? 'https:' : 'http:';
-        localShareOriginOverride = `${protocol}//${host}:25000`;
-      } catch (_) {
-        // fall back to current local origin if public IP lookup fails
-      } finally {
-        localShareOriginLookupPromise = null;
-        try { refreshLobbyJoinLinkUi(); } catch (_) {}
-      }
-    })();
-  } catch (_) {}
-}
-
 function buildDirectJoinUrl(roomCode, options = {}) {
   const code = String(roomCode || '').trim().toUpperCase();
   if (!code) return '';
   const spectator = !!(options && options.spectator);
   try {
-    ensureLocalShareOriginOverride();
-    const u = new URL(window.location.href);
-    if (localShareOriginOverride && isLikelyLocalShareLinkHost(u.hostname)) {
-      const base = new URL(localShareOriginOverride);
-      u.protocol = base.protocol;
-      u.hostname = base.hostname;
-      u.port = base.port;
-    }
+    // Use the address that actually serves this game, including LAN hosts and
+    // custom ports. Link rendering must never depend on a network lookup.
+    const u = new URL(window.location.pathname || '/', window.location.origin);
     u.searchParams.set('room', code);
     if (spectator) u.searchParams.set('spectator', '1');
     else u.searchParams.delete('spectator');
     return u.toString();
   } catch (_) {
-    let origin = (window.location && window.location.origin) || '';
-    try {
-      ensureLocalShareOriginOverride();
-      if (localShareOriginOverride && isLikelyLocalShareLinkHost(window.location && window.location.hostname)) {
-        origin = localShareOriginOverride;
-      }
-    } catch (_) {}
+    const origin = (window.location && window.location.origin) || '';
     return `${origin}${(window.location && window.location.pathname) || '/'}?room=${encodeURIComponent(code)}${spectator ? '&spectator=1' : ''}`;
   }
 }
@@ -6134,13 +6100,11 @@ function refreshLobbyJoinLinkUi() {
         hoverEdgeBuildQuery = null;
         hoverNodeBuildCache.clear();
         if (inputMode) { inputMode.moveShipTargets = []; inputMode.moveShipTargetsLoading = false; }
-        // Auto-fit view for larger boards (Seafarers)
+        // Fit each new board to the available canvas, then preserve manual zoom/pan.
         const tc = (state && state.geom && state.geom.tiles) ? state.geom.tiles.length : 0;
         if (tc && tc !== lastTileCountForView) {
           lastTileCountForView = tc;
-          if (tc > 45) { view.scale = 95; view.ox = 0; view.oy = 0; }
-          else if (tc > 19) { view.scale = 120; view.ox = 0; view.oy = 0; }
-          else { view.scale = 150; view.ox = 0; view.oy = 0; }
+          view.autoFit = true;
         }
         maybePlayTurnBell();
         maybePlayPairedTurnSfx();
@@ -8921,6 +8885,7 @@ if (ui.copyMyIdBtn) {
 
   function sendGameAction(action) {
     if (!action) return;
+    setError(null);
     if (amRoomSpectator()) {
       setError('Spectators cannot take game actions.');
       return;
@@ -9622,6 +9587,7 @@ if (ui.copyMyIdBtn) {
 
   ui.pauseBtn.addEventListener('click', () => {
     if (!room || room.hostId !== myPlayerId) return;
+    setError(null);
     const desired = !(state && state.paused);
     send({ type: 'pause_game', paused: desired });
   });
@@ -12463,11 +12429,30 @@ function handleProductionGoldPrompt() {
     return sawIncident;
   }
 
+  function fitBoardToViewport(width, height) {
+    if (!view.autoFit || !state?.geom?.tiles?.length || width <= 0 || height <= 0) return;
+    const tiles = state.geom.tiles.filter(tile => !shouldHideOuterSeaBorderTileClient(tile));
+    if (!tiles.length) return;
+    const minX = Math.min(...tiles.map(tile => tile.cx - Math.sqrt(3) / 2));
+    const maxX = Math.max(...tiles.map(tile => tile.cx + Math.sqrt(3) / 2));
+    const minY = Math.min(...tiles.map(tile => tile.cy - 1));
+    const maxY = Math.max(...tiles.map(tile => tile.cy + 1));
+    const inGame = state.phase !== 'lobby';
+    const top = inGame ? Math.min(140, height * 0.25) : 16;
+    const bottom = inGame ? Math.min(70, height * 0.15) : 16;
+    const availableWidth = Math.max(1, width - 32);
+    const availableHeight = Math.max(1, height - top - bottom);
+    view.scale = Math.min(availableWidth / (maxX - minX), availableHeight / (maxY - minY));
+    view.ox = -(minX + maxX) / 2 * view.scale;
+    view.oy = (top - bottom) / 2 - (minY + maxY) / 2 * view.scale;
+  }
+
   function render() {
     if (!state) hideShipMoveCancelPopup();
     // Clear
     const w = ui.canvas.getBoundingClientRect().width;
     const h = ui.canvas.getBoundingClientRect().height;
+    fitBoardToViewport(w, h);
     ctx.clearRect(0, 0, w, h);
 
     if (!state || !state.geom || !state.geom.tiles) {
