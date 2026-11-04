@@ -7729,7 +7729,9 @@ function refreshLobbyJoinLinkUi() {
       'A newly purchased non-Victory-Point card cannot be played on the same turn it was bought.',
       'A player may play at most 1 non-Victory-Point development card per turn. Eligible cards may be played before rolling.',
       `Knight: counts toward Largest Army and moves the ${guide.isSeafarers ? 'robber or pirate' : 'robber'}, followed by an eligible random steal.`,
-      'Road Building: place up to 2 roads for free. It does not place ships.',
+      guide.isSeafarers
+        ? 'Road Building: place up to 2 free roads or ships in any combination. Every placement must still be legal and use an available piece.'
+        : 'Road Building: place up to 2 roads for free. Every placement must still be legal and use an available road piece.',
       'Invention: choose exactly 2 resources to take from the bank.',
       'Monopoly: name 1 resource and take every card of that resource held by the other players.',
       'Victory Point: adds 1 revealed victory point and may be played immediately, including on the purchase turn.',
@@ -9251,7 +9253,15 @@ if (ui.copyMyIdBtn) {
     if (state.currentPlayerId !== myPlayerId) return false;
     if (inputMode && inputMode.kind === 'move_ship') return false;
     const phase = String(state.phase || '');
-    return (phase === 'main-actions' || phase === 'setup1-road' || phase === 'setup2-road');
+    const freeRoute = roadBuildingPlacementActiveClient();
+    return (phase === 'main-actions' || phase === 'setup1-road' || phase === 'setup2-road' || (phase === 'main-await-roll' && freeRoute));
+  }
+
+  function roadBuildingPlacementActiveClient() {
+    const special = state && state.special;
+    if (!special || !myPlayerId || special.forPlayerId !== myPlayerId) return false;
+    const kind = String(special.kind || '');
+    return (kind === 'free_routes' || kind === 'free_roads') && Number(special.remaining || 0) > 0;
   }
 
   function getEdgeActionOptions(options) {
@@ -10186,10 +10196,11 @@ function ensureTimerUiInterval() {
     const awaitingMine = !!(awaiting && awaiting.playerId === myPlayerId);
 
     // building buttons (main actions, plus initial setup road/ship selection)
-    ui.buildRoadBtn.disabled = !((myTurn && state.phase === 'main-actions') || (setupRoad && awaitingMine));
+    const freeRoutePlacement = myTurn && roadBuildingPlacementActiveClient();
+    ui.buildRoadBtn.disabled = !((myTurn && state.phase === 'main-actions') || (setupRoad && awaitingMine) || freeRoutePlacement);
     if (ui.buildShipBtn) {
       ui.buildShipBtn.classList.add('hidden');
-      ui.buildShipBtn.disabled = !(seafarers && ((myTurn && state.phase === 'main-actions') || (setupRoad && awaitingMine)));
+      ui.buildShipBtn.disabled = !(seafarers && ((myTurn && state.phase === 'main-actions') || (setupRoad && awaitingMine) || freeRoutePlacement));
     }
 if (ui.moveShipBtn) {
   ui.moveShipBtn.classList.add('hidden');
@@ -10221,6 +10232,13 @@ if (ui.moveShipBtn) {
       // default to road, but allow the player to pick ship (Seafarers) during setup if coastal
       const k = inputMode && inputMode.kind;
       if (!(k === 'place_road' || k === 'place_ship')) setMode('place_road');
+    } else if (freeRoutePlacement) {
+      const k = inputMode && inputMode.kind;
+      if (!(k === 'place_road' || k === 'place_ship')) setMode('place_road');
+      const remaining = Math.max(0, Math.floor(Number(state.special?.remaining) || 0));
+      ui.hintBox.textContent = seafarers
+        ? `Road Building: choose a legal road or ship edge (${remaining} free placement${remaining === 1 ? '' : 's'} remaining).`
+        : `Road Building: choose a legal road edge (${remaining} free placement${remaining === 1 ? '' : 's'} remaining).`;
 	    } else if (thiefPick) {
 	      setMode('move_thief');
 	    } else if (robber) {
@@ -12463,8 +12481,8 @@ function handleProductionGoldPrompt() {
       return;
     }
 
-    // Click-to-build menu (after rolling).
-    if (phase !== 'main-actions') return;
+    // Click-to-build menu after rolling, or before rolling while Road Building is active.
+    if (phase !== 'main-actions' && !(phase === 'main-await-roll' && roadBuildingPlacementActiveClient())) return;
 
     // If the player chose a build mode, prefer the matching target type.
     // This makes settlement placement reliable on dense/small-scaled boards (e.g., Through the Desert).

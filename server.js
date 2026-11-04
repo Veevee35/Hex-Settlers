@@ -70,6 +70,7 @@ const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { normalizeBankTradeAction, validateBankTradeAvailability } = require('./server/bank-trade');
 const { validatePlayerTradeSides } = require('./server/player-trade');
+const { consumeRoadBuildingPlacement, hasRoadBuildingPlacement } = require('./server/road-building');
 const { sanitizeLogEntriesForViewer } = require('./server/private-log');
 const { pirateCanOccupyTile, placeRandomPirate, rulesHideOuterSeaBorder } = require('./server/pirate-rules');
 const {
@@ -6385,7 +6386,10 @@ if (ttdFarSideBonus) {
     if (e.roadOwner) return { ok: false, error: 'Road already exists there.' };
     if (e.shipOwner) return { ok: false, error: 'A ship already exists there.' };
 
-    if (game.phase !== 'setup1-road' && game.phase !== 'setup2-road' && game.phase !== 'main-actions') {
+    const inSetup = game.phase === 'setup1-road' || game.phase === 'setup2-road';
+    const freeRoute = hasRoadBuildingPlacement(game, playerId);
+    const inFreePreRollPlacement = game.phase === 'main-await-roll' && freeRoute;
+    if (!inSetup && game.phase !== 'main-actions' && !inFreePreRollPlacement) {
       return { ok: false, error: 'Not the right phase for road.' };
     }
 
@@ -6398,7 +6402,7 @@ if (ttdFarSideBonus) {
       if (pc.roads >= PIECE_LIMITS.roads) return { ok: false, error: 'You have no roads remaining.' };
     }
 
-    let usedFreeRoad = false;
+    let usedFreeRoute = false;
 
 
     // If the board has sea tiles, roads can only be placed on edges that touch at least one non-sea tile.
@@ -6409,7 +6413,7 @@ if (ttdFarSideBonus) {
     }
 
     // setup roads must connect to a building you own
-    if (game.phase === 'setup1-road' || game.phase === 'setup2-road') {
+    if (inSetup) {
       // Enforce: road must connect to the settlement just placed this setup step.
       const awaiting = game.setup && game.setup.awaiting;
       if (!awaiting || awaiting.playerId !== playerId) {
@@ -6420,10 +6424,9 @@ if (ttdFarSideBonus) {
       if (!ok) return { ok: false, error: 'Setup road must touch the settlement you just placed.' };
     } else {
       // main roads require cost + connection (unless a Road Building dev card is active)
-      const freeRoad = !!(game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === playerId && game.special.remaining > 0);
-      usedFreeRoad = freeRoad;
+      usedFreeRoute = freeRoute;
       if (!edgeConnectsToPlayer(game, edgeId, playerId)) return { ok: false, error: 'Road must connect to your network.' };
-      if (!freeRoad) {
+      if (!freeRoute) {
         if (!canAfford(p.resources, BUILD_COSTS.road)) return { ok: false, error: 'Not enough resources.' };
         payCostStats(game, playerId, p.resources, BUILD_COSTS.road, 'build');
       }
@@ -6433,19 +6436,16 @@ if (ttdFarSideBonus) {
     recordBuild(game, playerId, 'road');
     broadcastSfx(room, 'structure');
 
-    // Consume free roads if active (do this before any discovery prompt can temporarily replace game.special)
-    let freeRoadsRemainingAfter = null;
-    if (game.phase === 'main-actions' && game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === playerId) {
-      game.special.remaining = Math.max(0, (game.special.remaining || 0) - 1);
-      freeRoadsRemainingAfter = game.special.remaining;
-      if (game.special.remaining <= 0) game.special = null;
-    }
+    // Consume a Road Building placement before fog discovery can temporarily suspend game.special.
+    const freeRouteResult = usedFreeRoute
+      ? consumeRoadBuildingPlacement(game, playerId)
+      : { used: false, remaining: 0 };
 
     // Fog Island exploration (Option B)
     const exploredFog = maybeExploreFogFromEdge(game, playerId, edgeId);
 
     // phase advance for setup
-    if (game.phase === 'setup1-road' || game.phase === 'setup2-road') {
+    if (inSetup) {
       game.setup.awaiting = null;
       // If a Gold Field was discovered, pause setup until the player chooses a resource.
       if (exploredFog && exploredFog.award && exploredFog.award.kind === 'gold') {
@@ -6456,12 +6456,8 @@ if (ttdFarSideBonus) {
     } else {
       // If a Gold Field was discovered, the discovery prompt/message is already set.
       if (!(exploredFog && exploredFog.award && exploredFog.award.kind === 'gold')) {
-        if (usedFreeRoad) {
-          if (freeRoadsRemainingAfter != null) {
-            game.message = `${playerName(game, playerId)} built a free road (${freeRoadsRemainingAfter} remaining).`;
-          } else {
-            game.message = `${playerName(game, playerId)} built a free road.`;
-          }
+        if (usedFreeRoute) {
+          game.message = `${playerName(game, playerId)} built a free road (${freeRouteResult.remaining} Road Building placement${freeRouteResult.remaining === 1 ? '' : 's'} remaining).`;
         } else {
           game.message = `${playerName(game, playerId)} built a road.`;
         }
@@ -6485,7 +6481,9 @@ if (ttdFarSideBonus) {
     if (e.roadOwner) return { ok: false, error: 'A road already exists there.' };
 
     const inSetup = (game.phase === 'setup1-road' || game.phase === 'setup2-road');
-    if (!inSetup && game.phase !== 'main-actions') return { ok: false, error: 'You can only build ships after rolling.' };
+    const freeRoute = hasRoadBuildingPlacement(game, playerId);
+    const inFreePreRollPlacement = game.phase === 'main-await-roll' && freeRoute;
+    if (!inSetup && game.phase !== 'main-actions' && !inFreePreRollPlacement) return { ok: false, error: 'You can only build ships after rolling unless Road Building is active.' };
 
     // Must touch sea
     const adj = edgeAdjTilesAfterOuterSeaTrim(game, edgeId);
@@ -6550,8 +6548,8 @@ if (ttdFarSideBonus) {
       return { ok: true };
     }
 
-    // Main-phase ships cost + connect to your network.
-    if (!canAfford(p.resources, BUILD_COSTS.ship)) return { ok: false, error: 'Not enough resources.' };
+    // Main-phase ships cost + connect to your network. Road Building pays the cost when active.
+    if (!freeRoute && !canAfford(p.resources, BUILD_COSTS.ship)) return { ok: false, error: 'Not enough resources.' };
 
     // Connection: must connect to your coastal building or another of your ships.
     const aNode = game.geom.nodes[e.a];
@@ -6571,9 +6569,14 @@ if (ttdFarSideBonus) {
 
     if (!connected) return { ok: false, error: 'Ship must connect to your ships or a settlement/city.' };
 
-    payCostStats(game, playerId, p.resources, BUILD_COSTS.ship, 'build');
+    if (!freeRoute) payCostStats(game, playerId, p.resources, BUILD_COSTS.ship, 'build');
     e.shipOwner = playerId;
     markShipPlacedThisOpportunity(game, edgeId, playerId);
+
+    // Consume a Road Building placement before fog discovery can temporarily suspend game.special.
+    const freeRouteResult = freeRoute
+      ? consumeRoadBuildingPlacement(game, playerId)
+      : { used: false, remaining: 0 };
 
     recordBuild(game, playerId, 'ship');
     broadcastSfx(room, 'structure');
@@ -6592,7 +6595,9 @@ if (ttdFarSideBonus) {
     checkWin(room, game, playerId);
 
     if (!(exploredFog && exploredFog.award && exploredFog.award.kind === 'gold')) {
-      game.message = `${playerName(game, playerId)} built a ship.`;
+      game.message = freeRoute
+        ? `${playerName(game, playerId)} built a free ship (${freeRouteResult.remaining} Road Building placement${freeRouteResult.remaining === 1 ? '' : 's'} remaining).`
+        : `${playerName(game, playerId)} built a ship.`;
     }
     pushLog(game, `${playerName(game, playerId)} placed a ship.`, 'build', { kind: 'ship' });
 
@@ -6820,8 +6825,10 @@ if (ttdFarSideBonus) {
 
     if (card.type === DEV_CARD_TYPES.ROAD_BUILDING) {
       consumeDevelopmentCard(p, cardId);
-      game.special = { kind: 'free_roads', forPlayerId: playerId, remaining: 2 };
-      game.message = `${playerName(game, playerId)} played Road Building. Place up to 2 roads for free.`;
+      game.special = { kind: 'free_routes', forPlayerId: playerId, remaining: 2 };
+      game.message = (game.rules?.mapMode || 'classic') === 'seafarers'
+        ? `${playerName(game, playerId)} played Road Building. Place up to 2 roads, ships, or one of each for free.`
+        : `${playerName(game, playerId)} played Road Building. Place up to 2 roads for free.`;
       pushLog(game, `${playerName(game, playerId)} played Road Building.`, 'dev', { card: 'road_building' });
       return { ok: true };
     }
@@ -12481,7 +12488,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     }
 
     const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
-    const hasFreeRoads = !!(game.special && game.special.kind === 'free_roads' && game.special.forPlayerId === pid && Number(game.special.remaining || 0) > 0);
+    const hasFreeRoutes = hasRoadBuildingPlacement(game, pid);
 
     // Expert/Neural: try one-step lookahead chooser first.
     if (diff === 'catanatron' || diff === 'neural_net') {
@@ -12562,7 +12569,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     }
 
     // 3) Build ships/roads (explore fog when applicable).
-    if (isSeafarers && canAfford(p.resources, BUILD_COSTS.ship)) {
+    if (isSeafarers && (hasFreeRoutes || canAfford(p.resources, BUILD_COSTS.ship))) {
       const shipEdges = listShipEdges(pid, preferExplore);
       if (shipEdges.length) {
         const edgeId = shipEdges[0];
@@ -12573,7 +12580,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       }
     }
 
-    if (hasFreeRoads || canAfford(p.resources, BUILD_COSTS.road)) {
+    if (hasFreeRoutes || canAfford(p.resources, BUILD_COSTS.road)) {
       const roadEdges = listRoadEdges(pid, preferExplore);
       if (roadEdges.length) {
         const edgeId = roadEdges[0];
