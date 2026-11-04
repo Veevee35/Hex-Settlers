@@ -61,6 +61,7 @@ const {
   seafarersDesertsSeparateLandMasses,
   seafarersExplorationPointsEnabled,
 } = require('./server/game-rules');
+const { normalizeDiceAlgorithm, rollDiceWithAlgorithm } = require('./server/dice-algorithms');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
@@ -6963,9 +6964,7 @@ if (kind === 'choose_production_gold') {
   if (kind === 'roll_dice') {
     if (game.phase !== 'main-await-roll') return { ok: false, error: 'Already rolled.' };
 
-    const d1 = 1 + Math.floor(Math.random() * 6);
-    const d2 = 1 + Math.floor(Math.random() * 6);
-    const roll = d1 + d2;
+    const { d1, d2, roll } = rollDiceWithAlgorithm(game);
     game.lastRoll = { d1, d2, roll };
     game.diceStats = game.diceStats || emptyDiceStats();
     game.diceStats[roll] = (game.diceStats[roll] || 0) + 1;
@@ -8643,6 +8642,7 @@ function buildSanitizableState(game) {
     ...game,
     replay: undefined,
     devDeck: undefined,
+    diceAlgorithmState: undefined,
     stats: undefined,
     log: undefined,
   }));
@@ -10469,6 +10469,7 @@ if (msg.type === 'create_room') {
       if (Number.isFinite(baseRes)) next.baseResourcesPerType = Math.max(1, Math.min(40, baseRes));
 
       next.devDeckMode = normalizeDevDeckMode(r.devDeckMode ?? next.devDeckMode);
+      next.diceAlgorithm = normalizeDiceAlgorithm(r.diceAlgorithm ?? next.diceAlgorithm);
 
       if (typeof r.explorationPointsEnabled === 'boolean') {
         next.explorationPointsEnabled = r.explorationPointsEnabled;

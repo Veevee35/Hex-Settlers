@@ -77,6 +77,7 @@
     discardLimitInput: $('discardLimitInput'),
     friendlyRobberToggle: $('friendlyRobberToggle'),
     timerSpeedSelect: $('timerSpeedSelect'),
+    diceAlgorithmSelect: $('diceAlgorithmSelect'),
     baseResourceCountSelect: $('baseResourceCountSelect'),
     mapModeSelect: $('mapModeSelect'),
     classic56Note: $('classic56Note'),
@@ -110,6 +111,7 @@
     logBtn: $('logBtn'),
     rulesBtn: $('rulesBtn'),
     diceBtn: $('diceBtn'),
+    texturePackBtn: $('texturePackBtn'),
     chatBtn: $('chatBtn'),
     audioBtn: $('audioBtn'),
     colorblindBtn: $('colorblindBtn'),
@@ -4007,7 +4009,7 @@ function syncPostgameToState() {
     btns.className = 'hudBtns';
     // In-game: keep the same tools as the lobby, but in a compact HUD bar.
     // The user expects Rules to be available in-game next to Game Log.
-    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.chatBtn, ui.audioBtn, ui.colorblindBtn, ui.leaveGameBtn, ui.endGameVoteBtn, ui.idsBtn]) {
+    for (const b of [ui.logBtn, ui.rulesBtn, ui.diceBtn, ui.texturePackBtn, ui.chatBtn, ui.audioBtn, ui.colorblindBtn, ui.leaveGameBtn, ui.endGameVoteBtn, ui.idsBtn]) {
       if (!b) continue;
       b.classList.add('btnTiny');
       btns.appendChild(b);
@@ -5089,7 +5091,7 @@ function syncPostgameToState() {
   let timerUiInterval = null;
   let modalLocked = false;
   let modalType = null;
-  let activeToolModal = null; // 'log' | 'dice' | 'chat'
+  let activeToolModal = null; // 'log' | 'rules' | 'dice' | 'texture-pack' | 'chat'
   let chatRefs = null;
   let lastDiscardPromptId = 0;
   let lastStealPromptId = 0;
@@ -7511,6 +7513,8 @@ function refreshLobbyJoinLinkUi() {
       ? !!ui.explorationPointsToggle.checked
       : activeRules.explorationPointsEnabled !== false;
     const devDeckSize = selectedInt(ui.devDeckModeSelect, 25, 13, 38);
+    const diceAlgorithm = normalizeDiceAlgorithmClient(ui.diceAlgorithmSelect?.value || activeRules.diceAlgorithm);
+    const diceAlgorithmDetails = diceAlgorithmInfo(diceAlgorithm);
     const devDeckDescription = devDeckSize === 38
       ? '38 cards: 21 Knights, 3 Road Building, 3 Invention, 3 Monopoly, 8 Victory Point'
       : (devDeckSize === 13
@@ -7537,6 +7541,9 @@ function refreshLobbyJoinLinkUi() {
       explorationPointsEnabled,
       devDeckSize,
       devDeckDescription,
+      diceAlgorithm,
+      diceAlgorithmLabel: diceAlgorithmDetails.label,
+      diceAlgorithmDescription: diceAlgorithmDetails.description,
       speedLabel,
       setupSeconds: Math.round(60 * speedFactor),
       playSeconds: Math.round(30 * speedFactor),
@@ -7622,6 +7629,7 @@ function refreshLobbyJoinLinkUi() {
       ['Players', guide.playerRange],
       ['Win target', `${guide.victoryTarget} VP`],
       ['Bank', `${guide.baseResources} of each resource`],
+      ['Dice', `${guide.diceAlgorithmLabel}: ${guide.diceAlgorithmDescription}`],
       ['Discard limit', String(guide.discardLimit)],
       ['Friendly Robber', guide.friendlyRobber ? 'Enabled' : 'Disabled'],
       ...(guide.isSeafarers ? [['Exploration VP', guide.explorationPointsEnabled ? 'Enabled' : 'Disabled']] : []),
@@ -7823,6 +7831,37 @@ function refreshLobbyJoinLinkUi() {
     ui.lobbyRulesBtn?.focus();
   }
 
+  const DICE_ALGORITHM_INFO = Object.freeze({
+    random: Object.freeze({
+      label: 'Random',
+      description: 'Independent fair six-sided dice on every roll.',
+    }),
+    balanced: Object.freeze({
+      label: 'Balanced Bag',
+      description: 'All 36 possible dice pairs are shuffled, giving the exact normal 2d6 distribution in each 36-roll cycle.',
+    }),
+    probability_corrected: Object.freeze({
+      label: 'Probability Corrected',
+      description: 'Rolls stay random, but totals behind their expected frequency receive a gentle boost.',
+    }),
+    streak_breaker: Object.freeze({
+      label: 'Streak Breaker',
+      description: 'Fair random dice, except the same total cannot occur three times in a row.',
+    }),
+  });
+
+  function normalizeDiceAlgorithmClient(value) {
+    const key = String(value || 'random').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (key === 'balanced' || key === 'balanced_bag' || key === 'bag') return 'balanced';
+    if (key === 'probability_corrected' || key === 'corrected' || key === 'smooth' || key === 'smoothed') return 'probability_corrected';
+    if (key === 'streak_breaker' || key === 'streakbreaker' || key === 'anti_streak') return 'streak_breaker';
+    return 'random';
+  }
+
+  function diceAlgorithmInfo(value) {
+    return DICE_ALGORITHM_INFO[normalizeDiceAlgorithmClient(value)] || DICE_ALGORITHM_INFO.random;
+  }
+
   function openRulesModal() {
     activeToolModal = 'rules';
 
@@ -7902,6 +7941,7 @@ function refreshLobbyJoinLinkUi() {
     addRow('Development Deck', ddSpec);
     addRow('Discard Limit', `${discardLimit}`);
     addRow('Friendly Robber', rules.friendlyRobber === true ? 'Enabled' : 'Disabled');
+    addRow('Dice Algorithm', diceAlgorithmInfo(rules.diceAlgorithm).label);
     addRow('Timer Speed', `${timerSpeedName()} (setup ${msToS(setupMs)} / turn ${msToS(playMs)} / micro ${msToS(microMs)})`);
 
     table.appendChild(tbody);
@@ -8051,6 +8091,69 @@ function refreshLobbyJoinLinkUi() {
       title: 'Dice Statistics',
       bodyNode: buildDiceStatsModalBody(),
       actions: [{ label: 'Close', primary: true, onClick: closeModal }],
+    });
+  }
+
+  function openTexturePackModal() {
+    activeToolModal = 'texture-pack';
+    const body = document.createElement('div');
+    body.className = 'stack';
+
+    const note = document.createElement('div');
+    note.className = 'smallNote';
+    note.textContent = 'Texture packs change only this browser’s graphics. You can switch packs during a match without reloading or interrupting other players.';
+    body.appendChild(note);
+
+    const label = document.createElement('label');
+    label.className = 'label';
+    label.textContent = 'Texture pack';
+    body.appendChild(label);
+
+    const select = document.createElement('select');
+    select.className = 'input';
+    const activeId = activeTexturePackId();
+    for (const pack of listLocalTexturePacks()) {
+      const option = document.createElement('option');
+      option.value = pack.id;
+      const count = Array.isArray(pack.assets) ? pack.assets.length : 0;
+      option.textContent = `${pack.name}${pack.builtin ? ' (built in)' : ` (${count}/${DEFAULT_TEXTURE_ASSET_REL.length} textures)`}`;
+      select.appendChild(option);
+    }
+    select.value = activeId;
+    body.appendChild(select);
+
+    const active = activeTexturePackMeta();
+    const current = document.createElement('div');
+    current.className = 'smallNote';
+    current.textContent = `Currently active: ${active && active.name ? active.name : 'Default'}`;
+    body.appendChild(current);
+
+    openModal({
+      title: 'Change Texture Pack',
+      bodyNode: body,
+      actions: [
+        {
+          label: 'Import Pack',
+          onClick: () => {
+            closeModal();
+            if (!ui.texturePackFileInput) return;
+            try { ui.texturePackFileInput.value = ''; } catch (_) {}
+            ui.texturePackFileInput.click();
+          },
+        },
+        { label: 'Cancel', onClick: closeModal },
+        {
+          label: 'Apply',
+          primary: true,
+          onClick: () => {
+            const targetId = String(select.value || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+            closeModal();
+            void setActiveTexturePackById(targetId, { announce: true, forcePublish: false }).catch((err) => {
+              setError(err && err.message ? err.message : 'Failed to switch texture pack.');
+            });
+          },
+        },
+      ],
     });
   }
 
@@ -8520,6 +8623,10 @@ function refreshLobbyJoinLinkUi() {
       ui.timerSpeedSelect.value = preset;
       ui.timerSpeedSelect.disabled = !isHost;
     }
+    if (ui.diceAlgorithmSelect) {
+      ui.diceAlgorithmSelect.value = normalizeDiceAlgorithmClient(r.diceAlgorithm);
+      ui.diceAlgorithmSelect.disabled = !isHost;
+    }
     if (ui.baseResourceCountSelect) {
       const defBase = defaultBaseResourcesFor(r);
       const rawBase = Math.floor(Number(r.baseResourcesPerType ?? r.baseResourceCount ?? defBase));
@@ -8630,7 +8737,8 @@ function refreshLobbyJoinLinkUi() {
         ? ` • Exploration VP: ${r.explorationPointsEnabled === false ? 'off' : 'on'}`
         : '';
       const friendlyRobberLabel = ` • Friendly Robber: ${r.friendlyRobber === true ? 'on' : 'off'}`;
-      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Discard limit: ${r.discardLimit ?? 7}${friendlyRobberLabel}${explorationLabel} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
+      const diceLabel = diceAlgorithmInfo(r.diceAlgorithm).label;
+      ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Dice: ${diceLabel} • Discard limit: ${r.discardLimit ?? 7}${friendlyRobberLabel}${explorationLabel} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
     const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
@@ -8885,6 +8993,7 @@ if (ui.copyMyIdBtn) {
       setupTurnMs: Math.round(60000 * factor),
       playTurnMs: Math.round(30000 * factor),
       microPhaseMs: Math.round(15000 * factor),
+      diceAlgorithm: normalizeDiceAlgorithmClient(ui.diceAlgorithmSelect?.value),
       mapMode: mm,
       victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
       devDeckMode: (devDeckMode === 13 || devDeckMode === 25 || devDeckMode === 38) ? devDeckMode : undefined,
@@ -8915,6 +9024,7 @@ if (ui.copyMyIdBtn) {
   ui.logBtn.addEventListener('click', () => toggleLogPanel());
   if (ui.rulesBtn) ui.rulesBtn.addEventListener('click', () => openRulesModal());
   ui.diceBtn.addEventListener('click', () => openDiceModal());
+  if (ui.texturePackBtn) ui.texturePackBtn.addEventListener('click', () => openTexturePackModal());
   ui.chatBtn.addEventListener('click', () => openChatModal());
   if (ui.audioBtn) ui.audioBtn.addEventListener('click', () => toggleAudioPanel());
   if (ui.colorblindBtn) {

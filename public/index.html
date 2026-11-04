@@ -159,6 +159,15 @@
             <option value="slow">Slow (2× time)</option>
           </select>
 
+          <label class="label">Dice algorithm</label>
+          <select id="diceAlgorithmSelect" class="input">
+            <option value="random" selected>Random — independent fair dice</option>
+            <option value="balanced">Balanced Bag — exact distribution every 36 rolls</option>
+            <option value="probability_corrected">Probability Corrected — gently evens out luck</option>
+            <option value="streak_breaker">Streak Breaker — no total three times in a row</option>
+          </select>
+          <div class="smallNote">The host chooses how dice are generated. Every roll is still made by the server and shared with all players.</div>
+
           <label class="label">Base resources per type</label>
           <select id="baseResourceCountSelect" class="input">
             <option value="1">1</option>
@@ -357,6 +366,7 @@
             <button id="logBtn" class="btn">Game Log</button>
             <button id="rulesBtn" class="btn">Rules</button>
             <button id="diceBtn" class="btn">Dice Stats</button>
+            <button id="texturePackBtn" class="btn">Change Texture Pack</button>
             <button id="chatBtn" class="btn">Chat</button>
             <button id="audioBtn" class="btn">Audio</button>
             <button id="colorblindBtn" class="btn">Colorblind: Off</button>

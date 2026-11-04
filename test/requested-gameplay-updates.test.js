@@ -40,3 +40,22 @@ test('Monopoly logs the total and per-player resource breakdown', () => {
   assert.match(serverJs, /stolenFrom\.map\(\(entry\) => `\$\{entry\.amount\} \$\{rk\} from \$\{entry\.playerName\}`\)/);
   assert.match(serverJs, /pushLog\(game, monopolyText, 'dev', \{ card: 'monopoly', resourceKind: rk, total, stolenFrom \}\)/);
 });
+
+test('the host can select a persisted server-authoritative dice algorithm', () => {
+  assert.match(indexHtml, /id="diceAlgorithmSelect"/);
+  for (const mode of ['random', 'balanced', 'probability_corrected', 'streak_breaker']) {
+    assert.match(indexHtml, new RegExp(`<option value="${mode}"`));
+  }
+  assert.match(appJs, /diceAlgorithm: normalizeDiceAlgorithmClient\(ui\.diceAlgorithmSelect\?\.value\)/);
+  assert.match(serverJs, /next\.diceAlgorithm = normalizeDiceAlgorithm/);
+  assert.match(serverJs, /rollDiceWithAlgorithm\(game\)/);
+  assert.match(serverJs, /diceAlgorithmState: undefined/);
+});
+
+test('texture packs can be changed from the in-game tools bar', () => {
+  assert.match(indexHtml, /id="texturePackBtn"[^>]*>Change Texture Pack<\/button>/);
+  assert.match(appJs, /ui\.diceBtn, ui\.texturePackBtn, ui\.chatBtn/);
+  assert.match(appJs, /function openTexturePackModal\(\)/);
+  assert.match(appJs, /setActiveTexturePackById\(targetId, \{ announce: true, forcePublish: false \}\)/);
+  assert.match(appJs, /ui\.texturePackBtn\.addEventListener\('click', \(\) => openTexturePackModal\(\)\)/);
+});

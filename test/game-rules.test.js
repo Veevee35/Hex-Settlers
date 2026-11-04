@@ -23,6 +23,7 @@ test('default rules preserve the established game defaults', () => {
     seafarersScenario: 'four_islands',
     explorationPointsEnabled: true,
     friendlyRobber: false,
+    diceAlgorithm: 'random',
     victoryPointsToWin: 10,
     devDeckMode: 25,
   });
