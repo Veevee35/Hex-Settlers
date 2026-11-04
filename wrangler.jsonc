@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hex-settlers",
+  "main": "cloudflare/worker.mjs",
+  "compatibility_date": "2026-11-03",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*",
+      "/health",
+      "/ws"
+    ]
+  },
+  "vars": {
+    "UPSTREAM_ORIGIN": "https://hexsettlers.up.railway.app"
+  }
+}
