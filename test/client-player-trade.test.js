@@ -97,14 +97,38 @@ test('revised offers prompt again, while completed or expired offers cannot be r
   const c = client();
   c.run('handlePendingTradePrompt(); closeModal();');
   c.context.state.pendingTrade.id = 2;
+  c.context.state.pendingTrade.replacesTradeId = 1;
+  c.context.modalType = 'rules';
+  c.ui.modal.classList.remove('hidden');
   c.run('handlePendingTradePrompt();');
   assert.equal(c.context.opens, 2);
+  assert.equal(c.context.modalType, 'pendingTrade', 'a revision replaces an ordinary open menu for every participant');
   c.context.state.pendingTrade = null;
   c.run('handlePendingTradePrompt(); updatePlayerTradeButton(); openPlayerTradeModal();');
   assert.equal(c.ui.modal.classList.contains('hidden'), true);
   assert.equal(c.ui.playerTradeBtn.disabled, true);
   assert.equal(c.context.opens, 2);
   assert.deepEqual(c.sent, []);
+});
+
+test('revised offers wait for mandatory locked choices and pop up immediately afterward', () => {
+  const c = client();
+  c.run('handlePendingTradePrompt(); closeModal();');
+  c.context.state.pendingTrade.id = 2;
+  c.context.state.pendingTrade.replacesTradeId = 1;
+  c.context.modalType = 'discard';
+  c.context.modalLocked = true;
+  c.ui.modal.classList.remove('hidden');
+  c.run('handlePendingTradePrompt();');
+  assert.equal(c.context.opens, 1);
+  assert.equal(c.context.pendingTradePromptId, 2);
+
+  c.context.modalLocked = false;
+  c.run('closeModal();');
+  assert.equal(c.timers.length, 1);
+  c.timers.shift()();
+  assert.equal(c.context.opens, 2);
+  assert.equal(c.context.modalType, 'pendingTrade');
 });
 
 test('spectators and replay viewers cannot trade; paused participants can still view an existing offer', () => {

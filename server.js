@@ -94,6 +94,7 @@ const {
   blockedProductionByPlayer,
   ensurePlayerResourceStats,
   ensureResourceStatsForPlayers,
+  resourceKindForTileType,
 } = require('./server/resource-summary');
 
 const APP_CONFIG = runtimeConfig(process.env);
@@ -1727,13 +1728,14 @@ function revealFogTile(game, tileId) {
 function awardFogDiscovery(game, playerId, tileId) {
   const t = game && game.geom && game.geom.tiles ? game.geom.tiles[tileId] : null;
   if (!t || !t.revealed) return null;
+  const tileResourceKind = resourceKindForTileType(t.type);
 
-  if (t.type === 'sea') {
+  if (String(t.type || '').toLowerCase() === 'sea') {
     pushLog(game, `${playerName(game, playerId)} revealed sea.`, 'discover', { tileId, tileType: 'sea' });
     return { kind: 'sea' };
   }
 
-  if (t.type === 'gold') {
+  if (tileResourceKind === 'gold') {
     game.discoverySeq = game.discoverySeq || 1;
 
     // Suspend any existing special (e.g., Road Building free roads) so it can resume after the gold choice.
@@ -1747,7 +1749,7 @@ function awardFogDiscovery(game, playerId, tileId) {
     return { kind: 'gold' };
   }
 
-  const rk = RESOURCE_MAP[t.type];
+  const rk = tileResourceKind;
   if (rk) {
     const p = playerById(game, playerId);
     const got = p ? grantFromBankStats(game, playerId, p.resources, rk, 1, 'discover') : 0;
@@ -2068,17 +2070,6 @@ function tileAdjacency(tiles) {
   }
   return adj;
 }
-
-const RESOURCE_MAP = {
-  forest: 'lumber',
-  hills: 'brick',
-  pasture: 'wool',
-  field: 'grain',
-  mountains: 'ore',
-  gold: null,
-  desert: null,
-  sea: null,
-};
 
 const BUILD_COSTS = {
   road: { brick: 1, lumber: 1 },
@@ -2434,7 +2425,9 @@ function filterStatsForViewer(stats, viewerId) {
   // These views are serialized immediately and never mutated, so shallowly copy
   // only the branches whose per-player records must be filtered.
   const s = { ...stats };
-  for (const key of ['rolls', 'turnTimes', 'resources', 'builds', 'trades', 'dev', 'actions']) {
+  // Dice results are public game information, so retain every player's roll
+  // buckets for the live Dice Stats player filter. Keep private breakdowns scoped.
+  for (const key of ['turnTimes', 'resources', 'builds', 'trades', 'dev', 'actions']) {
     if (stats[key]) s[key] = { ...stats[key], byPlayer: onlyViewer(stats[key].byPlayer) };
   }
   if (stats.thieves) {
@@ -5917,8 +5910,9 @@ function distributeResources(game, roll) {
 
   for (const t of tiles) {
     if (t.number !== roll) continue;
-    const isGold = String(t.type || '').toLowerCase() === 'gold';
-    const resKind = isGold ? null : RESOURCE_MAP[t.type];
+    const tileResourceKind = resourceKindForTileType(t.type);
+    const isGold = tileResourceKind === 'gold';
+    const resKind = isGold ? null : tileResourceKind;
     if (!isGold && !resKind) continue;
 
     if (t.robber) {
@@ -5997,8 +5991,8 @@ function grantStartingResourcesForSecondSettlement(game, nodeId, ownerId) {
   const adjTiles = game.geom.nodeAdjTiles[nodeId] || [];
   for (const tid of adjTiles) {
     const t = game.geom.tiles[tid];
-    const kind = RESOURCE_MAP[t.type];
-    if (kind) grantFromBankStats(game, ownerId, p.resources, kind, 1, 'setup');
+    const kind = resourceKindForTileType(t.type);
+    if (kind && kind !== 'gold') grantFromBankStats(game, ownerId, p.resources, kind, 1, 'setup');
   }
 }
 
@@ -7469,7 +7463,15 @@ if (kind === 'pirate_steal') {
     if (!Object.keys(responses).length) return { ok: false, error: 'No active players are available to trade.' };
 
     const tradeId = game.tradeSeq++;
-    game.pendingTrade = { id: tradeId, fromId: playerId, offer, request, responses, createdAt: now() };
+    game.pendingTrade = {
+      id: tradeId,
+      fromId: playerId,
+      offer,
+      request,
+      responses,
+      createdAt: now(),
+      replacesTradeId: canReplace ? replaceTradeId : null,
+    };
 
     if (canReplace) {
       game.message = `${playerName(game, playerId)} revised a trade offer.`;

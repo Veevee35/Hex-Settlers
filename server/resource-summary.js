@@ -7,6 +7,32 @@ const RESOURCE_KEYS = Object.freeze(['brick', 'lumber', 'wool', 'grain', 'ore', 
 const RESOURCE_GAIN_SOURCES = Object.freeze(['setup', 'production', 'gold_production', 'discover', 'trade', 'steal', 'dev', 'other']);
 const RESOURCE_LOSS_SOURCES = Object.freeze(['build', 'trade', 'steal', 'discard', 'monopoly', 'blocked', 'dev', 'other']);
 
+const TILE_RESOURCE_KINDS = Object.freeze({
+  brick: 'brick',
+  hill: 'brick',
+  hills: 'brick',
+  grain: 'grain',
+  field: 'grain',
+  fields: 'grain',
+  wheat: 'grain',
+  lumber: 'lumber',
+  forest: 'lumber',
+  forests: 'lumber',
+  wood: 'lumber',
+  ore: 'ore',
+  mountain: 'ore',
+  mountains: 'ore',
+  wool: 'wool',
+  pasture: 'wool',
+  pastures: 'wool',
+  sheep: 'wool',
+  gold: 'gold',
+  goldfield: 'gold',
+  goldfields: 'gold',
+  gold_field: 'gold',
+  gold_fields: 'gold',
+});
+
 function emptyResourceMap() {
   return { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0, gold: 0 };
 }
@@ -64,6 +90,11 @@ function blockedProductionByPlayer(tile, nodes, resourceKind) {
   return losses;
 }
 
+function resourceKindForTileType(tileType) {
+  const key = String(tileType || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return TILE_RESOURCE_KINDS[key] || null;
+}
+
 function sourceResourceMap(container, source) {
   const key = String(source || 'other');
   container[key] = ensureResourceMap(container[key]);
@@ -112,4 +143,5 @@ module.exports = {
   emptyResourceMap,
   ensurePlayerResourceStats,
   ensureResourceStatsForPlayers,
+  resourceKindForTileType,
 };

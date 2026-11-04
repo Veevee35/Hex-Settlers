@@ -4115,6 +4115,7 @@ function syncPostgameToState() {
             ui.turnCard.dataset.dragReady = '1';
           }
         } catch (_) {}
+        syncTurnHudIndicatorPlacement();
       }
       ensureInGamePanelScaleControls();
       if (ui.rollDock) {
@@ -4149,6 +4150,20 @@ function syncPostgameToState() {
   }
 
   const draggablePanelLayoutRegistry = new Set();
+
+  function syncTurnHudIndicatorPlacement() {
+    const card = ui.turnCard;
+    if (!card || !card.classList) return;
+    if (!card.classList.contains('hudBar') || card.classList.contains('hidden')) {
+      card.classList.remove('turnIndicatorBelow');
+      return;
+    }
+    try {
+      const rect = card.getBoundingClientRect();
+      const bannerHeight = Math.max(42, Number(ui.extraTurnBanner?.offsetHeight || 0));
+      card.classList.toggle('turnIndicatorBelow', rect.top < bannerHeight + 16);
+    } catch (_) {}
+  }
 
   function getLocalPanelLayoutOwnerKey() {
     try {
@@ -4205,6 +4220,7 @@ function syncPostgameToState() {
       panelEl.style.top = top + 'px';
       panelEl.style.right = 'auto';
       panelEl.style.bottom = 'auto';
+      if (panelEl === ui.turnCard) syncTurnHudIndicatorPlacement();
       return true;
     } catch (_) {
       return false;
@@ -4278,6 +4294,7 @@ function syncPostgameToState() {
       panelEl.style.top = r.top + 'px';
       panelEl.style.right = 'auto';
       panelEl.style.bottom = 'auto';
+      if (panelEl === ui.turnCard) syncTurnHudIndicatorPlacement();
       startLeft = r.left;
       startTop = r.top;
       startX = ev.clientX;
@@ -4297,6 +4314,7 @@ function syncPostgameToState() {
       const top = clamp(startTop + dy, 6, maxTop);
       panelEl.style.left = left + 'px';
       panelEl.style.top = top + 'px';
+      if (panelEl === ui.turnCard) syncTurnHudIndicatorPlacement();
       try { if (panelEl && panelEl.dataset) panelEl.dataset.popupDragged = '1'; } catch (_) {}
       if (storageKey) {
         try {
@@ -4310,6 +4328,7 @@ function syncPostgameToState() {
       if (!dragging) return;
       dragging = false;
       handleEl.style.cursor = 'grab';
+      if (panelEl === ui.turnCard) syncTurnHudIndicatorPlacement();
     }
 
     handleEl.addEventListener('pointerup', endDrag);
@@ -7848,6 +7867,10 @@ function refreshLobbyJoinLinkUi() {
       : (is56 ? 'Paired players' : '—');
 
     const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
+    const configuredResourceMax = Math.floor(Number(rules.baseResourcesPerType ?? rules.baseResourceCount));
+    const maxIndividualResource = Number.isFinite(configuredResourceMax)
+      ? Math.max(1, Math.min(40, configuredResourceMax))
+      : defaultBaseResourcesFor(rules);
 
     const { wrap, content } = makeScalableToolWrap('rules', 'Scale Rules tab');
 
@@ -7868,6 +7891,7 @@ function refreshLobbyJoinLinkUi() {
     addRow('Map', mapMode);
     addRow('Scenario', scenario);
     addRow('Victory Condition', `${vpToWin} VP`);
+    addRow('Max Individual Resource', `${maxIndividualResource} cards per resource type`);
     if (mmRaw === 'seafarers') addRow('Exploration Points', rules.explorationPointsEnabled === false ? 'Disabled' : 'Enabled');
     const ddMode = Math.floor(Number(rules.devDeckMode ?? 25));
     const ddSpec = (ddMode === 38)
@@ -7898,40 +7922,134 @@ function refreshLobbyJoinLinkUi() {
     });
   }
 
-  function openDiceModal() {
-    activeToolModal = 'dice';
+  let diceStatsScope = 'all';
+  let diceStatsView = 'comparison';
+  const DICE_ROLL_PROBABILITIES = Object.freeze({
+    2: 1 / 36, 3: 2 / 36, 4: 3 / 36, 5: 4 / 36, 6: 5 / 36,
+    7: 6 / 36,
+    8: 5 / 36, 9: 4 / 36, 10: 3 / 36, 11: 2 / 36, 12: 1 / 36,
+  });
 
+  function buildDiceStatsModalBody() {
     const { wrap, content } = makeScalableToolWrap('dice', 'Scale Dice Stats tab');
+    const rollStats = state?.stats?.rolls || null;
+    const allRolls = rollStats?.byNumber || state?.diceStats || {};
+    const perPlayer = rollStats?.byPlayer || {};
+    const availablePlayers = (state?.players || []).filter((player) => player?.id && perPlayer[player.id]);
+    if (diceStatsScope !== 'all' && !availablePlayers.some((player) => player.id === diceStatsScope)) {
+      diceStatsScope = 'all';
+    }
+    const selectedPlayer = availablePlayers.find((player) => player.id === diceStatsScope) || null;
+    const ds = selectedPlayer ? perPlayer[selectedPlayer.id] : allRolls;
+    const total = Array.from({ length: 11 }, (_, index) => index + 2)
+      .reduce((sum, roll) => sum + Number(ds?.[roll] || 0), 0);
 
-    const ds = (state && state.diceStats) ? state.diceStats : null;
-    const total = ds ? Object.values(ds).reduce((a, v) => a + v, 0) : 0;
+    const controls = document.createElement('div');
+    controls.className = 'diceStatsControls';
+    const addSelect = (labelText, value, options, onChange) => {
+      const control = document.createElement('label');
+      control.className = 'diceStatsControl';
+      const label = document.createElement('span');
+      label.className = 'labelTiny';
+      label.textContent = labelText;
+      const select = document.createElement('select');
+      select.className = 'input';
+      for (const optionSpec of options) {
+        const option = document.createElement('option');
+        option.value = optionSpec.value;
+        option.textContent = optionSpec.label;
+        select.appendChild(option);
+      }
+      select.value = value;
+      select.addEventListener('change', () => onChange(select.value));
+      control.appendChild(label);
+      control.appendChild(select);
+      controls.appendChild(control);
+    };
 
+    addSelect('Rolls to inspect', diceStatsScope, [
+      { value: 'all', label: 'All players' },
+      ...availablePlayers.map((player) => ({ value: player.id, label: player.name || 'Player' })),
+    ], (value) => {
+      diceStatsScope = value;
+      refreshDiceStatsModalBody();
+    });
+    addSelect('Probability view', diceStatsView, [
+      { value: 'comparison', label: 'Full comparison' },
+      { value: 'counts', label: 'Counts vs expected' },
+      { value: 'percentages', label: 'Percentages vs probability' },
+    ], (value) => {
+      diceStatsView = value;
+      refreshDiceStatsModalBody();
+    });
+    content.appendChild(controls);
+
+    const note = document.createElement('div');
+    note.className = 'smallNote diceProbabilityNote';
+    note.textContent = `${selectedPlayer ? `${selectedPlayer.name || 'Player'} rolls` : 'All player rolls'}: ${total}. Expected values use the standard probability of two six-sided dice.`;
+    content.appendChild(note);
+
+    const headers = diceStatsView === 'counts'
+      ? ['Roll', 'Count', 'Expected', 'Difference']
+      : diceStatsView === 'percentages'
+        ? ['Roll', 'Actual %', 'Expected %', 'Difference']
+        : ['Roll', 'Count', 'Actual %', 'Expected %', 'Expected Count', 'Difference'];
     const table = document.createElement('table');
     table.className = 'diceTable';
     const thead = document.createElement('thead');
-    thead.innerHTML = '<tr><th>Roll</th><th>Count</th><th>%</th></tr>';
+    const headerRow = document.createElement('tr');
+    for (const header of headers) {
+      const th = document.createElement('th');
+      th.textContent = header;
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    for (let r = 2; r <= 12; r++) {
-      const c = ds ? (ds[r] || 0) : 0;
-      const pct = total ? Math.round((c / total) * 1000) / 10 : 0;
+    for (let roll = 2; roll <= 12; roll++) {
+      const count = Number(ds?.[roll] || 0);
+      const actualPct = total ? (count / total) * 100 : 0;
+      const expectedPct = Number(DICE_ROLL_PROBABILITIES[roll] || 0) * 100;
+      const expectedCount = total * Number(DICE_ROLL_PROBABILITIES[roll] || 0);
+      const differenceCount = count - expectedCount;
+      const differencePct = actualPct - expectedPct;
+      const values = diceStatsView === 'counts'
+        ? [String(roll), String(count), expectedCount.toFixed(1), `${differenceCount >= 0 ? '+' : ''}${differenceCount.toFixed(1)}`]
+        : diceStatsView === 'percentages'
+          ? [String(roll), `${actualPct.toFixed(1)}%`, `${expectedPct.toFixed(1)}%`, `${differencePct >= 0 ? '+' : ''}${differencePct.toFixed(1)} pp`]
+          : [String(roll), String(count), `${actualPct.toFixed(1)}%`, `${expectedPct.toFixed(1)}%`, expectedCount.toFixed(1), `${differencePct >= 0 ? '+' : ''}${differencePct.toFixed(1)} pp`];
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${r}</td><td>${c}</td><td>${pct.toFixed(1)}</td>`;
+      values.forEach((value, index) => {
+        const td = document.createElement('td');
+        td.textContent = value;
+        if (index === values.length - 1) {
+          const delta = diceStatsView === 'counts' ? differenceCount : differencePct;
+          td.className = `diceStatsDelta ${delta > 0.0001 ? 'positive' : (delta < -0.0001 ? 'negative' : 'neutral')}`;
+        }
+        tr.appendChild(td);
+      });
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'diceStatsTableWrap';
+    tableWrap.appendChild(table);
+    content.appendChild(tableWrap);
+    return wrap;
+  }
 
-    const note = document.createElement('div');
-    note.className = 'smallNote';
-    note.textContent = `Total rolls: ${total}`;
+  function refreshDiceStatsModalBody() {
+    if (activeToolModal !== 'dice' || ui.modal.classList.contains('hidden')) return;
+    ui.modalBody.innerHTML = '';
+    ui.modalBody.appendChild(buildDiceStatsModalBody());
+  }
 
-    content.appendChild(note);
-    content.appendChild(table);
-
+  function openDiceModal() {
+    activeToolModal = 'dice';
     openModal({
       title: 'Dice Statistics',
-      bodyNode: wrap,
+      bodyNode: buildDiceStatsModalBody(),
       actions: [{ label: 'Close', primary: true, onClick: closeModal }],
     });
   }
@@ -7962,36 +8080,7 @@ function refreshLobbyJoinLinkUi() {
       return;
     }
     if (activeToolModal === 'dice') {
-      // Rebuild dice body
-      const { wrap, content } = makeScalableToolWrap('dice', 'Scale Dice Stats tab');
-      const ds = (state && state.diceStats) ? state.diceStats : null;
-      const total = ds ? Object.values(ds).reduce((a, v) => a + v, 0) : 0;
-
-      const table = document.createElement('table');
-      table.className = 'diceTable';
-      const thead = document.createElement('thead');
-      thead.innerHTML = '<tr><th>Roll</th><th>Count</th><th>%</th></tr>';
-      table.appendChild(thead);
-
-      const tbody = document.createElement('tbody');
-      for (let r = 2; r <= 12; r++) {
-        const c = ds ? (ds[r] || 0) : 0;
-        const pct = total ? Math.round((c / total) * 1000) / 10 : 0;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${r}</td><td>${c}</td><td>${pct.toFixed(1)}</td>`;
-        tbody.appendChild(tr);
-      }
-      table.appendChild(tbody);
-
-      const note = document.createElement('div');
-      note.className = 'smallNote';
-      note.textContent = `Total rolls: ${total}`;
-
-      content.appendChild(note);
-      content.appendChild(table);
-
-      ui.modalBody.innerHTML = '';
-      ui.modalBody.appendChild(wrap);
+      refreshDiceStatsModalBody();
       return;
     }
   }
@@ -9865,6 +9954,7 @@ function ensureTimerUiInterval() {
       const showPlacementTurn = !!(myTurn && !state.paused && placementTurnPhases.has(String(state.phase || '')));
       ui.placementTurnBanner.classList.toggle('hidden', !showPlacementTurn);
     }
+    if (inGame) syncTurnHudIndicatorPlacement();
     if (ui.yourRollBanner) {
       const showYourRoll = !!(myTurn && !state.paused && state.phase === 'main-await-roll');
       ui.yourRollBanner.classList.toggle('hidden', !showYourRoll);
@@ -11424,11 +11514,17 @@ if (ui.moveShipBtn) {
     // A dismissed offer stays dismissed, including while another menu is open.
     if (tradePromptKey === lastTradePromptKeySeen && tradeId !== Number(pendingTradePromptId || 0)) return;
 
-    // Defer behind required choices and retry when they close or on the periodic
-    // prompt check. This prevents a single state packet from losing the popup.
+    // A revision is a new decision for every participant. Bring it back over an
+    // ordinary menu immediately; mandatory locked choices remain uninterrupted
+    // and will show the revised trade as soon as they finish.
+    const isRevisedTrade = Number(t.replacesTradeId || 0) > 0;
     if (!ui.modal.classList.contains('hidden')) {
-      pendingTradePromptId = tradeId;
-      return;
+      if (isRevisedTrade && !modalLocked) {
+        forceCloseModal();
+      } else {
+        pendingTradePromptId = tradeId;
+        return;
+      }
     }
 
     pendingTradePromptId = 0;

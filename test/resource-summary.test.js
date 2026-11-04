@@ -12,6 +12,7 @@ const {
   blockedProductionByPlayer,
   ensurePlayerResourceStats,
   ensureResourceStatsForPlayers,
+  resourceKindForTileType,
 } = require('../server/resource-summary');
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -68,6 +69,30 @@ test('robber-blocked tiles count each adjacent settlement and city as lost produ
     blue: { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0, gold: 2 },
   });
   assert.deepEqual(blockedProductionByPlayer({ ...tile, robber: false }, nodes, 'grain'), {});
+});
+
+test('blocked production recognizes canonical, legacy, and direct resource tile names', () => {
+  const expected = {
+    hills: 'brick', brick: 'brick',
+    forest: 'lumber', wood: 'lumber', lumber: 'lumber',
+    pasture: 'wool', sheep: 'wool', wool: 'wool',
+    field: 'grain', fields: 'grain', wheat: 'grain', grain: 'grain',
+    mountains: 'ore', mountain: 'ore', ore: 'ore',
+    gold: 'gold', gold_fields: 'gold', 'Gold Fields': 'gold',
+  };
+  for (const [tileType, resourceKind] of Object.entries(expected)) {
+    assert.equal(resourceKindForTileType(tileType), resourceKind, tileType);
+  }
+
+  const tile = { robber: true, cornerNodeIds: [0] };
+  const nodes = [{ building: { owner: 'red', type: 'settlement' } }];
+  const recorded = {};
+  for (const tileType of ['brick', 'wood', 'sheep', 'wheat', 'mountain', 'gold_fields']) {
+    const kind = resourceKindForTileType(tileType);
+    const losses = blockedProductionByPlayer(tile, nodes, kind);
+    recorded[kind] = losses.red[kind];
+  }
+  assert.deepEqual(recorded, { brick: 1, lumber: 1, wool: 1, grain: 1, ore: 1, gold: 1 });
 });
 
 test('restored games backfill blocked-production buckets for every current player', () => {
