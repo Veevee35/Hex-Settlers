@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
+const dns = require('node:dns').promises;
 const net = require('node:net');
 const path = require('node:path');
 const tls = require('node:tls');
@@ -57,9 +58,15 @@ function integerEnv(env, name, fallback, min, max) {
 
 function emailDeliveryMode(env = process.env) {
   if (String(env.HEX_EMAIL_CAPTURE_PATH || '').trim()) return 'capture';
+  const requested = String(env.HEX_EMAIL_MODE || '').trim().toLowerCase();
+  if (requested === 'none' || requested === 'disabled' || requested === 'off') return 'none';
+  if (requested === 'direct' || requested === 'self' || requested === 'self-hosted') return 'direct';
+  if (requested === 'resend') return String(env.RESEND_API_KEY || '').trim() ? 'resend' : 'none';
+  if (requested === 'smtp') return String(env.SMTP_HOST || '').trim() ? 'smtp' : 'none';
   if (String(env.RESEND_API_KEY || '').trim()) return 'resend';
-  if (String(env.SMTP_HOST || 'smtp.tenthson.com').trim()) return 'smtp';
-  return 'none';
+  if (String(env.SMTP_HOST || '').trim()) return 'smtp';
+  // No provider is required: deliver straight to the recipient domain's MX host.
+  return 'direct';
 }
 
 function isEmailDeliveryConfigured(env = process.env) {
@@ -67,13 +74,54 @@ function isEmailDeliveryConfigured(env = process.env) {
 }
 
 function fromAddress(env = process.env) {
-  const configured = String(env.HEX_EMAIL_FROM || env.SMTP_FROM || 'no-reply@tenthson.com').trim();
-  return configured || 'Hex Settlers <no-reply@localhost>';
+  const configured = String(env.HEX_EMAIL_FROM || env.SMTP_FROM || 'Hex Settlers <no-reply@tenthson.com>').trim();
+  return configured || 'Hex Settlers <no-reply@tenthson.com>';
 }
 
 function messageIdDomain(from) {
   const match = String(from || '').match(/@([^>\s]+)/);
   return (match && match[1]) || 'localhost';
+}
+
+function envelopeAddress(from) {
+  const value = String(from || '').trim();
+  const match = value.match(/<([^>]+)>/) || value.match(/([^\s<>]+@[^\s<>]+)/);
+  const validation = validateEmailAddress(match ? match[1] : value);
+  if (!validation.ok) throw new Error('HEX_EMAIL_FROM must contain a valid sender email address.');
+  return validation.value;
+}
+
+function directEhloName(env, from) {
+  const configured = String(env.HEX_EMAIL_EHLO_NAME || env.SMTP_EHLO_NAME || '').trim().toLowerCase();
+  if (configured && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(configured)) return configured;
+  return envelopeAddress(from).split('@')[1];
+}
+
+function isPublicMailAddress(address) {
+  const value = String(address || '').trim().toLowerCase();
+  const family = net.isIP(value);
+  if (family === 4) {
+    const octets = value.split('.').map(Number);
+    const [a, b, c] = octets;
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false;
+    if (a === 169 && b === 254) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 192 && b === 0 && (c === 0 || c === 2)) return false;
+    if (a === 198 && (b === 18 || b === 19)) return false;
+    if (a === 198 && b === 51 && c === 100) return false;
+    if (a === 203 && b === 0 && c === 113) return false;
+    return true;
+  }
+  if (family === 6) {
+    if (value === '::' || value === '::1') return false;
+    if (value.startsWith('fc') || value.startsWith('fd') || /^fe[89ab]/.test(value)) return false;
+    if (value.startsWith('ff') || value.startsWith('2001:db8:')) return false;
+    const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    return mapped ? isPublicMailAddress(mapped[1]) : true;
+  }
+  return false;
 }
 
 function stripCrlf(value) {
@@ -236,8 +284,7 @@ async function sendViaSmtp(message, env = process.env) {
   }
 
   const from = fromAddress(env);
-  const envelopeMatch = from.match(/<([^>]+)>/) || from.match(/([^\s]+@[^\s]+)/);
-  const envelopeFrom = envelopeMatch ? envelopeMatch[1] : from;
+  const envelopeFrom = envelopeAddress(from);
   await sendCommand(`MAIL FROM:<${stripCrlf(envelopeFrom)}>`, 250, 'SMTP MAIL FROM failed');
   await sendCommand(`RCPT TO:<${stripCrlf(message.to)}>`, [250, 251], 'SMTP RCPT TO failed');
   await sendCommand('DATA', 354, 'SMTP DATA failed');
@@ -248,6 +295,96 @@ async function sendViaSmtp(message, env = process.env) {
   try { await sendCommand('QUIT', 221, 'SMTP QUIT failed'); } catch (_) {}
   socket.end();
   return { ok: true, provider: 'smtp' };
+}
+
+async function directMxTargets(recipient, resolver = dns) {
+  const domain = normalizeEmail(recipient).split('@')[1];
+  if (!domain) throw new Error('Recipient email domain is missing.');
+  let records = [];
+  try {
+    records = await resolver.resolveMx(domain);
+  } catch (error) {
+    if (!error || !['ENODATA', 'ENOTFOUND'].includes(error.code)) throw error;
+  }
+  const hosts = records.length
+    ? records.filter((record) => record && record.exchange && record.exchange !== '.')
+      .sort((left, right) => Number(left.priority || 0) - Number(right.priority || 0))
+      .map((record) => String(record.exchange).replace(/\.$/, ''))
+    : [domain];
+  if (!hosts.length) throw new Error(`The recipient domain ${domain} does not accept email.`);
+
+  const targets = [];
+  for (const host of hosts) {
+    let addresses = [];
+    try { addresses = await resolver.lookup(host, { all: true, verbatim: false }); }
+    catch (_) { continue; }
+    for (const address of addresses) {
+      if (!address || !isPublicMailAddress(address.address)) continue;
+      targets.push({ host, address: address.address, family: address.family });
+    }
+  }
+  if (!targets.length) throw new Error(`No public mail server could be resolved for ${domain}.`);
+  return targets;
+}
+
+async function deliverDirectToMx(message, target, env) {
+  const timeoutMs = integerEnv(env, 'HEX_DIRECT_EMAIL_TIMEOUT_MS', 15_000, 1_000, 120_000);
+  const from = fromAddress(env);
+  const envelopeFrom = envelopeAddress(from);
+  const ehloName = directEhloName(env, from);
+  let socket = net.connect({ host: target.address, port: 25, family: target.family });
+  socket.setTimeout(timeoutMs, () => socket.destroy(new Error('Direct SMTP connection timed out.')));
+  await waitForConnect(socket, 'connect');
+  let reader = smtpReader(socket);
+
+  const sendCommand = async (command, expected, context) => {
+    socket.write(`${command}\r\n`);
+    return expectSmtp(reader, expected, context);
+  };
+
+  try {
+    await expectSmtp(reader, 220, 'Recipient mail server greeting failed');
+    let ehlo = await sendCommand(`EHLO ${stripCrlf(ehloName)}`, 250, 'Recipient mail server EHLO failed');
+    const supportsStartTls = ehlo.lines.some((line) => /STARTTLS/i.test(line));
+    if (supportsStartTls) {
+      await sendCommand('STARTTLS', 220, 'Recipient mail server STARTTLS failed');
+      reader.dispose();
+      socket = tls.connect({ socket, servername: target.host, rejectUnauthorized: true });
+      socket.setTimeout(timeoutMs, () => socket.destroy(new Error('Direct SMTP TLS connection timed out.')));
+      await waitForConnect(socket, 'secureConnect');
+      reader = smtpReader(socket);
+      ehlo = await sendCommand(`EHLO ${stripCrlf(ehloName)}`, 250, 'Recipient mail server EHLO after STARTTLS failed');
+    } else if (booleanEnv(env, 'HEX_DIRECT_EMAIL_REQUIRE_TLS', false)) {
+      throw new Error('Recipient mail server does not offer STARTTLS.');
+    }
+
+    await sendCommand(`MAIL FROM:<${stripCrlf(envelopeFrom)}>`, 250, 'Recipient rejected sender');
+    await sendCommand(`RCPT TO:<${stripCrlf(message.to)}>`, [250, 251], 'Recipient rejected mailbox');
+    await sendCommand('DATA', 354, 'Recipient rejected message data');
+    const raw = formatSmtpMessage({ ...message, from });
+    const dotStuffed = raw.replace(/(^|\r\n)\./g, '$1..');
+    socket.write(`${dotStuffed}\r\n.\r\n`);
+    await expectSmtp(reader, 250, 'Recipient mail server did not accept the message');
+    try { await sendCommand('QUIT', 221, 'Recipient mail server QUIT failed'); } catch (_) {}
+    socket.end();
+    return { ok: true, provider: 'direct', mxHost: target.host };
+  } finally {
+    try { reader.dispose(); } catch (_) {}
+    if (!socket.destroyed) socket.destroy();
+  }
+}
+
+async function sendViaDirectMx(message, env = process.env) {
+  const targets = await directMxTargets(message.to);
+  const errors = [];
+  for (const target of targets) {
+    try {
+      return await deliverDirectToMx(message, target, env);
+    } catch (error) {
+      errors.push(`${target.host}: ${error && error.message ? error.message : error}`);
+    }
+  }
+  throw new Error(`Direct email delivery failed. ${errors.slice(0, 3).join(' | ')}`);
 }
 
 async function sendViaResend(message, env = process.env) {
@@ -293,6 +430,7 @@ async function sendTransactionalEmail(message, env = process.env) {
   if (mode === 'capture') return captureEmail(normalized, env);
   if (mode === 'resend') return sendViaResend(normalized, env);
   if (mode === 'smtp') return sendViaSmtp(normalized, env);
+  if (mode === 'direct') return sendViaDirectMx(normalized, env);
   throw new Error('Password email delivery is not configured.');
 }
 
@@ -300,6 +438,7 @@ module.exports = {
   emailDeliveryMode,
   escapeHtml,
   isEmailDeliveryConfigured,
+  isPublicMailAddress,
   maskEmail,
   normalizeEmail,
   sendTransactionalEmail,

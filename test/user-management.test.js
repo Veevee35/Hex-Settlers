@@ -52,6 +52,8 @@ test('lobby exposes self-service account management and pre-login password recov
   assert.match(client, /accountApi\('users'/);
   assert.match(client, /accountApi\('change-password'/);
   assert.match(client, /accountApi\('request-email-link'/);
+  assert.match(client, /adminApi\('delete-user'/);
+  assert.match(client, /Type the username to confirm/);
   assert.match(client, /authApi\('request-password-reset'/);
   assert.match(client, /authApi\('reset-password'/);
   assert.match(client, /adminApi\('reset-password'/);

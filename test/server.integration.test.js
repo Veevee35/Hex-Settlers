@@ -945,8 +945,30 @@ test('built-in Benleethom administrator can list users and securely reset anothe
   assert.equal(newLogin.response.status, 200);
   assert.equal(newLogin.payload.user.displayName, 'Managed Player');
 
+  const protectAdmin = await post('/api/admin/delete-user', { userId: adminLogin.payload.user.id }, adminLogin.cookie);
+  assert.equal(protectAdmin.response.status, 400);
+  assert.match(protectAdmin.payload.error, /administrator accounts cannot be deleted/i);
+
+  const deleted = await post('/api/admin/delete-user', { userId: ordinaryId }, adminLogin.cookie);
+  assert.equal(deleted.response.status, 200);
+  assert.equal(deleted.payload.deletedUserId, ordinaryId);
+  assert.match(deleted.payload.message, /historical game records were retained/i);
+
+  const deletedSession = await post('/api/auth/session', {}, newLogin.cookie);
+  assert.equal(deletedSession.response.status, 401);
+  const deletedLogin = await post('/api/auth/login', {
+    username: `managed_${suffix}`,
+    password: ordinaryNewPassword,
+  });
+  assert.equal(deletedLogin.response.status, 401);
+
+  const afterDelete = await post('/api/admin/users', {}, adminLogin.cookie);
+  assert.equal(afterDelete.response.status, 200);
+  assert.equal(afterDelete.payload.users.some((user) => user.id === ordinaryId), false);
+
   const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'users.json'), 'utf8'));
   const persistedAdmin = persisted.users.find((user) => user.username === 'Benleethom');
+  assert.equal(persisted.users.some((user) => user.id === ordinaryId), false);
   assert.equal(persistedAdmin.role, 'admin');
   assert.equal(persistedAdmin.systemAccount, 'builtin-benleethom-v1');
   assert.notEqual(persistedAdmin.pass.hash, adminPassword);

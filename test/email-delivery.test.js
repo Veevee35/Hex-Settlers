@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   emailDeliveryMode,
+  isPublicMailAddress,
   isEmailDeliveryConfigured,
   maskEmail,
   normalizeEmail,
@@ -20,6 +21,25 @@ test('email addresses are normalized, validated, and safely masked', () => {
   assert.equal(validateEmailAddress('not an email').ok, false);
   assert.equal(validateEmailAddress('a@localhost').ok, false);
   assert.equal(maskEmail('benjamin@example.com'), 'be******@example.com');
+});
+
+test('email defaults to direct MX delivery without inventing an SMTP relay', () => {
+  assert.equal(emailDeliveryMode({}), 'direct');
+  assert.equal(isEmailDeliveryConfigured({}), true);
+  assert.equal(emailDeliveryMode({ HEX_EMAIL_MODE: 'none' }), 'none');
+  assert.equal(isEmailDeliveryConfigured({ HEX_EMAIL_MODE: 'none' }), false);
+  assert.equal(emailDeliveryMode({ HEX_EMAIL_MODE: 'smtp' }), 'none');
+  assert.equal(emailDeliveryMode({ HEX_EMAIL_MODE: 'smtp', SMTP_HOST: 'mail.example.com' }), 'smtp');
+});
+
+test('direct MX delivery rejects private and documentation network targets', () => {
+  assert.equal(isPublicMailAddress('127.0.0.1'), false);
+  assert.equal(isPublicMailAddress('10.1.2.3'), false);
+  assert.equal(isPublicMailAddress('169.254.169.254'), false);
+  assert.equal(isPublicMailAddress('192.0.2.10'), false);
+  assert.equal(isPublicMailAddress('2001:db8::1'), false);
+  assert.equal(isPublicMailAddress('8.8.8.8'), true);
+  assert.equal(isPublicMailAddress('2607:f8b0:4009:800::200e'), true);
 });
 
 test('email capture delivery records a message without external network access', async (t) => {

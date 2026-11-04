@@ -2689,6 +2689,7 @@ body.rules-page-open{overflow:hidden;}
 .btn.subtle{background:rgba(255,255,255,.035); color:var(--muted)}
 .btn.subtle:hover{background:rgba(255,255,255,.075); color:var(--text)}
 .userManagementWarning{padding:10px 12px; border:1px solid rgba(255,179,71,.42); border-radius:10px; background:rgba(118,72,10,.18); color:#ffd99a; font-size:12px; line-height:1.45}
+.userManagementNotice{padding:10px 12px; border:1px solid rgba(78,166,255,.38); border-radius:10px; background:rgba(20,76,128,.18); color:#b9ddff; font-size:12px; line-height:1.45}
 .userManagementRow.self{border-color:rgba(70,178,255,.38); box-shadow:0 0 0 1px rgba(70,178,255,.08) inset}
 .userManagementBadge.selfBadge{border-color:rgba(77,190,255,.55); background:rgba(40,130,190,.14); color:#9edcff}
 .userManagementEmailLine{margin-top:6px; color:#b9c8d4; font-size:11px; line-height:1.4; word-break:break-word}

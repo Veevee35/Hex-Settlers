@@ -40,6 +40,7 @@ const {
 const {
   escapeHtml,
   isEmailDeliveryConfigured,
+  emailDeliveryMode,
   normalizeEmail,
   sendTransactionalEmail,
   validateEmailAddress,
@@ -132,7 +133,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'self-service-email-reset-v1';
+const SERVER_BUILD_ID = 'admin-delete-direct-email-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -9521,6 +9522,34 @@ async function handleAdminHttp(req, res, urlPath) {
     return;
   }
 
+  if (urlPath === '/api/admin/delete-user') {
+    const targetId = String(body.userId || '').trim();
+    const target = findUserById(targetId);
+    if (!target) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'User account not found.' });
+      return;
+    }
+    if (target.id === admin.id || isBuiltInAdminUser(target) || isAdminUser(target)) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Administrator accounts cannot be deleted from User Management.' });
+      return;
+    }
+    const targetIndex = (USERS_DB.users || []).findIndex((candidate) => candidate && candidate.id === target.id);
+    if (targetIndex < 0) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'User account not found.' });
+      return;
+    }
+    const deletedUsername = String(target.username || 'user');
+    USERS_DB.users.splice(targetIndex, 1);
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      deletedUserId: target.id,
+      message: `Deleted the account ${deletedUsername}. Historical game records were retained.`,
+    });
+    setTimeout(() => disconnectUserSessions(target.id, 'Your account was deleted by the administrator.'), 25);
+    return;
+  }
+
   sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
 }
 
@@ -9570,6 +9599,7 @@ async function handleAccountHttp(req, res, urlPath) {
       currentUserId: viewer.id,
       isAdmin: isAdminUser(viewer),
       emailDeliveryConfigured: isEmailDeliveryConfigured(process.env),
+      emailDeliveryMode: emailDeliveryMode(process.env),
     });
     return;
   }
@@ -9634,7 +9664,13 @@ async function handleAccountHttp(req, res, urlPath) {
       delete viewer.emailVerification;
       await saveUsersDb();
       console.error('[email] Failed to send email verification:', error && error.message ? error.message : error);
-      sendHttpJson(req, res, 502, { ok: false, error: 'The verification email could not be sent. Check the server email configuration.' });
+      const directDelivery = emailDeliveryMode(process.env) === 'direct';
+      sendHttpJson(req, res, 502, {
+        ok: false,
+        error: directDelivery
+          ? 'The game server could not reach the recipient mail server. Direct email requires Railway Pro SMTP access and valid sender-domain DNS.'
+          : 'The verification email could not be sent. Check the server email configuration.',
+      });
       return;
     }
     sendHttpJson(req, res, 200, {

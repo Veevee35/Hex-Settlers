@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'self-service-email-reset-v1';
+  const ASSET_CACHE_SW_BUILD = 'admin-delete-direct-email-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -6373,12 +6373,13 @@ function refreshLobbyJoinLinkUi() {
     const currentUserId = String(result.currentUserId || authUser.id || '');
     const adminView = !!result.isAdmin;
     const emailDeliveryConfigured = !!result.emailDeliveryConfigured;
+    const emailDeliveryMode = String(result.emailDeliveryMode || 'none');
     shell.innerHTML = '';
 
     const intro = document.createElement('div');
     intro.className = 'userManagementIntro';
     intro.textContent = adminView
-      ? 'Manage your own recovery email and password. Administrator accounts can also reset passwords for other registered players.'
+      ? 'Manage your own recovery email and password. Administrator accounts can also reset passwords or delete other registered player accounts.'
       : 'Only your account is shown. You can change your password and link a verified recovery email for password resets before login.';
     shell.appendChild(intro);
 
@@ -6387,6 +6388,11 @@ function refreshLobbyJoinLinkUi() {
       warning.className = 'userManagementWarning';
       warning.textContent = 'Email delivery is not configured on this server. Password changes still work, but recovery emails cannot be sent yet.';
       shell.appendChild(warning);
+    } else if (emailDeliveryMode === 'direct') {
+      const note = document.createElement('div');
+      note.className = 'userManagementNotice';
+      note.textContent = 'Email is sent directly by this game server. The hosting plan must permit outbound SMTP, and the sender domain needs valid mail DNS for reliable delivery.';
+      shell.appendChild(note);
     }
 
     let search = null;
@@ -6717,6 +6723,59 @@ function refreshLobbyJoinLinkUi() {
             }
           });
           controls.appendChild(adminSection);
+
+          if (!user.isAdmin) {
+            const dangerSection = document.createElement('div');
+            dangerSection.className = 'userManagementSection';
+            const dangerHeading = document.createElement('div');
+            dangerHeading.className = 'labelTiny';
+            dangerHeading.textContent = 'Delete Account';
+            dangerSection.appendChild(dangerHeading);
+
+            const deleteNote = document.createElement('div');
+            deleteNote.className = 'smallNote';
+            deleteNote.textContent = 'Permanently removes the login, linked email, password, and active sessions. Historical game records remain intact.';
+            dangerSection.appendChild(deleteNote);
+
+            const deleteUser = document.createElement('button');
+            deleteUser.className = 'btn danger';
+            deleteUser.type = 'button';
+            deleteUser.textContent = 'Delete User Account';
+            dangerSection.appendChild(deleteUser);
+
+            const deleteStatus = document.createElement('div');
+            deleteStatus.className = 'userManagementStatus';
+            dangerSection.appendChild(deleteStatus);
+
+            deleteUser.addEventListener('click', async () => {
+              const confirmation = window.prompt(`Permanently delete ${user.username}? Type the username to confirm.`);
+              if (confirmation === null) return;
+              if (String(confirmation).trim().toLowerCase() !== String(user.username || '').trim().toLowerCase()) {
+                deleteStatus.className = 'userManagementStatus error';
+                deleteStatus.textContent = 'Username did not match. Account was not deleted.';
+                return;
+              }
+              deleteUser.disabled = true;
+              reset.disabled = true;
+              password.disabled = true;
+              deleteStatus.className = 'userManagementStatus';
+              deleteStatus.textContent = 'Deleting account…';
+              try {
+                const response = await adminApi('delete-user', { userId: user.id });
+                const index = users.findIndex((candidate) => candidate && candidate.id === user.id);
+                if (index >= 0) users.splice(index, 1);
+                renderUsers();
+                setError(response.message || `Deleted ${user.username}.`);
+              } catch (error) {
+                deleteStatus.className = 'userManagementStatus error';
+                deleteStatus.textContent = error.message || 'Account deletion failed.';
+                deleteUser.disabled = false;
+                reset.disabled = false;
+                password.disabled = false;
+              }
+            });
+            controls.appendChild(dangerSection);
+          }
         }
 
         row.appendChild(controls);
