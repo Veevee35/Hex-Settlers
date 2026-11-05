@@ -22,6 +22,8 @@ test('landing page owns login and account creation requires email verification',
 test('authenticated portal offers ranked and unranked paths plus an account menu', () => {
   assert.match(html, /id="playModeScreen"[\s\S]*?id="rankedModeBtn"[\s\S]*?id="unrankedModeBtn"/);
   assert.match(html, /id="accountOrb"[\s\S]*?id="accountManageBtn"[\s\S]*?id="friendsBtn"[\s\S]*?id="accountLogoutBtn"/);
+  assert.match(html, /id="accountOrb"[^>]*aria-expanded="false"[^>]*aria-controls="accountMenu"/);
+  assert.match(app, /document\.addEventListener\('click'[\s\S]*?menu\.contains\(target\)[\s\S]*?setAccountMenuOpen\(false\)/);
   assert.match(html, /class="legacyLobbyAuth hidden"/);
 });
 

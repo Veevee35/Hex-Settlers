@@ -58,4 +58,7 @@ test('lobby exposes self-service account management and pre-login password recov
   assert.match(client, /authApi\('reset-password'/);
   assert.match(client, /adminApi\('reset-password'/);
   assert.match(styles, /\.passwordRecoveryPanel/);
+  const modalZIndex = Number(styles.match(/\.modal\{[^}]*z-index:(\d+)/)?.[1] || 0);
+  const portalZIndex = Number(styles.match(/\.portalScreen\{[^}]*z-index:(\d+)/)?.[1] || 0);
+  assert.ok(modalZIndex > portalZIndex, 'password recovery modal must appear above the login portal');
 });

@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'ranked-matchmaking-fix-v1';
+  const ASSET_CACHE_SW_BUILD = 'account-menu-dismiss-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -9031,7 +9031,22 @@ function refreshLobbyJoinLinkUi() {
     send({ type: 'ranked_queue_leave' });
   });
   $('changeModeBtn')?.addEventListener('click', () => { selectedPlayMode = ''; try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {} $('accountMenu')?.classList.add('hidden'); updateAuthUi(); });
-  $('accountOrb')?.addEventListener('click', () => $('accountMenu')?.classList.toggle('hidden'));
+  function setAccountMenuOpen(open) {
+    const menu = $('accountMenu');
+    const orb = $('accountOrb');
+    if (!menu) return;
+    menu.classList.toggle('hidden', !open);
+    orb?.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  $('accountOrb')?.addEventListener('click', () => setAccountMenuOpen($('accountMenu')?.classList.contains('hidden')));
+  document.addEventListener('click', (event) => {
+    const menu = $('accountMenu');
+    const orb = $('accountOrb');
+    if (!menu || menu.classList.contains('hidden')) return;
+    const target = event.target;
+    if (target instanceof Node && (menu.contains(target) || orb?.contains(target))) return;
+    setAccountMenuOpen(false);
+  });
   $('accountManageBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });
   $('friendsBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
   $('friendsCloseBtn')?.addEventListener('click', () => $('friendsOverlay')?.classList.add('hidden'));
