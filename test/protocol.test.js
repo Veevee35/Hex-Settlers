@@ -9,14 +9,15 @@ const {
   parseClientMessage,
 } = require('../server/protocol');
 
-test('protocol accepts current gameplay, Test Builder, expert AI, and texture messages', () => {
-  for (const type of ['game_action', 'edit_preview_port', 'set_expert_ai_tuning', 'texture_pack_publish']) {
+test('protocol accepts current gameplay, ranked matchmaking, Test Builder, expert AI, and texture messages', () => {
+  for (const type of ['game_action', 'ranked_queue_join', 'ranked_queue_leave', 'edit_preview_port', 'set_expert_ai_tuning', 'texture_pack_publish']) {
     const parsed = parseClientMessage(JSON.stringify({ type }));
     assert.equal(parsed.ok, true, type);
   }
   assert.ok(CLIENT_MESSAGE_TYPES.includes('set_expert_ai_tuning'));
   assert.ok(CLIENT_MESSAGE_TYPES.includes('set_spectator_view'));
   assert.ok(CLIENT_MESSAGE_TYPES.includes('set_ready'));
+  assert.ok(CLIENT_MESSAGE_TYPES.includes('ranked_queue_join'));
   assert.equal(CLIENT_MESSAGE_TYPES.includes('trade_timer_pause'), false);
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: 'trade_timer_pause', active: true })), { ok: false, error: 'Unknown message type.' });
 });

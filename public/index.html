@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=ranked-preferences-v1" />
+  <link rel="stylesheet" href="styles.css?v=ranked-matchmaking-fix-v1" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -66,7 +66,7 @@
 
   <div id="friendsOverlay" class="portalOverlay hidden"><div class="portalCard registerCard"><button id="friendsCloseBtn" class="overlayClose">×</button><h2>Friends</h2><div id="friendsList" class="friendsList"></div></div></div>
 
-  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Placement rating: 1000</div><label class="label">Map</label><select id="rankedMap" class="input"><option value="classic">Classic</option><option value="seafarers">Seafarers</option></select><label class="label">Players</label><select id="rankedPlayers" class="input"><option selected>4</option><option>5</option><option>6</option></select><button id="rankedReadyBtn" class="btn primary portalPrimary">Ready &amp; Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Choose your preferences when you are ready.</p></div></section>
+  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Placement rating: 1000</div><label class="label">Map</label><select id="rankedMap" class="input"><option value="classic">Classic</option><option value="seafarers">Seafarers</option></select><label class="label">Players</label><select id="rankedPlayers" class="input"><option selected>4</option><option>5</option><option>6</option></select><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Choose your preferences when you are ready.</p></div></section>
   <div id="app">
     <main class="layout">
       <section class="panel">
@@ -641,6 +641,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=ranked-preferences-v1"></script>
+  <script src="app.js?v=ranked-matchmaking-fix-v1"></script>
 </body>
 </html>

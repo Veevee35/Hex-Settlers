@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'ranked-preferences-v1';
+  const ASSET_CACHE_SW_BUILD = 'ranked-matchmaking-fix-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1086,6 +1086,7 @@
   let pendingAutoRejoin = false;
   let pendingDirectJoinRoomCode = null;
   let pendingDirectJoinAsSpectator = false;
+  let pendingRankedMatchmaking = false;
 
   function formatStatsLine(stats) {
     if (!stats) return '';
@@ -5858,6 +5859,13 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'error') {
         const e = msg.error || 'Error';
+        if (selectedPlayMode === 'ranked') {
+          pendingRankedMatchmaking = false;
+          const status = $('rankedStatus');
+          if (status) status.textContent = `Matchmaking could not start: ${e}`;
+          $('rankedReadyBtn')?.classList.remove('hidden');
+          $('rankedCancelBtn')?.classList.add('hidden');
+        }
         if (msg.reconnectBlocked || /room session (moved|is active)|another browser or tab/i.test(e)) {
           websocketReconnectAllowed = false;
           roomConnectionReady = false;
@@ -5932,6 +5940,10 @@ function refreshLobbyJoinLinkUi() {
           updateAuthUi();
         }
 
+        if (pendingRankedMatchmaking && authUser) {
+          startRankedMatchmaking();
+        }
+
         if (pendingManualRejoinCode && authUser) {
           const targetCode = String(pendingManualRejoinCode || '').trim().toUpperCase();
           pendingManualRejoinCode = '';
@@ -5998,6 +6010,7 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'ranked_queue_status') {
+        pendingRankedMatchmaking = false;
         const status = $('rankedStatus');
         if (status) status.textContent = msg.queued ? `Searching near rating ${msg.rating || 1000} · ${msg.waiting || 1}/${msg.needed || 4} players ready` : 'Matchmaking cancelled.';
         $('rankedReadyBtn')?.classList.toggle('hidden', !!msg.queued);
@@ -8997,8 +9010,26 @@ function refreshLobbyJoinLinkUi() {
   function choosePlayMode(mode) { selectedPlayMode = mode; try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {} updateAuthUi(); }
   $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
   $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('unranked'));
-  $('rankedReadyBtn')?.addEventListener('click', () => send({ type: 'ranked_queue_join', mapMode: $('rankedMap')?.value, playerCount: Number($('rankedPlayers')?.value || 4) }));
-  $('rankedCancelBtn')?.addEventListener('click', () => send({ type: 'ranked_queue_leave' }));
+  function startRankedMatchmaking() {
+    const status = $('rankedStatus');
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      pendingRankedMatchmaking = true;
+      if (status) status.textContent = 'Connecting to the matchmaking server…';
+      websocketReconnectAllowed = true;
+      scheduleWebsocketReconnect(0);
+      return;
+    }
+    pendingRankedMatchmaking = false;
+    if (status) status.textContent = 'Joining the matchmaking queue…';
+    $('rankedReadyBtn')?.classList.add('hidden');
+    $('rankedCancelBtn')?.classList.remove('hidden');
+    send({ type: 'ranked_queue_join', mapMode: $('rankedMap')?.value, playerCount: Number($('rankedPlayers')?.value || 4) });
+  }
+  $('rankedReadyBtn')?.addEventListener('click', startRankedMatchmaking);
+  $('rankedCancelBtn')?.addEventListener('click', () => {
+    pendingRankedMatchmaking = false;
+    send({ type: 'ranked_queue_leave' });
+  });
   $('changeModeBtn')?.addEventListener('click', () => { selectedPlayMode = ''; try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {} $('accountMenu')?.classList.add('hidden'); updateAuthUi(); });
   $('accountOrb')?.addEventListener('click', () => $('accountMenu')?.classList.toggle('hidden'));
   $('accountManageBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });

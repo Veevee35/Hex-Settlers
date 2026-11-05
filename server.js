@@ -133,7 +133,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'lobby-overhaul-v1';
+const SERVER_BUILD_ID = 'ranked-matchmaking-fix-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
