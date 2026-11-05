@@ -19,6 +19,7 @@ test('pre-game tools are hidden in markup and postgame navigation is player-spec
 
 test('pause, play, and voted previous-turn restoration are separate server-authoritative controls', () => {
   assert.match(html, /id="backTurnBtn"[\s\S]*?id="pauseBtn"[\s\S]*?id="playBtn"/);
+  assert.match(client, /ui\.playerTradeBtn,[\s\S]*?ui\.backTurnBtn,[\s\S]*?ui\.pauseBtn,[\s\S]*?ui\.playBtn/);
   assert.match(client, /pause_game', paused: true/);
   assert.match(client, /pause_game', paused: false/);
   assert.match(server, /kind === 'propose_turn_undo'[\s\S]*?kind === 'respond_turn_undo'/);

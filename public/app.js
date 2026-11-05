@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'shared-previous-turn-controls-v2';
+  const ASSET_CACHE_SW_BUILD = 'action-bar-controls-v3';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -160,7 +160,6 @@
     pauseBtn: $('pauseBtn'),
     playBtn: $('playBtn'),
     backTurnBtn: $('backTurnBtn'),
-    gameControlHud: $('gameControlHud'),
     pausedOverlay: $('pausedOverlay'),
     historyReplayBar: $('historyReplayBar'),
     historyReplayExitBtn: $('historyReplayExitBtn'),
@@ -4059,7 +4058,9 @@ function syncPostgameToState() {
       ui.buyDevBtn,
       ui.bankTradeBtn,
       ui.playerTradeBtn,
+      ui.backTurnBtn,
       ui.pauseBtn,
+      ui.playBtn,
     ];
     for (const b of order) {
       if (!b) continue;
@@ -10413,10 +10414,9 @@ function ensureTimerUiInterval() {
 
     // Every active player may request an undo vote, pause, or resume.
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
-    if (ui.gameControlHud) ui.gameControlHud.classList.toggle('hidden', !(inGame && !historyReplay.active));
+    for (const control of [ui.backTurnBtn, ui.pauseBtn, ui.playBtn]) control?.classList.toggle('hidden', !(inGame && !historyReplay.active));
     if (ui.pauseBtn) ui.pauseBtn.disabled = !!(state && state.paused);
     if (ui.playBtn) ui.playBtn.disabled = !(state && state.paused);
-    if (ui.backTurnBtn) ui.backTurnBtn.classList.remove('hidden');
 
     // Host-only room ID helper
     if (ui.idsBtn) {

@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=shared-previous-turn-controls-v2" />
+  <link rel="stylesheet" href="styles.css?v=action-bar-controls-v3" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -519,11 +519,9 @@
             <div class="clockTime">--:--</div>
             <div class="clockMeta">—</div>
           </div>
-          <div id="gameControlHud" class="gameControlHud hidden" aria-label="Game time controls">
-            <button id="backTurnBtn" class="btn" title="Vote to return to the start of the previous player's turn">Back</button>
-            <button id="pauseBtn" class="btn" title="Pause the game">Pause</button>
-            <button id="playBtn" class="btn" title="Resume the game">Play</button>
-          </div>
+          <button id="backTurnBtn" class="btn hidden" title="Vote to return to the start of the previous player's turn">Back</button>
+          <button id="pauseBtn" class="btn hidden" title="Pause the game">Pause</button>
+          <button id="playBtn" class="btn hidden" title="Resume the game">Play</button>
           <button id="pgShowBtn" class="btn hidden">Show Stats</button>
         </div>
         <div id="pausedOverlay" class="pausedOverlay hidden">PAUSED</div>
@@ -648,6 +646,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=shared-previous-turn-controls-v2"></script>
+  <script src="app.js?v=action-bar-controls-v3"></script>
 </body>
 </html>
