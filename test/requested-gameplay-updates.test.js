@@ -67,3 +67,9 @@ test('port artwork is centered by visible pixels instead of inconsistent transpa
   assert.match(appJs, /drawVisibleImageCentered\(ctx, portImg, ps\.x, ps\.y, sz \* 0\.94\)/);
   assert.doesNotMatch(appJs, /drawImage\(portImg, ps\.x - sz \/ 2, ps\.y - sz \/ 2, sz, sz\)/);
 });
+
+test('ports use the true shoreline normal on every map, including open Scattered Tiles boundaries', () => {
+  assert.match(appJs, /else if \(land\) \{[\s\S]*?dx = mid\.x - land\.cx;[\s\S]*?dy = mid\.y - land\.cy;/);
+  assert.match(appJs, /else if \(sea\) \{[\s\S]*?dx = sea\.cx - mid\.x;[\s\S]*?dy = sea\.cy - mid\.y;/);
+  assert.doesNotMatch(appJs, /let dx = mid\.x, dy = mid\.y/);
+});

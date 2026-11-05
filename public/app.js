@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'account-menu-dismiss-v1';
+  const ASSET_CACHE_SW_BUILD = 'all-scenario-port-centering-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -13240,15 +13240,36 @@ function handleProductionGoldPrompt() {
 
         const mid = { x: (na.x + nb.x) / 2, y: (na.y + nb.y) / 2 };
 
-        // Prefer placing the marker toward the sea-side of the coast edge (land->sea direction).
-        let dx = mid.x, dy = mid.y;
-        if (p.seaTileId != null && p.landTileId != null) {
-          const sea = state.geom.tiles && state.geom.tiles[p.seaTileId];
-          const land = state.geom.tiles && state.geom.tiles[p.landTileId];
-          if (sea && land) {
-            dx = sea.cx - land.cx;
-            dy = sea.cy - land.cy;
-          }
+        // Place every marker on the true sea-facing normal of its shoreline.
+        // Irregular scenarios such as Scattered Tiles can put a port on an open
+        // board boundary, where there is a land tile but no explicit sea tile.
+        // Using absolute board coordinates as the old fallback made those ports
+        // drift sideways. The land-center -> edge-midpoint vector is the exact
+        // outward normal for those boundary edges and works on every board shape.
+        const tiles = state.geom.tiles || [];
+        const sea = p.seaTileId != null ? tiles[p.seaTileId] : null;
+        const land = p.landTileId != null ? tiles[p.landTileId] : null;
+        let dx = 0; let dy = 0;
+        if (sea && land) {
+          dx = sea.cx - land.cx;
+          dy = sea.cy - land.cy;
+        } else if (land) {
+          dx = mid.x - land.cx;
+          dy = mid.y - land.cy;
+        } else if (sea) {
+          dx = sea.cx - mid.x;
+          dy = sea.cy - mid.y;
+        } else {
+          // Defensive fallback for old/custom saved maps missing tile ids: pick
+          // the edge normal pointing away from the center of the rendered board.
+          const boardCenter = tiles.reduce((sum, tile) => ({ x: sum.x + Number(tile?.cx || 0), y: sum.y + Number(tile?.cy || 0) }), { x: 0, y: 0 });
+          const tileCount = Math.max(1, tiles.length);
+          boardCenter.x /= tileCount; boardCenter.y /= tileCount;
+          const edgeX = nb.x - na.x; const edgeY = nb.y - na.y;
+          const normalA = { x: -edgeY, y: edgeX };
+          const awayX = mid.x - boardCenter.x; const awayY = mid.y - boardCenter.y;
+          const sign = (normalA.x * awayX + normalA.y * awayY) >= 0 ? 1 : -1;
+          dx = normalA.x * sign; dy = normalA.y * sign;
         }
         const dlen = Math.hypot(dx, dy) || 1;
         dx /= dlen; dy /= dlen;
