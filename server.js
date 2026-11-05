@@ -133,7 +133,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'resend-email-brand-v1';
+const SERVER_BUILD_ID = 'lobby-overhaul-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -8205,6 +8205,7 @@ function sendToRoomMember(room, playerId, payload) {
 }
 
 const rooms = new Map(); // code -> room
+const rankedQueues = new Map(); // exact preference/rating bucket -> waiting sockets
 const ACTIVE_ROOMS_SAVE_DEBOUNCE_MS = 400;
 let activeRoomsSaveTimer = null;
 
@@ -9384,10 +9385,41 @@ async function handleAuthHttp(req, res, urlPath) {
     }
     user.email = email;
     user.emailVerifiedAt = now();
+    user.requiresEmailVerification = false;
     delete user.emailVerification;
     delete user.passwordReset;
     await saveUsersDb();
     sendHttpJson(req, res, 200, { ok: true, message: 'Email verified. It can now be used for password recovery.' });
+    return;
+  }
+
+  if (urlPath === '/api/auth/register-with-email') {
+    if (!isEmailDeliveryConfigured(process.env)) {
+      sendHttpJson(req, res, 503, { ok: false, error: 'Account email delivery is not configured.' });
+      return;
+    }
+    const emailResult = validateEmailAddress(body.email);
+    if (!emailResult.ok) { sendHttpJson(req, res, 400, { ok: false, error: emailResult.error }); return; }
+    if (findUserByEmail(emailResult.value, { includePending: true })) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'That email is already linked to an account.' }); return;
+    }
+    const created = await createUser({ username: body.username, password: body.password, displayName: body.displayName });
+    if (!created.ok) { sendHttpJson(req, res, 400, { ok: false, error: created.error || 'Registration failed.' }); return; }
+    const user = created.user;
+    const verificationToken = generateOneTimeToken();
+    user.requiresEmailVerification = true;
+    user.emailVerification = { email: emailResult.value, tokenHash: oneTimeTokenHash(verificationToken), createdAt: now(), expiresAt: now() + EMAIL_VERIFICATION_TTL_MS };
+    await saveUsersDb();
+    try {
+      await sendEmailVerification(user, emailResult.value, verificationToken, req);
+    } catch (error) {
+      USERS_DB.users = USERS_DB.users.filter((candidate) => candidate && candidate.id !== user.id);
+      await saveUsersDb();
+      console.error('[email] Failed to send registration verification:', error && error.message ? error.message : error);
+      sendHttpJson(req, res, 502, { ok: false, error: 'The verification email could not be sent. The account was not created.' });
+      return;
+    }
+    sendHttpJson(req, res, 201, { ok: true, pendingVerification: true, message: `Check ${emailResult.value} and verify your email before logging in.` });
     return;
   }
 
@@ -9480,6 +9512,10 @@ async function handleAuthHttp(req, res, urlPath) {
     user = findUserByUsername(body.username);
     if (!user || !await verifyPassword(user, body.password)) {
       sendHttpJson(req, res, 401, { ok: false, error: 'Invalid username or password.' });
+      return;
+    }
+    if (user.requiresEmailVerification && !user.emailVerifiedAt) {
+      sendHttpJson(req, res, 403, { ok: false, error: 'Verify your email before logging in.' });
       return;
     }
     if (body.displayName || body.name) setUserDisplayName(user, body.displayName || body.name);
@@ -9625,6 +9661,43 @@ async function handleAccountHttp(req, res, urlPath) {
   try { body = await readJsonBody(req); }
   catch (error) {
     sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Invalid request.' });
+    return;
+  }
+
+  if (urlPath === '/api/account/friends') {
+    const friendIds = Array.isArray(viewer.friendIds) ? viewer.friendIds : [];
+    const requestIds = Array.isArray(viewer.friendRequestIds) ? viewer.friendRequestIds : [];
+    const publicFriend = (user) => user && ({ id: user.id, username: user.username, displayName: user.displayName || user.username, online: userSockets.has(user.id) });
+    sendHttpJson(req, res, 200, { ok: true, friends: friendIds.map(findUserById).map(publicFriend).filter(Boolean), requests: requestIds.map(findUserById).map(publicFriend).filter(Boolean) });
+    return;
+  }
+
+  if (urlPath === '/api/account/friend-request') {
+    const target = findUserById(body.userId);
+    if (!target || target.id === viewer.id) { sendHttpJson(req, res, 400, { ok: false, error: 'That player cannot receive a friend request.' }); return; }
+    viewer.friendIds = Array.isArray(viewer.friendIds) ? viewer.friendIds : [];
+    target.friendRequestIds = Array.isArray(target.friendRequestIds) ? target.friendRequestIds : [];
+    if (viewer.friendIds.includes(target.id)) { sendHttpJson(req, res, 200, { ok: true, message: 'You are already friends.' }); return; }
+    if (!target.friendRequestIds.includes(viewer.id)) target.friendRequestIds.push(viewer.id);
+    await saveUsersDb();
+    for (const socket of (userSockets.get(target.id) || [])) sendJson(socket, { type: 'friend_request', from: { id: viewer.id, username: viewer.username, displayName: viewer.displayName || viewer.username } });
+    sendHttpJson(req, res, 200, { ok: true, message: `Friend request sent to ${target.displayName || target.username}.` });
+    return;
+  }
+
+  if (urlPath === '/api/account/friend-response') {
+    const sender = findUserById(body.userId);
+    viewer.friendRequestIds = Array.isArray(viewer.friendRequestIds) ? viewer.friendRequestIds : [];
+    if (!sender || !viewer.friendRequestIds.includes(sender.id)) { sendHttpJson(req, res, 404, { ok: false, error: 'Friend request not found.' }); return; }
+    viewer.friendRequestIds = viewer.friendRequestIds.filter((id) => id !== sender.id);
+    if (body.accept === true) {
+      viewer.friendIds = Array.isArray(viewer.friendIds) ? viewer.friendIds : [];
+      sender.friendIds = Array.isArray(sender.friendIds) ? sender.friendIds : [];
+      if (!viewer.friendIds.includes(sender.id)) viewer.friendIds.push(sender.id);
+      if (!sender.friendIds.includes(viewer.id)) sender.friendIds.push(viewer.id);
+    }
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, message: body.accept === true ? `You and ${sender.displayName || sender.username} are now friends.` : 'Friend request declined.' });
     return;
   }
 
@@ -9944,6 +10017,7 @@ wss.on('connection', (ws, req) => {
       const user = findUserByUsername(msg.username);
       if (!user) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
       if (!await verifyPassword(user, msg.password)) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
+      if (user.requiresEmailVerification && !user.emailVerifiedAt) { sendJson(ws, { type: 'error', error: 'Verify your email before logging in.' }); return; }
       if (msg.displayName || msg.name) {
         setUserDisplayName(user, msg.displayName || msg.name);
       }
@@ -10139,6 +10213,42 @@ if (msg.type === 'get_texture_pack') {
   });
   return;
 }
+
+if (msg.type === 'ranked_queue_leave') {
+      for (const [key, entries] of rankedQueues) { const next = entries.filter((entry) => entry.ws !== ws); if (next.length) rankedQueues.set(key, next); else rankedQueues.delete(key); }
+      sendJson(ws, { type: 'ranked_queue_status', queued: false });
+      return;
+    }
+
+if (msg.type === 'ranked_queue_join') {
+      if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
+      const playerCount = clamp(Math.floor(Number(msg.playerCount || 4)), 3, 6);
+      const requestedMap = String(msg.mapMode || 'classic').toLowerCase();
+      const mapMode = requestedMap === 'seafarers' ? 'seafarers' : requestedMap === 'classic_56' ? 'classic56' : 'classic';
+      const user = findUserById(ws._userId);
+      const games = Number(user?.stats?.gamesPlayed || 0); const wins = Number(user?.stats?.wins || 0);
+      const rating = Math.max(500, Math.round(1000 + wins * 24 - Math.max(0, games - wins) * 12));
+      const bucket = Math.floor(rating / 200);
+      for (const [key, entries] of rankedQueues) { const next = entries.filter((entry) => entry.ws !== ws && entry.ws.readyState === WebSocket.OPEN); if (next.length) rankedQueues.set(key, next); else rankedQueues.delete(key); }
+      const key = `${mapMode}:${playerCount}:${bucket}`;
+      const queue = rankedQueues.get(key) || [];
+      queue.push({ ws, user, rating }); rankedQueues.set(key, queue);
+      queue.forEach((entry) => sendJson(entry.ws, { type: 'ranked_queue_status', queued: true, waiting: queue.length, needed: playerCount, rating: entry.rating }));
+      if (queue.length < playerCount) return;
+      const matched = queue.splice(0, playerCount); if (!queue.length) rankedQueues.delete(key);
+      const host = matched[0]; const rankedRoom = createRoom(host.user.id, host.user.displayName || host.user.username);
+      rankedRoom.ranked = true; rankedRoom.rules.mapMode = mapMode; rankedRoom.rules.maxPlayers = playerCount;
+      for (const entry of matched.slice(1)) joinRoom(rankedRoom.code, entry.user.id, entry.user.displayName || entry.user.username);
+      for (const player of rankedRoom.players) player.ready = true;
+      ensurePreview(rankedRoom, true);
+      for (const entry of matched) {
+        bindSocketToRoomMember(rankedRoom, entry.user.id, entry.ws, 'Ranked match opened in another tab.');
+        sendJson(entry.ws, { type: 'ranked_match_found', rating: entry.rating, roomCode: rankedRoom.code });
+        sendJson(entry.ws, { type: 'joined', playerId: entry.user.id, room: roomSnapshot(rankedRoom), isHost: entry.user.id === rankedRoom.hostId, role: 'player' });
+      }
+      startGame(rankedRoom); broadcastRoom(rankedRoom); broadcastState(rankedRoom); scheduleActiveRoomsSave();
+      return;
+    }
 
 if (msg.type === 'create_room') {
       if (!ws._userId) {

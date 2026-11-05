@@ -7,15 +7,72 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=resend-email-v1" />
+  <link rel="stylesheet" href="styles.css?v=lobby-overhaul-v1" />
 </head>
 <body>
+  <section id="authLanding" class="portalScreen">
+    <div class="portalBackdrop"></div>
+    <div class="portalCard authPortalCard">
+      <img class="portalLogo" src="/favicon.png" alt="Hex Settlers">
+      <h1>Welcome to Hex Settlers</h1>
+      <p class="portalLead">Build kingdoms, cross new seas, and compete with settlers from around the world.</p>
+      <div class="portalForm">
+        <label class="label" for="landingUsername">Username</label>
+        <input id="landingUsername" class="input" maxlength="24" autocomplete="username" placeholder="Your username">
+        <label class="label" for="landingPassword">Password</label>
+        <input id="landingPassword" class="input" type="password" autocomplete="current-password" placeholder="Your password">
+        <button id="landingLoginBtn" class="btn primary portalPrimary">Log In</button>
+        <button id="landingCreateBtn" class="btn">Create Account</button>
+        <button id="landingForgotBtn" class="portalTextBtn">Forgot your password?</button>
+        <div id="landingError" class="error hidden" role="alert"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="playModeScreen" class="portalScreen hidden">
+    <div class="portalBackdrop"></div>
+    <div class="portalCard modePortalCard">
+      <img class="portalLogo modeLogo" src="/favicon.png" alt="Hex Settlers">
+      <p class="portalEyebrow">Choose your adventure</p><h1>How do you want to play?</h1>
+      <div class="modeChoices">
+        <button id="rankedModeBtn" class="modeChoice"><strong>Ranked Play</strong><span>Match automatically with similarly ranked players.</span></button>
+        <button id="unrankedModeBtn" class="modeChoice"><strong>Unranked Play</strong><span>Create a private lobby or join friends with a room code.</span></button>
+      </div>
+    </div>
+  </section>
+
+  <button id="accountOrb" class="accountOrb hidden" aria-label="Open account menu"><span id="accountOrbInitial">?</span></button>
+  <div id="accountMenu" class="accountMenu hidden">
+    <div id="accountMenuName" class="accountMenuName"></div>
+    <button id="accountManageBtn" class="accountMenuItem">Manage Account</button>
+    <button id="friendsBtn" class="accountMenuItem">Friends <span id="friendBadge" class="friendBadge hidden">0</span></button>
+    <button id="changeModeBtn" class="accountMenuItem">Change Game Type</button>
+    <button id="accountLogoutBtn" class="accountMenuItem dangerText">Log Out</button>
+  </div>
+
+  <div id="registerOverlay" class="portalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
+    <form id="registerForm" class="portalCard registerCard">
+      <button id="registerCloseBtn" class="overlayClose" type="button" aria-label="Close">×</button>
+      <h2 id="registerTitle">Create your account</h2><p class="portalLead">A verified email is required before your first login.</p>
+      <label class="label">Display name</label><input id="registerName" class="input" maxlength="20" autocomplete="name" required>
+      <label class="label">Username</label><input id="registerUsername" class="input" maxlength="24" autocomplete="username" required>
+      <label class="label">Email</label><input id="registerEmail" class="input" type="email" autocomplete="email" required>
+      <label class="label">Password</label><input id="registerPassword" class="input" type="password" minlength="6" autocomplete="new-password" required>
+      <label class="label">Confirm password</label><input id="registerConfirm" class="input" type="password" minlength="6" autocomplete="new-password" required>
+      <button class="btn primary portalPrimary" type="submit">Create Account &amp; Send Verification</button>
+      <div id="registerMessage" class="hint"></div>
+    </form>
+  </div>
+
+  <div id="friendsOverlay" class="portalOverlay hidden"><div class="portalCard registerCard"><button id="friendsCloseBtn" class="overlayClose">×</button><h2>Friends</h2><div id="friendsList" class="friendsList"></div></div></div>
+
+  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Placement rating: 1000</div><label class="label">Map</label><select id="rankedMap" class="input"><option value="classic">Classic</option><option value="classic_56">Classic 5–6</option><option value="seafarers">Seafarers</option></select><label class="label">Players</label><select id="rankedPlayers" class="input"><option>3</option><option selected>4</option><option>5</option><option>6</option></select><button id="rankedReadyBtn" class="btn primary portalPrimary">Ready &amp; Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Choose your preferences when you are ready.</p></div></section>
   <div id="app">
     <main class="layout">
       <section class="panel">
         <div class="card" id="lobbyCard">
           <h2>Lobby</h2>
-
+          <div class="legacyLobbyAuth hidden">
           <label class="label">Name</label>
           <input id="nameInput" class="input" maxlength="20" placeholder="Your name" />
 
@@ -42,6 +99,7 @@
             <button id="historyBtn" class="btn">Game History</button>
             <button id="leaderboardBtn" class="btn">Player Stats</button>
             <button id="userManagementBtn" class="btn hidden">User Management</button>
+          </div>
           </div>
 
 
@@ -583,6 +641,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=resend-email-v1"></script>
+  <script src="app.js?v=lobby-overhaul-v1"></script>
 </body>
 </html>

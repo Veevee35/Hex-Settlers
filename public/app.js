@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'resend-email-v1';
+  const ASSET_CACHE_SW_BUILD = 'lobby-overhaul-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1081,6 +1081,7 @@
   const tabScaleLabels = [];
 
   let authUser = null;
+  let selectedPlayMode = (() => { try { return sessionStorage.getItem('hexsettlers_play_mode') || ''; } catch (_) { return ''; } })();
   let authToken = null;
   let pendingAutoRejoin = false;
   let pendingDirectJoinRoomCode = null;
@@ -1186,6 +1187,21 @@
 
   function updateAuthUi() {
     const loggedIn = !!authUser;
+    const landing = $('authLanding');
+    const modeScreen = $('playModeScreen');
+    const rankedScreen = $('rankedScreen');
+    const appRoot = $('app');
+    landing?.classList.toggle('hidden', loggedIn);
+    modeScreen?.classList.toggle('hidden', !loggedIn || !!selectedPlayMode);
+    rankedScreen?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'ranked');
+    appRoot?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'unranked');
+    $('accountOrb')?.classList.toggle('hidden', !loggedIn);
+    if (loggedIn) {
+      const label = authUser.displayName || authUser.username || '?';
+      if ($('accountOrbInitial')) $('accountOrbInitial').textContent = label.slice(0, 1).toUpperCase();
+      if ($('accountMenuName')) $('accountMenuName').textContent = `${label} · ${authUser.username}`;
+      if (ui.nameInput) ui.nameInput.value = label;
+    }
     if (ui.authStatus) {
       ui.authStatus.textContent = loggedIn
         ? `Logged in as ${authUser.username}${authUser.isAdmin ? ' • Administrator' : ''}`
@@ -1216,6 +1232,8 @@
 
   function clearAuthLocal() {
     authUser = null;
+    selectedPlayMode = '';
+    try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
     removePersistedAuthToken();
     updateAuthUi();
   }
@@ -5967,6 +5985,33 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
 
+      if (msg.type === 'friend_request') {
+        const from = msg.from || {};
+        const notice = document.createElement('div');
+        notice.className = 'friendRequestToast';
+        notice.textContent = `${from.displayName || from.username || 'A player'} sent you a friend request.`;
+        document.body.appendChild(notice);
+        setTimeout(() => notice.remove(), 7000);
+        const badge = $('friendBadge');
+        if (badge) { badge.textContent = String(Number(badge.textContent || 0) + 1); badge.classList.remove('hidden'); }
+        return;
+      }
+
+      if (msg.type === 'ranked_queue_status') {
+        const status = $('rankedStatus');
+        if (status) status.textContent = msg.queued ? `Searching near rating ${msg.rating || 1000} · ${msg.waiting || 1}/${msg.needed || 4} players ready` : 'Matchmaking cancelled.';
+        $('rankedReadyBtn')?.classList.toggle('hidden', !!msg.queued);
+        $('rankedCancelBtn')?.classList.toggle('hidden', !msg.queued);
+        return;
+      }
+      if (msg.type === 'ranked_match_found') {
+        selectedPlayMode = 'unranked';
+        try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+        updateAuthUi();
+        toast('Ranked match found!');
+        return;
+      }
+
       if (msg.type === 'auth_required') {
         clearAuthLocal();
         pendingAutoRejoin = false;
@@ -8414,6 +8459,14 @@ function refreshLobbyJoinLinkUi() {
       if (!p) return;
       const row = document.createElement('div');
       row.className = 'playerRow';
+      if (!p.isAI && p.id !== myPlayerId) {
+        row.title = 'Right-click to send a friend request';
+        row.addEventListener('contextmenu', async (event) => {
+          event.preventDefault();
+          try { const result = await accountApi('friend-request', { userId: p.id }); toast(result.message || 'Friend request sent.'); }
+          catch (error) { setError(error.message || 'Could not send friend request.'); }
+        });
+      }
 
       const tag = document.createElement('div');
       tag.className = 'playerTag';
@@ -8869,6 +8922,48 @@ function refreshLobbyJoinLinkUi() {
 
   if (ui.userManagementBtn) ui.userManagementBtn.addEventListener('click', openUserManagementScreen);
   if (ui.forgotPasswordBtn) ui.forgotPasswordBtn.addEventListener('click', openForgotPasswordScreen);
+
+  async function portalLogin() {
+    const username = String($('landingUsername')?.value || '').trim();
+    const password = String($('landingPassword')?.value || '');
+    const errorBox = $('landingError');
+    errorBox?.classList.add('hidden');
+    if (!username || !password) { if (errorBox) { errorBox.textContent = 'Enter your username and password.'; errorBox.classList.remove('hidden'); } return; }
+    try { await authenticateInBrowser('login', { username, password }); }
+    catch (error) { if (errorBox) { errorBox.textContent = error.message || 'Login failed.'; errorBox.classList.remove('hidden'); } }
+  }
+  $('landingLoginBtn')?.addEventListener('click', portalLogin);
+  $('landingPassword')?.addEventListener('keydown', (event) => { if (event.key === 'Enter') portalLogin(); });
+  $('landingCreateBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.remove('hidden'));
+  $('registerCloseBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.add('hidden'));
+  $('landingForgotBtn')?.addEventListener('click', openForgotPasswordScreen);
+  $('registerForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const message = $('registerMessage');
+    const password = String($('registerPassword')?.value || '');
+    if (password !== String($('registerConfirm')?.value || '')) { if (message) message.textContent = 'Passwords do not match.'; return; }
+    try {
+      const result = await authApi('register-with-email', { displayName: $('registerName')?.value, username: $('registerUsername')?.value, email: $('registerEmail')?.value, password });
+      if (message) message.textContent = result.message;
+      event.target.reset();
+    } catch (error) { if (message) message.textContent = error.message || 'Registration failed.'; }
+  });
+  function choosePlayMode(mode) { selectedPlayMode = mode; try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {} updateAuthUi(); }
+  $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
+  $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('unranked'));
+  $('rankedReadyBtn')?.addEventListener('click', () => send({ type: 'ranked_queue_join', mapMode: $('rankedMap')?.value, playerCount: Number($('rankedPlayers')?.value || 4) }));
+  $('rankedCancelBtn')?.addEventListener('click', () => send({ type: 'ranked_queue_leave' }));
+  $('changeModeBtn')?.addEventListener('click', () => { selectedPlayMode = ''; try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {} $('accountMenu')?.classList.add('hidden'); updateAuthUi(); });
+  $('accountOrb')?.addEventListener('click', () => $('accountMenu')?.classList.toggle('hidden'));
+  $('accountManageBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });
+  $('friendsBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
+  $('friendsCloseBtn')?.addEventListener('click', () => $('friendsOverlay')?.classList.add('hidden'));
+  $('accountLogoutBtn')?.addEventListener('click', () => ui.logoutBtn?.click());
+  async function loadFriends() {
+    const list = $('friendsList'); if (!list) return; list.textContent = 'Loading…';
+    try { const result = await accountApi('friends'); list.innerHTML = ''; for (const request of (result.requests || [])) { const row = document.createElement('div'); row.className = 'friendRow'; row.append(`${request.displayName} sent a request `); for (const [label, accept] of [['Accept', true], ['Decline', false]]) { const button = document.createElement('button'); button.className = `btn${accept ? ' primary' : ''}`; button.textContent = label; button.addEventListener('click', async () => { await accountApi('friend-response', { userId: request.id, accept }); loadFriends(); }); row.appendChild(button); } list.appendChild(row); } for (const friend of (result.friends || [])) { const row = document.createElement('div'); row.className = 'friendRow'; row.textContent = `${friend.displayName} (@${friend.username}) · ${friend.online ? 'Online' : 'Offline'}`; list.appendChild(row); } if (!(result.friends || []).length && !(result.requests || []).length) list.textContent = 'No friends yet. Right-click a player in a lobby to send a request.'; const badge = $('friendBadge'); if (badge) { badge.textContent = String((result.requests || []).length); badge.classList.toggle('hidden', !(result.requests || []).length); } }
+    catch (error) { list.textContent = error.message || 'Could not load friends.'; }
+  }
 
   if (ui.rejoinLastBtn) ui.rejoinLastBtn.addEventListener('click', () => {
     setError(null);
