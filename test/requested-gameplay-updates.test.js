@@ -59,3 +59,11 @@ test('texture packs can be changed from the in-game tools bar', () => {
   assert.match(appJs, /setActiveTexturePackById\(targetId, \{ announce: true, forcePublish: false \}\)/);
   assert.match(appJs, /ui\.texturePackBtn\.addEventListener\('click', \(\) => openTexturePackModal\(\)\)/);
 });
+
+test('port artwork is centered by visible pixels instead of inconsistent transparent padding', () => {
+  assert.match(appJs, /const visibleImageBoundsCache = new WeakMap\(\)/);
+  assert.match(appJs, /function visibleImageBounds\(image\)[\s\S]*?getImageData/);
+  assert.match(appJs, /function drawVisibleImageCentered\(context, image, centerX, centerY, boxSize\)/);
+  assert.match(appJs, /drawVisibleImageCentered\(ctx, portImg, ps\.x, ps\.y, sz \* 0\.94\)/);
+  assert.doesNotMatch(appJs, /drawImage\(portImg, ps\.x - sz \/ 2, ps\.y - sz \/ 2, sz, sz\)/);
+});

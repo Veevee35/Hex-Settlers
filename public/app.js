@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'lobby-overhaul-v1';
+  const ASSET_CACHE_SW_BUILD = 'centered-ports-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -6314,6 +6314,52 @@ function refreshLobbyJoinLinkUi() {
     return true;
   }
   loadImages().then(render);
+
+  // Texture-pack port images do not all use the same transparent padding.
+  // Cache visible pixel bounds and center the artwork, not the PNG canvas.
+  const visibleImageBoundsCache = new WeakMap();
+  function visibleImageBounds(image) {
+    if (!image) return null;
+    const cached = visibleImageBoundsCache.get(image);
+    if (cached) return cached;
+    const width = Number(image.naturalWidth || image.width || 0);
+    const height = Number(image.naturalHeight || image.height || 0);
+    const fallback = { x: 0, y: 0, width, height };
+    if (!width || !height) return fallback;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0, width, height);
+      const pixels = context.getImageData(0, 0, width, height).data;
+      let minX = width; let minY = height; let maxX = -1; let maxY = -1;
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          if (pixels[((y * width + x) * 4) + 3] <= 8) continue;
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+      const bounds = maxX >= minX && maxY >= minY
+        ? { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
+        : fallback;
+      visibleImageBoundsCache.set(image, bounds);
+      return bounds;
+    } catch (_) {
+      visibleImageBoundsCache.set(image, fallback);
+      return fallback;
+    }
+  }
+
+  function drawVisibleImageCentered(context, image, centerX, centerY, boxSize) {
+    const bounds = visibleImageBounds(image);
+    if (!bounds || !bounds.width || !bounds.height) return;
+    const scale = Math.min(boxSize / bounds.width, boxSize / bounds.height);
+    const drawWidth = bounds.width * scale;
+    const drawHeight = bounds.height * scale;
+    context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height,
+      centerX - drawWidth / 2, centerY - drawHeight / 2, drawWidth, drawHeight);
+  }
 
   // Modal helpers
   function closeModal() {
@@ -13207,7 +13253,7 @@ function handleProductionGoldPrompt() {
           const hexH = 2 * view.scale;
           const sz = Math.round(hexH / 4);
           ctx.globalAlpha = 1;
-          ctx.drawImage(portImg, ps.x - sz / 2, ps.y - sz / 2, sz, sz);
+          drawVisibleImageCentered(ctx, portImg, ps.x, ps.y, sz * 0.94);
         } else {
           // Fallback to text if the asset isn't available
           ctx.fillStyle = 'rgba(255,255,255,.92)';
