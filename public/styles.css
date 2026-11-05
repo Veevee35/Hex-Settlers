@@ -829,6 +829,7 @@ body.in-game .hudRollDock{display:none;}
   gap:10px;
   pointer-events:auto;
 }
+.gameControlHud{display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:6px}
 .countdownClock{
   --tool-ui-scale: 1;
   min-width:170px;

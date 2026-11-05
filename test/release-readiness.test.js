@@ -22,7 +22,9 @@ test('pause, play, and voted previous-turn restoration are separate server-autho
   assert.match(client, /pause_game', paused: true/);
   assert.match(client, /pause_game', paused: false/);
   assert.match(server, /kind === 'propose_turn_undo'[\s\S]*?kind === 'respond_turn_undo'/);
+  assert.doesNotMatch(server, /kind === 'propose_turn_undo'[\s\S]{0,300}Only the host can propose/);
   assert.match(server, /_previousTurnSnapshot[\s\S]*?Object\.assign\(game, restored\)/);
+  assert.match(server, /const current = game\._currentTurnStartSnapshot[\s\S]*?game\._previousTurnSnapshot = current[\s\S]*?game\._currentTurnStartSnapshot = deepClone/);
   assert.match(server, /turnUndoVote[\s\S]*?must remain paused until the turn-undo vote finishes/);
 });
 

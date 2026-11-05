@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-readiness-v1';
+  const ASSET_CACHE_SW_BUILD = 'shared-previous-turn-controls-v2';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -160,7 +160,7 @@
     pauseBtn: $('pauseBtn'),
     playBtn: $('playBtn'),
     backTurnBtn: $('backTurnBtn'),
-    hostGameControls: $('hostGameControls'),
+    gameControlHud: $('gameControlHud'),
     pausedOverlay: $('pausedOverlay'),
     historyReplayBar: $('historyReplayBar'),
     historyReplayExitBtn: $('historyReplayExitBtn'),
@@ -10411,12 +10411,12 @@ function ensureTimerUiInterval() {
       }
     } catch (_) {}
 
-    // All players may pause or resume. Only the host may propose a turn undo.
+    // Every active player may request an undo vote, pause, or resume.
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
-    if (ui.hostGameControls) ui.hostGameControls.classList.toggle('hidden', !(inGame && !historyReplay.active));
+    if (ui.gameControlHud) ui.gameControlHud.classList.toggle('hidden', !(inGame && !historyReplay.active));
     if (ui.pauseBtn) ui.pauseBtn.disabled = !!(state && state.paused);
     if (ui.playBtn) ui.playBtn.disabled = !(state && state.paused);
-    if (ui.backTurnBtn) ui.backTurnBtn.classList.toggle('hidden', !isHostNow);
+    if (ui.backTurnBtn) ui.backTurnBtn.classList.remove('hidden');
 
     // Host-only room ID helper
     if (ui.idsBtn) {

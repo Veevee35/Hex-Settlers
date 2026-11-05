@@ -7542,8 +7542,7 @@ if (kind === 'pirate_steal') {
 
 
   if (kind === 'propose_turn_undo') {
-    if (playerId !== game.hostId) return { ok: false, error: 'Only the host can propose returning to the previous turn.' };
-    if (!game._previousTurnSnapshot) return { ok: false, error: 'There is no previous turn available yet.' };
+    if (!game._previousTurnSnapshot) return { ok: false, error: 'There is no completed previous player turn to return to yet.' };
     if (game.turnUndoVote && game.turnUndoVote.id) return { ok: false, error: 'A turn-undo vote is already in progress.' };
     const responses = {};
     for (const player of (game.players || [])) {
