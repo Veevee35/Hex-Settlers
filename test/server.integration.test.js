@@ -1064,6 +1064,10 @@ test('ordinary users can manage only themselves, verify recovery email, and rese
   const capturedAfterVerification = fs.readFileSync(capturePath, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(capturedAfterVerification.length, 1);
   assert.equal(capturedAfterVerification[0].to, recoveryEmail);
+  assert.match(capturedAfterVerification[0].html, /alt="Hex Settlers"/);
+  assert.match(capturedAfterVerification[0].html, new RegExp(`http://127\\.0\\.0\\.1:${port}/favicon\\.png`));
+  assert.match(capturedAfterVerification[0].html, /Account security/);
+  assert.match(capturedAfterVerification[0].html, /never share this link/i);
   const verifyUrl = new URL(capturedAfterVerification[0].text.match(/https?:\/\/\S+/)[0]);
   const verifyToken = verifyUrl.searchParams.get('verify_email');
   assert.ok(verifyToken);
@@ -1084,6 +1088,10 @@ test('ordinary users can manage only themselves, verify recovery email, and rese
   assert.match(resetRequest.payload.message, /matching account/i);
   const capturedAfterReset = fs.readFileSync(capturePath, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(capturedAfterReset.length, 2);
+  assert.match(capturedAfterReset[1].html, /alt="Hex Settlers"/);
+  assert.match(capturedAfterReset[1].html, new RegExp(`http://127\\.0\\.0\\.1:${port}/favicon\\.png`));
+  assert.match(capturedAfterReset[1].html, /Reset password/);
+  assert.match(capturedAfterReset[1].html, /30 minutes/);
   const resetUrl = new URL(capturedAfterReset[1].text.match(/https?:\/\/\S+/)[0]);
   const resetToken = resetUrl.searchParams.get('reset_password');
   assert.ok(resetToken);

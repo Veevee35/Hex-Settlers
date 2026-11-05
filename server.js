@@ -133,7 +133,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'resend-email-v1';
+const SERVER_BUILD_ID = 'resend-email-brand-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -853,17 +853,55 @@ function accountLink(baseUrl, parameter, token) {
   return `${base}/?${encodeURIComponent(parameter)}=${encodeURIComponent(token)}`;
 }
 
-function emailShell(title, intro, actionLabel, actionUrl, footer) {
+function emailShell(title, intro, actionLabel, actionUrl, footer, logoUrl) {
   const safeTitle = escapeHtml(title);
   const safeIntro = escapeHtml(intro);
   const safeActionLabel = escapeHtml(actionLabel);
   const safeUrl = escapeHtml(actionUrl);
   const safeFooter = escapeHtml(footer);
-  return `<!doctype html><html><body style="margin:0;background:#090d11;color:#e8edf2;font-family:Arial,sans-serif"><div style="max-width:620px;margin:0 auto;padding:32px 20px"><div style="border:1px solid #2d4657;border-radius:16px;background:#111820;padding:26px"><h1 style="margin:0 0 16px;font-size:24px;color:#ffffff">${safeTitle}</h1><p style="line-height:1.55;color:#c6d1db">${safeIntro}</p><p style="margin:26px 0"><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:#e05b45;color:#fff;text-decoration:none;font-weight:700">${safeActionLabel}</a></p><p style="font-size:12px;line-height:1.5;color:#8795a2;word-break:break-all">${safeUrl}</p><p style="margin-top:24px;font-size:12px;line-height:1.5;color:#8795a2">${safeFooter}</p></div></div></body></html>`;
+  const safeLogoUrl = escapeHtml(logoUrl);
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeTitle}</title></head>
+<body style="margin:0;padding:0;background:#eef2f5;color:#18232d;font-family:Arial,Helvetica,sans-serif">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${safeIntro}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f5">
+    <tr><td align="center" style="padding:32px 14px">
+      <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #d8e1e7;border-radius:18px;overflow:hidden;box-shadow:0 8px 28px rgba(20,39,53,.10)">
+        <tr><td align="center" style="padding:28px 28px 22px;background:#111a22;border-bottom:4px solid #d9a62e">
+          <img src="${safeLogoUrl}" width="156" alt="Hex Settlers" style="display:block;width:156px;max-width:60%;height:auto;border:0">
+        </td></tr>
+        <tr><td style="padding:34px 38px 18px">
+          <p style="margin:0 0 8px;color:#b07612;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">Account security</p>
+          <h1 style="margin:0 0 18px;color:#17232d;font-size:28px;line-height:1.25;font-weight:800">${safeTitle}</h1>
+          <p style="margin:0;color:#465866;font-size:16px;line-height:1.65">${safeIntro}</p>
+        </td></tr>
+        <tr><td align="center" style="padding:10px 38px 26px">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td align="center" bgcolor="#e85d45" style="border-radius:10px">
+            <a href="${safeUrl}" style="display:inline-block;padding:14px 26px;color:#ffffff;font-size:16px;font-weight:700;line-height:1;text-decoration:none;border-radius:10px">${safeActionLabel}</a>
+          </td></tr></table>
+        </td></tr>
+        <tr><td style="padding:0 38px 28px">
+          <div style="padding:16px 18px;background:#f5f8fa;border:1px solid #dce5eb;border-radius:10px">
+            <p style="margin:0 0 7px;color:#697b88;font-size:12px;line-height:1.45">If the button does not work, copy and paste this secure link into your browser:</p>
+            <p style="margin:0;font-size:12px;line-height:1.5;word-break:break-all"><a href="${safeUrl}" style="color:#1769aa;text-decoration:underline">${safeUrl}</a></p>
+          </div>
+        </td></tr>
+        <tr><td style="padding:22px 38px 30px;background:#f9fbfc;border-top:1px solid #e2e9ee">
+          <p style="margin:0 0 10px;color:#516572;font-size:13px;line-height:1.55">${safeFooter}</p>
+          <p style="margin:0;color:#8796a1;font-size:11px;line-height:1.5">For your security, never share this link with anyone. Hex Settlers will never ask for your password by email.</p>
+        </td></tr>
+      </table>
+      <p style="margin:18px 0 0;color:#7a8b97;font-size:11px;line-height:1.5">Hex Settlers &bull; Build, trade, explore.</p>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 }
 
 async function sendEmailVerification(user, email, token, request) {
-  const url = accountLink(publicBaseUrlForRequest(request), 'verify_email', token);
+  const publicBaseUrl = publicBaseUrlForRequest(request);
+  const url = accountLink(publicBaseUrl, 'verify_email', token);
   if (!url) throw new Error('HEX_PUBLIC_BASE_URL is required to create email links.');
   const displayName = user.displayName || user.username;
   return sendTransactionalEmail({
@@ -881,12 +919,14 @@ This link expires in 1 hour. If you did not request it, ignore this email.`,
       'Verify email',
       url,
       'This one-time link expires in 1 hour. If you did not request it, ignore this message.',
+      `${publicBaseUrl}/favicon.png`,
     ),
   }, process.env);
 }
 
 async function sendPasswordResetEmail(user, token, request) {
-  const url = accountLink(publicBaseUrlForRequest(request), 'reset_password', token);
+  const publicBaseUrl = publicBaseUrlForRequest(request);
+  const url = accountLink(publicBaseUrl, 'reset_password', token);
   if (!url) throw new Error('HEX_PUBLIC_BASE_URL is required to create password-reset links.');
   const displayName = user.displayName || user.username;
   return sendTransactionalEmail({
@@ -904,6 +944,7 @@ This link expires in 30 minutes and can only be used once. If you did not reques
       'Reset password',
       url,
       'This one-time link expires in 30 minutes. If you did not request it, your password has not changed.',
+      `${publicBaseUrl}/favicon.png`,
     ),
   }, process.env);
 }
