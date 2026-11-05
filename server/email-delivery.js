@@ -60,13 +60,23 @@ function emailDeliveryMode(env = process.env) {
   if (String(env.HEX_EMAIL_CAPTURE_PATH || '').trim()) return 'capture';
   const requested = String(env.HEX_EMAIL_MODE || '').trim().toLowerCase();
   if (requested === 'none' || requested === 'disabled' || requested === 'off') return 'none';
+  if (requested === 'cloudflare' || requested === 'bridge' || requested === 'cloudflare-email') {
+    return cloudflareBridgeEndpoint(env) && String(env.HEX_EMAIL_BRIDGE_SECRET || '').trim() ? 'cloudflare' : 'none';
+  }
   if (requested === 'direct' || requested === 'self' || requested === 'self-hosted') return 'direct';
   if (requested === 'resend') return String(env.RESEND_API_KEY || '').trim() ? 'resend' : 'none';
   if (requested === 'smtp') return String(env.SMTP_HOST || '').trim() ? 'smtp' : 'none';
+  if (cloudflareBridgeEndpoint(env) && String(env.HEX_EMAIL_BRIDGE_SECRET || '').trim()) return 'cloudflare';
   if (String(env.RESEND_API_KEY || '').trim()) return 'resend';
   if (String(env.SMTP_HOST || '').trim()) return 'smtp';
-  // No provider is required: deliver straight to the recipient domain's MX host.
-  return 'direct';
+  return 'none';
+}
+
+function cloudflareBridgeEndpoint(env = process.env) {
+  const explicit = String(env.HEX_EMAIL_CLOUDFLARE_ENDPOINT || '').trim();
+  if (explicit) return explicit;
+  const publicBase = String(env.HEX_PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
+  return publicBase ? `${publicBase}/api/internal/send-email` : '';
 }
 
 function isEmailDeliveryConfigured(env = process.env) {
@@ -410,6 +420,37 @@ async function sendViaResend(message, env = process.env) {
   return { ok: true, provider: 'resend', id: payload && payload.id };
 }
 
+async function sendViaCloudflareBridge(message, env = process.env, fetchImpl = fetch) {
+  const endpoint = cloudflareBridgeEndpoint(env);
+  const secret = String(env.HEX_EMAIL_BRIDGE_SECRET || '').trim();
+  if (!endpoint || !secret) throw new Error('Cloudflare email bridge is not configured.');
+  let endpointUrl;
+  try { endpointUrl = new URL(endpoint); } catch (_) { throw new Error('HEX_EMAIL_CLOUDFLARE_ENDPOINT is not a valid URL.'); }
+  if (endpointUrl.protocol !== 'https:' && endpointUrl.hostname !== 'localhost' && endpointUrl.hostname !== '127.0.0.1') {
+    throw new Error('Cloudflare email bridge must use HTTPS.');
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), integerEnv(env, 'HEX_EMAIL_BRIDGE_TIMEOUT_MS', 15_000, 1_000, 120_000));
+  let response;
+  try {
+    response = await fetchImpl(endpointUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+  let payload = null;
+  try { payload = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error((payload && payload.error) || `Cloudflare email bridge returned HTTP ${response.status}.`);
+  return { ok: true, provider: 'cloudflare-email', id: payload && payload.id };
+}
+
 async function captureEmail(message, env = process.env) {
   const capturePath = path.resolve(String(env.HEX_EMAIL_CAPTURE_PATH || '').trim());
   await fs.mkdir(path.dirname(capturePath), { recursive: true });
@@ -428,6 +469,7 @@ async function sendTransactionalEmail(message, env = process.env) {
   };
   const mode = emailDeliveryMode(env);
   if (mode === 'capture') return captureEmail(normalized, env);
+  if (mode === 'cloudflare') return sendViaCloudflareBridge(normalized, env);
   if (mode === 'resend') return sendViaResend(normalized, env);
   if (mode === 'smtp') return sendViaSmtp(normalized, env);
   if (mode === 'direct') return sendViaDirectMx(normalized, env);
@@ -441,6 +483,7 @@ module.exports = {
   isPublicMailAddress,
   maskEmail,
   normalizeEmail,
+  sendViaCloudflareBridge,
   sendTransactionalEmail,
   validateEmailAddress,
 };

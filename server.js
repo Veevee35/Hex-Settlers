@@ -133,7 +133,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'admin-delete-direct-email-v1';
+const SERVER_BUILD_ID = 'cloudflare-email-bridge-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -9664,11 +9664,13 @@ async function handleAccountHttp(req, res, urlPath) {
       delete viewer.emailVerification;
       await saveUsersDb();
       console.error('[email] Failed to send email verification:', error && error.message ? error.message : error);
-      const directDelivery = emailDeliveryMode(process.env) === 'direct';
+      const deliveryMode = emailDeliveryMode(process.env);
       sendHttpJson(req, res, 502, {
         ok: false,
-        error: directDelivery
+        error: deliveryMode === 'direct'
           ? 'The game server could not reach the recipient mail server. Direct email requires Railway Pro SMTP access and valid sender-domain DNS.'
+          : deliveryMode === 'cloudflare'
+            ? 'Cloudflare Email Service could not send the verification message. Check its sending-domain setup and bridge secret.'
           : 'The verification email could not be sent. Check the server email configuration.',
       });
       return;

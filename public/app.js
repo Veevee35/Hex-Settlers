@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'admin-delete-direct-email-v1';
+  const ASSET_CACHE_SW_BUILD = 'cloudflare-email-bridge-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -6388,6 +6388,11 @@ function refreshLobbyJoinLinkUi() {
       warning.className = 'userManagementWarning';
       warning.textContent = 'Email delivery is not configured on this server. Password changes still work, but recovery emails cannot be sent yet.';
       shell.appendChild(warning);
+    } else if (emailDeliveryMode === 'cloudflare') {
+      const note = document.createElement('div');
+      note.className = 'userManagementNotice';
+      note.textContent = 'Verification and password-reset messages are sent through this game’s Cloudflare Email Service.';
+      shell.appendChild(note);
     } else if (emailDeliveryMode === 'direct') {
       const note = document.createElement('div');
       note.className = 'userManagementNotice';

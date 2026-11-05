@@ -11,6 +11,7 @@ const {
   isEmailDeliveryConfigured,
   maskEmail,
   normalizeEmail,
+  sendViaCloudflareBridge,
   sendTransactionalEmail,
   validateEmailAddress,
 } = require('../server/email-delivery');
@@ -23,13 +24,38 @@ test('email addresses are normalized, validated, and safely masked', () => {
   assert.equal(maskEmail('benjamin@example.com'), 'be******@example.com');
 });
 
-test('email defaults to direct MX delivery without inventing an SMTP relay', () => {
-  assert.equal(emailDeliveryMode({}), 'direct');
-  assert.equal(isEmailDeliveryConfigured({}), true);
+test('email is enabled only when a usable delivery transport is configured', () => {
+  assert.equal(emailDeliveryMode({}), 'none');
+  assert.equal(isEmailDeliveryConfigured({}), false);
   assert.equal(emailDeliveryMode({ HEX_EMAIL_MODE: 'none' }), 'none');
   assert.equal(isEmailDeliveryConfigured({ HEX_EMAIL_MODE: 'none' }), false);
   assert.equal(emailDeliveryMode({ HEX_EMAIL_MODE: 'smtp' }), 'none');
   assert.equal(emailDeliveryMode({ HEX_EMAIL_MODE: 'smtp', SMTP_HOST: 'mail.example.com' }), 'smtp');
+  assert.equal(emailDeliveryMode({ HEX_EMAIL_MODE: 'cloudflare' }), 'none');
+  assert.equal(emailDeliveryMode({
+    HEX_EMAIL_MODE: 'cloudflare',
+    HEX_PUBLIC_BASE_URL: 'https://game.example',
+    HEX_EMAIL_BRIDGE_SECRET: 'secret',
+  }), 'cloudflare');
+});
+
+test('Cloudflare bridge sends a protected HTTPS request', async () => {
+  let received;
+  const result = await sendViaCloudflareBridge({
+    to: 'player@example.com', subject: 'Verify', text: 'Code', html: '<p>Code</p>',
+  }, {
+    HEX_EMAIL_CLOUDFLARE_ENDPOINT: 'https://game.example/api/internal/send-email',
+    HEX_EMAIL_BRIDGE_SECRET: 'bridge-secret',
+  }, async (url, options) => {
+    received = { url: String(url), options };
+    return new Response(JSON.stringify({ ok: true, id: 'message-1' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  assert.equal(result.provider, 'cloudflare-email');
+  assert.equal(received.url, 'https://game.example/api/internal/send-email');
+  assert.equal(received.options.headers.Authorization, 'Bearer bridge-secret');
+  assert.equal(JSON.parse(received.options.body).to, 'player@example.com');
 });
 
 test('direct MX delivery rejects private and documentation network targets', () => {

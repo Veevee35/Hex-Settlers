@@ -21,23 +21,32 @@ All signed-in users can change their own password after entering their current p
 
 ## Recovery email and password-reset links
 
-Password recovery requires a public URL and a sender identity. By default Hex Settlers sends mail itself: it resolves the recipient domain's MX records and opens a direct SMTP connection from the game server. No email API or relay account is used.
+Password recovery requires a public URL, a sender identity, and a working delivery transport. For the Railway + Cloudflare deployment, use the built-in Cloudflare Email Service bridge. Railway sends the message to your Worker over protected HTTPS, and the Worker sends it from your Cloudflare-managed domain. No third-party email provider is required.
 
 ```text
-HEX_PUBLIC_BASE_URL=https://YOUR-GAME-DOMAIN
+HEX_PUBLIC_BASE_URL=https://hex-settlers.bt616923.workers.dev
+HEX_EMAIL_MODE=cloudflare
+HEX_EMAIL_CLOUDFLARE_ENDPOINT=https://hex-settlers.bt616923.workers.dev/api/internal/send-email
+HEX_EMAIL_BRIDGE_SECRET=the-same-long-random-secret-used-in-cloudflare
+```
+
+In Cloudflare, onboard `tenthson.com` (or change `EMAIL_FROM` in `wrangler.jsonc` to another domain you control) in **Email Service**, and add the SPF/DKIM records Cloudflare provides. Then store the bridge secret without committing it:
+
+```powershell
+npx wrangler secret put EMAIL_BRIDGE_SECRET
+```
+
+Put the exact same secret in Railway as `HEX_EMAIL_BRIDGE_SECRET`, add the other three Railway variables shown above, redeploy both services, and resend verification. The Worker endpoint accepts only requests carrying this secret and always uses the fixed `EMAIL_FROM` sender configured in `wrangler.jsonc`.
+
+Direct SMTP remains available only as an explicit option for a host that permits outbound port 25:
+
+```text
+HEX_EMAIL_MODE=direct
 HEX_EMAIL_FROM=Hex Settlers <no-reply@YOUR-DOMAIN>
 HEX_EMAIL_EHLO_NAME=mail.YOUR-DOMAIN
 ```
 
-Your sender domain should authorize the Railway outbound address through SPF. Direct messages from this implementation are not DKIM-signed, and reverse DNS is controlled by the hosting network, so large mailbox providers may reject a message or place it in spam even when the SMTP exchange succeeds. Railway allows outbound SMTP only on Pro plans and above; Free, Trial, and Hobby deployments cannot directly deliver Internet email.
-
-The default mode is:
-
-```text
-HEX_EMAIL_MODE=direct
-```
-
-Set `HEX_DIRECT_EMAIL_REQUIRE_TLS=true` if delivery must fail whenever a recipient MX server does not offer STARTTLS. The default is opportunistic TLS, matching ordinary server-to-server email delivery.
+Railway allows outbound SMTP only on Pro plans and above, while Cloudflare Workers cannot open port 25. Direct SMTP is therefore not suitable for the current deployment. Set `HEX_DIRECT_EMAIL_REQUIRE_TLS=true` if using it elsewhere and delivery must fail whenever a recipient MX server does not offer STARTTLS.
 
 External delivery is optional. If you later choose a provider or relay, select one of these overrides.
 
