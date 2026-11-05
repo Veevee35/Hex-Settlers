@@ -2099,22 +2099,6 @@ function buildGeometryFromAxials(axials) {
   };
 }
 
-function tileAdjacency(tiles) {
-  const map = new Map();
-  for (const t of tiles) map.set(axialKey(t.q, t.r), t.id);
-
-  const adj = new Map(); // tileId -> [tileId]
-  for (const t of tiles) {
-    const neighbors = [];
-    for (const [dq, dr] of HEX_DIRS) {
-      const nid = map.get(axialKey(t.q + dq, t.r + dr));
-      if (nid !== undefined) neighbors.push(nid);
-    }
-    adj.set(t.id, neighbors);
-  }
-  return adj;
-}
-
 const BUILD_COSTS = {
   road: { brick: 1, lumber: 1 },
   ship: { lumber: 1, wool: 1 },
@@ -2831,39 +2815,6 @@ function computeVP(state) {
   for (const p of state.players) p.vp = vp[p.id] || 0;
 }
 
-// -------------------- Through the Desert: Far Side (Beyond Desert) Bonus --------------------
-
-function ttdOuterTileIdSet(geom) {
-  // "Other side of the desert" is defined as any non-sea land tile that is NOT part of the
-  // TTD_START_ISLAND_KEYS set (the starting island + fixed desert tiles).
-  const out = new Set();
-  const tiles = geom?.tiles || [];
-  for (let tid = 0; tid < tiles.length; tid++) {
-    const t = tiles[tid];
-    if (!t) continue;
-    if (t.type === 'sea') continue;
-    const key = `${t.q},${t.r}`;
-    if (!TTD_START_ISLAND_KEYS.has(key)) out.add(tid);
-  }
-  return out;
-}
-
-function countPlayerSettledTilesInSet(game, playerId, tileIdSet) {
-  // Count unique tiles in tileIdSet that the player has a settlement/city touching.
-  const settled = new Set();
-  const nodes = game?.geom?.nodes || [];
-  for (const n of nodes) {
-    if (!n || !n.building) continue;
-    if (n.building.owner !== playerId) continue;
-    if (n.building.type !== 'settlement' && n.building.type !== 'city') continue;
-    const adj = game?.geom?.nodeAdjTiles?.[n.id] || [];
-    for (const tid of adj) {
-      if (tileIdSet.has(tid)) settled.add(tid);
-    }
-  }
-  return settled.size;
-}
-
 // -------------------- Longest Road --------------------
 
 function computeLongestRoadForPlayer(game, playerId) {
@@ -3324,9 +3275,6 @@ function edgeAdjTilesAfterOuterSeaTrim(state, edgeId) {
   if (!shouldTrimHiddenSeafarersOuterBorder(state)) return adj.slice();
   return adj.filter(tid => !isHiddenSeafarersOuterBorderSeaTile(state, tid));
 }
-function edgeIsBoundaryAfterOuterSeaTrim(state, edgeId) {
-  return edgeAdjTilesAfterOuterSeaTrim(state, edgeId).length === 1;
-}
 function edgeTouchesLandAfterOuterSeaTrim(state, edgeId) {
   const adj = edgeAdjTilesAfterOuterSeaTrim(state, edgeId);
   if (!adj.length) return false;
@@ -3345,67 +3293,6 @@ function isEdgeOnBoard(state, edgeId) {
 function isTileOnBoard(state, tileId) {
   const tiles = state && state.geom && Array.isArray(state.geom.tiles) ? state.geom.tiles : null;
   return !!tiles && tileId >= 0 && tileId < tiles.length;
-}
-
-function generateBoard(geom) {
-  // Assign resource types + number tokens like standard 19-hex Catan
-  const types = [
-    ...Array(4).fill('forest'),
-    ...Array(4).fill('pasture'),
-    ...Array(4).fill('field'),
-    ...Array(3).fill('hills'),
-    ...Array(3).fill('mountains'),
-    'desert',
-  ];
-
-  const tokens = [2,3,3,4,4,5,5,6,6,8,8,9,9,10,10,11,11,12];
-
-  const adj = tileAdjacency(geom.tiles);
-
-  function attempt() {
-    const ttypes = shuffle(types.slice());
-    const ttokens = shuffle(tokens.slice());
-    const tiles = geom.tiles.map(t => ({ ...t }));
-    // Place types
-    for (let i = 0; i < tiles.length; i++) tiles[i].type = ttypes[i];
-    // Place tokens
-    let k = 0;
-    for (let i = 0; i < tiles.length; i++) {
-      if (tiles[i].type === 'desert') {
-        tiles[i].number = null;
-        tiles[i].robber = true;
-      } else {
-        tiles[i].number = ttokens[k++];
-        tiles[i].robber = false;
-      }
-    }
-    // check 6/8 adjacency
-    for (const t of tiles) {
-      if (t.number === 6 || t.number === 8) {
-        for (const nid of adj.get(t.id) || []) {
-          const n = tiles[nid].number;
-          if (n === 6 || n === 8) return null;
-        }
-      }
-    }
-    return tiles;
-  }
-
-  let tiles = null;
-  for (let i = 0; i < 250 && !tiles; i++) tiles = attempt();
-  if (!tiles) {
-    // fallback (no constraint)
-    const ttypes = shuffle(types.slice());
-    const ttokens = shuffle(tokens.slice());
-    tiles = geom.tiles.map(t => ({ ...t }));
-    for (let i = 0; i < tiles.length; i++) tiles[i].type = ttypes[i];
-    let k = 0;
-    for (let i = 0; i < tiles.length; i++) {
-      if (tiles[i].type === 'desert') { tiles[i].number = null; tiles[i].robber = true; }
-      else tiles[i].number = ttokens[k++];
-    }
-  }
-  return tiles;
 }
 
 function generateBoardClassicWithSea(geom) {
@@ -7943,12 +7830,6 @@ function ensureRoomRoleLists(room) {
   if (!Array.isArray(room.spectators)) room.spectators = [];
   if (!room.pendingLeaveRequests || typeof room.pendingLeaveRequests !== 'object') room.pendingLeaveRequests = Object.create(null);
   return room;
-}
-
-function roomMembers(room) {
-  const safe = ensureRoomRoleLists(room);
-  if (!safe) return [];
-  return safe.players.concat(safe.spectators);
 }
 
 function findRoomPlayer(room, playerId) {

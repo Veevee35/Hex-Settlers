@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'all-scenario-port-centering-v1';
+  const ASSET_CACHE_SW_BUILD = 'invite-lobby-account-menu-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -52,14 +52,12 @@
     rejoinLastBtn: $('rejoinLastBtn'),
     lastRoomHint: $('lastRoomHint'),
     myAccountLabel: $('myAccountLabel'),
-    texturePackRow: $('texturePackRow'),
     texturePackSelect: $('texturePackSelect'),
     downloadTexturePackBtn: $('downloadTexturePackBtn'),
     uploadTexturePackBtn: $('uploadTexturePackBtn'),
     deleteTexturePackBtn: $('deleteTexturePackBtn'),
     texturePackFileInput: $('texturePackFileInput'),
     texturePackStatus: $('texturePackStatus'),
-    rejoinIdInput: $('rejoinIdInput'),
     createBtn: $('createBtn'),
     lobbyRulesBtn: $('lobbyRulesBtn'),
     rulesPage: $('rulesPage'),
@@ -69,7 +67,6 @@
     rulesPageNav: $('rulesPageNav'),
     rulesPageContent: $('rulesPageContent'),
     joinBtn: $('joinBtn'),
-    rejoinBtn: $('rejoinBtn'),
     readyBtn: $('readyBtn'),
     startBtn: $('startBtn'),
     lobbyCard: $('lobbyCard'),
@@ -134,8 +131,6 @@
     roomJoinLinkInput: $('roomJoinLinkInput'),
     genJoinLinkBtn: $('genJoinLinkBtn'),
     copyJoinLinkBtn: $('copyJoinLinkBtn'),
-    myPlayerIdFull: $('myPlayerIdFull'),
-    copyMyIdBtn: $('copyMyIdBtn'),
     playersList: $('playersList'),
     colorPickerRow: $('colorPickerRow'),
     colorPicker: $('colorPicker'),
@@ -144,7 +139,6 @@
     aiFillSelect: $('aiFillSelect'),
     aiFillBtn: $('aiFillBtn'),
     aiClearBtn: $('aiClearBtn'),
-    aiFillNote: $('aiFillNote'),
     errBox: $('errBox'),
     turnInfo: $('turnInfo'),
     timerInfo: $('timerInfo'),
@@ -429,13 +423,6 @@
     const id = encodeURIComponent(String(packId || '').trim());
     const norm = normalizeTextureAssetRelPath(rel);
     return `/__texturepacks/${id}/${norm.split('/').map(seg => encodeURIComponent(seg)).join('/')}`;
-  }
-
-  function activeTextureHasAsset(rel) {
-    const meta = activeTexturePackMeta();
-    if (!meta || !meta.id || meta.id === DEFAULT_TEXTURE_PACK_ID) return false;
-    const norm = normalizeTextureAssetRelPath(rel);
-    return !!(norm && Array.isArray(meta.assets) && meta.assets.includes(norm));
   }
 
   function resolveTextureAssetUrl(rel) {
@@ -1088,6 +1075,14 @@
   let pendingDirectJoinAsSpectator = false;
   let pendingRankedMatchmaking = false;
 
+  // An invitation is an explicit unranked-lobby choice. It takes precedence
+  // over an earlier ranked selection, including after a fresh login.
+  function selectInvitedLobbyMode() {
+    if (!pendingDirectJoinRoomCode) return;
+    selectedPlayMode = 'unranked';
+    try { sessionStorage.setItem('hexsettlers_play_mode', 'unranked'); } catch (_) {}
+  }
+
   function formatStatsLine(stats) {
     if (!stats) return '';
     const gp = Math.max(0, Number(stats.gamesPlayed || 0));
@@ -1115,6 +1110,7 @@
     if (authUser && ui.nameInput && (authUser.isAdmin || !String(ui.nameInput.value || '').trim())) {
       ui.nameInput.value = authUser.displayName || authUser.username || '';
     }
+    if (authUser) selectInvitedLobbyMode();
     updateAuthUi();
   }
 
@@ -2017,19 +2013,6 @@ function renderPostgameTab(tab) {
   const RESOURCE_KEYS = ['brick','lumber','wool','grain','ore'];
   const RESOURCE_LABEL = { brick:'Brick', lumber:'Wood', wool:'Wool', grain:'Grain', ore:'Ore', gold:'Gold' };
   const POSTGAME_RESOURCE_KEYS = [...RESOURCE_KEYS, 'gold'];
-
-  const SOURCE_LABEL = {
-    // gains
-    production: 'Production',
-    setup: 'Setup',
-    trade: 'Trades',
-    steal: 'Steals',
-    dev: 'Dev Cards',
-    other: 'Other',
-    // losses
-    build: 'Building',
-    discard: 'Discards',
-  };
 
   const sumRes = (m) => {
     if (!m) return 0;
@@ -5086,7 +5069,6 @@ function syncPostgameToState() {
       if (preservedRoomCode) localStorage.setItem(LAST_ROOM_KEY, preservedRoomCode);
       else localStorage.removeItem(LAST_ROOM_KEY);
     } catch (_) {}
-    if (ui.rejoinIdInput) ui.rejoinIdInput.value = '';
     if (ui.codeInput) ui.codeInput.value = preservedRoomCode;
     if (ui.roomCode) ui.roomCode.textContent = '----';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = '';
@@ -5954,9 +5936,13 @@ function refreshLobbyJoinLinkUi() {
         }
 
         if (pendingDirectJoinRoomCode && authUser) {
+          // Never rejoin an unrelated room from localStorage when an invite is open.
+          pendingAutoRejoin = false;
+          selectInvitedLobbyMode();
+          updateAuthUi();
           const targetCode = String(pendingDirectJoinRoomCode || '').trim().toUpperCase();
           const joinAsSpectator = !!pendingDirectJoinAsSpectator;
-          const alreadyThere = !!(room && String(room.code || '').trim().toUpperCase() === targetCode);
+          const alreadyThere = !!(roomConnectionReady && room && String(room.code || '').trim().toUpperCase() === targetCode);
           if (targetCode && !alreadyThere) {
             pendingDirectJoinRoomCode = null; // one-shot
             pendingDirectJoinAsSpectator = false;
@@ -6045,6 +6031,12 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'joined') {
+        // Room membership always displays the lobby, even after a saved
+        // ranked preference or a reconnect before the user chose a mode.
+        if (selectedPlayMode !== 'unranked') {
+          selectedPlayMode = 'unranked';
+          try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+        }
         roomConnectionReady = true;
         clearRoomRecoveryState();
         myPlayerId = msg.playerId;
@@ -6053,7 +6045,6 @@ function refreshLobbyJoinLinkUi() {
         resetViewportForRoomChange();
         ensureStructureSpritesReady();
         isHost = !!msg.isHost;
-        if (ui.rejoinIdInput) ui.rejoinIdInput.value = myPlayerId || '';
         if (ui.codeInput && room?.code) ui.codeInput.value = room.code;
         ui.roomBox.classList.remove('hidden');
         ui.roomCode.textContent = room.code;
@@ -6291,6 +6282,7 @@ function refreshLobbyJoinLinkUi() {
 
   pendingDirectJoinRoomCode = parseDirectJoinCodeFromUrl();
   pendingDirectJoinAsSpectator = parseDirectJoinSpectatorFromUrl();
+  selectInvitedLobbyMode();
   updateAuthUi();
   connect();
   setTimeout(handleAccountActionLinkFromUrl, 0);
@@ -9048,9 +9040,23 @@ function refreshLobbyJoinLinkUi() {
     setAccountMenuOpen(false);
   });
   $('accountManageBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });
-  $('friendsBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
+  $('friendsBtn')?.addEventListener('click', () => { setAccountMenuOpen(false); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
   $('friendsCloseBtn')?.addEventListener('click', () => $('friendsOverlay')?.classList.add('hidden'));
-  $('accountLogoutBtn')?.addEventListener('click', () => ui.logoutBtn?.click());
+  $('accountPlayerStatsBtn')?.addEventListener('click', () => {
+    setAccountMenuOpen(false);
+    openHistoryOverlay('players');
+  });
+  $('accountGameLogBtn')?.addEventListener('click', () => {
+    setAccountMenuOpen(false);
+    if (state && state.phase && state.phase !== 'lobby') {
+      // While playing, show the live game log, not an unrelated past game.
+      setLogPanelVisible(true);
+    } else {
+      // From the mode selection or lobby, open completed games and their logs.
+      openHistoryOverlay('games');
+    }
+  });
+  $('accountLogoutBtn')?.addEventListener('click', () => { setAccountMenuOpen(false); ui.logoutBtn?.click(); });
   async function loadFriends() {
     const list = $('friendsList'); if (!list) return; list.textContent = 'Loading…';
     try { const result = await accountApi('friends'); list.innerHTML = ''; for (const request of (result.requests || [])) { const row = document.createElement('div'); row.className = 'friendRow'; row.append(`${request.displayName} sent a request `); for (const [label, accept] of [['Accept', true], ['Decline', false]]) { const button = document.createElement('button'); button.className = `btn${accept ? ' primary' : ''}`; button.textContent = label; button.addEventListener('click', async () => { await accountApi('friend-response', { userId: request.id, accept }); loadFriends(); }); row.appendChild(button); } list.appendChild(row); } for (const friend of (result.friends || [])) { const row = document.createElement('div'); row.className = 'friendRow'; row.textContent = `${friend.displayName} (@${friend.username}) · ${friend.online ? 'Online' : 'Offline'}`; list.appendChild(row); } if (!(result.friends || []).length && !(result.requests || []).length) list.textContent = 'No friends yet. Right-click a player in a lobby to send a request.'; const badge = $('friendBadge'); if (badge) { badge.textContent = String((result.requests || []).length); badge.classList.toggle('hidden', !(result.requests || []).length); } }
@@ -9105,12 +9111,6 @@ function refreshLobbyJoinLinkUi() {
     send({ type: 'join_room', code, displayName });
   });
 
-if (ui.copyMyIdBtn) {
-    ui.copyMyIdBtn.addEventListener('click', () => {
-      if (!myPlayerId) return;
-      copyText(myPlayerId);
-    });
-  }
   if (ui.genJoinLinkBtn) {
     ui.genJoinLinkBtn.addEventListener('click', () => {
       refreshLobbyJoinLinkUi();
