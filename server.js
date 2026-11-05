@@ -1861,10 +1861,6 @@ function shuffle(arr) {
   return arr;
 }
 
-function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
-
 function cloneGameForSimulation(game) {
   if (!game) return null;
   // Replays, logs, chat, and statistics are historical output. Omit these large
@@ -2290,6 +2286,20 @@ function recordTurnStart(game) {
   st.turnClock.currentTurn = game.turnNumber;
   st.turnClock.currentPlayerId = game.currentPlayerId;
   st.turnClock.startedAt = Date.now();
+  if (String(game.phase || '').startsWith('main-')) captureTurnUndoPoint(game);
+}
+
+function captureTurnUndoPoint(game) {
+  if (!game) return;
+  const current = game._currentTurnStartSnapshot || null;
+  game._previousTurnSnapshot = current;
+  game._currentTurnStartSnapshot = deepClone({
+    ...game,
+    replay: undefined,
+    _previousTurnSnapshot: undefined,
+    _currentTurnStartSnapshot: undefined,
+    turnUndoVote: null,
+  });
 }
 
 function recordTurnEnd(game, playerId) {
@@ -6062,10 +6072,9 @@ function applyActionCore(room, playerId, action) {
   if (game.phase === 'lobby') return { ok: false, error: 'Game not started.' };
   if (game.phase === 'game-over') return { ok: false, error: 'Game is over.' };
 
-  if (game.paused) return { ok: false, error: 'Game is paused.' };
-
   const kind = action && action.kind;
   if (!kind) return { ok: false, error: 'Invalid action.' };
+  if (game.paused && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo') return { ok: false, error: 'Game is paused.' };
 
   const actingPlayer = playerById(game, playerId);
   if (!actingPlayer || actingPlayer.departed) return { ok: false, error: 'Spectators cannot take game actions.' };
@@ -7532,6 +7541,62 @@ if (kind === 'pirate_steal') {
 
 
 
+  if (kind === 'propose_turn_undo') {
+    if (playerId !== game.hostId) return { ok: false, error: 'Only the host can propose returning to the previous turn.' };
+    if (!game._previousTurnSnapshot) return { ok: false, error: 'There is no previous turn available yet.' };
+    if (game.turnUndoVote && game.turnUndoVote.id) return { ok: false, error: 'A turn-undo vote is already in progress.' };
+    const responses = {};
+    for (const player of (game.players || [])) {
+      if (!player || !player.id || player.departed) continue;
+      responses[player.id] = (player.id === playerId || player.isAI) ? 'accept' : null;
+    }
+    const wasPaused = !!game.paused;
+    if (!wasPaused) pauseGame(game, playerId);
+    const voteId = game.turnUndoVoteSeq || 1;
+    game.turnUndoVoteSeq = voteId + 1;
+    game.turnUndoVote = { id: voteId, fromId: playerId, responses, createdAt: now(), wasPaused };
+    game.message = `${playerName(game, playerId)} proposed returning to the previous turn.`;
+    pushLog(game, game.message, 'system', { kind: 'turn_undo_vote', voteId });
+    if (Object.values(responses).every((response) => response === 'accept')) {
+      return applyActionCore(room, playerId, { kind: 'respond_turn_undo', voteId, accept: true });
+    }
+    return { ok: true };
+  }
+
+  if (kind === 'respond_turn_undo') {
+    const vote = game.turnUndoVote;
+    const voteId = Number(action.voteId || 0);
+    if (!vote || vote.id !== voteId || !Object.prototype.hasOwnProperty.call(vote.responses || {}, playerId)) {
+      return { ok: false, error: 'No such turn-undo vote.' };
+    }
+    const accept = !!action.accept;
+    vote.responses[playerId] = accept ? 'accept' : 'reject';
+    if (!accept) {
+      const wasPaused = !!vote.wasPaused;
+      game.turnUndoVote = null;
+      if (!wasPaused) resumeGame(game);
+      game.message = `${playerName(game, playerId)} rejected returning to the previous turn.`;
+      pushLog(game, game.message, 'system', { kind: 'turn_undo_rejected', voteId });
+      return { ok: true };
+    }
+    if (!Object.values(vote.responses).every((response) => response === 'accept')) return { ok: true };
+    const restored = deepClone(game._previousTurnSnapshot);
+    if (!restored) return { ok: false, error: 'The previous turn snapshot is unavailable.' };
+    const replay = game.replay;
+    const undoSeq = game.turnUndoVoteSeq;
+    Object.keys(game).forEach((key) => delete game[key]);
+    Object.assign(game, restored);
+    game.replay = replay;
+    game.turnUndoVoteSeq = undoSeq;
+    game.turnUndoVote = null;
+    game._previousTurnSnapshot = null;
+    game._currentTurnStartSnapshot = deepClone({ ...restored, _previousTurnSnapshot: undefined, _currentTurnStartSnapshot: undefined });
+    resumeGame(game);
+    game.message = `Returned to ${playerName(game, game.currentPlayerId)}'s previous turn.`;
+    pushLog(game, game.message, 'system', { kind: 'turn_undo_applied', voteId });
+    return { ok: true };
+  }
+
   if (kind === 'propose_endgame') {
     if (playerId !== game.hostId) return { ok: false, error: 'Only the host can start an end-game vote.' };
     if (game.endVote && game.endVote.id) return { ok: false, error: 'An end-game vote is already in progress.' };
@@ -8574,6 +8639,8 @@ function buildSanitizableState(game) {
     replay: undefined,
     devDeck: undefined,
     diceAlgorithmState: undefined,
+    _previousTurnSnapshot: undefined,
+    _currentTurnStartSnapshot: undefined,
     stats: undefined,
     log: undefined,
   }));
@@ -9505,6 +9572,61 @@ async function handleAdminHttp(req, res, urlPath) {
       message: `Deleted the account ${deletedUsername}. Historical game records were retained.`,
     });
     setTimeout(() => disconnectUserSessions(target.id, 'Your account was deleted by the administrator.'), 25);
+    return;
+  }
+
+  if (urlPath === '/api/admin/merge-users') {
+    const first = findUserById(String(body.firstUserId || '').trim());
+    const second = findUserById(String(body.secondUserId || '').trim());
+    if (!first || !second || first.id === second.id) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Select two different user accounts.' });
+      return;
+    }
+    if (isBuiltInAdminUser(first) || isBuiltInAdminUser(second)) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'The built-in administrator account cannot be merged.' });
+      return;
+    }
+    const active = Array.from(rooms.values()).some((candidate) => findRoomMember(candidate, first.id) || findRoomMember(candidate, second.id));
+    if (active) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'Both accounts must leave active rooms before they can be merged.' });
+      return;
+    }
+    const keepUsername = String(body.keepUsername || '').trim().toLowerCase();
+    const primary = first.username.toLowerCase() === keepUsername ? first : second.username.toLowerCase() === keepUsername ? second : null;
+    if (!primary) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Choose which username to keep.' });
+      return;
+    }
+    const secondary = primary === first ? second : first;
+    const statKeys = ['gamesPlayed', 'wins', 'losses', 'totalVP'];
+    primary.stats = primary.stats && typeof primary.stats === 'object' ? primary.stats : {};
+    for (const key of statKeys) primary.stats[key] = Math.max(0, Number(primary.stats[key] || 0)) + Math.max(0, Number(secondary.stats?.[key] || 0));
+    primary.stats.lastGameAt = Math.max(Number(primary.stats.lastGameAt || 0), Number(secondary.stats?.lastGameAt || 0));
+    const primaryEmailTime = Number(primary.emailVerifiedAt || primary.updatedAt || primary.createdAt || 0);
+    const secondaryEmailTime = Number(secondary.emailVerifiedAt || secondary.updatedAt || secondary.createdAt || 0);
+    if (secondary.email && secondaryEmailTime > primaryEmailTime) {
+      primary.email = secondary.email;
+      primary.emailVerifiedAt = secondary.emailVerifiedAt;
+    }
+    primary.friendIds = Array.from(new Set([...(primary.friendIds || []), ...(secondary.friendIds || [])])).filter((id) => id && id !== primary.id && id !== secondary.id);
+    primary.friendRequestIds = Array.from(new Set([...(primary.friendRequestIds || []), ...(secondary.friendRequestIds || [])])).filter((id) => id && id !== primary.id && id !== secondary.id && !primary.friendIds.includes(id));
+    for (const user of (USERS_DB.users || [])) {
+      if (!user || user.id === secondary.id) continue;
+      user.friendIds = Array.from(new Set((user.friendIds || []).map((id) => id === secondary.id ? primary.id : id))).filter((id) => id !== user.id);
+      user.friendRequestIds = Array.from(new Set((user.friendRequestIds || []).map((id) => id === secondary.id ? primary.id : id))).filter((id) => id !== user.id && !user.friendIds.includes(id));
+    }
+    for (const game of (HISTORY_DB.games || [])) {
+      if (game.winnerId === secondary.id) game.winnerId = primary.id;
+      for (const player of (game.players || [])) if (player && player.id === secondary.id) player.id = primary.id;
+      if (game.snapshot) {
+        if (game.snapshot.winnerId === secondary.id) game.snapshot.winnerId = primary.id;
+        for (const player of (game.snapshot.players || [])) if (player && player.id === secondary.id) player.id = primary.id;
+      }
+    }
+    USERS_DB.users = USERS_DB.users.filter((user) => user && user.id !== secondary.id);
+    await Promise.all([saveUsersDb(), saveHistoryDb()]);
+    disconnectUserSessions(secondary.id);
+    sendHttpJson(req, res, 200, { ok: true, user: safeManagedUser(primary), message: `Merged ${secondary.username} into ${primary.username}.` });
     return;
   }
 
@@ -10479,25 +10601,21 @@ if (msg.type === 'create_room') {
       }
 
       const newRoom = createRematchRoomFrom(room);
+      newRoom.players = newRoom.players.filter((player) => player.id === pid || player.isAI);
+      newRoom.spectators = [];
+      if (!newRoom.players.some((player) => player.id === pid)) {
+        const prior = findRoomMember(room, pid);
+        newRoom.players.unshift({ id: pid, name: prior?.name || 'Host', color: prior?.color || COLORS[0], joinedAt: now(), ready: false, texturePackId: prior?.texturePackId || 'default', texturePackName: prior?.texturePackName || 'Default' });
+      }
+      newRoom.hostId = pid;
       ensurePreview(newRoom, true);
 
-      // Move any connected sockets to the new room and notify them.
-      const rematchMembers = [...newRoom.players, ...newRoom.spectators];
-      for (const p of rematchMembers) {
-        const pid2 = p.id;
-        const sock = room.sockets.get(pid2);
-        if (!sock || sock.readyState !== WebSocket.OPEN) continue;
-
-        // Detach from old room
-        room.sockets.delete(pid2);
-
-        // Attach to new room
-        newRoom.sockets.set(pid2, sock);
-        sock._roomCode = newRoom.code;
-        sock._playerId = pid2;
-
-        sendJson(sock, { type: 'joined', playerId: pid2, room: roomSnapshot(newRoom), isHost: pid2 === newRoom.hostId });
-      }
+      // Move only the requester. Other players remain on the completed game.
+      room.sockets.delete(pid);
+      newRoom.sockets.set(pid, ws);
+      ws._roomCode = newRoom.code;
+      ws._playerId = pid;
+      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(newRoom), isHost: true });
 
       // Inform any remaining clients in the old room (if any)
       try { broadcastRoom(room); } catch (_) {}
@@ -10924,12 +11042,11 @@ if (msg.type === 'create_room') {
         sendJson(ws, { type: 'error', error: 'No active game.' });
         return;
       }
-      if (pid !== room.hostId) {
-        sendJson(ws, { type: 'error', error: 'Only host can pause/resume.' });
+      const desired = (msg.paused == null) ? !room.game.paused : !!msg.paused;
+      if (!desired && room.game.turnUndoVote && room.game.turnUndoVote.id) {
+        sendJson(ws, { type: 'error', error: 'The game must remain paused until the turn-undo vote finishes.' });
         return;
       }
-
-      const desired = (msg.paused == null) ? !room.game.paused : !!msg.paused;
       const changed = desired !== !!room.game.paused;
       if (changed) ensureReplay(room.game);
       if (desired && !room.game.paused) {

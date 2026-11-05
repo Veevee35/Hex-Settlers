@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=invite-lobby-account-menu-v1" />
+  <link rel="stylesheet" href="styles.css?v=release-readiness-v1" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -414,7 +414,7 @@
           <div id="rulesPreview" class="smallNote"></div>
         </div>
 
-        <div class="card" id="toolsCard">
+        <div class="card hidden" id="toolsCard">
           <div class="cardTitleRow">
             <h2>Game Tools</h2>
             <div class="connInline connTight">
@@ -519,7 +519,11 @@
             <div class="clockTime">--:--</div>
             <div class="clockMeta">—</div>
           </div>
-          <button id="pauseBtn" class="btn hidden">Pause</button>
+          <div id="hostGameControls" class="row hidden">
+            <button id="backTurnBtn" class="btn" title="Vote to return to the previous player's turn">Back</button>
+            <button id="pauseBtn" class="btn" title="Pause the game">Pause</button>
+            <button id="playBtn" class="btn" title="Resume the game">Play</button>
+          </div>
           <button id="pgShowBtn" class="btn hidden">Show Stats</button>
         </div>
         <div id="pausedOverlay" class="pausedOverlay hidden">PAUSED</div>
@@ -563,6 +567,7 @@
       <div class="postgameTop">
         <div class="postgameTopLeft">
           <button id="pgMainMenuBtn" class="btn">Main Menu</button>
+          <button id="pgRematchBtn" class="btn primary">Rematch</button>
         </div>
 
         <div class="postgameTopCenter">
@@ -643,6 +648,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=invite-lobby-account-menu-v1"></script>
+  <script src="app.js?v=release-readiness-v1"></script>
 </body>
 </html>

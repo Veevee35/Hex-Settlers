@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'invite-lobby-account-menu-v1';
+  const ASSET_CACHE_SW_BUILD = 'release-readiness-v1';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -158,6 +158,9 @@
     yourRollBanner: $('yourRollBanner'),
     countdownClock: $('countdownClock'),
     pauseBtn: $('pauseBtn'),
+    playBtn: $('playBtn'),
+    backTurnBtn: $('backTurnBtn'),
+    hostGameControls: $('hostGameControls'),
     pausedOverlay: $('pausedOverlay'),
     historyReplayBar: $('historyReplayBar'),
     historyReplayExitBtn: $('historyReplayExitBtn'),
@@ -182,6 +185,7 @@
     postgameTabs: $('postgameTabs'),
     pgTabBody: $('pgTabBody'),
     pgMainMenuBtn: $('pgMainMenuBtn'),
+    pgRematchBtn: $('pgRematchBtn'),
     pgHideBtn: $('pgHideBtn'),
     pgWinnerLine: $('pgWinnerLine'),
     pgMetaLine: $('pgMetaLine'),
@@ -3440,6 +3444,7 @@ function openPostgameSnapshot(snapshot, entry = null, opts = {}) {
 
   if (ui.pgShowBtn) ui.pgShowBtn.classList.add('hidden');
   if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.textContent = 'Back';
+  if (ui.pgRematchBtn) ui.pgRematchBtn.classList.add('hidden');
   if (ui.pgHideBtn) ui.pgHideBtn.textContent = 'Close';
 
   setPostgameVisible(true);
@@ -3459,6 +3464,7 @@ function closePostgameSnapshot() {
   clearPostgameTimers();
   setPostgameVisible(false);
   if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.textContent = 'Main Menu';
+  if (ui.pgRematchBtn) ui.pgRematchBtn.classList.remove('hidden');
   if (ui.pgHideBtn) ui.pgHideBtn.textContent = 'Hide Stats';
   try { if (ui.pgShowBtn) ui.pgShowBtn.classList.add('hidden'); } catch(_) {}
 }
@@ -5867,6 +5873,7 @@ function refreshLobbyJoinLinkUi() {
             ui.pgMainMenuBtn.disabled = false;
             ui.pgMainMenuBtn.textContent = postgameState.historyMode ? 'Back' : 'Main Menu';
           }
+          if (ui.pgRematchBtn) { ui.pgRematchBtn.disabled = false; ui.pgRematchBtn.textContent = 'Rematch'; }
         } catch (_) {}
         updateAuthUi();
         return;
@@ -6031,6 +6038,7 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'joined') {
+        if (ui.pgRematchBtn) { ui.pgRematchBtn.disabled = false; ui.pgRematchBtn.textContent = 'Rematch'; }
         // Room membership always displays the lobby, even after a saved
         // ranked preference or a reconnect before the user chose a mode.
         if (selectedPlayMode !== 'unranked') {
@@ -6184,6 +6192,7 @@ function refreshLobbyJoinLinkUi() {
         handleLastEvent();
         handlePendingTradePrompt();
         handleEndGameVotePrompt();
+        handleTurnUndoVotePrompt();
         handleDiscardPrompt();
         handleRobberStealPrompt();
         handlePirateChoicePrompt();
@@ -6385,6 +6394,9 @@ function refreshLobbyJoinLinkUi() {
           send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: v.id, accept: false } });
         }
       }
+      if (modalType === 'turnUndoVote' && state && state.turnUndoVote && myPlayerId) {
+        sendGameAction({ kind: 'respond_turn_undo', voteId: state.turnUndoVote.id, accept: false });
+      }
     } catch (_) {}
 
     ui.modal.classList.add('hidden');
@@ -6499,6 +6511,50 @@ function refreshLobbyJoinLinkUi() {
       note.className = 'userManagementNotice';
       note.textContent = 'Email is sent directly by this game server. The hosting plan must permit outbound SMTP, and the sender domain needs valid mail DNS for reliable delivery.';
       shell.appendChild(note);
+    }
+
+    if (adminView) {
+      const mergeSection = document.createElement('div');
+      mergeSection.className = 'userManagementSection';
+      const mergeTitle = document.createElement('div');
+      mergeTitle.className = 'userManagementSectionTitle';
+      mergeTitle.textContent = 'Merge Duplicate Accounts';
+      const candidates = users.filter((user) => !user.isAdmin);
+      const first = document.createElement('select');
+      const second = document.createElement('select');
+      const keep = document.createElement('select');
+      for (const select of [first, second]) {
+        select.className = 'input';
+        for (const user of candidates) {
+          const option = document.createElement('option'); option.value = user.id; option.textContent = `${user.username} (${user.displayName || user.username})`; select.appendChild(option);
+        }
+      }
+      if (second.options.length > 1) second.selectedIndex = 1;
+      keep.className = 'input';
+      const syncKeep = () => {
+        keep.innerHTML = '';
+        for (const id of [first.value, second.value]) {
+          const user = candidates.find((candidate) => candidate.id === id);
+          if (!user || Array.from(keep.options).some((option) => option.value === user.username)) continue;
+          const option = document.createElement('option'); option.value = user.username; option.textContent = `Keep username: ${user.username}`; keep.appendChild(option);
+        }
+      };
+      first.addEventListener('change', syncKeep); second.addEventListener('change', syncKeep); syncKeep();
+      const mergeButton = document.createElement('button'); mergeButton.className = 'btn danger'; mergeButton.textContent = 'Merge Accounts';
+      const mergeStatus = document.createElement('div'); mergeStatus.className = 'userManagementStatus';
+      mergeButton.addEventListener('click', async () => {
+        if (!first.value || !second.value || first.value === second.value) { mergeStatus.className = 'userManagementStatus error'; mergeStatus.textContent = 'Select two different accounts.'; return; }
+        const kept = keep.value;
+        if (!window.confirm(`Merge these accounts and keep the username ${kept}? This cannot be undone.`)) return;
+        mergeButton.disabled = true;
+        try {
+          const response = await adminApi('merge-users', { firstUserId: first.value, secondUserId: second.value, keepUsername: kept });
+          mergeStatus.className = 'userManagementStatus success'; mergeStatus.textContent = response.message || 'Accounts merged.';
+          setTimeout(() => { forceCloseModal(); openUserManagementScreen(); }, 500);
+        } catch (error) { mergeStatus.className = 'userManagementStatus error'; mergeStatus.textContent = error.message || 'Account merge failed.'; mergeButton.disabled = false; }
+      });
+      mergeSection.append(mergeTitle, first, second, keep, mergeButton, mergeStatus);
+      shell.appendChild(mergeSection);
     }
 
     let search = null;
@@ -10051,11 +10107,14 @@ function refreshLobbyJoinLinkUi() {
   }
 
   ui.pauseBtn.addEventListener('click', () => {
-    if (!room || room.hostId !== myPlayerId) return;
     setError(null);
-    const desired = !(state && state.paused);
-    send({ type: 'pause_game', paused: desired });
+    send({ type: 'pause_game', paused: true });
   });
+  ui.playBtn?.addEventListener('click', () => {
+    setError(null);
+    send({ type: 'pause_game', paused: false });
+  });
+  ui.backTurnBtn?.addEventListener('click', () => sendGameAction({ kind: 'propose_turn_undo' }));
 
 
 
@@ -10104,22 +10163,19 @@ if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.addEventListener('click', () => {
     closePostgameSnapshot();
     return;
   }
-  // After a victory, "Main Menu" acts as a rematch button:
-  // it creates a new lobby with the same players and host, and moves everyone into it.
-  try {
-    if (ws && ws.readyState === 1) {
-      ui.pgMainMenuBtn.disabled = true;
-      ui.pgMainMenuBtn.textContent = 'Starting...';
-      send({ type: 'rematch_room' });
-      // If something goes wrong, the server will send an error and UI will re-enable below.
-      return;
-    }
-  } catch (_) {}
-
-  // Fallback: Back to lobby, but default to a NEW lobby so we don't auto-rejoin a finished game.
-  try { sessionStorage.setItem(AUTO_CREATE_ROOM_KEY, '1'); } catch (_) {}
+  // Leave only this player. Everyone else may keep viewing the completed game.
+  try { send({ type: 'leave_room' }); } catch (_) {}
   try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
-  location.reload();
+  handleLocalRoomExit(null);
+  selectedPlayMode = 'unranked';
+  try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+  updateAuthUi();
+});
+if (ui.pgRematchBtn) ui.pgRematchBtn.addEventListener('click', () => {
+  if (postgameState.historyMode || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ui.pgRematchBtn.disabled = true;
+  ui.pgRematchBtn.textContent = 'Creating…';
+  send({ type: 'rematch_room' });
 });
 
 if (ui.pgHideBtn) ui.pgHideBtn.addEventListener('click', () => {
@@ -10273,6 +10329,7 @@ function ensureTimerUiInterval() {
     // Keep retrying so every player reliably sees them.
     try { handlePendingTradePrompt(); } catch (_) {}
     try { handleEndGameVotePrompt(); } catch (_) {}
+    try { handleTurnUndoVotePrompt(); } catch (_) {}
   }, 1000);
   // Run immediately so you don't wait up to 1s after joining.
   updateTimerInfo();
@@ -10354,12 +10411,12 @@ function ensureTimerUiInterval() {
       }
     } catch (_) {}
 
-    // Host pause/resume (available during any player's turn)
+    // All players may pause or resume. Only the host may propose a turn undo.
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
-    if (ui.pauseBtn) {
-      ui.pauseBtn.classList.toggle('hidden', !(inGame && isHostNow && !historyReplay.active));
-      ui.pauseBtn.textContent = (state && state.paused) ? 'Resume' : 'Pause';
-    }
+    if (ui.hostGameControls) ui.hostGameControls.classList.toggle('hidden', !(inGame && !historyReplay.active));
+    if (ui.pauseBtn) ui.pauseBtn.disabled = !!(state && state.paused);
+    if (ui.playBtn) ui.playBtn.disabled = !(state && state.paused);
+    if (ui.backTurnBtn) ui.backTurnBtn.classList.toggle('hidden', !isHostNow);
 
     // Host-only room ID helper
     if (ui.idsBtn) {
@@ -11918,6 +11975,30 @@ if (ui.moveShipBtn) {
   }
 
 
+
+  function handleTurnUndoVotePrompt() {
+    if (!state || !myPlayerId) return;
+    const vote = state.turnUndoVote;
+    if (!vote || !vote.id) {
+      if (modalType === 'turnUndoVote') forceCloseModal();
+      return;
+    }
+    if (vote.responses && vote.responses[myPlayerId]) return;
+    if (!ui.modal.classList.contains('hidden') && modalType !== 'turnUndoVote') return;
+    const proposer = (state.players || []).find((player) => player.id === vote.fromId);
+    const body = document.createElement('div');
+    body.className = 'modalText';
+    body.textContent = `${proposer?.name || 'The host'} wants to undo the current turn and return the game to the start of the previous player's turn. This requires every player to approve.`;
+    modalType = 'turnUndoVote';
+    openModal({
+      title: 'Undo Previous Turn?',
+      bodyNode: body,
+      actions: [
+        { label: 'Reject', onClick: () => { sendGameAction({ kind: 'respond_turn_undo', voteId: vote.id, accept: false }); modalType = null; forceCloseModal(); } },
+        { label: 'Approve Undo', primary: true, onClick: () => { sendGameAction({ kind: 'respond_turn_undo', voteId: vote.id, accept: true }); modalType = null; forceCloseModal(); } },
+      ],
+    });
+  }
 
   function handleEndGameVotePrompt() {
     if (!state || !myPlayerId) return;

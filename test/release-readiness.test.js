@@ -1,0 +1,39 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+const root = path.resolve(__dirname, '..');
+const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+const client = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
+const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+
+test('pre-game tools are hidden in markup and postgame navigation is player-specific', () => {
+  assert.match(html, /class="card hidden" id="toolsCard"/);
+  assert.match(html, /id="pgMainMenuBtn"[\s\S]*?id="pgRematchBtn"/);
+  assert.match(client, /pgMainMenuBtn[\s\S]*?send\(\{ type: 'leave_room' \}\)[\s\S]*?handleLocalRoomExit/);
+  assert.match(server, /Move only the requester[\s\S]*?room\.sockets\.delete\(pid\)[\s\S]*?newRoom\.sockets\.set\(pid, ws\)/);
+});
+
+test('pause, play, and voted previous-turn restoration are separate server-authoritative controls', () => {
+  assert.match(html, /id="backTurnBtn"[\s\S]*?id="pauseBtn"[\s\S]*?id="playBtn"/);
+  assert.match(client, /pause_game', paused: true/);
+  assert.match(client, /pause_game', paused: false/);
+  assert.match(server, /kind === 'propose_turn_undo'[\s\S]*?kind === 'respond_turn_undo'/);
+  assert.match(server, /_previousTurnSnapshot[\s\S]*?Object\.assign\(game, restored\)/);
+  assert.match(server, /turnUndoVote[\s\S]*?must remain paused until the turn-undo vote finishes/);
+});
+
+test('administrator account merging combines identity data without exposing email addresses', () => {
+  assert.match(client, /Merge Duplicate Accounts[\s\S]*?adminApi\('merge-users'/);
+  assert.match(server, /urlPath === '\/api\/admin\/merge-users'/);
+  assert.match(server, /secondaryEmailTime > primaryEmailTime/);
+  assert.match(server, /friendIds[\s\S]*?HISTORY_DB\.games[\s\S]*?saveHistoryDb/);
+});
+
+test('obsolete public backup artifacts are removed', () => {
+  assert.equal(fs.existsSync(path.join(root, 'public', 'styles - Copy.txt')), false);
+  assert.equal(fs.existsSync(path.join(root, 'public', 'sw.js.bak')), false);
+});
