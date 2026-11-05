@@ -80,6 +80,22 @@ test('Resend delivery uses its HTTPS API and configured sender', async () => {
   assert.deepEqual(body.to, ['player@example.com']);
 });
 
+test('legacy Hex Settlers Resend sender migrates to the no-reply address', async () => {
+  let received;
+  await sendViaResend({
+    to: 'player@example.com', subject: 'Verify', text: 'Code', html: '<p>Code</p>',
+  }, {
+    RESEND_API_KEY: 're_test_key',
+    HEX_EMAIL_FROM: 'Hex Settlers <account@send.tenthson.com>',
+  }, async (_url, options) => {
+    received = options;
+    return new Response(JSON.stringify({ id: 'resend-message-2' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  assert.equal(JSON.parse(received.body).from, 'Hex Settlers <no-reply@send.tenthson.com>');
+});
+
 test('direct MX delivery rejects private and documentation network targets', () => {
   assert.equal(isPublicMailAddress('127.0.0.1'), false);
   assert.equal(isPublicMailAddress('10.1.2.3'), false);

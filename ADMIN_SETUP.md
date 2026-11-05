@@ -26,7 +26,7 @@ Password recovery requires a public URL, a sender identity, and a working delive
 ```text
 HEX_PUBLIC_BASE_URL=https://hex-settlers.bt616923.workers.dev
 HEX_EMAIL_MODE=resend
-HEX_EMAIL_FROM=Hex Settlers <account@send.tenthson.com>
+HEX_EMAIL_FROM=Hex Settlers <no-reply@send.tenthson.com>
 RESEND_API_KEY=re_your_sending_only_key
 ```
 

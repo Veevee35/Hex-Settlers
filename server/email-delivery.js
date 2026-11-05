@@ -84,8 +84,14 @@ function isEmailDeliveryConfigured(env = process.env) {
 }
 
 function fromAddress(env = process.env) {
-  const configured = String(env.HEX_EMAIL_FROM || env.SMTP_FROM || 'Hex Settlers <no-reply@tenthson.com>').trim();
-  return configured || 'Hex Settlers <no-reply@tenthson.com>';
+  const defaultSender = 'Hex Settlers <no-reply@send.tenthson.com>';
+  const configured = String(env.HEX_EMAIL_FROM || env.SMTP_FROM || defaultSender).trim();
+  // Migrate the original documented Resend sender without requiring an
+  // immediate Railway variable change during deployment.
+  if (/^(?:Hex Settlers\s*)?<account@send\.tenthson\.com>$/i.test(configured) || /^account@send\.tenthson\.com$/i.test(configured)) {
+    return defaultSender;
+  }
+  return configured || defaultSender;
 }
 
 function messageIdDomain(from) {

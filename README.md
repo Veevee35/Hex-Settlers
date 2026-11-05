@@ -54,7 +54,7 @@ Copy `.env.example` into your hosting environment; the server does not load `.en
 | `HEX_ADMIN_PASSWORD` | generated once when absent | Initial password for the built-in administrator; set this securely in Railway |
 | `HEX_ADMIN_FORCE_PASSWORD_SYNC` | `false` | One-restart override that forces the environment password onto the built-in administrator |
 | `HEX_PUBLIC_BASE_URL` | inferred from request | Public origin used in verification and password-reset links |
-| `HEX_EMAIL_FROM` | `Hex Settlers <no-reply@tenthson.com>` | Sender identity for account email; use a domain you control |
+| `HEX_EMAIL_FROM` | `Hex Settlers <no-reply@send.tenthson.com>` | Sender identity for account email; use a verified sending domain you control |
 | `HEX_EMAIL_MODE` | `none` | Use `resend` for the recommended free HTTPS delivery; `cloudflare`, `direct`, and `smtp` are optional overrides |
 | `RESEND_API_KEY` | unset | Private sending-only Resend API key stored in Railway |
 | `RESEND_TIMEOUT_MS` | `15000` | Timeout for a Resend API request |
