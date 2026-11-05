@@ -21,22 +21,24 @@ All signed-in users can change their own password after entering their current p
 
 ## Recovery email and password-reset links
 
-Password recovery requires a public URL, a sender identity, and a working delivery transport. For the Railway + Cloudflare deployment, use the built-in Cloudflare Email Service bridge. Railway sends the message to your Worker over protected HTTPS, and the Worker sends it from your Cloudflare-managed domain. No third-party email provider is required.
+Password recovery requires a public URL, a sender identity, and a working delivery transport. For the Railway + Cloudflare deployment, the recommended free option is Resend. Railway calls Resend directly over HTTPS, so Cloudflare Email Sending and Workers Paid are not required.
 
 ```text
 HEX_PUBLIC_BASE_URL=https://hex-settlers.bt616923.workers.dev
-HEX_EMAIL_MODE=cloudflare
-HEX_EMAIL_CLOUDFLARE_ENDPOINT=https://hex-settlers.bt616923.workers.dev/api/internal/send-email
-HEX_EMAIL_BRIDGE_SECRET=the-same-long-random-secret-used-in-cloudflare
+HEX_EMAIL_MODE=resend
+HEX_EMAIL_FROM=Hex Settlers <account@send.tenthson.com>
+RESEND_API_KEY=re_your_sending_only_key
 ```
 
-In Cloudflare, onboard `tenthson.com` (or change `EMAIL_FROM` in `wrangler.jsonc` to another domain you control) in **Email Service**, and add the SPF/DKIM records Cloudflare provides. Then store the bridge secret without committing it:
+Create a free Resend account, add the sending subdomain `send.tenthson.com`, and add the DNS records Resend supplies to Cloudflare DNS. After Resend marks the domain verified, create an API key with **Sending access** restricted to that domain and store it as the private Railway variable `RESEND_API_KEY`. Do not commit the key. Using a subdomain keeps transactional-email authentication separate from any existing root-domain mail provider.
 
-```powershell
-npx wrangler secret put EMAIL_BRIDGE_SECRET
-```
+Remove the old Railway variables `HEX_EMAIL_CLOUDFLARE_ENDPOINT` and `HEX_EMAIL_BRIDGE_SECRET`, set the four variables above, and redeploy Railway. No Cloudflare Worker secret or Email Sending binding is used in this mode.
 
-Put the exact same secret in Railway as `HEX_EMAIL_BRIDGE_SECRET`, add the other three Railway variables shown above, redeploy both services, and resend verification. The Worker endpoint accepts only requests carrying this secret and always uses the fixed `EMAIL_FROM` sender configured in `wrangler.jsonc`.
+Resend's free plan currently includes 3,000 emails per month with a 100-email daily limit. Verification and reset emails both count toward those limits.
+
+### Optional paid Cloudflare Email Service
+
+The protected Cloudflare bridge remains supported in the server for installations using Workers Paid. Set `HEX_EMAIL_MODE=cloudflare`, `HEX_EMAIL_CLOUDFLARE_ENDPOINT`, and `HEX_EMAIL_BRIDGE_SECRET`, and restore/configure the Worker Email binding when intentionally using that option.
 
 Direct SMTP remains available only as an explicit option for a host that permits outbound port 25:
 
@@ -47,17 +49,6 @@ HEX_EMAIL_EHLO_NAME=mail.YOUR-DOMAIN
 ```
 
 Railway allows outbound SMTP only on Pro plans and above, while Cloudflare Workers cannot open port 25. Direct SMTP is therefore not suitable for the current deployment. Set `HEX_DIRECT_EMAIL_REQUIRE_TLS=true` if using it elsewhere and delivery must fail whenever a recipient MX server does not offer STARTTLS.
-
-External delivery is optional. If you later choose a provider or relay, select one of these overrides.
-
-### Resend
-
-```text
-RESEND_API_KEY=re_xxxxxxxxx
-HEX_EMAIL_MODE=resend
-```
-
-The sender in `HEX_EMAIL_FROM` must be accepted by your Resend account.
 
 ### SMTP
 

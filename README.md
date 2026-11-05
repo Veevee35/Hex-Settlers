@@ -55,15 +55,16 @@ Copy `.env.example` into your hosting environment; the server does not load `.en
 | `HEX_ADMIN_FORCE_PASSWORD_SYNC` | `false` | One-restart override that forces the environment password onto the built-in administrator |
 | `HEX_PUBLIC_BASE_URL` | inferred from request | Public origin used in verification and password-reset links |
 | `HEX_EMAIL_FROM` | `Hex Settlers <no-reply@tenthson.com>` | Sender identity for account email; use a domain you control |
-| `HEX_EMAIL_MODE` | `none` | Use `cloudflare` for the protected Cloudflare Email Service bridge; `direct`, `smtp`, and `resend` are optional overrides |
+| `HEX_EMAIL_MODE` | `none` | Use `resend` for the recommended free HTTPS delivery; `cloudflare`, `direct`, and `smtp` are optional overrides |
+| `RESEND_API_KEY` | unset | Private sending-only Resend API key stored in Railway |
+| `RESEND_TIMEOUT_MS` | `15000` | Timeout for a Resend API request |
 | `HEX_EMAIL_CLOUDFLARE_ENDPOINT` | public URL + `/api/internal/send-email` | HTTPS endpoint for the Cloudflare mail bridge |
 | `HEX_EMAIL_BRIDGE_SECRET` | unset | Shared secret stored in both Railway and the Cloudflare Worker secret store |
 | `HEX_EMAIL_EHLO_NAME` | sender domain | Public hostname used only by optional direct SMTP delivery |
-| `RESEND_API_KEY` | unset | Optional Resend override when `HEX_EMAIL_MODE=resend` |
 | `SMTP_HOST` and `SMTP_*` | unset | Optional authenticated relay override when `HEX_EMAIL_MODE=smtp` |
 | `AI_FAST` | off | Accelerated AI ticks for simulations only |
 
-The built-in administrator uses username **Benleethom** and player name **Ben**. When `HEX_ADMIN_PASSWORD` is omitted on the first production start, the server prints a one-time random temporary password in the deploy log. Ben sees every registered account in **User Management**, can reset non-admin passwords, and can permanently remove non-admin accounts after typing the username. Ordinary players see only their own account in **My Account**. Signed-in users can change their own password and verify a recovery email. The Railway + Cloudflare deployment sends verification and reset messages over a protected HTTPS bridge to Cloudflare's native Email Service; it does not rely on Railway's blocked direct-SMTP path or a third-party mail provider. See `ADMIN_SETUP.md` for setup details and optional delivery overrides.
+The built-in administrator uses username **Benleethom** and player name **Ben**. When `HEX_ADMIN_PASSWORD` is omitted on the first production start, the server prints a one-time random temporary password in the deploy log. Ben sees every registered account in **User Management**, can reset non-admin passwords, and can permanently remove non-admin accounts after typing the username. Ordinary players see only their own account in **My Account**. Signed-in users can change their own password and verify a recovery email. The Railway + Cloudflare deployment sends verification and reset messages through Resend's HTTPS API, avoiding Railway's blocked direct-SMTP path and Cloudflare's paid Email Sending requirement. See `ADMIN_SETUP.md` for setup details and optional delivery overrides.
 
 Expert AI weights also have optional `EXPERT_AI_*` environment overrides; see the defaults near the bottom of `server.js`.
 

@@ -133,7 +133,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'cloudflare-email-bridge-v1';
+const SERVER_BUILD_ID = 'resend-email-v1';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -9671,6 +9671,8 @@ async function handleAccountHttp(req, res, urlPath) {
           ? 'The game server could not reach the recipient mail server. Direct email requires Railway Pro SMTP access and valid sender-domain DNS.'
           : deliveryMode === 'cloudflare'
             ? 'Cloudflare Email Service could not send the verification message. Check its sending-domain setup and bridge secret.'
+          : deliveryMode === 'resend'
+            ? 'Resend could not send the verification message. Check the API key, verified sender domain, and Resend activity log.'
           : 'The verification email could not be sent. Check the server email configuration.',
       });
       return;

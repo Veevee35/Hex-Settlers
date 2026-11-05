@@ -12,6 +12,7 @@ const {
   maskEmail,
   normalizeEmail,
   sendViaCloudflareBridge,
+  sendViaResend,
   sendTransactionalEmail,
   validateEmailAddress,
 } = require('../server/email-delivery');
@@ -56,6 +57,27 @@ test('Cloudflare bridge sends a protected HTTPS request', async () => {
   assert.equal(received.url, 'https://game.example/api/internal/send-email');
   assert.equal(received.options.headers.Authorization, 'Bearer bridge-secret');
   assert.equal(JSON.parse(received.options.body).to, 'player@example.com');
+});
+
+test('Resend delivery uses its HTTPS API and configured sender', async () => {
+  let received;
+  const result = await sendViaResend({
+    to: 'player@example.com', subject: 'Verify', text: 'Code', html: '<p>Code</p>',
+  }, {
+    RESEND_API_KEY: 're_test_key',
+    HEX_EMAIL_FROM: 'Hex Settlers <account@play.example.com>',
+  }, async (url, options) => {
+    received = { url, options };
+    return new Response(JSON.stringify({ id: 'resend-message-1' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  assert.equal(result.provider, 'resend');
+  assert.equal(received.url, 'https://api.resend.com/emails');
+  assert.equal(received.options.headers.Authorization, 'Bearer re_test_key');
+  const body = JSON.parse(received.options.body);
+  assert.equal(body.from, 'Hex Settlers <account@play.example.com>');
+  assert.deepEqual(body.to, ['player@example.com']);
 });
 
 test('direct MX delivery rejects private and documentation network targets', () => {

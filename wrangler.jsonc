@@ -15,13 +15,7 @@
       "/ws"
     ]
   },
-  "send_email": [
-    {
-      "name": "EMAIL"
-    }
-  ],
   "vars": {
-    "UPSTREAM_ORIGIN": "https://hexsettlers.up.railway.app",
-    "EMAIL_FROM": "Hex Settlers <no-reply@tenthson.com>"
+    "UPSTREAM_ORIGIN": "https://hexsettlers.up.railway.app"
   }
 }

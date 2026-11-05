@@ -397,23 +397,31 @@ async function sendViaDirectMx(message, env = process.env) {
   throw new Error(`Direct email delivery failed. ${errors.slice(0, 3).join(' | ')}`);
 }
 
-async function sendViaResend(message, env = process.env) {
+async function sendViaResend(message, env = process.env, fetchImpl = fetch) {
   const apiKey = String(env.RESEND_API_KEY || '').trim();
   if (!apiKey) throw new Error('RESEND_API_KEY is not configured.');
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: fromAddress(env),
-      to: [message.to],
-      subject: message.subject,
-      text: message.text,
-      html: message.html,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), integerEnv(env, 'RESEND_TIMEOUT_MS', 15_000, 1_000, 120_000));
+  let response;
+  try {
+    response = await fetchImpl('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromAddress(env),
+        to: [message.to],
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   let payload = null;
   try { payload = await response.json(); } catch (_) {}
   if (!response.ok) throw new Error((payload && payload.message) || `Resend returned HTTP ${response.status}.`);
@@ -484,6 +492,7 @@ module.exports = {
   maskEmail,
   normalizeEmail,
   sendViaCloudflareBridge,
+  sendViaResend,
   sendTransactionalEmail,
   validateEmailAddress,
 };

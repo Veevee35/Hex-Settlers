@@ -8,9 +8,6 @@ existing Railway game server:
   because it exceeds Cloudflare's per-asset size limit.
 - `/api/*`, `/health`, and `/ws` are routed through `cloudflare/worker.mjs` to
   the Railway origin configured by `UPSTREAM_ORIGIN` in `wrangler.jsonc`.
-- `/api/internal/send-email` is handled inside the Worker instead of being
-  proxied. It requires the `EMAIL_BRIDGE_SECRET` Worker secret and sends through
-  the native `EMAIL` binding with the fixed `EMAIL_FROM` sender.
 
 This makes account management and multiplayer available at the Cloudflare URL,
 but it is not the final Durable Objects migration. Railway still owns account,
@@ -31,19 +28,20 @@ health response and then test account login plus a WebSocket lobby connection.
 
 ## Recovery email
 
-Onboard the sender domain from `EMAIL_FROM` in Cloudflare Email Service and add
-the DNS records Cloudflare supplies. Create a long random secret, store it in
-Cloudflare with `npx wrangler secret put EMAIL_BRIDGE_SECRET`, and store the
-same value in Railway as `HEX_EMAIL_BRIDGE_SECRET`. Railway also needs:
+Recovery email uses Resend's HTTPS API so it works with Workers Free. Verify a
+sending subdomain such as `send.tenthson.com` in Resend, create a sending-only
+API key, and configure these private Railway variables:
 
 ```text
-HEX_EMAIL_MODE=cloudflare
+HEX_EMAIL_MODE=resend
 HEX_PUBLIC_BASE_URL=https://hex-settlers.bt616923.workers.dev
-HEX_EMAIL_CLOUDFLARE_ENDPOINT=https://hex-settlers.bt616923.workers.dev/api/internal/send-email
+HEX_EMAIL_FROM=Hex Settlers <account@send.tenthson.com>
+RESEND_API_KEY=re_your_sending_only_key
 ```
 
-The secret must never be committed to this repository. See `ADMIN_SETUP.md`
-for sender-domain and alternative-delivery details.
+The API key must never be committed to this repository. Cloudflare Email
+Sending is not required. See `ADMIN_SETUP.md` for DNS and alternative-delivery
+details.
 
 ## Durable Objects migration
 
