@@ -30,6 +30,14 @@ test('ranked matchmaking is server authoritative and preference based', () => {
   assert.match(app, /type: 'ranked_queue_join'[\s\S]*?mapMode:[\s\S]*?playerCount:/);
   assert.match(server, /msg\.type === 'ranked_queue_join'[\s\S]*?const bucket = Math\.floor\(rating \/ 200\)/);
   assert.match(server, /rankedRoom\.ranked = true[\s\S]*?startGame\(rankedRoom\)/);
+  const rankedOptions = html.match(/id="rankedScreen"[\s\S]*?<\/section>/)?.[0] || '';
+  assert.match(rankedOptions, /value="classic">Classic/);
+  assert.match(rankedOptions, /value="seafarers">Seafarers/);
+  assert.doesNotMatch(rankedOptions, /Classic 5–6|<option>3<\/option>/);
+  for (const count of [4, 5, 6]) assert.match(rankedOptions, new RegExp(`<option(?: selected)?>${count}<\\/option>`));
+  assert.match(server, /const key = `\$\{mapFamily\}:\$\{playerCount\}:\$\{bucket\}`/);
+  assert.match(server, /mapFamily === 'classic' && playerCount > 4 \? 'classic56' : mapFamily/);
+  assert.match(server, /playerCount > 4 \? 'six_islands' : 'four_islands'/);
 });
 
 test('friends persist on accounts and lobby rows support friend requests', () => {

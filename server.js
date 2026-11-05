@@ -10222,22 +10222,26 @@ if (msg.type === 'ranked_queue_leave') {
 
 if (msg.type === 'ranked_queue_join') {
       if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
-      const playerCount = clamp(Math.floor(Number(msg.playerCount || 4)), 3, 6);
+      const requestedPlayerCount = Math.floor(Number(msg.playerCount || 4));
+      const playerCount = [4, 5, 6].includes(requestedPlayerCount) ? requestedPlayerCount : 4;
       const requestedMap = String(msg.mapMode || 'classic').toLowerCase();
-      const mapMode = requestedMap === 'seafarers' ? 'seafarers' : requestedMap === 'classic_56' ? 'classic56' : 'classic';
+      const mapFamily = requestedMap === 'seafarers' ? 'seafarers' : 'classic';
       const user = findUserById(ws._userId);
       const games = Number(user?.stats?.gamesPlayed || 0); const wins = Number(user?.stats?.wins || 0);
       const rating = Math.max(500, Math.round(1000 + wins * 24 - Math.max(0, games - wins) * 12));
       const bucket = Math.floor(rating / 200);
       for (const [key, entries] of rankedQueues) { const next = entries.filter((entry) => entry.ws !== ws && entry.ws.readyState === WebSocket.OPEN); if (next.length) rankedQueues.set(key, next); else rankedQueues.delete(key); }
-      const key = `${mapMode}:${playerCount}:${bucket}`;
+      const key = `${mapFamily}:${playerCount}:${bucket}`;
       const queue = rankedQueues.get(key) || [];
       queue.push({ ws, user, rating }); rankedQueues.set(key, queue);
       queue.forEach((entry) => sendJson(entry.ws, { type: 'ranked_queue_status', queued: true, waiting: queue.length, needed: playerCount, rating: entry.rating }));
       if (queue.length < playerCount) return;
       const matched = queue.splice(0, playerCount); if (!queue.length) rankedQueues.delete(key);
       const host = matched[0]; const rankedRoom = createRoom(host.user.id, host.user.displayName || host.user.username);
-      rankedRoom.ranked = true; rankedRoom.rules.mapMode = mapMode; rankedRoom.rules.maxPlayers = playerCount;
+      rankedRoom.ranked = true;
+      rankedRoom.rankedPreferences = { map: mapFamily, playerCount };
+      rankedRoom.rules.mapMode = mapFamily === 'classic' && playerCount > 4 ? 'classic56' : mapFamily;
+      if (mapFamily === 'seafarers') rankedRoom.rules.seafarersScenario = playerCount > 4 ? 'six_islands' : 'four_islands';
       for (const entry of matched.slice(1)) joinRoom(rankedRoom.code, entry.user.id, entry.user.displayName || entry.user.username);
       for (const player of rankedRoom.players) player.ready = true;
       ensurePreview(rankedRoom, true);
