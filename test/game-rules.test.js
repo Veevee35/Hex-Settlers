@@ -26,6 +26,7 @@ test('default rules preserve the established game defaults', () => {
     diceAlgorithm: 'random',
     victoryPointsToWin: 10,
     devDeckMode: 25,
+    randomMapAtStart: false,
   });
 });
 

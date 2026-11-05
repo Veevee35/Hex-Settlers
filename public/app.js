@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'action-bar-controls-v3';
+  const ASSET_CACHE_SW_BUILD = 'admin-room-console-v5';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -93,6 +93,7 @@
     testResetBtn: $('testResetBtn'),
     victoryPointsSelect: $('victoryPointsSelect'),
     devDeckModeSelect: $('devDeckModeSelect'),
+    randomMapAtStartToggle: $('randomMapAtStartToggle'),
     regenMapBtn: $('regenMapBtn'),
     mapGenNote: $('mapGenNote'),
     saveRulesBtn: $('saveRulesBtn'),
@@ -1215,6 +1216,22 @@
     if (ui.userManagementBtn) {
       ui.userManagementBtn.classList.toggle('hidden', !loggedIn);
       ui.userManagementBtn.textContent = loggedIn && authUser.isAdmin ? 'User Management' : 'My Account';
+    }
+    let serverManagementBtn = $('serverManagementBtn');
+    if (loggedIn && authUser.isAdmin) {
+      if (!serverManagementBtn) {
+        serverManagementBtn = document.createElement('button');
+        serverManagementBtn.id = 'serverManagementBtn';
+        serverManagementBtn.className = 'accountMenuItem';
+        serverManagementBtn.textContent = 'Server Management';
+        serverManagementBtn.addEventListener('click', () => {
+          $('accountMenu')?.classList.add('hidden');
+          void openServerManagementConsole();
+        });
+        $('accountMenu')?.insertBefore(serverManagementBtn, $('accountLogoutBtn'));
+      }
+    } else {
+      serverManagementBtn?.remove();
     }
     if (ui.loginBtn) ui.loginBtn.disabled = loggedIn;
     if (ui.registerBtn) ui.registerBtn.disabled = loggedIn;
@@ -4831,6 +4848,7 @@ function syncPostgameToState() {
   let myPlayerId = null;
   let room = null;
   let state = null;
+  let returnToUnrankedAfterLeave = false;
 
   const STRUCTURE_PLACEMENT_EMPHASIS_MS = 2_000;
   const STRUCTURE_PLACEMENT_SCALE = 1.5;
@@ -6088,8 +6106,21 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'left_room') {
+        const returnToMenu = returnToUnrankedAfterLeave;
+        returnToUnrankedAfterLeave = false;
         roomConnectionReady = false;
         handleLocalRoomExit(msg.reason || (msg.kicked ? 'You were removed from the room.' : 'You left the room.'));
+        if (returnToMenu) {
+          selectedPlayMode = 'unranked';
+          try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+          try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+          location.reload();
+        }
+        return;
+      }
+
+      if (msg.type === 'room_closed_by_admin') {
+        handleLocalRoomExit(msg.reason || 'This room was closed by an administrator.');
         return;
       }
 
@@ -6449,6 +6480,117 @@ function refreshLobbyJoinLinkUi() {
     const value = Number(timestamp || 0);
     if (!value) return 'Never';
     try { return new Date(value).toLocaleString(); } catch (_) { return 'Unknown'; }
+  }
+
+  async function openServerManagementConsole() {
+    if (!authUser?.isAdmin) {
+      setError('Administrator access is required.');
+      return;
+    }
+    const body = document.createElement('div');
+    body.className = 'modalText';
+    body.style.minWidth = 'min(760px, 82vw)';
+    body.style.maxHeight = '65vh';
+    body.style.overflow = 'auto';
+    const status = document.createElement('div');
+    status.className = 'smallNote';
+    status.textContent = 'Loading active rooms…';
+    body.appendChild(status);
+
+    const selectedCodes = () => Array.from(body.querySelectorAll('input[data-room-code]:checked')).map((input) => input.dataset.roomCode);
+    const render = async () => {
+      body.replaceChildren(status);
+      status.textContent = 'Loading active rooms…';
+      try {
+        const result = await adminApi('rooms');
+        const rooms = Array.isArray(result.rooms) ? result.rooms : [];
+        body.replaceChildren();
+        if (!rooms.length) {
+          status.textContent = 'No active rooms.';
+          body.appendChild(status);
+          return;
+        }
+        for (const managed of rooms) {
+          const card = document.createElement('section');
+          card.className = 'card';
+          card.style.marginBottom = '10px';
+          const heading = document.createElement('label');
+          heading.style.display = 'flex';
+          heading.style.gap = '9px';
+          heading.style.alignItems = 'center';
+          const check = document.createElement('input');
+          check.type = 'checkbox';
+          check.dataset.roomCode = managed.code;
+          const title = document.createElement('strong');
+          title.textContent = `${managed.code} · ${managed.phase}${managed.ranked ? ' · Ranked' : ''}`;
+          heading.append(check, title);
+          card.appendChild(heading);
+          const meta = document.createElement('div');
+          meta.className = 'smallNote';
+          meta.textContent = `${managed.mapMode}${managed.scenario ? ` / ${managed.scenario}` : ''} · ${(managed.players || []).length} player(s) · ${(managed.spectators || []).length} spectator(s)`;
+          card.appendChild(meta);
+          const memberList = document.createElement('div');
+          memberList.style.marginTop = '8px';
+          for (const member of [...(managed.players || []), ...(managed.spectators || [])]) {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.justifyContent = 'space-between';
+            row.style.gap = '10px';
+            row.style.padding = '4px 0';
+            const label = document.createElement('span');
+            label.textContent = `${member.name}${member.id === managed.hostId ? ' (host)' : ''} · ${member.role}${member.isAI ? ' · AI' : ''}${member.connected ? ' · online' : ' · disconnected'}`;
+            const kick = document.createElement('button');
+            kick.className = 'btn subtle';
+            kick.textContent = 'Kick';
+            kick.addEventListener('click', async () => {
+              if (!window.confirm(`Remove ${member.name} from room ${managed.code}?`)) return;
+              kick.disabled = true;
+              try {
+                const response = await adminApi('kick-room-member', { code: managed.code, userId: member.id });
+                setError(response.message || 'Member removed.');
+                await render();
+              } catch (error) {
+                kick.disabled = false;
+                setError(error.message || 'Could not remove that member.');
+              }
+            });
+            row.append(label, kick);
+            memberList.appendChild(row);
+          }
+          card.appendChild(memberList);
+          body.appendChild(card);
+        }
+      } catch (error) {
+        body.replaceChildren(status);
+        status.textContent = error.message || 'Could not load active rooms.';
+      }
+    };
+
+    openModal({
+      title: 'Server Management',
+      bodyNode: body,
+      actions: [
+        { label: 'Refresh', onClick: render },
+        { label: 'Spectate Selected', onClick: () => {
+          const codes = selectedCodes();
+          if (!codes.length) { setError('Select at least one room.'); return; }
+          for (const code of codes) window.open(buildSpectatorJoinUrl(code), '_blank', 'noopener');
+        } },
+        { label: 'Close Selected', onClick: async () => {
+          const codes = selectedCodes();
+          if (!codes.length) { setError('Select at least one room.'); return; }
+          if (!window.confirm(`Close ${codes.length} selected room${codes.length === 1 ? '' : 's'}? Active games will end immediately.`)) return;
+          try {
+            const response = await adminApi('close-rooms', { codes });
+            setError(response.message || 'Selected rooms closed.');
+            await render();
+          } catch (error) { setError(error.message || 'Could not close selected rooms.'); }
+        } },
+        { label: 'Close Console', primary: true, onClick: closeModal },
+      ],
+    });
+    await render();
   }
 
   async function openUserManagementScreen() {
@@ -8876,6 +9018,10 @@ function refreshLobbyJoinLinkUi() {
       ui.devDeckModeSelect.value = (ddRaw === '13' || ddRaw === '25' || ddRaw === '38') ? ddRaw : '25';
       ui.devDeckModeSelect.disabled = !isHost;
     }
+    if (ui.randomMapAtStartToggle) {
+      ui.randomMapAtStartToggle.checked = r.randomMapAtStart === true;
+      ui.randomMapAtStartToggle.disabled = !isHost;
+    }
     // Seafarers scenario selector
     const mmNow = uiMapModeFromRules(r);
     if (ui.scenarioRow) ui.scenarioRow.classList.toggle('hidden', mmNow !== 'seafarers');
@@ -9315,6 +9461,7 @@ function refreshLobbyJoinLinkUi() {
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
       friendlyRobber: ui.friendlyRobberToggle ? !!ui.friendlyRobberToggle.checked : false,
       explorationPointsEnabled: ui.explorationPointsToggle ? !!ui.explorationPointsToggle.checked : true,
+      randomMapAtStart: ui.randomMapAtStartToggle ? !!ui.randomMapAtStartToggle.checked : false,
       // Only used if mapMode === 'seafarers'
       seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),
     };
@@ -10165,12 +10312,13 @@ if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.addEventListener('click', () => {
     return;
   }
   // Leave only this player. Everyone else may keep viewing the completed game.
-  try { send({ type: 'leave_room' }); } catch (_) {}
-  try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
-  handleLocalRoomExit(null);
+  returnToUnrankedAfterLeave = true;
   selectedPlayMode = 'unranked';
   try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
-  updateAuthUi();
+  try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+  try { send({ type: 'leave_room' }); } catch (_) {}
+  // Compatibility fallback for an older backend or a dropped acknowledgement.
+  setTimeout(() => { if (returnToUnrankedAfterLeave) location.reload(); }, 1500);
 });
 if (ui.pgRematchBtn) ui.pgRematchBtn.addEventListener('click', () => {
   if (postgameState.historyMode || !ws || ws.readyState !== WebSocket.OPEN) return;

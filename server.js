@@ -5641,7 +5641,7 @@ function startGame(room) {
   let usedPreview = false;
   try {
     const wantKey = mapPreviewKey(game.rules || DEFAULT_RULES, game?.players?.length || 0);
-    if (room.preview && room.preview.key === wantKey && room.preview.geom) {
+    if (game.rules?.randomMapAtStart !== true && room.preview && room.preview.key === wantKey && room.preview.geom) {
       const geom = deepClone(room.preview.geom);
       if (geom && Array.isArray(geom.tiles) && geom.tiles.length) {
         game.geom = geom;
@@ -9520,6 +9520,92 @@ async function handleAdminHttp(req, res, urlPath) {
     return;
   }
 
+  if (urlPath === '/api/admin/rooms') {
+    const managedRooms = Array.from(rooms.values()).map((room) => {
+      ensureRoomRoleLists(room);
+      const memberSummary = (member, role) => ({
+        id: String(member?.id || ''),
+        name: String(member?.name || 'Unknown player'),
+        role,
+        isAI: !!member?.isAI,
+        connected: !!(room.sockets?.get(member?.id)?.readyState === WebSocket.OPEN),
+      });
+      return {
+        code: String(room.code || ''),
+        hostId: String(room.hostId || ''),
+        phase: String(room.game?.phase || 'lobby'),
+        mapMode: String(room.rules?.mapMode || 'classic'),
+        scenario: String(room.rules?.seafarersScenario || ''),
+        ranked: !!room.ranked,
+        createdAt: Number(room.createdAt || 0),
+        lastActiveAt: Number(room.lastActiveAt || 0),
+        players: (room.players || []).map((member) => memberSummary(member, 'player')),
+        spectators: (room.spectators || []).map((member) => memberSummary(member, 'spectator')),
+      };
+    }).sort((left, right) => right.lastActiveAt - left.lastActiveAt);
+    sendHttpJson(req, res, 200, { ok: true, rooms: managedRooms });
+    return;
+  }
+
+  if (urlPath === '/api/admin/close-rooms') {
+    const codes = Array.from(new Set((Array.isArray(body.codes) ? body.codes : [])
+      .map((code) => String(code || '').trim().toUpperCase()).filter(Boolean))).slice(0, 100);
+    if (!codes.length) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Select at least one room.' });
+      return;
+    }
+    const closed = [];
+    for (const code of codes) {
+      const room = rooms.get(code);
+      if (!room) continue;
+      for (const socket of room.sockets?.values?.() || []) {
+        if (socket.readyState === WebSocket.OPEN) sendJson(socket, { type: 'room_closed_by_admin', code, reason: 'This room was closed by an administrator.' });
+        socket._roomCode = null;
+        socket._playerId = null;
+      }
+      rooms.delete(code);
+      closed.push(code);
+    }
+    await scheduleActiveRoomsSave({ throwOnError: true });
+    sendHttpJson(req, res, 200, { ok: true, closed, message: `Closed ${closed.length} room${closed.length === 1 ? '' : 's'}.` });
+    return;
+  }
+
+  if (urlPath === '/api/admin/kick-room-member') {
+    const code = String(body.code || '').trim().toUpperCase();
+    const userId = String(body.userId || '').trim();
+    const room = rooms.get(code);
+    if (!room) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'Room not found.' });
+      return;
+    }
+    const member = findRoomMember(room, userId);
+    if (!member) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'Player or spectator not found.' });
+      return;
+    }
+    const targetSocket = room.sockets?.get(userId);
+    removeRoomMember(room, userId);
+    if (room.hostId === userId) {
+      const nextHost = (room.players || []).find((candidate) => candidate && !candidate.isAI) || room.players?.[0];
+      room.hostId = nextHost?.id || '';
+    }
+    if (targetSocket) {
+      if (room.sockets.get(userId) === targetSocket) room.sockets.delete(userId);
+      targetSocket._roomCode = null;
+      targetSocket._playerId = null;
+      if (targetSocket.readyState === WebSocket.OPEN) sendJson(targetSocket, { type: 'left_room', code, kicked: true, reason: 'You were removed from the room by an administrator.' });
+    }
+    if (!(room.players || []).length && !(room.spectators || []).length) rooms.delete(code);
+    else {
+      broadcastRoom(room);
+      if (room.game) broadcastState(room);
+    }
+    await scheduleActiveRoomsSave({ throwOnError: true });
+    sendHttpJson(req, res, 200, { ok: true, message: `Removed ${member.name || 'the member'} from ${code}.` });
+    return;
+  }
+
   if (urlPath === '/api/admin/reset-password') {
     const targetId = String(body.userId || '').trim();
     const target = findUserById(targetId);
@@ -10400,22 +10486,31 @@ if (msg.type === 'create_room') {
         sendJson(ws, { type: 'error', error: 'You are not in this room.' });
         return;
       }
-      if (pid === room.hostId) {
+      const gameOver = !!(room.game && room.game.phase === 'game-over');
+      if (pid === room.hostId && !gameOver) {
         sendJson(ws, { type: 'error', error: 'The host cannot leave this room.' });
         return;
       }
-      if (room.game && room.game.phase && room.game.phase !== 'lobby' && roomRole(room, pid) === 'player') {
+      if (room.game && room.game.phase && room.game.phase !== 'lobby' && !gameOver && roomRole(room, pid) === 'player') {
         sendJson(ws, { type: 'error', error: 'Use Leave Game during an active match.' });
         return;
       }
+      const leavingHost = pid === room.hostId;
       removeRoomMember(room, pid);
+      if (leavingHost) {
+        const nextHost = room.players.find((player) => player && !player.isAI) || room.players[0] || null;
+        if (nextHost) room.hostId = nextHost.id;
+      }
       if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
       ws._roomCode = null;
       ws._playerId = null;
       sendJson(ws, { type: 'left_room', code, reason: 'You left the room.' });
-      if (!room.game || room.game.phase === 'lobby') ensurePreview(room, true);
-      broadcastRoom(room);
-      if (!room.game || room.game.phase === 'lobby') broadcastPreviewState(room);
+      if (!room.players.length) rooms.delete(code);
+      else {
+        if (!room.game || room.game.phase === 'lobby') ensurePreview(room, true);
+        broadcastRoom(room);
+        if (!room.game || room.game.phase === 'lobby') broadcastPreviewState(room);
+      }
       return;
     }
 
@@ -10670,6 +10765,7 @@ if (msg.type === 'create_room') {
 
       next.devDeckMode = normalizeDevDeckMode(r.devDeckMode ?? next.devDeckMode);
       next.diceAlgorithm = normalizeDiceAlgorithm(r.diceAlgorithm ?? next.diceAlgorithm);
+      next.randomMapAtStart = r.randomMapAtStart === true;
 
       if (typeof r.explorationPointsEnabled === 'boolean') {
         next.explorationPointsEnabled = r.explorationPointsEnabled;

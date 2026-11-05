@@ -13,7 +13,9 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 test('pre-game tools are hidden in markup and postgame navigation is player-specific', () => {
   assert.match(html, /class="card hidden" id="toolsCard"/);
   assert.match(html, /id="pgMainMenuBtn"[\s\S]*?id="pgRematchBtn"/);
-  assert.match(client, /pgMainMenuBtn[\s\S]*?send\(\{ type: 'leave_room' \}\)[\s\S]*?handleLocalRoomExit/);
+  assert.match(client, /pgMainMenuBtn[\s\S]*?returnToUnrankedAfterLeave = true[\s\S]*?send\(\{ type: 'leave_room' \}\)/);
+  assert.match(client, /msg\.type === 'left_room'[\s\S]*?handleLocalRoomExit[\s\S]*?location\.reload\(\)/);
+  assert.match(server, /const gameOver = [\s\S]*?room\.game\.phase === 'game-over'[\s\S]*?leavingHost[\s\S]*?nextHost/);
   assert.match(server, /Move only the requester[\s\S]*?room\.sockets\.delete\(pid\)[\s\S]*?newRoom\.sockets\.set\(pid, ws\)/);
 });
 
@@ -34,6 +36,18 @@ test('administrator account merging combines identity data without exposing emai
   assert.match(server, /urlPath === '\/api\/admin\/merge-users'/);
   assert.match(server, /secondaryEmailTime > primaryEmailTime/);
   assert.match(server, /friendIds[\s\S]*?HISTORY_DB\.games[\s\S]*?saveHistoryDb/);
+});
+
+test('administrator room management stays server-authorized and surprise maps ignore previews at start', () => {
+  assert.match(server, /urlPath === '\/api\/admin\/rooms'/);
+  assert.match(server, /urlPath === '\/api\/admin\/close-rooms'/);
+  assert.match(server, /urlPath === '\/api\/admin\/kick-room-member'/);
+  assert.match(server, /if \(!isAdminUser\(admin\)\)/);
+  assert.match(server, /game\.rules\?\.randomMapAtStart !== true && room\.preview/);
+  assert.match(client, /openServerManagementConsole/);
+  assert.match(client, /if \(loggedIn && authUser\.isAdmin\)/);
+  assert.doesNotMatch(html, /id="serverManagementBtn"/);
+  assert.match(html, /id="randomMapAtStartToggle"/);
 });
 
 test('obsolete public backup artifacts are removed', () => {

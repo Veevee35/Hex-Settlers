@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=action-bar-controls-v3" />
+  <link rel="stylesheet" href="styles.css?v=admin-room-console-v5" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -402,6 +402,11 @@
           <div class="smallNote">Changes the development card deck for this game only.</div>
 
           <label class="label">Map preview</label>
+          <label class="checkRow">
+            <input id="randomMapAtStartToggle" type="checkbox" />
+            <span>Surprise map at game start</span>
+          </label>
+          <div class="smallNote">Players can inspect a sample layout, but a different layout is generated when the game starts.</div>
           <div class="row">
             <button id="regenMapBtn" class="btn">Generate New Map</button>
           </div>
@@ -646,6 +651,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=action-bar-controls-v3"></script>
+  <script src="app.js?v=admin-room-console-v5"></script>
 </body>
 </html>

@@ -16,6 +16,7 @@ const DEFAULT_RULES = Object.freeze({
   diceAlgorithm: 'random',
   victoryPointsToWin: 10,
   devDeckMode: 25,
+  randomMapAtStart: false,
 });
 
 function isClassic56MapModeRaw(raw) {
