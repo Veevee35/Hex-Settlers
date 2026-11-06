@@ -218,6 +218,7 @@ body.in-game .boardFooter{display:none;}
   text-transform:uppercase;
   text-shadow:0 3px 0 rgba(55,0,0,.85), 0 0 12px rgba(255,255,255,.85), 0 0 32px rgba(255,0,25,.75);
 }
+.extraTurnCenterBanner{position:absolute;z-index:25;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:.18em;pointer-events:none;user-select:none;white-space:nowrap;color:#ff2638;font-size:clamp(44px,8vw,112px);font-weight:1000;line-height:1;letter-spacing:.06em;text-transform:uppercase;text-shadow:0 3px 0 rgba(55,0,0,.85),0 0 12px rgba(255,255,255,.85),0 0 32px rgba(255,0,25,.75);animation:extraTurnCenterPop .34s cubic-bezier(.2,1.25,.45,1)}.extraTurnCenterBanner.hidden{display:none}.extraTurnCenterBanner span{font-size:1.08em;line-height:.7}@keyframes extraTurnCenterPop{from{opacity:0;transform:translate(-50%,-50%) scale(.68)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
 .boardFooter{
   display:flex; justify-content:space-between;
   padding:10px 12px;
@@ -2657,7 +2658,7 @@ body.rules-page-open{overflow:hidden;}
   body.in-game #errBox{top:160px; max-width:calc(100% - 24px);}
   body.in-game .hudBarRow{gap:6px;}
   body.in-game .pausedOverlay{right:0; bottom:36%;}
-  body.in-game .yourRollBanner{left:50%; top:32%; font-size:clamp(30px, 8vw, 60px);}
+  body.in-game .yourRollBanner,body.in-game .extraTurnCenterBanner{left:50%; top:32%; font-size:clamp(30px, 8vw, 60px);}
 }
 
 /* Administrator user management */

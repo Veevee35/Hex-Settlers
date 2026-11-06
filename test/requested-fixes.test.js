@@ -117,6 +117,10 @@ test('paired extra action turns show a larger red indicator that flips below a t
   assert.match(appJs, /function syncTurnHudIndicatorPlacement\(\)/);
   assert.match(appJs, /card\.classList\.toggle\('turnIndicatorBelow', rect\.top < bannerHeight \+ 16\)/);
   assert.match(appJs, /ui\.extraTurnBanner\.classList\.toggle\('hidden', !showExtraTurn\)/);
+  assert.match(indexHtml, /id="extraTurnCenterBanner"[^>]*>[^<]*<span[^>]*>↻<\/span> EXTRA TURN<\/div>/);
+  assert.match(styles, /\.extraTurnCenterBanner\{[\s\S]*?left:50%[\s\S]*?top:50%[\s\S]*?font-size:clamp/);
+  assert.match(appJs, /function acknowledgeCenteredExtraTurn[\s\S]*?extraTurnAnnouncementAcknowledged = true[\s\S]*?document\.addEventListener\('pointerdown'/);
+  assert.match(appJs, /showCenteredExtraTurn[\s\S]*?!extraTurnAnnouncementAcknowledged[\s\S]*?ui\.extraTurnCenterBanner\.classList\.toggle/);
   assert.match(appJs, /myTurn &&[\s\S]*?String\(state\.paired\.stage \|\| ''\) === 'p2'[\s\S]*?state\.phase === 'main-actions'/);
 });
 

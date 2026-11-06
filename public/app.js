@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'undo-profile-popup-v7';
+  const ASSET_CACHE_SW_BUILD = 'center-extra-turn-v8';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -157,6 +157,7 @@
     hintBox: $('hintBox'),
     canvas: $('board'),
     yourRollBanner: $('yourRollBanner'),
+    extraTurnCenterBanner: $('extraTurnCenterBanner'),
     countdownClock: $('countdownClock'),
     pauseBtn: $('pauseBtn'),
     playBtn: $('playBtn'),
@@ -5124,6 +5125,19 @@ function syncPostgameToState() {
   let lastPirateStealPromptId = 0;
   let lastPirateChoicePromptId = 0;
   let turnUndoResponsePendingVoteId = 0;
+  let extraTurnAnnouncementKey = '';
+  let extraTurnAnnouncementAcknowledged = false;
+
+  function acknowledgeCenteredExtraTurn() {
+    if (!extraTurnAnnouncementKey || extraTurnAnnouncementAcknowledged) return;
+    extraTurnAnnouncementAcknowledged = true;
+    updateButtons();
+  }
+  document.addEventListener('pointerdown', acknowledgeCenteredExtraTurn, { capture: true, passive: true });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return;
+    acknowledgeCenteredExtraTurn();
+  }, { capture: true });
   let lastTileCountForView = 0;
   // Track canvas CSS size so we can resync the backing store when the layout changes
   // (e.g., when the game transitions into full-screen board mode). Without this,
@@ -10645,18 +10659,28 @@ function ensureTimerUiInterval() {
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
     const myTurn = inGame && !historyReplay.active && !amSpectator && state.currentPlayerId === myPlayerId;
+    const pairedExtraTurnActive = !!(
+      inGame && !historyReplay.active && myTurn && state?.paired?.enabled &&
+      String(state.paired.stage || '') === 'p2'
+    );
+    const pairedExtraTurnKey = pairedExtraTurnActive
+      ? `${String(myPlayerId || '')}:${Math.max(0, Number(state.turnNumber || 0))}:${String(state.paired.stage || '')}`
+      : '';
+    if (pairedExtraTurnKey && pairedExtraTurnKey !== extraTurnAnnouncementKey) {
+      extraTurnAnnouncementKey = pairedExtraTurnKey;
+      extraTurnAnnouncementAcknowledged = false;
+    } else if (!pairedExtraTurnActive) {
+      extraTurnAnnouncementKey = '';
+      extraTurnAnnouncementAcknowledged = false;
+    }
+    const extraTurnMainActions = pairedExtraTurnActive && state.phase === 'main-actions';
     if (ui.extraTurnBanner) {
-      const showExtraTurn = !!(
-        inGame &&
-        !historyReplay.active &&
-        myTurn &&
-        state &&
-        state.paired &&
-        state.paired.enabled &&
-        String(state.paired.stage || '') === 'p2' &&
-        state.phase === 'main-actions'
-      );
+      const showExtraTurn = !!(extraTurnMainActions && extraTurnAnnouncementAcknowledged);
       ui.extraTurnBanner.classList.toggle('hidden', !showExtraTurn);
+    }
+    if (ui.extraTurnCenterBanner) {
+      const showCenteredExtraTurn = !!(extraTurnMainActions && !extraTurnAnnouncementAcknowledged && !state.paused);
+      ui.extraTurnCenterBanner.classList.toggle('hidden', !showCenteredExtraTurn);
     }
     if (ui.placementTurnBanner) {
       const placementTurnPhases = new Set([
