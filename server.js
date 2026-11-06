@@ -133,7 +133,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'ranked-matchmaking-fix-v1';
+const SERVER_BUILD_ID = 'rematch-shared-previous-turn-v12';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -2288,6 +2288,16 @@ function recordTurnStart(game) {
 function captureTurnUndoPoint(game) {
   if (!game) return;
   const current = game._currentTurnStartSnapshot || null;
+  // A turn can change phase, get a refreshed timer, or be restored from disk.
+  // Only advance the undo history when the actual player-turn changes. In
+  // paired games, Player 2 is a separate turn even though the turn number is
+  // unchanged. Capturing twice for the same turn would make Back undo only
+  // the current turn instead of the preceding player's turn.
+  const sameTurn = current &&
+    current.currentPlayerId === game.currentPlayerId &&
+    current.turnNumber === game.turnNumber &&
+    String(current.paired?.stage || '') === String(game.paired?.stage || '');
+  if (sameTurn) return;
   game._previousTurnSnapshot = current;
   game._currentTurnStartSnapshot = deepClone({
     ...game,
@@ -7618,9 +7628,16 @@ if (kind === 'pirate_steal') {
     game.turnUndoVoteSeq = undoSeq;
     game.turnUndoVote = null;
     game._previousTurnSnapshot = null;
-    game._currentTurnStartSnapshot = deepClone({ ...restored, _previousTurnSnapshot: undefined, _currentTurnStartSnapshot: undefined });
-    resumeGame(game);
-    game.message = `Returned to ${playerName(game, game.currentPlayerId)}'s previous turn.`;
+    game._currentTurnStartSnapshot = deepClone({ ...restored, _previousTurnSnapshot: undefined, _currentTurnStartSnapshot: undefined, turnUndoVote: null });
+    // Refresh the full turn timer, then hold the restored game. If the previous
+    // player was an AI, immediate auto-play would advance right back to the
+    // turn we just undid before anybody could see the rollback.
+    game.paused = false;
+    game.pause = null;
+    const restoredTurnMs = phaseDurationMs(game, game.phase);
+    setTimerForCurrentPhase(game, restoredTurnMs, restoredTurnMs);
+    pauseGame(game, playerId);
+    game.message = `Returned to the start of ${playerName(game, game.currentPlayerId)}'s previous turn. Press Play to continue.`;
     pushLog(game, game.message, 'system', { kind: 'turn_undo_applied', voteId });
     return { ok: true };
   }
@@ -10834,32 +10851,61 @@ if (msg.type === 'create_room') {
       return;
     }
 
-    // Rematch: after a finished game, create a brand-new lobby with the same players and host,
-    // and move all currently-connected players into it.
+    // Rematch is opt-in. The first human creates the lobby and owns it;
+    // subsequent humans from this finished game join that SAME lobby only
+    // when they individually press Rematch. Nobody else is moved or invited
+    // automatically, and the original postgame room remains accessible.
     if (msg.type === 'rematch_room') {
       if (!room.game || room.game.phase !== 'game-over') {
         sendJson(ws, { type: 'error', error: 'Rematch is only available after the game ends.' });
         return;
       }
-
-      const newRoom = createRematchRoomFrom(room);
-      newRoom.players = newRoom.players.filter((player) => player.id === pid || player.isAI);
-      newRoom.spectators = [];
-      if (!newRoom.players.some((player) => player.id === pid)) {
-        const prior = findRoomMember(room, pid);
-        newRoom.players.unshift({ id: pid, name: prior?.name || 'Host', color: prior?.color || COLORS[0], joinedAt: now(), ready: false, texturePackId: prior?.texturePackId || 'default', texturePackName: prior?.texturePackName || 'Default' });
+      const prior = findRoomPlayer(room, pid);
+      if (!prior || prior.isAI) {
+        sendJson(ws, { type: 'error', error: 'Only players in the completed game can rematch.' });
+        return;
       }
-      newRoom.hostId = pid;
+
+      const existingCode = String(room.rematchRoomCode || '').trim().toUpperCase();
+      let newRoom = existingCode ? roomByCodeWithPersistence(existingCode) : null;
+      if (newRoom && newRoom.game && newRoom.game.phase !== 'lobby') {
+        sendJson(ws, { type: 'error', error: 'The rematch lobby has already started its game.' });
+        return;
+      }
+      if (!newRoom) {
+        newRoom = createRematchRoomFrom(room);
+        // Copy AI opponents, but do not pre-join the other human players.
+        newRoom.players = newRoom.players.filter((player) => player.id === pid || player.isAI);
+        newRoom.spectators = [];
+        if (!newRoom.players.some((player) => player.id === pid)) {
+          newRoom.players.unshift({ id: pid, name: prior.name || 'Host', color: prior.color || COLORS[0], joinedAt: now(), ready: false, texturePackId: prior.texturePackId || 'default', texturePackName: prior.texturePackName || 'Default' });
+        }
+        newRoom.hostId = pid;
+        room.rematchRoomCode = newRoom.code;
+      } else if (!findRoomPlayer(newRoom, pid)) {
+        if (newRoom.players.length >= maxPlayersForRules(newRoom.rules || DEFAULT_RULES)) {
+          sendJson(ws, { type: 'error', error: 'The rematch lobby is full.' });
+          return;
+        }
+        const requestedColor = String(prior.color || COLORS[0]);
+        const usedColor = newRoom.players.some((player) => String(player.color || '').toLowerCase() === requestedColor.toLowerCase());
+        newRoom.players.push({
+          id: pid,
+          name: String(prior.name || 'Player').slice(0, 20),
+          color: usedColor ? pickAvailableColor(newRoom) : requestedColor,
+          joinedAt: now(), ready: false,
+          texturePackId: prior.texturePackId || 'default',
+          texturePackName: prior.texturePackName || 'Default',
+        });
+      }
       ensurePreview(newRoom, true);
 
-      // Move only the requester. Other players remain on the completed game.
+      // Transfer ONLY the player who clicked Rematch; leave all others on the
+      // game-over screen until they independently decide to join.
       room.sockets.delete(pid);
-      newRoom.sockets.set(pid, ws);
-      ws._roomCode = newRoom.code;
-      ws._playerId = pid;
-      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(newRoom), isHost: true });
-
-      // Inform any remaining clients in the old room (if any)
+      bindSocketToRoomMember(newRoom, pid, ws);
+      await scheduleActiveRoomsSave({ throwOnError: true });
+      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(newRoom), isHost: pid === newRoom.hostId, role: 'player' });
       try { broadcastRoom(room); } catch (_) {}
       try { broadcastRoom(newRoom); } catch (_) {}
       try { broadcastPreviewState(newRoom); } catch (_) {}

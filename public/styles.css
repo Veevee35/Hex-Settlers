@@ -2713,3 +2713,35 @@ body.rules-page-open{overflow:hidden;}
 @media(max-width:650px){.modeChoices{grid-template-columns:1fr}.portalScreen{padding:12px}.portalCard{padding:26px 20px}.portalLogo{width:185px}}
 .accountOrb{z-index:990}.accountMenu{z-index:1000}
 .portalBackdrop{background:radial-gradient(circle at 50% 15%,rgba(214,161,43,.2),transparent 35%),linear-gradient(145deg,#081019,#0b1924)}
+
+/* November: anchor the account button immediately LEFT of the resizeable game sidebar. */
+body.in-game .accountOrb{
+  top:12px;
+  right:calc(var(--right-sidebar-width, 520px) + 8px);
+}
+body.in-game .accountMenu{
+  top:68px;
+  right:calc(var(--right-sidebar-width, 520px) + 8px);
+}
+/* Allow the admin console to show both long member labels and their Kick actions. */
+.modalBox:has(.serverManagementPanel){
+  width:min(1010px, calc(100vw - 32px));
+  max-height:calc(100dvh - 28px);
+  display:flex;
+  flex-direction:column;
+}
+.modalBox:has(.serverManagementPanel) .modalBody{min-height:0;overflow:auto;}
+.serverManagementPanel{width:100%;max-height:min(70dvh,780px);overflow:auto;}
+.serverManagementMember{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:16px;
+  padding:5px 0;
+}
+.serverManagementMemberName{min-width:0;overflow-wrap:anywhere;}
+.serverManagementMember .btn{flex-shrink:0;min-width:65px;}
+@media(max-width:520px){
+  body.in-game .accountMenu{right:10px;max-width:calc(100vw - 20px);}
+  .serverManagementMember{gap:8px;}
+}

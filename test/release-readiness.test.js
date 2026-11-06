@@ -16,7 +16,9 @@ test('pre-game tools are hidden in markup and postgame navigation is player-spec
   assert.match(client, /pgMainMenuBtn[\s\S]*?returnToUnrankedAfterLeave = true[\s\S]*?send\(\{ type: 'leave_room' \}\)/);
   assert.match(client, /msg\.type === 'left_room'[\s\S]*?handleLocalRoomExit[\s\S]*?location\.reload\(\)/);
   assert.match(server, /const gameOver = [\s\S]*?room\.game\.phase === 'game-over'[\s\S]*?leavingHost[\s\S]*?nextHost/);
-  assert.match(server, /Move only the requester[\s\S]*?room\.sockets\.delete\(pid\)[\s\S]*?newRoom\.sockets\.set\(pid, ws\)/);
+  assert.match(server, /room\.rematchRoomCode = newRoom\.code/);
+  assert.match(server, /Transfer ONLY the player who clicked Rematch[\s\S]*?room\.sockets\.delete\(pid\)[\s\S]*?bindSocketToRoomMember\(newRoom, pid, ws\)/);
+  assert.match(server, /newRoom\.players = newRoom\.players\.filter\(\(player\) => player\.id === pid \|\| player\.isAI\)/);
 });
 
 test('pause, play, and voted previous-turn restoration are separate server-authoritative controls', () => {

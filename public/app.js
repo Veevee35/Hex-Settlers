@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'game-type-kofi-v10';
+  const ASSET_CACHE_SW_BUILD = 'nov-2026-rematch-back-layout-v12';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -6566,10 +6566,7 @@ function refreshLobbyJoinLinkUi() {
       return;
     }
     const body = document.createElement('div');
-    body.className = 'modalText';
-    body.style.minWidth = 'min(760px, 82vw)';
-    body.style.maxHeight = '65vh';
-    body.style.overflow = 'auto';
+    body.className = 'modalText serverManagementPanel';
     const status = document.createElement('div');
     status.className = 'smallNote';
     status.textContent = 'Loading active rooms…';
@@ -6611,12 +6608,9 @@ function refreshLobbyJoinLinkUi() {
           memberList.style.marginTop = '8px';
           for (const member of [...(managed.players || []), ...(managed.spectators || [])]) {
             const row = document.createElement('div');
-            row.style.display = 'flex';
-            row.style.alignItems = 'center';
-            row.style.justifyContent = 'space-between';
-            row.style.gap = '10px';
-            row.style.padding = '4px 0';
+            row.className = 'serverManagementMember';
             const label = document.createElement('span');
+            label.className = 'serverManagementMemberName';
             label.textContent = `${member.name}${member.id === managed.hostId ? ' (host)' : ''} · ${member.role}${member.isAI ? ' · AI' : ''}${member.connected ? ' · online' : ' · disconnected'}`;
             const kick = document.createElement('button');
             kick.className = 'btn subtle';
@@ -10523,7 +10517,7 @@ if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.addEventListener('click', () => {
 if (ui.pgRematchBtn) ui.pgRematchBtn.addEventListener('click', () => {
   if (postgameState.historyMode || !ws || ws.readyState !== WebSocket.OPEN) return;
   ui.pgRematchBtn.disabled = true;
-  ui.pgRematchBtn.textContent = 'Creating…';
+  ui.pgRematchBtn.textContent = 'Joining…';
   send({ type: 'rematch_room' });
 });
 
