@@ -19,6 +19,7 @@ test('landing page owns login and account creation requires email verification',
   assert.match(server, /requiresEmailVerification && !user\.emailVerifiedAt/);
   assert.match(html, /id="landingPasswordReveal"[^>]*Hold to reveal password/);
   assert.match(app, /setPasswordRevealed[\s\S]*?pointerdown[\s\S]*?pointerup[\s\S]*?pointerleave/);
+  assert.match(html, /class="loginSupport"[\s\S]*?href="https:\/\/ko-fi\.com\/L6D82A3L9Z"[\s\S]*?src="https:\/\/storage\.ko-fi\.com\/cdn\/kofi6\.png\?v=6"/);
 });
 
 test('Cartographer and Scattered Tiles allow high-probability numbers on Gold Fields', () => {
