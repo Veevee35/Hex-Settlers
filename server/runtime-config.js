@@ -45,12 +45,14 @@ function isAllowedWebSocketOrigin(request, allowedOrigins = new Set(), trustProx
 
 function securityHeaders({ isTls = false } = {}) {
   const headers = {
-    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'",
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
+    // The login shell embeds the same-origin Terms and Privacy documents.
+    // SAMEORIGIN preserves clickjacking protection while allowing that viewer.
+    'X-Frame-Options': 'SAMEORIGIN',
   };
   if (isTls) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   return headers;

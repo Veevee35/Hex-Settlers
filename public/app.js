@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'ranked-lobby-v20';
+  const ASSET_CACHE_SW_BUILD = 'mobile-summary-v22';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -5616,11 +5616,21 @@ function syncPostgameToState() {
         for (const a of pool) {
           try {
             applyPoolVolume(a);
+            // Unlock/decode media during the user's gesture without leaking a
+            // few milliseconds from every pooled sound into the speakers.
+            // Playing all pools audibly at once produced a robotic startup burst.
+            const targetVolume = a.volume;
+            a.volume = 0;
             const p = a.play();
             if (p && typeof p.then === 'function') {
-              p.then(() => { try { a.pause(); a.currentTime = 0; a.__hsPausedForGamePause = false; } catch (_) {} }).catch(() => {});
+              p.then(() => {
+                try { a.pause(); a.currentTime = 0; a.__hsPausedForGamePause = false; } catch (_) {}
+                try { a.volume = targetVolume; } catch (_) {}
+              }).catch(() => { try { a.volume = targetVolume; } catch (_) {} });
+            } else {
+              try { a.pause(); a.currentTime = 0; a.volume = targetVolume; } catch (_) {}
             }
-          } catch (_) {}
+          } catch (_) { try { applyPoolVolume(a); } catch (_) {} }
         }
       },
       setGainPercent(pct) {

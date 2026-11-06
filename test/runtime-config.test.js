@@ -28,3 +28,10 @@ test('proxy address and security headers are only trusted when configured', () =
   assert.equal(securityHeaders()['Strict-Transport-Security'], undefined);
   assert.equal(securityHeaders({ isTls: true })['Strict-Transport-Security'], 'max-age=31536000; includeSubDomains');
 });
+
+test('security headers allow only the same origin to embed public legal documents', () => {
+  const headers = securityHeaders();
+  assert.equal(headers['X-Frame-Options'], 'SAMEORIGIN');
+  assert.match(headers['Content-Security-Policy'], /frame-ancestors 'self'/);
+  assert.doesNotMatch(headers['Content-Security-Policy'], /frame-ancestors 'none'/);
+});
