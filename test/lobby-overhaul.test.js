@@ -58,4 +58,8 @@ test('friends persist on accounts and lobby rows support friend requests', () =>
   assert.match(server, /urlPath === '\/api\/account\/friend-response'/);
   assert.match(app, /addEventListener\('contextmenu'[\s\S]*?accountApi\('friend-request'/);
   assert.match(app, /msg\.type === 'friend_request'/);
+  assert.match(server, /urlPath === '\/api\/account\/profile'[\s\S]*?gamesPlayed[\s\S]*?totalVP/);
+  assert.match(app, /function openPlayerProfile[\s\S]*?playerProfileStats[\s\S]*?Average VP/);
+  assert.match(app, /playerProfileLink[\s\S]*?openPlayerProfileById\(p\.id\)/);
+  assert.match(app, /friendRowProfile[\s\S]*?openPlayerProfileById\(friend\.id\)/);
 });

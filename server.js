@@ -9841,6 +9841,32 @@ async function handleAccountHttp(req, res, urlPath) {
     return;
   }
 
+  if (urlPath === '/api/account/profile') {
+    const target = findUserById(String(body.userId || '').trim());
+    if (!target) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'Player profile not found.' });
+      return;
+    }
+    const stats = target.stats && typeof target.stats === 'object' ? target.stats : {};
+    sendHttpJson(req, res, 200, {
+      ok: true,
+      profile: {
+        id: target.id,
+        username: target.username,
+        displayName: target.displayName || target.username,
+        createdAt: Number(target.createdAt || 0),
+        stats: {
+          gamesPlayed: Math.max(0, Math.floor(Number(stats.gamesPlayed || 0))),
+          wins: Math.max(0, Math.floor(Number(stats.wins || 0))),
+          losses: Math.max(0, Math.floor(Number(stats.losses || 0))),
+          totalVP: Math.max(0, Math.floor(Number(stats.totalVP || 0))),
+          lastGameAt: Math.max(0, Number(stats.lastGameAt || 0)),
+        },
+      },
+    });
+    return;
+  }
+
   if (urlPath === '/api/account/friend-request') {
     const target = findUserById(body.userId);
     if (!target || target.id === viewer.id) { sendHttpJson(req, res, 400, { ok: false, error: 'That player cannot receive a friend request.' }); return; }

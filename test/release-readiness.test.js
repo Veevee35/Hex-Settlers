@@ -29,6 +29,7 @@ test('pause, play, and voted previous-turn restoration are separate server-autho
   assert.match(server, /_previousTurnSnapshot[\s\S]*?Object\.assign\(game, restored\)/);
   assert.match(server, /const current = game\._currentTurnStartSnapshot[\s\S]*?game\._previousTurnSnapshot = current[\s\S]*?game\._currentTurnStartSnapshot = deepClone/);
   assert.match(server, /turnUndoVote[\s\S]*?must remain paused until the turn-undo vote finishes/);
+  assert.match(client, /turnUndoResponsePendingVoteId[\s\S]*?stale state packet[\s\S]*?turnUndoResponsePendingVoteId === voteId/);
 });
 
 test('administrator account merging combines identity data without exposing email addresses', () => {

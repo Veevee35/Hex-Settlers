@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'ranked-range-password-gold-v6';
+  const ASSET_CACHE_SW_BUILD = 'undo-profile-popup-v7';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -5123,6 +5123,7 @@ function syncPostgameToState() {
   let lastStealPromptId = 0;
   let lastPirateStealPromptId = 0;
   let lastPirateChoicePromptId = 0;
+  let turnUndoResponsePendingVoteId = 0;
   let lastTileCountForView = 0;
   // Track canvas CSS size so we can resync the backing store when the layout changes
   // (e.g., when the game transitions into full-screen board mode). Without this,
@@ -6480,6 +6481,69 @@ function refreshLobbyJoinLinkUi() {
     const value = Number(timestamp || 0);
     if (!value) return 'Never';
     try { return new Date(value).toLocaleString(); } catch (_) { return 'Unknown'; }
+  }
+
+  function openPlayerProfile(profile) {
+    if (!profile) return;
+    const stats = profile.stats || {};
+    const games = Math.max(0, Number(stats.gamesPlayed || 0));
+    const wins = Math.max(0, Number(stats.wins || 0));
+    const losses = Math.max(0, Number(stats.losses || 0));
+    const totalVP = Math.max(0, Number(stats.totalVP || 0));
+    const winRate = games ? Math.round((wins / games) * 100) : 0;
+    const averageVP = games ? (totalVP / games).toFixed(1) : '0.0';
+    const rating = Math.max(500, Math.round(1000 + wins * 24 - Math.max(0, games - wins) * 12));
+    const body = document.createElement('div');
+    body.className = 'playerProfileCard';
+    const hero = document.createElement('div');
+    hero.className = 'playerProfileHero';
+    const avatar = document.createElement('div');
+    avatar.className = 'playerProfileAvatar';
+    avatar.textContent = String(profile.displayName || profile.username || '?').slice(0, 1).toUpperCase();
+    const identity = document.createElement('div');
+    const displayName = document.createElement('div');
+    displayName.className = 'playerProfileName';
+    displayName.textContent = profile.displayName || profile.username || 'Player';
+    const username = document.createElement('div');
+    username.className = 'playerProfileUsername';
+    username.textContent = profile.username ? `@${profile.username}` : 'Hex Settlers player';
+    identity.append(displayName, username);
+    const ratingBadge = document.createElement('div');
+    ratingBadge.className = 'playerProfileRating';
+    ratingBadge.innerHTML = `<span>RANKED RATING</span><strong>${rating}</strong>`;
+    hero.append(avatar, identity, ratingBadge);
+    body.appendChild(hero);
+    const grid = document.createElement('div');
+    grid.className = 'playerProfileStats';
+    for (const [label, value] of [['Games', games], ['Wins', wins], ['Losses', losses], ['Win Rate', `${winRate}%`], ['Total VP', totalVP], ['Average VP', averageVP]]) {
+      const item = document.createElement('div');
+      item.className = 'playerProfileStat';
+      const valueNode = document.createElement('strong');
+      valueNode.textContent = String(value);
+      const labelNode = document.createElement('span');
+      labelNode.textContent = label;
+      item.append(valueNode, labelNode);
+      grid.appendChild(item);
+    }
+    body.appendChild(grid);
+    const footer = document.createElement('div');
+    footer.className = 'playerProfileFooter';
+    const memberSince = Number(profile.createdAt || 0);
+    const lastGame = Number(stats.lastGameAt || 0);
+    footer.textContent = `${memberSince ? `Settler since ${new Date(memberSince).toLocaleDateString()}` : 'Hex Settlers player'}${lastGame ? ` · Last game ${new Date(lastGame).toLocaleDateString()}` : ''}`;
+    body.appendChild(footer);
+    openModal({ title: 'Player Profile', bodyNode: body, actions: [{ label: 'Close', primary: true, onClick: closeModal }] });
+  }
+
+  async function openPlayerProfileById(userId) {
+    const id = String(userId || '').trim();
+    if (!id) return;
+    try {
+      const result = await accountApi('profile', { userId: id });
+      openPlayerProfile(result.profile);
+    } catch (error) {
+      setError(error.message || 'Could not load that player profile.');
+    }
   }
 
   async function openServerManagementConsole() {
@@ -8732,6 +8796,19 @@ function refreshLobbyJoinLinkUi() {
       name.textContent = label;
       tag.appendChild(badge);
       tag.appendChild(name);
+      if (!p.isAI && p.id) {
+        tag.classList.add('playerProfileLink');
+        tag.title = p.id === myPlayerId ? 'View your player stats' : 'View player stats · Right-click to send a friend request';
+        tag.tabIndex = 0;
+        tag.setAttribute('role', 'button');
+        tag.addEventListener('click', () => void openPlayerProfileById(p.id));
+        tag.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            void openPlayerProfileById(p.id);
+          }
+        });
+      }
       row.appendChild(tag);
 
       if (roleLabel === 'player') {
@@ -9278,7 +9355,45 @@ function refreshLobbyJoinLinkUi() {
   $('accountLogoutBtn')?.addEventListener('click', () => { setAccountMenuOpen(false); ui.logoutBtn?.click(); });
   async function loadFriends() {
     const list = $('friendsList'); if (!list) return; list.textContent = 'Loading…';
-    try { const result = await accountApi('friends'); list.innerHTML = ''; for (const request of (result.requests || [])) { const row = document.createElement('div'); row.className = 'friendRow'; row.append(`${request.displayName} sent a request `); for (const [label, accept] of [['Accept', true], ['Decline', false]]) { const button = document.createElement('button'); button.className = `btn${accept ? ' primary' : ''}`; button.textContent = label; button.addEventListener('click', async () => { await accountApi('friend-response', { userId: request.id, accept }); loadFriends(); }); row.appendChild(button); } list.appendChild(row); } for (const friend of (result.friends || [])) { const row = document.createElement('div'); row.className = 'friendRow'; row.textContent = `${friend.displayName} (@${friend.username}) · ${friend.online ? 'Online' : 'Offline'}`; list.appendChild(row); } if (!(result.friends || []).length && !(result.requests || []).length) list.textContent = 'No friends yet. Right-click a player in a lobby to send a request.'; const badge = $('friendBadge'); if (badge) { badge.textContent = String((result.requests || []).length); badge.classList.toggle('hidden', !(result.requests || []).length); } }
+    try {
+      const result = await accountApi('friends');
+      list.innerHTML = '';
+      for (const request of (result.requests || [])) {
+        const row = document.createElement('div');
+        row.className = 'friendRow';
+        const name = document.createElement('button');
+        name.className = 'friendProfileLink';
+        name.textContent = `${request.displayName} (@${request.username})`;
+        name.addEventListener('click', () => void openPlayerProfileById(request.id));
+        row.append(name, document.createTextNode(' sent a request '));
+        for (const [label, accept] of [['Accept', true], ['Decline', false]]) {
+          const button = document.createElement('button');
+          button.className = `btn${accept ? ' primary' : ''}`;
+          button.textContent = label;
+          button.addEventListener('click', async () => { await accountApi('friend-response', { userId: request.id, accept }); loadFriends(); });
+          row.appendChild(button);
+        }
+        list.appendChild(row);
+      }
+      for (const friend of (result.friends || [])) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'friendRow friendRowProfile';
+        row.innerHTML = `<span><strong></strong><small></small></span><span class="friendPresence"></span>`;
+        row.querySelector('strong').textContent = friend.displayName;
+        row.querySelector('small').textContent = `@${friend.username}`;
+        row.querySelector('.friendPresence').textContent = friend.online ? 'Online' : 'Offline';
+        row.querySelector('.friendPresence').classList.toggle('online', !!friend.online);
+        row.addEventListener('click', () => void openPlayerProfileById(friend.id));
+        list.appendChild(row);
+      }
+      if (!(result.friends || []).length && !(result.requests || []).length) list.textContent = 'No friends yet. Right-click a player in a lobby to send a request.';
+      const badge = $('friendBadge');
+      if (badge) {
+        badge.textContent = String((result.requests || []).length);
+        badge.classList.toggle('hidden', !(result.requests || []).length);
+      }
+    }
     catch (error) { list.textContent = error.message || 'Could not load friends.'; }
   }
 
@@ -12144,10 +12259,21 @@ if (ui.moveShipBtn) {
     if (!state || !myPlayerId) return;
     const vote = state.turnUndoVote;
     if (!vote || !vote.id) {
+      turnUndoResponsePendingVoteId = 0;
       if (modalType === 'turnUndoVote') forceCloseModal();
       return;
     }
-    if (vote.responses && vote.responses[myPlayerId]) return;
+    const voteId = Number(vote.id || 0);
+    if (turnUndoResponsePendingVoteId && turnUndoResponsePendingVoteId !== voteId) turnUndoResponsePendingVoteId = 0;
+    if (vote.responses && vote.responses[myPlayerId]) {
+      turnUndoResponsePendingVoteId = 0;
+      if (modalType === 'turnUndoVote') forceCloseModal();
+      return;
+    }
+    // Do not reopen from a stale state packet while this player's response is
+    // travelling to the server. The authoritative state will either record the
+    // response, clear a rejected vote, or restore the previous turn.
+    if (turnUndoResponsePendingVoteId === voteId) return;
     if (!ui.modal.classList.contains('hidden') && modalType !== 'turnUndoVote') return;
     const proposer = (state.players || []).find((player) => player.id === vote.fromId);
     const body = document.createElement('div');
@@ -12158,8 +12284,8 @@ if (ui.moveShipBtn) {
       title: 'Undo Previous Turn?',
       bodyNode: body,
       actions: [
-        { label: 'Reject', onClick: () => { sendGameAction({ kind: 'respond_turn_undo', voteId: vote.id, accept: false }); modalType = null; forceCloseModal(); } },
-        { label: 'Approve Undo', primary: true, onClick: () => { sendGameAction({ kind: 'respond_turn_undo', voteId: vote.id, accept: true }); modalType = null; forceCloseModal(); } },
+        { label: 'Reject', onClick: () => { turnUndoResponsePendingVoteId = voteId; sendGameAction({ kind: 'respond_turn_undo', voteId, accept: false }); modalType = null; forceCloseModal(); } },
+        { label: 'Approve Undo', primary: true, onClick: () => { turnUndoResponsePendingVoteId = voteId; sendGameAction({ kind: 'respond_turn_undo', voteId, accept: true }); modalType = null; forceCloseModal(); } },
       ],
     });
   }
