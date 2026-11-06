@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const client = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const { rankedRating, calculateRankedChanges } = require('../server/ranked-rating');
+const { computePolicyRatingChanges, DEFAULT_RATING_POLICY } = require('../server/rating-policy');
 const { serializeRoom, restoreRoom } = require('../server/active-rooms');
 
 function extractFunction(startName, endName) {
@@ -78,7 +79,7 @@ test('initial migration resets every legacy account once, then never overwrites 
 test('only authoritative ranked games update ratings, and results apply only once', () => {
   const ctx = vm.createContext({
     findUserById: (id) => ctx.users[id] || null,
-    rankedRating, calculateRankedChanges,
+    rankedRating, calculateRankedChanges, computePolicyRatingChanges, RATING_POLICY: DEFAULT_RATING_POLICY,
     now: () => 123456,
     saveUsersDb: () => { ctx.saves++; },
     sendJson: () => {},
@@ -127,6 +128,7 @@ test('game history includes the ranked flag and per-user rating changes in its s
     crypto: { randomUUID: () => 'new-game-id' },
     deepClone: (obj) => JSON.parse(JSON.stringify(obj)),
     sanitizeLogEntriesForViewer: (entries) => entries,
+    RATING_POLICY: DEFAULT_RATING_POLICY,
   });
   vm.runInContext(makeEntry, ctx);
   const game = { phase: 'game-over', ranked: true, winnerId: 'p1', turnNumber: 10,

@@ -50,8 +50,10 @@ test('ranked matchmaking is server authoritative and preference based', () => {
   assert.doesNotMatch(rankedOptions, /Classic 5–6|<option>3<\/option>/);
   for (const count of [4, 5, 6]) assert.match(rankedOptions, new RegExp(`<option(?: selected)?>${count}<\\/option>`));
   assert.match(rankedOptions, /id="rankedReadyBtn"[^>]*>Start Matchmaking<\/button>/);
-  assert.match(server, /const key = `\$\{mapFamily\}:\$\{playerCount\}`/);
-  assert.match(server, /processRankedQueue[\s\S]*?Math\.abs\(entry\.rating - anchor\.rating\) <= range/);
+  assert.match(server, /const key = String\(playerCount\)/);
+  assert.match(rankedOptions, /value="either">Either/);
+  assert.match(server, /function mapsCompatible\(/);
+  assert.match(server, /function selectRankedMatch[\s\S]*?Math\.abs\(entry\.rating - anchor\.rating\) <= range/);
   assert.match(server, /mapFamily === 'classic' && playerCount > 4 \? 'classic56' : mapFamily/);
   assert.match(server, /playerCount > 4 \? 'six_islands' : 'four_islands'/);
 });

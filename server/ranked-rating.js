@@ -13,7 +13,9 @@ function rankedRating(value) {
     : INITIAL_RANKED_RATING;
 }
 
-function calculateRankedChanges(participants, winnerId) {
+function calculateRankedChanges(participants, winnerId, settings = {}) {
+  const kFactor = Number.isFinite(Number(settings.kFactor)) ? Math.max(0, Number(settings.kFactor)) : RANKED_K_FACTOR;
+  const eloScale = Number.isFinite(Number(settings.eloScale)) ? Math.max(100, Number(settings.eloScale)) : 400;
   const unique = new Set();
   const players = (Array.isArray(participants) ? participants : []).filter((player) => {
     const id = String(player?.id || '');
@@ -25,9 +27,9 @@ function calculateRankedChanges(participants, winnerId) {
 
   const before = players.map((player) => rankedRating(player.rating));
   const highest = Math.max(...before);
-  const weights = before.map((rating) => Math.pow(10, (rating - highest) / 400));
+  const weights = before.map((rating) => Math.pow(10, (rating - highest) / eloScale));
   const total = weights.reduce((sum, weight) => sum + weight, 0);
-  const rawChanges = players.map((player, index) => RANKED_K_FACTOR * (
+  const rawChanges = players.map((player, index) => kFactor * (
     (String(player.id) === String(winnerId) ? 1 : 0) - (weights[index] / total)
   ));
 

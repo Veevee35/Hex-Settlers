@@ -2755,3 +2755,113 @@ body.in-game .accountMenu{
   body.in-game .accountMenu{right:10px;max-width:calc(100vw - 20px);}
   .serverManagementMember{gap:8px;}
 }
+
+/* v14: Center both prompts in the visible board canvas, not the whole window. */
+body.in-game .yourRollBanner,
+body.in-game .extraTurnCenterBanner{
+  left:calc((100% - var(--right-sidebar-width, 520px)) / 2);
+  top:50%;
+  font-size:clamp(34px, 6vw, 92px);
+}
+
+/* Administrator rating studio: keyboard and touch accessible without horizontal scrolling. */
+.modalBox:has(.ratingManagementPanel){width:min(960px,calc(100vw - 24px));max-height:calc(100dvh - 24px);display:flex;flex-direction:column;}
+.modalBox:has(.ratingManagementPanel) .modalBody{overflow:auto;min-height:0;overscroll-behavior:contain;}
+.ratingManagementPanel{display:flex;flex-direction:column;gap:12px;width:100%;padding:0 2px;}
+.ratingManagementPanel h3{font-size:15px;margin:10px 0 0;color:#f5d58c;}
+.ratingManagementFields{display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:10px;}
+.ratingManagementField{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);padding:10px;border-radius:12px;background:rgba(0,0,0,.13);color:var(--text);font-size:12px;}
+.ratingManagementField .input{font-size:16px;min-height:44px;}
+.ratingManagementActions{display:flex;gap:10px;flex-wrap:wrap;}
+.ratingManagementActions .btn{min-height:44px;}
+.ratingConfirm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+.ratingConfirm .input{width:200px;max-width:100%;}
+.ratingPreviewResults{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:12px;}
+.ratingPreviewTable{border-collapse:collapse;width:100%;font-size:12px;}
+.ratingPreviewTable th,.ratingPreviewTable td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;}
+.ratingPreviewTable th{position:sticky;top:0;background:#1a2b3b;}
+.mobileGameControls,.mobilePanelTitle{display:none;}
+
+/* Phone and tablet gameplay: prioritize the touch board. Drawer is closed by default. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px){
+  body.in-game .boardWrap{padding-right:0 !important;min-height:0;position:relative;}
+  body.in-game .rightSidebar{
+    position:absolute !important;left:0;right:0;top:auto;bottom:0;
+    width:100% !important;height:min(62dvh,620px);max-height:calc(100dvh - 70px);
+    flex:none;min-height:0;border-left:0;border-top:1px solid rgba(123,174,205,.45);
+    border-radius:18px 18px 0 0;z-index:30;
+    box-shadow:0 -16px 60px rgba(0,0,0,.7);
+    transform:translateY(105%);visibility:hidden;pointer-events:none;
+    transition:transform .2s ease,visibility .2s ease;
+  }
+  body.in-game.mobilePanelsOpen .rightSidebar{transform:translateY(0);visibility:visible;pointer-events:auto;}
+  body.in-game .rightSidebarInner{padding:10px 14px calc(76px + var(--safe-bottom));overflow-y:auto;overscroll-behavior:contain;}
+  body.in-game .rightSidebarResize{display:none;}
+  body.in-game .rightSidebar #resourcesCard{position:relative;}
+  body.in-game .rightSidebar .logList{max-height:220px;}
+  body.in-game .rightSidebar .devHand{max-height:200px;}
+  body.in-game .yourRollBanner,body.in-game .extraTurnCenterBanner{
+    left:50%;top:50%;font-size:clamp(30px,7.5vw,66px);max-width:95%;
+  }
+  body.in-game .pausedOverlay{right:0;bottom:0;}
+  body.in-game #errBox{top:95px;max-width:calc(100% - 24px);}
+  body.in-game .hudBottomLeft{bottom:calc(60px + var(--safe-bottom));left:6px;right:6px;width:auto;max-width:calc(100% - 12px);}
+  body.in-game .hudBar{max-width:calc(100% - 12px);}
+  body.in-game .hudBottomLeft .hudBarRow{display:flex;align-items:center;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;}
+  body.in-game .hudBottomLeft .hudBtns{flex-wrap:nowrap;width:max-content;}
+  body.in-game .hudBottomLeft .btn{min-height:44px;min-width:44px;white-space:nowrap;touch-action:manipulation;font-size:12px;padding:9px 12px;}
+  body.in-game .hudBottomLeft .hudTurnInfo{display:none;}
+  body.in-game .hudTopLeft{
+    display:none;position:absolute !important;top:calc(72px + var(--safe-top)) !important;left:6px !important;right:6px !important;bottom:auto !important;
+    width:auto !important;max-width:calc(100% - 12px);max-height:55dvh;overflow:auto;z-index:32;
+  }
+  body.in-game.mobileActionsOpen .hudTopLeft{display:block;}
+  body.in-game .hudTopLeft .hudBtns{display:flex;flex-wrap:wrap;}
+  body.in-game .hudTopLeft .btn{min-height:44px;min-width:44px;}
+  body.in-game.mobilePanelsOpen .hudBottomLeft{visibility:hidden;pointer-events:none;}
+  body.in-game .rightHud{right:calc(6px + var(--safe-right));top:calc(65px + var(--safe-top));gap:5px;}
+  body.in-game .rightHud .btn{min-height:40px;min-width:44px;padding:7px 10px;}
+  body.in-game .accountOrb{top:calc(8px + var(--safe-top));right:calc(8px + var(--safe-right));width:44px;height:44px;}
+  body.in-game .accountMenu{top:calc(59px + var(--safe-top));right:calc(8px + var(--safe-right));}
+  body.in-game .hudBar .extraTurnBanner{font-size:15px;}
+  body.in-game .mobileGameControls{
+    position:absolute;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;
+    left:calc(6px + var(--safe-left));right:calc(6px + var(--safe-right));bottom:calc(5px + var(--safe-bottom));z-index:34;
+  }
+  .mobileControlBtn{
+    min-height:46px;min-width:0;padding:9px 8px;border:1px solid #4f718b;border-radius:12px;
+    background:rgba(12,26,38,.95);color:#f3f8ff;font-size:13px;font-weight:800;
+    box-shadow:0 4px 16px rgba(0,0,0,.4);touch-action:manipulation;
+  }
+  body.in-game .mobilePanelTitle{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:10px 14px 7px;border-bottom:1px solid var(--line);font-size:15px;
+  }
+  .mobilePanelTitle .mobileControlBtn{min-height:40px;}
+  .mobileGameControls .mobileControlBtn[aria-expanded="true"]{border-color:#edc15d;background:#263b4c;}
+  .modalBox,.portalCard{max-width:calc(100vw - 16px);}
+  .ratingManagementFields{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));}
+}
+@media(max-width:480px){
+  body.in-game .rightHud{top:calc(58px + var(--safe-top));}
+  body.in-game .hudBottomLeft{bottom:calc(58px + var(--safe-bottom));}
+  .ratingManagementFields{grid-template-columns:1fr 1fr;gap:6px;}
+  .ratingManagementField{padding:7px;font-size:11px;}
+  .ratingManagementActions{display:grid;grid-template-columns:1fr;}
+  .ratingManagementActions .btn{width:100%;}
+}
+@media(prefers-reduced-motion:reduce){body.in-game .rightSidebar{transition:none;}}
+/* Mobile positions override saved desktop drag coordinates (otherwise controls can disappear). */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px){
+  body.in-game .hudBottomLeft{
+    position:absolute !important;top:auto !important;left:6px !important;right:6px !important;
+    bottom:calc(60px + var(--safe-bottom)) !important;
+  }
+  body.in-game .rightHud{
+    position:absolute !important;top:calc(65px + var(--safe-top)) !important;
+    left:auto !important;bottom:auto !important;right:calc(6px + var(--safe-right)) !important;
+  }
+}
+@media(max-width:480px){
+  body.in-game .rightHud{top:calc(58px + var(--safe-top)) !important;}
+}

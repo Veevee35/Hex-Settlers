@@ -1236,6 +1236,20 @@
     } else {
       serverManagementBtn?.remove();
     }
+    let ratingManagementBtn = $('ratingManagementBtn');
+    if (loggedIn && authUser.isAdmin) {
+      if (!ratingManagementBtn) {
+        ratingManagementBtn = document.createElement('button');
+        ratingManagementBtn.id = 'ratingManagementBtn';
+        ratingManagementBtn.className = 'accountMenuItem';
+        ratingManagementBtn.textContent = 'Rating Management';
+        ratingManagementBtn.addEventListener('click', () => {
+          $('accountMenu')?.classList.add('hidden');
+          void openRatingManagementScreen();
+        });
+        $('accountMenu')?.insertBefore(ratingManagementBtn, $('accountLogoutBtn'));
+      }
+    } else ratingManagementBtn?.remove();
     if (ui.loginBtn) ui.loginBtn.disabled = loggedIn;
     if (ui.registerBtn) ui.registerBtn.disabled = loggedIn;
     if (ui.usernameInput) ui.usernameInput.disabled = loggedIn;
@@ -4115,6 +4129,25 @@ function syncPostgameToState() {
     ensureInGamePanelScaleControls();
   }
 
+  const mobileActionsToggle = $('mobileActionsToggle');
+  const mobilePanelsToggle = $('mobilePanelsToggle');
+  function setMobileActionsOpen(open) {
+    document.body.classList.toggle('mobileActionsOpen', !!open);
+    mobileActionsToggle?.setAttribute('aria-expanded', String(!!open));
+  }
+  function setMobilePanelsOpen(open) {
+    document.body.classList.toggle('mobilePanelsOpen', !!open);
+    mobilePanelsToggle?.setAttribute('aria-expanded', String(!!open));
+    if (open) setMobileActionsOpen(false);
+  }
+  mobileActionsToggle?.addEventListener('click', () => {
+    const open = !document.body.classList.contains('mobileActionsOpen');
+    setMobilePanelsOpen(false); setMobileActionsOpen(open);
+  });
+  mobilePanelsToggle?.addEventListener('click', () => setMobilePanelsOpen(!document.body.classList.contains('mobilePanelsOpen')));
+  $('mobilePanelsClose')?.addEventListener('click', () => setMobilePanelsOpen(false));
+  $('mobileFitBoard')?.addEventListener('click', () => { view.autoFit = true; resizeCanvas(); render(); });
+
   function dockHudToBoard(inGame) {
     const panel = document.querySelector('section.panel');
     const boardWrap = document.querySelector('section.boardWrap');
@@ -6053,7 +6086,7 @@ function refreshLobbyJoinLinkUi() {
       if (msg.type === 'ranked_queue_status') {
         pendingRankedMatchmaking = false;
         const status = $('rankedStatus');
-        if (status) status.textContent = msg.queued ? `Searching near rating ${msg.rating || 1000} (±${msg.ratingRange || 100}) · ${msg.waiting || 1}/${msg.needed || 4} players ready` : 'Matchmaking cancelled.';
+        if (status) status.textContent = msg.queued ? `Searching ${msg.mapMode === 'either' ? 'either map' : (msg.mapMode || 'classic')} near rating ${msg.rating || 1000} (±${msg.ratingRange || 100}) · ${msg.waiting || 1}/${msg.needed || 4} compatible players ready` : 'Matchmaking cancelled.';
         $('rankedReadyBtn')?.classList.toggle('hidden', !!msg.queued);
         $('rankedCancelBtn')?.classList.toggle('hidden', !msg.queued);
         return;
@@ -6572,6 +6605,118 @@ function refreshLobbyJoinLinkUi() {
     } catch (error) {
       setError(error.message || 'Could not load that player profile.');
     }
+  }
+
+  async function openRatingManagementScreen() {
+    if (!authUser?.isAdmin) { setError('Administrator access required.'); return; }
+    const body = document.createElement('div');
+    body.className = 'ratingManagementPanel';
+    const message = document.createElement('p');
+    message.className = 'smallNote';
+    message.textContent = 'Loading rating policy…';
+    body.appendChild(message);
+    openModal({ title: 'Rating Management', bodyNode: body,
+      actions: [{ label: 'Close', onClick: closeModal }] });
+    try {
+      const response = await adminApi('rating-policy');
+      const policy = JSON.parse(JSON.stringify(response.policy));
+      let previewToken = '';
+      body.replaceChildren();
+      const intro = document.createElement('p');
+      intro.className = 'userManagementNotice';
+      intro.textContent = `Adjust how ranked rating is earned or lost. Bonuses are rating points per recorded event, applied after multiplayer Elo. Positive weights reward, negative weights penalize. Zero disables a metric. ${response.archivedRankedGames} ranked games are in the retained ${response.archivedGames}-game archive (maximum ${response.historyLimit}); older missing records cannot be reconstructed.`;
+      body.appendChild(intro);
+      const form = document.createElement('div');
+      form.className = 'ratingManagementFields';
+      const inputs = {};
+      const addSetting = (label, key, min, max, step, value, parent = form) => {
+        const row = document.createElement('label');
+        row.className = 'ratingManagementField';
+        const caption = document.createElement('span');
+        caption.textContent = label;
+        const input = document.createElement('input');
+        input.className = 'input'; input.type = 'number';
+        input.min = String(min); input.max = String(max); input.step = String(step);
+        input.value = String(value); input.setAttribute('aria-label', label);
+        input.addEventListener('input', () => { previewToken = ''; applyBtn.disabled = true; results.replaceChildren(); status.textContent = 'Unsaved edits — preview again to apply a rebuild.'; });
+        row.append(caption, input); parent.appendChild(row); inputs[key] = input;
+      };
+      addSetting('Elo K-factor (0–128)', 'kFactor', 0, 128, 1, policy.kFactor);
+      addSetting('Elo scale (100–2000)', 'eloScale', 100, 2000, 1, policy.eloScale);
+      addSetting('Max bonus / penalty per game (0–256)', 'maxPerformanceAdjustment', 0, 256, 1, policy.maxPerformanceAdjustment);
+      addSetting('Winner bonus', 'winBonus', -100, 100, .5, policy.winBonus);
+      addSetting('Non-winner bonus', 'lossBonus', -100, 100, .5, policy.lossBonus);
+      body.appendChild(form);
+      const heading = document.createElement('h3');
+      heading.textContent = 'Per-event performance weights';
+      body.appendChild(heading);
+      const grid = document.createElement('div');
+      grid.className = 'ratingManagementFields ratingWeights';
+      for (const metric of response.metrics) addSetting(metric.label, metric.key, -25, 25, .25, policy.weights?.[metric.key] ?? 0, grid);
+      body.appendChild(grid);
+      const resultHeader = document.createElement('h3'); resultHeader.textContent = 'Historical impact preview';
+      body.appendChild(resultHeader);
+      const status = document.createElement('p'); status.className = 'smallNote';
+      status.textContent = 'Preview is read-only. Apply Rebuild changes saved historical rating deltas and account ratings.';
+      body.appendChild(status);
+      const results = document.createElement('div'); results.className = 'ratingPreviewResults'; body.appendChild(results);
+      const controls = document.createElement('div'); controls.className = 'ratingManagementActions';
+      const saveBtn = document.createElement('button'); saveBtn.className = 'btn'; saveBtn.textContent = 'Save Weights for Future Games';
+      const previewBtn = document.createElement('button'); previewBtn.className = 'btn primary'; previewBtn.textContent = 'Preview Past Ranked Games';
+      const applyBtn = document.createElement('button'); applyBtn.className = 'btn danger'; applyBtn.textContent = 'Apply Historical Rebuild'; applyBtn.disabled = true;
+      const confirmLabel = document.createElement('label'); confirmLabel.className = 'ratingConfirm';
+      confirmLabel.textContent = 'To rebuild, type RECALCULATE: ';
+      const confirm = document.createElement('input'); confirm.className = 'input'; confirm.placeholder = 'RECALCULATE';
+      confirm.autocomplete = 'off'; confirmLabel.appendChild(confirm);
+      const getPolicy = () => {
+        const out = { weights: {} };
+        for (const key of ['kFactor', 'eloScale', 'maxPerformanceAdjustment', 'winBonus', 'lossBonus']) out[key] = Number(inputs[key].value);
+        for (const metric of response.metrics) out.weights[metric.key] = Number(inputs[metric.key].value);
+        if (Object.values(inputs).some(input => !input.value.trim() || !input.checkValidity())) throw new Error('Please correct highlighted settings and their allowed ranges.');
+        return out;
+      };
+      function setBusy(busy) { saveBtn.disabled = busy; previewBtn.disabled = busy; applyBtn.disabled = busy || !previewToken; }
+      saveBtn.addEventListener('click', async () => {
+        try { setBusy(true); const result = await adminApi('rating-policy-save', { policy: getPolicy() });
+          status.textContent = result.message; previewToken = ''; results.replaceChildren(); }
+        catch (error) { status.textContent = error.message; } finally { setBusy(false); }
+      });
+      previewBtn.addEventListener('click', async () => {
+        try {
+          previewToken = ''; setBusy(true); results.replaceChildren();
+          const result = await adminApi('rating-policy-preview', { policy: getPolicy() });
+          previewToken = result.token;
+          status.textContent = `${result.applied} ranked games replayed, ${result.skipped} skipped, ${result.archivedCount} total archived. This preview has not changed any ratings.`;
+          const table = document.createElement('table'); table.className = 'ratingPreviewTable';
+          const head = document.createElement('tr');
+          for (const label of ['Player', 'Current', 'Projected', 'Difference']) { const cell = document.createElement('th'); cell.textContent = label; head.appendChild(cell); }
+          table.appendChild(head);
+          for (const player of result.leaderboard) {
+            const tr = document.createElement('tr'); const diff = player.projected - player.current;
+            for (const label of [player.name, player.current, player.projected, `${diff > 0 ? '+' : ''}${diff}`]) {
+              const td = document.createElement('td'); td.textContent = String(label); tr.appendChild(td);
+            } table.appendChild(tr);
+          }
+          results.appendChild(table);
+        } catch (error) { status.textContent = error.message; }
+        finally { setBusy(false); }
+      });
+      applyBtn.addEventListener('click', async () => {
+        if (!previewToken || confirm.value.trim() !== 'RECALCULATE') {
+          status.textContent = 'Preview again and type RECALCULATE to confirm.'; return;
+        }
+        try {
+          setBusy(true);
+          const result = await adminApi('rating-policy-rebuild', { policy: getPolicy(), token: previewToken, confirm: 'RECALCULATE' });
+          status.textContent = result.message;
+          previewToken = ''; confirm.value = ''; results.replaceChildren();
+          authUser.rankedRating = result.myRating ?? authUser.rankedRating;
+        } catch (error) { status.textContent = error.message; }
+        finally { setBusy(false); }
+      });
+      controls.append(saveBtn, previewBtn, applyBtn);
+      body.append(confirmLabel, controls);
+    } catch (error) { message.textContent = error.message || 'Could not load rating policy.'; }
   }
 
   async function openServerManagementConsole() {
@@ -10763,6 +10908,7 @@ function ensureTimerUiInterval() {
     // Global page state + HUD docking.
     try { document.body.classList.toggle('in-game', inGame); } catch (_) {}
     dockHudToBoard(inGame);
+    if (!inGame) { setMobilePanelsOpen(false); setMobileActionsOpen(false); }
     syncRightSidebarDock(inGame);
 
     // IMPORTANT: the board layout (and thus the canvas CSS pixel size) changes when the

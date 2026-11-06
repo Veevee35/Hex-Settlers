@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=nov-2026-rematch-back-layout-v12" />
+  <link rel="stylesheet" href="styles.css?v=rating-mobile-v14" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -81,7 +81,7 @@
 
   <div id="friendsOverlay" class="portalOverlay hidden"><div class="portalCard registerCard"><button id="friendsCloseBtn" class="overlayClose">×</button><h2>Friends</h2><div id="friendsList" class="friendsList"></div></div></div>
 
-  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><label class="label">Map</label><select id="rankedMap" class="input"><option value="classic">Classic</option><option value="seafarers">Seafarers</option></select><label class="label">Players</label><select id="rankedPlayers" class="input"><option selected>4</option><option>5</option><option>6</option></select><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Choose your preferences when you are ready.</p></div></section>
+  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><label class="label">Map</label><select id="rankedMap" class="input"><option value="classic">Classic</option><option value="seafarers">Seafarers</option><option value="either">Either — first available</option></select><p class="smallNote">Either joins Classic or Seafarers queues, whichever fills first.</p><label class="label">Players</label><select id="rankedPlayers" class="input"><option selected>4</option><option>5</option><option>6</option></select><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Choose your preferences when you are ready.</p></div></section>
   <div id="app">
     <main class="layout">
       <section class="panel">
@@ -505,6 +505,11 @@
 
       <section class="boardWrap">
         <canvas id="board" width="1200" height="900"></canvas>
+        <div id="mobileGameControls" class="mobileGameControls" aria-label="Mobile game controls">
+          <button id="mobileActionsToggle" class="mobileControlBtn" type="button" aria-expanded="false">☰ Actions</button>
+          <button id="mobileFitBoard" class="mobileControlBtn" type="button" aria-label="Fit game board to screen">⌗ Fit Board</button>
+          <button id="mobilePanelsToggle" class="mobileControlBtn" type="button" aria-expanded="false">▤ Game Panels</button>
+        </div>
         <div id="yourRollBanner" class="yourRollBanner hidden" aria-live="polite">YOUR ROLL</div>
         <div id="extraTurnCenterBanner" class="extraTurnCenterBanner hidden" aria-live="assertive"><span aria-hidden="true">↻</span> EXTRA TURN</div>
 
@@ -525,6 +530,7 @@
         </div>
 
         <div id="rightSidebar" class="rightSidebar hidden">
+          <div class="mobilePanelTitle"><strong>Game Panels</strong><button id="mobilePanelsClose" class="mobileControlBtn" type="button" aria-label="Close game panels">✕ Close</button></div>
           <div id="rightSidebarResize" class="rightSidebarResize" title="Resize right panel"></div>
           <div id="rightSidebarInner" class="rightSidebarInner">
             <div id="rightSidebarResourcesDock" class="rightSidebarResourceDock">
@@ -665,6 +671,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=nov-2026-rematch-back-layout-v12"></script>
+  <script src="app.js?v=rating-mobile-v14"></script>
 </body>
 </html>

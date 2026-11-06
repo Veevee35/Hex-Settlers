@@ -92,6 +92,7 @@ const {
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
 const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = require('./server/land-masses');
 const { INITIAL_RANKED_RATING, rankedRating, calculateRankedChanges } = require('./server/ranked-rating');
+const { METRICS, DEFAULT_RATING_POLICY, validatedRatingPolicy, computePolicyRatingChanges, replayRankedHistory } = require('./server/rating-policy');
 const {
   applyResourceDelta: applyResourceStatsDelta,
   applyResourceOpportunityLoss,
@@ -134,7 +135,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'ranked-rating-season-one-v13';
+const SERVER_BUILD_ID = 'rating-studio-mobile-matchmaking-v14';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -180,12 +181,41 @@ let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticat
 // Completed games are stored on disk in game_history.json (DATA_DIR).
 // Each entry includes a compact metadata header + a postgame snapshot (stats + players + rules) for viewing later.
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
-const HISTORY_MAX_GAMES = 500;
+const HISTORY_MAX_GAMES = 5000;
 const NEURAL_AI_MODEL_PATH = path.join(DATA_DIR, 'neural_ai_model.json');
 const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH, { space: 0 });
 const NEURAL_AI_MODEL_WRITER = new JsonFileWriter(NEURAL_AI_MODEL_PATH);
 
 let HISTORY_DB = { version: 1, games: [] };
+const RATING_POLICY_PATH = path.join(DATA_DIR, 'rating_policy.json');
+const RATING_POLICY_WRITER = new JsonFileWriter(RATING_POLICY_PATH);
+let RATING_POLICY = validatedRatingPolicy(DEFAULT_RATING_POLICY);
+try {
+  if (fs.existsSync(RATING_POLICY_PATH)) {
+    RATING_POLICY = validatedRatingPolicy(JSON.parse(fs.readFileSync(RATING_POLICY_PATH, 'utf8')));
+  }
+} catch (error) {
+  console.error('[ratings] Invalid stored rating policy, using defaults:', error.message);
+}
+function ratingRebuildToken(settings) {
+  const games = (HISTORY_DB.games || []).filter(isValidHistoryEntry);
+  const signature = JSON.stringify({ settings, games: games.map(g => [g.id, g.endedAt, g.winnerId, g.ranked]),
+    users: (USERS_DB.users || []).map(u => u.id).sort() });
+  return crypto.createHash('sha256').update(signature).digest('hex');
+}
+function simulateRatingRebuild(settings) {
+  const policy = validatedRatingPolicy(settings);
+  const games = (HISTORY_DB.games || []).filter(isValidHistoryEntry);
+  const userIds = (USERS_DB.users || []).map(u => String(u.id));
+  const calculation = replayRankedHistory(games, policy, userIds);
+  const preview = (USERS_DB.users || []).map(u => ({
+    id: u.id, name: u.displayName || u.username, current: rankedRating(u.rankedRating),
+    projected: rankedRating(calculation.ratings[u.id]),
+  })).sort((a, b) => b.projected - a.projected || a.name.localeCompare(b.name));
+  return { policy, calculation, preview, token: ratingRebuildToken(policy),
+    archiveCount: games.length };
+}
+
 let NEURAL_AI_MODEL = null;
 
 function createDefaultNeuralAiModel() {
@@ -380,6 +410,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     stats: game.stats || null,
     ranked: !!game.ranked,
     ratingChanges: game.ratingChanges || {},
+    ratingPolicy: game.ranked ? (game.ratingPolicy || RATING_POLICY) : null,
     longestRoad: game.longestRoad || null,
     largestArmy: game.largestArmy || null,
     diceStats: game.diceStats || null,
@@ -395,6 +426,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     winnerName: w ? w.name : '',
     ranked: !!game.ranked,
     ratingChanges: deepClone(game.ratingChanges || {}),
+    ratingPolicy: game.ranked ? deepClone(game.ratingPolicy || RATING_POLICY) : null,
     rules: deepClone(game.rules || null),
     players,
     snapshot,
@@ -426,6 +458,7 @@ function persistGameHistoryFromGame(room, game, winnerId) {
     if (!Array.isArray(HISTORY_DB.games)) HISTORY_DB.games = [];
     HISTORY_DB.games.push(packHistoryEntry(entry));
     saveHistoryDb();
+    game._historyEntryId = entry.id;
     game._historyPersisted = true;
   } catch (e) {
     // If persistence fails, allow a retry.
@@ -3020,7 +3053,10 @@ function persistUserStatsFromGame(room, game, winnerId) {
   const rankedPlayers = rankedMatch ? (game.players || []).filter((gp) =>
     gp && !gp.isAI && !!findUserById(gp.id)
   ).map((gp) => ({ id: gp.id, rating: findUserById(gp.id).rankedRating })) : [];
-  const ratingChanges = rankedMatch ? calculateRankedChanges(rankedPlayers, wid) : {};
+  const ratingChanges = rankedMatch ? computePolicyRatingChanges({
+    ranked: true, winnerId: wid, players: game.players,
+    snapshot: { stats: game.stats, players: game.players },
+  }, Object.fromEntries(rankedPlayers.map(p => [String(p.id), p.rating])), game.ratingPolicy || RATING_POLICY) : {};
   game.ratingChanges = ratingChanges;
 
   for (const gp of (game.players || [])) {
@@ -5697,6 +5733,8 @@ function startGame(room) {
   if (room.game && room.game.phase !== 'lobby') return false;
   const game = newEmptyGame(room);
   game.ranked = !!room.ranked;
+  // Lock each ranked match to the rules active at the start of that match.
+  game.ratingPolicy = game.ranked ? deepClone(RATING_POLICY) : null;
 
   initGameStats(game);
 
@@ -8260,16 +8298,17 @@ function rankedRatingRange(waitMs) {
   return Math.min(RANKED_MAX_RATING_RANGE, RANKED_INITIAL_RATING_RANGE + (steps * RANKED_RANGE_STEP));
 }
 
+function mapsCompatible(left, right) {
+  return left === 'either' || right === 'either' || left === right;
+}
 function sendRankedQueueStatus(queue, playerCount, timestamp = now()) {
   for (const entry of queue) {
     if (entry.ws.readyState !== WebSocket.OPEN) continue;
+    const eligible = queue.filter(other => mapsCompatible(entry.mapFamily, other.mapFamily));
     sendJson(entry.ws, {
-      type: 'ranked_queue_status',
-      queued: true,
-      waiting: queue.length,
-      needed: playerCount,
-      rating: entry.rating,
-      ratingRange: rankedRatingRange(timestamp - entry.queuedAt),
+      type: 'ranked_queue_status', queued: true,
+      waiting: eligible.length, needed: playerCount, mapMode: entry.mapFamily,
+      rating: entry.rating, ratingRange: rankedRatingRange(timestamp - entry.queuedAt),
     });
   }
 }
@@ -8286,7 +8325,7 @@ function launchRankedMatch(matched, mapFamily, playerCount) {
   ensurePreview(rankedRoom, true);
   for (const entry of matched) {
     bindSocketToRoomMember(rankedRoom, entry.user.id, entry.ws, 'Ranked match opened in another tab.');
-    sendJson(entry.ws, { type: 'ranked_match_found', rating: entry.rating, roomCode: rankedRoom.code });
+    sendJson(entry.ws, { type: 'ranked_match_found', rating: entry.rating, roomCode: rankedRoom.code, mapMode: mapFamily });
     sendJson(entry.ws, { type: 'joined', playerId: entry.user.id, room: roomSnapshot(rankedRoom), isHost: entry.user.id === rankedRoom.hostId, role: 'player' });
   }
   startGame(rankedRoom);
@@ -8295,31 +8334,38 @@ function launchRankedMatch(matched, mapFamily, playerCount) {
   scheduleActiveRoomsSave();
 }
 
-function processRankedQueue(key, timestamp = now()) {
-  let queue = (rankedQueues.get(key) || []).filter((entry) => entry.ws.readyState === WebSocket.OPEN);
-  if (!queue.length) { rankedQueues.delete(key); return; }
-  rankedQueues.set(key, queue);
-  const [mapFamily, rawCount] = String(key).split(':');
-  const playerCount = Math.max(4, Math.min(6, Math.floor(Number(rawCount || 4))));
-
-  while (queue.length >= playerCount) {
-    queue.sort((left, right) => left.queuedAt - right.queuedAt);
-    const anchor = queue[0];
+let rankedEitherMapNext = 'classic';
+function selectRankedMatch(queue, playerCount, timestamp) {
+  const ordered = queue.slice().sort((a, b) => a.queuedAt - b.queuedAt);
+  for (const anchor of ordered) {
     const range = rankedRatingRange(timestamp - anchor.queuedAt);
-    const compatible = queue
-      .filter((entry) => Math.abs(entry.rating - anchor.rating) <= range)
-      .sort((left, right) => (Math.abs(left.rating - anchor.rating) - Math.abs(right.rating - anchor.rating)) || (left.queuedAt - right.queuedAt));
-    if (compatible.length < playerCount) break;
-    const matched = compatible.slice(0, playerCount);
-    const matchedSockets = new Set(matched.map((entry) => entry.ws));
-    queue = queue.filter((entry) => !matchedSockets.has(entry.ws));
-    launchRankedMatch(matched, mapFamily, playerCount);
+    const candidates = ordered.filter(entry => Math.abs(entry.rating - anchor.rating) <= range);
+    const maps = anchor.mapFamily === 'either'
+      ? [rankedEitherMapNext, rankedEitherMapNext === 'classic' ? 'seafarers' : 'classic']
+      : [anchor.mapFamily];
+    for (const mapFamily of maps) {
+      const matches = candidates.filter(entry => entry.mapFamily === mapFamily || entry.mapFamily === 'either')
+        .sort((a, b) => (a === anchor ? -1 : b === anchor ? 1 : 0) ||
+          Math.abs(a.rating - anchor.rating) - Math.abs(b.rating - anchor.rating) || a.queuedAt - b.queuedAt);
+      if (matches.length >= playerCount) return { matched: matches.slice(0, playerCount), mapFamily };
+    }
   }
-
-  if (queue.length) {
-    rankedQueues.set(key, queue);
-    sendRankedQueueStatus(queue, playerCount, timestamp);
-  } else rankedQueues.delete(key);
+  return null;
+}
+function processRankedQueue(key, timestamp = now()) {
+  const playerCount = Math.max(4, Math.min(6, Math.floor(Number(key) || 4)));
+  let queue = (rankedQueues.get(key) || []).filter(entry => entry.ws.readyState === WebSocket.OPEN);
+  if (!queue.length) { rankedQueues.delete(key); return; }
+  while (queue.length >= playerCount) {
+    const match = selectRankedMatch(queue, playerCount, timestamp);
+    if (!match) break;
+    const sockets = new Set(match.matched.map(entry => entry.ws));
+    queue = queue.filter(entry => !sockets.has(entry.ws));
+    rankedEitherMapNext = match.mapFamily === 'classic' ? 'seafarers' : 'classic';
+    launchRankedMatch(match.matched, match.mapFamily, playerCount);
+  }
+  if (queue.length) { rankedQueues.set(key, queue); sendRankedQueueStatus(queue, playerCount, timestamp); }
+  else rankedQueues.delete(key);
 }
 
 const rankedQueueSweepTimer = setInterval(() => {
@@ -9689,6 +9735,108 @@ async function handleAdminHttp(req, res, urlPath) {
     return;
   }
 
+  if (urlPath === '/api/admin/rating-policy') {
+    const games = (HISTORY_DB.games || []).filter(isValidHistoryEntry);
+    sendHttpJson(req, res, 200, { ok: true, policy: RATING_POLICY,
+      metrics: METRICS.map(([key, label]) => ({ key, label })),
+      archivedRankedGames: games.filter(g => g.ranked === true).length,
+      archivedGames: games.length, historyLimit: HISTORY_MAX_GAMES });
+    return;
+  }
+
+  if (urlPath === '/api/admin/rating-policy-preview') {
+    let projection;
+    try { projection = simulateRatingRebuild(body.policy || RATING_POLICY); }
+    catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); return; }
+    sendHttpJson(req, res, 200, { ok: true, token: projection.token,
+      applied: projection.calculation.applied, skipped: projection.calculation.skipped,
+      rankedCount: projection.calculation.rankedCount, archivedCount: projection.archiveCount,
+      leaderboard: projection.preview.slice(0, 30),
+      message: 'Preview only: no ratings or game records have been changed.' });
+    return;
+  }
+
+  if (urlPath === '/api/admin/rating-policy-save') {
+    try { RATING_POLICY = validatedRatingPolicy(body.policy); await RATING_POLICY_WRITER.write(RATING_POLICY); }
+    catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); return; }
+    sendHttpJson(req, res, 200, { ok: true, policy: RATING_POLICY,
+      message: 'Rating weights saved for future completed ranked games. Historic ratings are unchanged.' });
+    return;
+  }
+
+  if (urlPath === '/api/admin/rating-policy-rebuild') {
+    if (body.confirm !== 'RECALCULATE') {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Explicit RECALCULATE confirmation required.' }); return;
+    }
+    let projection;
+    try { projection = simulateRatingRebuild(body.policy); }
+    catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); return; }
+    if (!body.token || body.token !== projection.token) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'Match archive or settings changed. Preview again before applying.' }); return;
+    }
+    if (Array.from(rooms.values()).some(room => room.ranked && room.game && room.game.phase !== 'game-over') ||
+        Array.from(rankedQueues.values()).some(queue => queue.length)) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'Wait until all ranked matches and matchmaking queues have ended before rebuilding.' }); return;
+    }
+    if (!projection.calculation.applied) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'No eligible archived ranked games. No ratings were reset.' }); return;
+    }
+    // Preserve the original users, game history, and weights together on the persistent volume.
+    // Backup files can be used to recover if any of the separate JSON writes are interrupted.
+    const backupName = `rating_rebuild_backup_${Date.now()}.json`;
+    const backupPath = path.join(DATA_DIR, backupName);
+    try {
+      fs.writeFileSync(backupPath, JSON.stringify({ users: USERS_DB, history: HISTORY_DB,
+        policy: RATING_POLICY, createdAt: Date.now() }));
+      for (const user of (USERS_DB.users || [])) {
+        user.rankedRating = rankedRating(projection.calculation.ratings[user.id]);
+      }
+      for (const game of (HISTORY_DB.games || [])) {
+        const changes = projection.calculation.changesByGame[game.id];
+        if (!changes) continue;
+        game.ratingChanges = changes;
+        game.ratingPolicy = projection.policy;
+        if (game.snapshot) {
+          game.snapshot.ratingChanges = changes;
+          game.snapshot.ratingPolicy = projection.policy;
+        }
+      }
+      // Keep completed rooms already open in browsers consistent with their newly
+      // recalculated Game History cards, including after reconnect.
+      for (const activeRoom of rooms.values()) {
+        const live = activeRoom.game;
+        if (!live || live.phase !== 'game-over' || !activeRoom.ranked) continue;
+        const archived = (HISTORY_DB.games || []).find(g => g.id === live._historyEntryId) ||
+          (HISTORY_DB.games || []).find(g => g.roomCode === activeRoom.code &&
+            g.winnerId === live.winnerId && Math.abs(Number(g.endedAt || 0) - Number(live.stats?.endedAt || 0)) <= 2000);
+        if (archived && projection.calculation.changesByGame[archived.id]) {
+          live.ratingChanges = projection.calculation.changesByGame[archived.id];
+        }
+      }
+      RATING_POLICY = projection.policy;
+      await saveUsersDb();
+      await saveHistoryDb();
+      await RATING_POLICY_WRITER.write(RATING_POLICY);
+      scheduleActiveRoomsSave();
+    } catch (error) {
+      console.error('[ratings] rebuild interrupted; original backup:', backupPath, error);
+      sendHttpJson(req, res, 500, { ok: false, error: `Rebuild failed; backup saved as ${backupName}. Restore backup before retrying.` }); return;
+    }
+    for (const user of (USERS_DB.users || [])) {
+      for (const socket of userSockets.get(user.id) || []) {
+        if (socket.readyState === WebSocket.OPEN) sendJson(socket, { type: 'user_stats',
+          user: safeUserPublic(user), stats: user.stats });
+      }
+    }
+    for (const activeRoom of rooms.values()) {
+      if (activeRoom.ranked && activeRoom.game?.phase === 'game-over') broadcastState(activeRoom);
+    }
+    sendHttpJson(req, res, 200, { ok: true, applied: projection.calculation.applied,
+      skipped: projection.calculation.skipped, backup: backupName,
+      message: `Recomputed ${projection.calculation.applied} archived ranked game(s) chronologically from 1000. Unranked games were ignored. Backup: ${backupName}.` });
+    return;
+  }
+
   if (urlPath === '/api/admin/users') {
     const users = (USERS_DB.users || [])
       .map(safeManagedUser)
@@ -10549,13 +10697,13 @@ if (msg.type === 'ranked_queue_join') {
       const requestedPlayerCount = Math.floor(Number(msg.playerCount || 4));
       const playerCount = [4, 5, 6].includes(requestedPlayerCount) ? requestedPlayerCount : 4;
       const requestedMap = String(msg.mapMode || 'classic').toLowerCase();
-      const mapFamily = requestedMap === 'seafarers' ? 'seafarers' : 'classic';
+      const mapFamily = ['classic', 'seafarers', 'either'].includes(requestedMap) ? requestedMap : 'classic';
       const user = findUserById(ws._userId);
       const rating = rankedRating(user?.rankedRating);
       for (const [key, entries] of rankedQueues) { const next = entries.filter((entry) => entry.ws !== ws && entry.ws.readyState === WebSocket.OPEN); if (next.length) rankedQueues.set(key, next); else rankedQueues.delete(key); }
-      const key = `${mapFamily}:${playerCount}`;
+      const key = String(playerCount);
       const queue = rankedQueues.get(key) || [];
-      queue.push({ ws, user, rating, queuedAt: now() });
+      queue.push({ ws, user, rating, mapFamily, queuedAt: now() });
       rankedQueues.set(key, queue);
       processRankedQueue(key);
       return;
