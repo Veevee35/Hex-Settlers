@@ -3585,6 +3585,10 @@ function hasAdjacentSixEightForPlacement(geom, localTiles) {
   return false;
 }
 
+function hasGoldSixOrEight(localTiles) {
+  return (localTiles || []).some((tile) => tile && tile.type === 'gold' && (tile.number === 6 || tile.number === 8));
+}
+
 function pickLandTileIds(allTiles, landKeys) {
   const landTileIds = [];
   for (const t of allTiles) {
@@ -4719,7 +4723,7 @@ function generateBoardSeafarersCartographer4(geom) {
     const landLocal = local.filter(x => x.type !== 'sea');
     const nums = shuffle(numbersPool.slice());
     for (let i = 0; i < landLocal.length; i++) landLocal[i].number = nums[i];
-    if (!hasAdjacentSixEightForPlacement(geom, landLocal)) { placed = local; break; }
+    if (!hasAdjacentSixEightForPlacement(geom, landLocal) && hasGoldSixOrEight(landLocal)) { placed = local; break; }
   }
   if (!placed) {
     const types = shuffle(typePool.slice());
@@ -4824,7 +4828,7 @@ function generateBoardSeafarersCartographer56(geom, playerCount = 6) {
     if (landLocal.length !== numbersPool.length) continue;
     const nums = shuffle(numbersPool.slice());
     for (let i = 0; i < landLocal.length; i++) landLocal[i].number = nums[i];
-    if (!hasAdjacentSixEightForPlacement(geom, landLocal)) { placed = local; break; }
+    if (!hasAdjacentSixEightForPlacement(geom, landLocal) && hasGoldSixOrEight(landLocal)) { placed = local; break; }
   }
   if (!placed) {
     const types = shuffle(typePool.slice());
@@ -4951,7 +4955,7 @@ function assignCartographer4NumbersRobberPirateAndPorts(game) {
     for (let attempt = 0; attempt < 2000; attempt++) {
       const nums = shuffle(numbersPool.slice());
       const cand = landIds.map((id, i) => ({ id, type: tiles[id].type, number: nums[i] }));
-      if (!hasAdjacentSixEightForPlacement(game.geom, cand)) { placed = cand; break; }
+      if (!hasAdjacentSixEightForPlacement(game.geom, cand) && hasGoldSixOrEight(cand)) { placed = cand; break; }
     }
     if (!placed) {
       const nums = shuffle(numbersPool.slice());
@@ -8150,7 +8154,84 @@ function sendToRoomMember(room, playerId, payload) {
 }
 
 const rooms = new Map(); // code -> room
-const rankedQueues = new Map(); // exact preference/rating bucket -> waiting sockets
+const rankedQueues = new Map(); // map/player-count preference -> waiting entries
+const RANKED_INITIAL_RATING_RANGE = 100;
+const RANKED_RANGE_STEP = 100;
+const RANKED_RANGE_STEP_MS = 15_000;
+const RANKED_MAX_RATING_RANGE = 1_500;
+
+function rankedRatingRange(waitMs) {
+  const steps = Math.max(0, Math.floor(Number(waitMs || 0) / RANKED_RANGE_STEP_MS));
+  return Math.min(RANKED_MAX_RATING_RANGE, RANKED_INITIAL_RATING_RANGE + (steps * RANKED_RANGE_STEP));
+}
+
+function sendRankedQueueStatus(queue, playerCount, timestamp = now()) {
+  for (const entry of queue) {
+    if (entry.ws.readyState !== WebSocket.OPEN) continue;
+    sendJson(entry.ws, {
+      type: 'ranked_queue_status',
+      queued: true,
+      waiting: queue.length,
+      needed: playerCount,
+      rating: entry.rating,
+      ratingRange: rankedRatingRange(timestamp - entry.queuedAt),
+    });
+  }
+}
+
+function launchRankedMatch(matched, mapFamily, playerCount) {
+  const host = matched[0];
+  const rankedRoom = createRoom(host.user.id, host.user.displayName || host.user.username);
+  rankedRoom.ranked = true;
+  rankedRoom.rankedPreferences = { map: mapFamily, playerCount };
+  rankedRoom.rules.mapMode = mapFamily === 'classic' && playerCount > 4 ? 'classic56' : mapFamily;
+  if (mapFamily === 'seafarers') rankedRoom.rules.seafarersScenario = playerCount > 4 ? 'six_islands' : 'four_islands';
+  for (const entry of matched.slice(1)) joinRoom(rankedRoom.code, entry.user.id, entry.user.displayName || entry.user.username);
+  for (const player of rankedRoom.players) player.ready = true;
+  ensurePreview(rankedRoom, true);
+  for (const entry of matched) {
+    bindSocketToRoomMember(rankedRoom, entry.user.id, entry.ws, 'Ranked match opened in another tab.');
+    sendJson(entry.ws, { type: 'ranked_match_found', rating: entry.rating, roomCode: rankedRoom.code });
+    sendJson(entry.ws, { type: 'joined', playerId: entry.user.id, room: roomSnapshot(rankedRoom), isHost: entry.user.id === rankedRoom.hostId, role: 'player' });
+  }
+  startGame(rankedRoom);
+  broadcastRoom(rankedRoom);
+  broadcastState(rankedRoom);
+  scheduleActiveRoomsSave();
+}
+
+function processRankedQueue(key, timestamp = now()) {
+  let queue = (rankedQueues.get(key) || []).filter((entry) => entry.ws.readyState === WebSocket.OPEN);
+  if (!queue.length) { rankedQueues.delete(key); return; }
+  rankedQueues.set(key, queue);
+  const [mapFamily, rawCount] = String(key).split(':');
+  const playerCount = Math.max(4, Math.min(6, Math.floor(Number(rawCount || 4))));
+
+  while (queue.length >= playerCount) {
+    queue.sort((left, right) => left.queuedAt - right.queuedAt);
+    const anchor = queue[0];
+    const range = rankedRatingRange(timestamp - anchor.queuedAt);
+    const compatible = queue
+      .filter((entry) => Math.abs(entry.rating - anchor.rating) <= range)
+      .sort((left, right) => (Math.abs(left.rating - anchor.rating) - Math.abs(right.rating - anchor.rating)) || (left.queuedAt - right.queuedAt));
+    if (compatible.length < playerCount) break;
+    const matched = compatible.slice(0, playerCount);
+    const matchedSockets = new Set(matched.map((entry) => entry.ws));
+    queue = queue.filter((entry) => !matchedSockets.has(entry.ws));
+    launchRankedMatch(matched, mapFamily, playerCount);
+  }
+
+  if (queue.length) {
+    rankedQueues.set(key, queue);
+    sendRankedQueueStatus(queue, playerCount, timestamp);
+  } else rankedQueues.delete(key);
+}
+
+const rankedQueueSweepTimer = setInterval(() => {
+  const timestamp = now();
+  for (const key of rankedQueues.keys()) processRankedQueue(key, timestamp);
+}, 2_000);
+if (typeof rankedQueueSweepTimer.unref === 'function') rankedQueueSweepTimer.unref();
 const ACTIVE_ROOMS_SAVE_DEBOUNCE_MS = 400;
 let activeRoomsSaveTimer = null;
 
@@ -10317,28 +10398,12 @@ if (msg.type === 'ranked_queue_join') {
       const user = findUserById(ws._userId);
       const games = Number(user?.stats?.gamesPlayed || 0); const wins = Number(user?.stats?.wins || 0);
       const rating = Math.max(500, Math.round(1000 + wins * 24 - Math.max(0, games - wins) * 12));
-      const bucket = Math.floor(rating / 200);
       for (const [key, entries] of rankedQueues) { const next = entries.filter((entry) => entry.ws !== ws && entry.ws.readyState === WebSocket.OPEN); if (next.length) rankedQueues.set(key, next); else rankedQueues.delete(key); }
-      const key = `${mapFamily}:${playerCount}:${bucket}`;
+      const key = `${mapFamily}:${playerCount}`;
       const queue = rankedQueues.get(key) || [];
-      queue.push({ ws, user, rating }); rankedQueues.set(key, queue);
-      queue.forEach((entry) => sendJson(entry.ws, { type: 'ranked_queue_status', queued: true, waiting: queue.length, needed: playerCount, rating: entry.rating }));
-      if (queue.length < playerCount) return;
-      const matched = queue.splice(0, playerCount); if (!queue.length) rankedQueues.delete(key);
-      const host = matched[0]; const rankedRoom = createRoom(host.user.id, host.user.displayName || host.user.username);
-      rankedRoom.ranked = true;
-      rankedRoom.rankedPreferences = { map: mapFamily, playerCount };
-      rankedRoom.rules.mapMode = mapFamily === 'classic' && playerCount > 4 ? 'classic56' : mapFamily;
-      if (mapFamily === 'seafarers') rankedRoom.rules.seafarersScenario = playerCount > 4 ? 'six_islands' : 'four_islands';
-      for (const entry of matched.slice(1)) joinRoom(rankedRoom.code, entry.user.id, entry.user.displayName || entry.user.username);
-      for (const player of rankedRoom.players) player.ready = true;
-      ensurePreview(rankedRoom, true);
-      for (const entry of matched) {
-        bindSocketToRoomMember(rankedRoom, entry.user.id, entry.ws, 'Ranked match opened in another tab.');
-        sendJson(entry.ws, { type: 'ranked_match_found', rating: entry.rating, roomCode: rankedRoom.code });
-        sendJson(entry.ws, { type: 'joined', playerId: entry.user.id, room: roomSnapshot(rankedRoom), isHost: entry.user.id === rankedRoom.hostId, role: 'player' });
-      }
-      startGame(rankedRoom); broadcastRoom(rankedRoom); broadcastState(rankedRoom); scheduleActiveRoomsSave();
+      queue.push({ ws, user, rating, queuedAt: now() });
+      rankedQueues.set(key, queue);
+      processRankedQueue(key);
       return;
     }
 

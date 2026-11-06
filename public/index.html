@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=admin-room-console-v5" />
+  <link rel="stylesheet" href="styles.css?v=ranked-range-password-gold-v6" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -20,7 +20,10 @@
         <label class="label" for="landingUsername">Username</label>
         <input id="landingUsername" class="input" maxlength="24" autocomplete="username" placeholder="Your username">
         <label class="label" for="landingPassword">Password</label>
-        <input id="landingPassword" class="input" type="password" autocomplete="current-password" placeholder="Your password">
+        <div class="passwordRevealField">
+          <input id="landingPassword" class="input" type="password" autocomplete="current-password" placeholder="Your password">
+          <button id="landingPasswordReveal" class="passwordRevealBtn" type="button" aria-label="Hold to reveal password" title="Hold to reveal password">Show</button>
+        </div>
         <button id="landingLoginBtn" class="btn primary portalPrimary">Log In</button>
         <button id="landingCreateBtn" class="btn">Create Account</button>
         <button id="landingForgotBtn" class="portalTextBtn">Forgot your password?</button>
@@ -651,6 +654,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=admin-room-console-v5"></script>
+  <script src="app.js?v=ranked-range-password-gold-v6"></script>
 </body>
 </html>

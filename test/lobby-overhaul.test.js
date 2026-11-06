@@ -17,6 +17,15 @@ test('landing page owns login and account creation requires email verification',
   assert.match(app, /authApi\('register-with-email'/);
   assert.match(server, /urlPath === '\/api\/auth\/register-with-email'/);
   assert.match(server, /requiresEmailVerification && !user\.emailVerifiedAt/);
+  assert.match(html, /id="landingPasswordReveal"[^>]*Hold to reveal password/);
+  assert.match(app, /setPasswordRevealed[\s\S]*?pointerdown[\s\S]*?pointerup[\s\S]*?pointerleave/);
+});
+
+test('Cartographer and Scattered Tiles allow high-probability numbers on Gold Fields', () => {
+  assert.match(server, /function hasGoldSixOrEight[\s\S]*?tile\.type === 'gold'[\s\S]*?tile\.number === 6 \|\| tile\.number === 8/);
+  assert.match(server, /generateBoardSeafarersCartographer4[\s\S]*?hasGoldSixOrEight\(landLocal\)/);
+  assert.match(server, /generateBoardSeafarersCartographer56[\s\S]*?hasGoldSixOrEight\(landLocal\)/);
+  assert.match(server, /assignCartographer4NumbersRobberPirateAndPorts[\s\S]*?hasGoldSixOrEight\(cand\)/);
 });
 
 test('authenticated portal offers ranked and unranked paths plus an account menu', () => {
@@ -30,7 +39,7 @@ test('authenticated portal offers ranked and unranked paths plus an account menu
 test('ranked matchmaking is server authoritative and preference based', () => {
   assert.match(protocol, /'ranked_queue_join', 'ranked_queue_leave'/);
   assert.match(app, /type: 'ranked_queue_join'[\s\S]*?mapMode:[\s\S]*?playerCount:/);
-  assert.match(server, /msg\.type === 'ranked_queue_join'[\s\S]*?const bucket = Math\.floor\(rating \/ 200\)/);
+  assert.match(server, /function rankedRatingRange[\s\S]*?RANKED_RANGE_STEP_MS/);
   assert.match(server, /rankedRoom\.ranked = true[\s\S]*?startGame\(rankedRoom\)/);
   const rankedOptions = html.match(/id="rankedScreen"[\s\S]*?<\/section>/)?.[0] || '';
   assert.match(rankedOptions, /value="classic">Classic/);
@@ -38,7 +47,8 @@ test('ranked matchmaking is server authoritative and preference based', () => {
   assert.doesNotMatch(rankedOptions, /Classic 5–6|<option>3<\/option>/);
   for (const count of [4, 5, 6]) assert.match(rankedOptions, new RegExp(`<option(?: selected)?>${count}<\\/option>`));
   assert.match(rankedOptions, /id="rankedReadyBtn"[^>]*>Start Matchmaking<\/button>/);
-  assert.match(server, /const key = `\$\{mapFamily\}:\$\{playerCount\}:\$\{bucket\}`/);
+  assert.match(server, /const key = `\$\{mapFamily\}:\$\{playerCount\}`/);
+  assert.match(server, /processRankedQueue[\s\S]*?Math\.abs\(entry\.rating - anchor\.rating\) <= range/);
   assert.match(server, /mapFamily === 'classic' && playerCount > 4 \? 'classic56' : mapFamily/);
   assert.match(server, /playerCount > 4 \? 'six_islands' : 'four_islands'/);
 });

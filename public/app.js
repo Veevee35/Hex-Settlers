@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'admin-room-console-v5';
+  const ASSET_CACHE_SW_BUILD = 'ranked-range-password-gold-v6';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -6024,7 +6024,7 @@ function refreshLobbyJoinLinkUi() {
       if (msg.type === 'ranked_queue_status') {
         pendingRankedMatchmaking = false;
         const status = $('rankedStatus');
-        if (status) status.textContent = msg.queued ? `Searching near rating ${msg.rating || 1000} · ${msg.waiting || 1}/${msg.needed || 4} players ready` : 'Matchmaking cancelled.';
+        if (status) status.textContent = msg.queued ? `Searching near rating ${msg.rating || 1000} (±${msg.ratingRange || 100}) · ${msg.waiting || 1}/${msg.needed || 4} players ready` : 'Matchmaking cancelled.';
         $('rankedReadyBtn')?.classList.toggle('hidden', !!msg.queued);
         $('rankedCancelBtn')?.classList.toggle('hidden', !msg.queued);
         return;
@@ -9188,6 +9188,22 @@ function refreshLobbyJoinLinkUi() {
   }
   $('landingLoginBtn')?.addEventListener('click', portalLogin);
   $('landingPassword')?.addEventListener('keydown', (event) => { if (event.key === 'Enter') portalLogin(); });
+  {
+    const passwordInput = $('landingPassword');
+    const revealButton = $('landingPasswordReveal');
+    const setPasswordRevealed = (revealed) => {
+      if (!passwordInput || !revealButton) return;
+      passwordInput.type = revealed ? 'text' : 'password';
+      revealButton.textContent = revealed ? 'Hide' : 'Show';
+      revealButton.classList.toggle('revealing', revealed);
+      revealButton.setAttribute('aria-pressed', revealed ? 'true' : 'false');
+    };
+    revealButton?.addEventListener('pointerdown', (event) => { event.preventDefault(); revealButton.setPointerCapture?.(event.pointerId); setPasswordRevealed(true); });
+    for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture', 'pointerleave', 'blur']) revealButton?.addEventListener(eventName, () => setPasswordRevealed(false));
+    revealButton?.addEventListener('keydown', (event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); setPasswordRevealed(true); } });
+    revealButton?.addEventListener('keyup', () => setPasswordRevealed(false));
+    window.addEventListener('blur', () => setPasswordRevealed(false));
+  }
   $('landingCreateBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.remove('hidden'));
   $('registerCloseBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.add('hidden'));
   $('landingForgotBtn')?.addEventListener('click', openForgotPasswordScreen);
