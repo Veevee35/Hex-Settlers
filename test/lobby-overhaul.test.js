@@ -35,6 +35,7 @@ test('authenticated portal offers ranked and unranked paths plus an account menu
   assert.match(html, /id="accountOrb"[^>]*aria-expanded="false"[^>]*aria-controls="accountMenu"/);
   assert.match(app, /document\.addEventListener\('click'[\s\S]*?menu\.contains\(target\)[\s\S]*?setAccountMenuOpen\(false\)/);
   assert.match(html, /class="legacyLobbyAuth hidden"/);
+  assert.match(html, /id="playModeScreen"[\s\S]*?class="loginSupport gameTypeSupport"[\s\S]*?href="https:\/\/ko-fi\.com\/L6D82A3L9Z"/);
 });
 
 test('ranked matchmaking is server authoritative and preference based', () => {
