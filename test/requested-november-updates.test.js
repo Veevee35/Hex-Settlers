@@ -45,7 +45,7 @@ test('Cartographer/Scattered Tiles number distribution never puts a 6 or 8 on go
 
 test('Back is available to every active player after the first completed turn', () => {
   assert.match(serverSource, /const outOfTurnOk =\s*\(kind === 'propose_turn_undo'\) \|\|\s*\(kind === 'respond_turn_undo'\)/);
-  assert.match(serverSource, /kind !== 'choose_discovery' && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo'/);
+  assert.match(serverSource, /'choose_discovery', 'propose_turn_undo', 'respond_turn_undo'/);
   assert.match(serverSource, /state\.canUndoPreviousTurn = !!game\._previousTurnSnapshot/);
   assert.match(clientSource, /ui\.backTurnBtn\.disabled = !myPlayerId \|\| !state\?\.canUndoPreviousTurn/);
   assert.match(clientSource, /const undoVoteAction = action\.kind === 'propose_turn_undo' \|\| action\.kind === 'respond_turn_undo'/);

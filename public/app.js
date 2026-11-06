@@ -1426,6 +1426,13 @@
       if (String(scaleId || '') !== 'resources_panel') return;
       const isResourcesPanel = (wrap.id === 'resourcesCard') || (wrap.classList && wrap.classList.contains('resourcesOverlay'));
       if (!isResourcesPanel) return;
+      // Docked resources always occupy the sidebar's full available width;
+      // zoom is only for the contents, never the containing card.
+      if (wrap.closest && wrap.closest('.rightSidebar')) {
+        wrap.style.removeProperty('width');
+        wrap.style.removeProperty('max-width');
+        return;
+      }
 
       if (!wrap.dataset.basePanelWidthPx) {
         const rect = (typeof wrap.getBoundingClientRect === 'function') ? wrap.getBoundingClientRect() : null;
@@ -6528,14 +6535,9 @@ function refreshLobbyJoinLinkUi() {
       pendingTradeModalKey = '';
     }
 
-    // If a player dismisses the end-game vote popup, treat it as a reject.
+    // Closing a vote panel is not the same as rejecting or withdrawing a vote.
+    // Votes change only through the explicit voting controls.
     try {
-      if (modalType === 'endVote' && state && state.endVote && myPlayerId) {
-        const v = state.endVote;
-        if (v && v.id) {
-          send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: v.id, accept: false } });
-        }
-      }
       if (modalType === 'turnUndoVote' && state && state.turnUndoVote && myPlayerId) {
         sendGameAction({ kind: 'respond_turn_undo', voteId: state.turnUndoVote.id, accept: false });
       }
@@ -8921,7 +8923,7 @@ function refreshLobbyJoinLinkUi() {
 
   // Lobby UI
   function openLeaveRoomConfirm() {
-    if (!room || !myPlayerId) return;
+    if (!room || !myPlayerId || room.ranked) return;
     const wrap = document.createElement('div');
     wrap.className = 'modalText';
     wrap.textContent = 'Leave this room? You can rejoin later if the room is still open.';
@@ -8944,7 +8946,7 @@ function refreshLobbyJoinLinkUi() {
 
   function openLeaveGameConfirm() {
     const phaseNow = currentRoomPhase();
-    if (!room || phaseNow === 'lobby' || !myPlayerId) return;
+    if (!room || room.ranked || phaseNow === 'lobby' || !myPlayerId) return;
     const amSpectatorNow = amRoomSpectator();
     const directLeave = !!(amSpectatorNow || phaseNow === 'game-over');
     const wrap = document.createElement('div');
@@ -9255,7 +9257,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (p.id === myPlayerId) {
         if (!gameStartedNow || roleLabel === 'spectator') {
-          if (room.ranked || p.id !== room.hostId) {
+          if (!room.ranked && p.id !== room.hostId) {
             const leaveBtn = document.createElement('button');
             leaveBtn.className = 'btn';
             leaveBtn.type = 'button';
@@ -11207,7 +11209,7 @@ function ensureTimerUiInterval() {
       ui.colorblindBtn.disabled = !inGame;
     }
     if (ui.leaveGameBtn) {
-      const canUseLeaveGame = !!(!historyReplay.active && myPlayerId && room && (room.ranked || room.hostId !== myPlayerId) && phaseNow !== 'lobby');
+      const canUseLeaveGame = !!(!historyReplay.active && myPlayerId && room && !room.ranked && room.hostId !== myPlayerId && phaseNow !== 'lobby');
       ui.leaveGameBtn.classList.toggle('hidden', !canUseLeaveGame);
       ui.leaveGameBtn.disabled = !canUseLeaveGame;
     }
@@ -12198,7 +12200,18 @@ if (ui.moveShipBtn) {
 
     const info = document.createElement('div');
     info.className = 'smallNote';
-    info.textContent = (proposer ? proposer.name : 'A player') + ' proposed ending the game early. Everyone must approve.';
+    const allApproved = !!(v.finalizeAt && Number(v.finalizeAt) > 0);
+    const secondsLeft = allApproved ? Math.max(0, Math.ceil((Number(v.finalizeAt) - Date.now()) / 1000)) : null;
+    info.textContent = allApproved
+      ? `All players approved. Game ends in ${secondsLeft} second${secondsLeft === 1 ? '' : 's'}. Any player (including the proposer) can withdraw approval to cancel the countdown.`
+      : (proposer ? proposer.name : 'A player') + ' proposed ending the game early. Everyone must approve. You can change your approval at any time before the game ends.';
+    if (allApproved) {
+      const countdown = document.createElement('div');
+      countdown.className = 'endVoteCountdown';
+      countdown.setAttribute('role', 'status');
+      countdown.textContent = `${secondsLeft}s`;
+      box.appendChild(countdown);
+    }
     box.appendChild(info);
 
     const grid = document.createElement('div');
@@ -12212,7 +12225,7 @@ if (ui.moveShipBtn) {
     h2.textContent = 'Approve';
     const h3 = document.createElement('div');
     h3.className = 'ptCell ptHeader';
-    h3.textContent = 'Reject';
+    h3.textContent = 'Withdraw / Reject';
     grid.appendChild(h1); grid.appendChild(h2); grid.appendChild(h3);
 
     const responses = (v.responses || {});
@@ -12244,19 +12257,22 @@ if (ui.moveShipBtn) {
       const rejectBtn = document.createElement('button');
       rejectBtn.className = 'voteBtn' + (status === 'reject' ? ' on bad' : '');
       rejectBtn.type = 'button';
-      rejectBtn.innerHTML = status === 'reject' ? '✖' : '';
-      rejectBtn.title = status === 'reject' ? 'Rejected' : 'Reject';
+      rejectBtn.innerHTML = status === 'accept' ? '↩' : '✖';
+      rejectBtn.title = status === 'accept' ? 'Withdraw approval (stop countdown)' : 'Reject end-game vote';
 
       const isMeRow = (p.id === myPlayerId);
       if (isMeRow) {
-        approveBtn.disabled = false;
+        approveBtn.disabled = status === 'accept';
         rejectBtn.disabled = false;
 
         approveBtn.addEventListener('click', () => {
           sendGameAction({ kind: 'respond_endgame', voteId: v.id, accept: true });
         });
         rejectBtn.addEventListener('click', () => {
-          sendGameAction({ kind: 'respond_endgame', voteId: v.id, accept: false });
+          // An existing yes vote is revocable (including the proposer's yes).
+          // A player who has not approved can explicitly reject the proposal.
+          sendGameAction({ kind: 'respond_endgame', voteId: v.id,
+            ...(status === 'accept' ? { withdraw: true } : { accept: false }) });
         });
       } else {
         approveBtn.disabled = true;

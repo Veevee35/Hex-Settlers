@@ -205,6 +205,48 @@ test('ranked queue runs a timed server-owned ballot and locks ranked actions', {
 
 });
 
+test('unranked End Game with AI opponents waits five seconds and allows the proposer to withdraw', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-ai-end-vote-'));
+  const server = await startServer(port, dataDir);
+  const peer = await Peer.connect(port);
+  t.after(async () => {
+    peer.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  peer.send({ type: 'auth_register', username: `ae_${Date.now().toString(36)}`, password: 'end vote AI test', displayName: 'Human' });
+  const auth = await peer.waitFor(message => message.type === 'auth_ok');
+  peer.send({ type: 'create_room' });
+  await peer.waitFor(message => message.type === 'joined');
+  peer.send({ type: 'fill_ai', targetCount: 4 });
+  await peer.waitFor(message => message.type === 'room' && message.room.players.length === 4);
+  peer.send({ type: 'set_ready', ready: true });
+  await peer.waitFor(message => message.type === 'room' && message.room.players.find(p => p.id === auth.user.id)?.ready === true);
+  peer.send({ type: 'start_game' });
+  await peer.waitFor(message => message.type === 'state' && message.state.phase !== 'lobby');
+
+  peer.send({ type: 'game_action', action: { kind: 'propose_endgame' } });
+  const allApproved = await peer.waitFor(message => message.type === 'state' &&
+    Number(message.state.endVote?.finalizeAt) > 0 &&
+    Object.values(message.state.endVote?.responses || {}).length === 4, 8000);
+  const vote = allApproved.state.endVote;
+  assert.equal(Object.values(vote.responses).filter(response => response === 'accept').length, 4);
+  const deadline = vote.finalizeAt;
+  assert.ok(deadline > Date.now());
+
+  peer.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: vote.id, withdraw: true } });
+  const withdrawn = await peer.waitFor(message => message.type === 'state' &&
+    message.state.endVote?.id === vote.id && message.state.endVote?.finalizeAt == null &&
+    message.state.endVote?.responses?.[auth.user.id] === null);
+  assert.equal(withdrawn.state.endVote.responses[auth.user.id], null);
+  peer.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: vote.id, accept: true } });
+  const restarted = await peer.waitFor(message => message.type === 'state' && Number(message.state.endVote?.finalizeAt) > deadline);
+  assert.equal(restarted.state.endVote.responses[auth.user.id], 'accept');
+  await peer.waitFor(message => message.type === 'state' && message.state.phase === 'game-over', 8500);
+});
+
 test('six-player trades reach hosts and non-hosts promptly with private hands preserved', { timeout: 30_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-trade-sync-'));
@@ -635,8 +677,18 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
 
   host.send({ type: 'game_action', action: { kind: 'propose_endgame' } });
   const voteState = await host.waitFor((message) => message.type === 'state' && message.state.endVote?.id);
-  host.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: voteState.state.endVote.id, accept: true } });
-  await host.waitFor((message) => message.type === 'state' && message.state.phase === 'game-over');
+  const voteId = voteState.state.endVote.id;
+  const firstDeadline = voteState.state.endVote.finalizeAt;
+  assert.ok(firstDeadline - voteState.state.endVote.createdAt >= 5000, 'unanimous vote starts a full five-second grace period');
+  assert.equal(voteState.state.phase !== 'game-over', true);
+  // Even the original proposer must be able to withdraw an accepted ballot.
+  host.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId, withdraw: true } });
+  const withdrawn = await host.waitFor((message) => message.type === 'state' && message.state.endVote?.id === voteId && message.state.endVote.finalizeAt == null);
+  assert.equal(withdrawn.state.endVote.responses[hostAuth.user.id], null);
+  host.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId, accept: true } });
+  const reapproved = await host.waitFor((message) => message.type === 'state' && Number(message.state.endVote?.finalizeAt) > firstDeadline);
+  assert.ok(reapproved.state.endVote.finalizeAt > Date.now());
+  await host.waitFor((message) => message.type === 'state' && message.state.phase === 'game-over', 8500);
 
   host.send({ type: 'get_game_history', limit: 10 });
   const history = await host.waitFor((message) => message.type === 'game_history_list');
@@ -663,7 +715,6 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
   assert.equal(compactEntry.log, undefined);
   assert.equal(compactEntry.replay, undefined);
 });
-
 test('accounts, active rooms, expert tuning, and neural model survive a clean restart', { timeout: 20_000 }, async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-restart-'));
   let server = null;

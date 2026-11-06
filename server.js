@@ -137,7 +137,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'ranked-lobby-ballot-v17';
+const SERVER_BUILD_ID = 'ranked-lobby-v19';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -5610,7 +5610,7 @@ function newEmptyGame(room) {
 
     // End-game vote (any active player may initiate; unanimous approval required)
     endVoteSeq: 1,
-    endVote: null, // {id, fromId, responses:{pid:'accept'|'reject'|null}, createdAt}
+    endVote: null, // {id, fromId, responses:{pid:'accept'|null}, createdAt, unanimousAt, finalizeAt}
 
     // Special action contexts
     largestArmy: { playerId: null, size: 0 },
@@ -6191,6 +6191,65 @@ function getRobberTileId(game) {
   return null;
 }
 
+// A unanimous End Game vote must remain revocable for five full seconds.
+const END_GAME_VOTE_GRACE_MS = 5000;
+
+function refreshEndVoteCountdown(game) {
+  const v = game && game.endVote;
+  if (!v || !v.responses) return;
+  const ballots = Object.values(v.responses);
+  const unanimous = ballots.length > 0 && ballots.every((ballot) => ballot === 'accept');
+  if (!unanimous) {
+    v.unanimousAt = null;
+    v.finalizeAt = null;
+  } else if (!(Number(v.finalizeAt) > 0)) {
+    v.unanimousAt = now();
+    v.finalizeAt = v.unanimousAt + END_GAME_VOTE_GRACE_MS;
+  }
+}
+
+function finalizeApprovedEndVote(room) {
+  const game = room && room.game;
+  const v = game && game.endVote;
+  if (!game || !v || !v.id || game.phase === 'lobby' || game.phase === 'game-over' || room.ranked) return false;
+  refreshEndVoteCountdown(game);
+  if (!(Number(v.finalizeAt) > 0) || now() < Number(v.finalizeAt)) return false;
+  const voteId = v.id;
+
+  game.pendingTrade = null;
+  game.discard = null;
+  game.robberContext = null;
+  game.robberSteal = null;
+  game.thiefChoice = null;
+  game.pirateSteal = null;
+  game.special = null;
+  game.endVote = null;
+  try { if (game.currentPlayerId) recordTurnEnd(game, game.currentPlayerId); } catch (_) {}
+  const winnerId = pickWinnerByTiebreak(game) || (game.players[0] && game.players[0].id) || null;
+  game.phase = 'game-over';
+  game.winnerId = winnerId;
+  game.message = `${playerName(game, winnerId)} wins!`;
+  try {
+    ensureGameStats(game);
+    if (game.stats && !game.stats.endedAt) game.stats.endedAt = now();
+    if (game.stats) game.stats.endedReason = 'vote';
+  } catch (_) {}
+  pushLog(game, `Game ended early after the unanimous five-second vote. Winner: ${playerName(game, winnerId)}.`, 'info', { kind: 'end_vote_pass', voteId, winnerId });
+  try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
+  if (!(room && room._dryRun)) {
+    try { sendGameResultSfx(room, game, winnerId); } catch (_) {}
+    try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
+  }
+  if (!AI_TRAINING_MODE && !(room && room._dryRun)) {
+    try {
+      ensureReplay(game);
+      recordReplayStep(game, { actorId: v.fromId, action: { kind: 'end_vote_finalized', voteId } });
+      persistGameHistoryFromGame(room, game, winnerId);
+    } catch (_) {}
+  }
+  return true;
+}
+
 // -------------------- Actions (authoritative) --------------------
 
 function applyActionCore(room, playerId, action) {
@@ -6205,7 +6264,7 @@ function applyActionCore(room, playerId, action) {
   if (room.ranked && ['propose_turn_undo', 'respond_turn_undo', 'propose_endgame', 'respond_endgame'].includes(kind)) {
     return { ok: false, error: 'Back and End Game votes are disabled in ranked matches.' };
   }
-  if (game.paused && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo') return { ok: false, error: 'Game is paused.' };
+  if (game.paused && !['propose_turn_undo', 'respond_turn_undo', 'propose_endgame', 'respond_endgame'].includes(kind)) return { ok: false, error: 'Game is paused.' };
 
   const actingPlayer = playerById(game, playerId);
   if (!actingPlayer || actingPlayer.departed) return { ok: false, error: 'Spectators cannot take game actions.' };
@@ -6223,10 +6282,10 @@ function applyActionCore(room, playerId, action) {
 
 
   // Gold-choice prompts (discovery or production) must be resolved before other actions.
-  if (game.special && game.special.kind === 'discovery_gold' && game.special.forPlayerId === playerId && kind !== 'choose_discovery' && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo') {
+  if (game.special && game.special.kind === 'discovery_gold' && game.special.forPlayerId === playerId && !['choose_discovery', 'propose_turn_undo', 'respond_turn_undo', 'propose_endgame', 'respond_endgame'].includes(kind)) {
     return { ok: false, error: 'Choose a resource for the discovered Gold Field first.' };
   }
-  if (game.special && game.special.kind === 'production_gold' && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo') {
+  if (game.special && game.special.kind === 'production_gold' && !['propose_turn_undo', 'respond_turn_undo', 'propose_endgame', 'respond_endgame'].includes(kind)) {
     if (kind !== 'choose_production_gold') {
       return { ok: false, error: 'Resolve Gold Field production choices first.' };
     }
@@ -7752,7 +7811,8 @@ if (kind === 'pirate_steal') {
 
     const voteId = game.endVoteSeq || 1;
     game.endVoteSeq = (game.endVoteSeq || 1) + 1;
-    game.endVote = { id: voteId, fromId: playerId, responses, createdAt: now() };
+    game.endVote = { id: voteId, fromId: playerId, responses, createdAt: now(), unanimousAt: null, finalizeAt: null };
+    refreshEndVoteCountdown(game); // The proposer counts, even in a one-player game.
 
     game.message = `${playerName(game, playerId)} started an end-game vote.`;
     pushLog(game, `${playerName(game, playerId)} started an end-game vote.`, 'info', { kind: 'end_vote', voteId });
@@ -7761,73 +7821,37 @@ if (kind === 'pirate_steal') {
 
   if (kind === 'respond_endgame') {
     const voteId = Number(action.voteId || 0);
-    const accept = !!action.accept;
-
     const v = game.endVote;
     if (!v || !v.id || v.id !== voteId) return { ok: false, error: 'No such end-game vote.' };
-    if (!v.responses || !(playerId in v.responses)) return { ok: false, error: 'You cannot vote on this.' };
+    if (!v.responses || !Object.prototype.hasOwnProperty.call(v.responses, playerId)) {
+      return { ok: false, error: 'You cannot vote on this.' };
+    }
 
-    v.responses[playerId] = accept ? 'accept' : 'reject';
-
-    if (!accept) {
+    // Withdrawing is different from rejecting: the vote remains open, but the
+    // unanimous five-second countdown stops. Any player, including the original
+    // proposer, can reapprove and start a fresh countdown.
+    if (action.withdraw === true) {
+      v.responses[playerId] = null;
+      refreshEndVoteCountdown(game);
+      game.message = `${playerName(game, playerId)} withdrew their end-game approval.`;
+      pushLog(game, game.message, 'info', { kind: 'end_vote_withdraw', voteId, byId: playerId });
+      return { ok: true };
+    }
+    if (!action.accept) {
       game.endVote = null;
       game.message = `${playerName(game, playerId)} rejected the end-game vote.`;
-      pushLog(game, `${playerName(game, playerId)} rejected the end-game vote.`, 'info', { kind: 'end_vote_reject', voteId, byId: playerId });
+      pushLog(game, game.message, 'info', { kind: 'end_vote_reject', voteId, byId: playerId });
       return { ok: true };
     }
 
-    game.message = `${playerName(game, playerId)} approved the end-game vote.`;
-    pushLog(game, `${playerName(game, playerId)} approved the end-game vote.`, 'info', { kind: 'end_vote_accept', voteId, byId: playerId });
-
-    const vals = Object.values(v.responses || {});
-    const allAccept = vals.length > 0 && vals.every(x => x === 'accept');
-    if (!allAccept) return { ok: true };
-
-    // Unanimous: end the game immediately and go to stats screen.
-    const wasOver = (game.phase === 'game-over');
-
-    // Stop any pending interactions so the post-game UI is clean.
-    game.pendingTrade = null;
-    game.discard = null;
-    game.robberContext = null;
-    game.robberSteal = null;
-    game.thiefChoice = null;
-    game.pirateSteal = null;
-    game.special = null;
-
-    // Close the vote before broadcasting the game-over state.
-    game.endVote = null;
-
-    // Finalize current turn time so the tie-breaker is fair.
-    try { if (game.currentPlayerId) recordTurnEnd(game, game.currentPlayerId); } catch (_) {}
-
-    // Pick winner using requested tie-break order.
-    const winnerId = pickWinnerByTiebreak(game) || (game.players[0] && game.players[0].id) || null;
-
-    game.phase = 'game-over';
-    game.winnerId = winnerId;
-    game.message = `${playerName(game, winnerId)} wins!`;
-
-    try {
-      ensureGameStats(game);
-      if (game.stats && !game.stats.endedAt) game.stats.endedAt = now();
-      if (game.stats) game.stats.endedReason = 'vote';
-    } catch (_) {}
-
-    pushLog(game, `Game ended early by unanimous vote. Winner: ${playerName(game, winnerId)}.`, 'info', { kind: 'end_vote_pass', voteId, winnerId });
-
-    if (!wasOver) {
-      try { persistUserStatsFromGame(room, game, winnerId); } catch (_) {}
-      if (!(room && room._dryRun)) {
-        try { sendGameResultSfx(room, game, winnerId); } catch (_) {}
-        try { trainNeuralAiFromFinishedGame(game); } catch (_) {}
-      }
+    if (v.responses[playerId] !== 'accept') {
+      v.responses[playerId] = 'accept';
+      game.message = `${playerName(game, playerId)} approved the end-game vote.`;
+      pushLog(game, game.message, 'info', { kind: 'end_vote_accept', voteId, byId: playerId });
     }
-
+    refreshEndVoteCountdown(game);
     return { ok: true };
   }
-
-
 
 
   if (kind === 'end_turn') {
@@ -8144,7 +8168,10 @@ function normalizeGameAfterPlayerRemoval(game, removedPid, removedWasCurrent) {
   if (game.special && game.special.forPlayerId === pid) game.special = null;
   if (game.pendingTrade && game.pendingTrade.fromId === pid) game.pendingTrade = null;
   else if (game.pendingTrade && game.pendingTrade.responses) delete game.pendingTrade.responses[pid];
-  if (game.endVote && game.endVote.responses) delete game.endVote.responses[pid];
+  if (game.endVote && game.endVote.responses) {
+    delete game.endVote.responses[pid];
+    refreshEndVoteCountdown(game);
+  }
   if (game.robberContext && game.robberContext.playerId === pid) game.robberContext = null;
   if (game.setup && game.setup.awaiting && game.setup.awaiting.playerId === pid) game.setup.awaiting = null;
 
@@ -10983,6 +11010,14 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'leave_room') {
+      // Ranked players stay assigned to their match until it finishes; completed
+      // games still permit Main Menu / ranked requeue via leave_room.
+      if (room.ranked && roomRole(room, pid) === 'player' && (!room.game || room.game.phase !== 'game-over')) {
+        // Matched players cannot abandon ranked games. Spectators can always
+        // leave, and completed matches still support Main Menu / Rematch.
+        sendJson(ws, { type: 'error', error: 'Leaving a ranked match is disabled.' });
+        return;
+      }
       const member = findRoomMember(room, pid);
       if (!member) {
         sendJson(ws, { type: 'error', error: 'You are not in this room.' });
@@ -11088,6 +11123,10 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'request_leave_game') {
+      if (room.ranked) {
+        sendJson(ws, { type: 'error', error: 'Leaving a ranked match is disabled.' });
+        return;
+      }
       if (!room.game || room.game.phase === 'lobby' || room.game.phase === 'game-over') {
         sendJson(ws, { type: 'error', error: 'No active game to leave.' });
         return;
@@ -11098,17 +11137,6 @@ if (msg.type === 'create_room') {
       }
       if (roomRole(room, pid) !== 'player') {
         sendJson(ws, { type: 'error', error: 'Only active players can leave the game.' });
-        return;
-      }
-      if (room.ranked) {
-        const moved = moveRoomPlayerToSpectator(room, pid);
-        if (!moved.ok) {
-          sendJson(ws, { type: 'error', error: moved.error || 'Could not leave the ranked game.' });
-          return;
-        }
-        sendJson(ws, { type: 'leave_game_result', accepted: true, playerId: pid, message: 'You are now spectating this ranked match.' });
-        broadcastRoom(room);
-        broadcastState(room);
         return;
       }
       room.pendingLeaveRequests = room.pendingLeaveRequests || Object.create(null);
@@ -13526,6 +13554,12 @@ const endVoteRebroadcastInterval = setInterval(() => {
     const g = room && room.game;
     if (!g || g.phase === 'lobby' || g.phase === 'game-over') continue;
     if (!(g.endVote && g.endVote.id)) continue;
+    // Finalization is performed on the server, not by any client or AI vote.
+    // Recheck unanimity at the deadline so a withdrawn approval always wins.
+    if (finalizeApprovedEndVote(room)) {
+      try { broadcastState(room); } catch (_) {}
+      continue;
+    }
     const t = now();
     if (t < Number(room._nextEndVoteRebroadcastAt || 0)) continue;
     room._nextEndVoteRebroadcastAt = t + 1000;

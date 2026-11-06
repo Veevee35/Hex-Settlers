@@ -1,34 +1,23 @@
-Hex Settlers validation results
+Hex Settlers Ranked Lobby v19
+Source: v18 user upload
 
-Change: Add self-service user management for every account, verified recovery-email linking, and pre-login email password resets while preserving administrator-wide management for Benleethom.
-
-Security behavior:
-  - Non-administrator users receive only their own account record.
-  - Self-service password changes require the current password.
-  - Administrator resets and self-service password changes revoke older saved sessions.
-  - Email verification links expire after 1 hour and are single use.
-  - Password-reset links expire after 30 minutes and are single use.
-  - Password hashes, session tokens, and one-time tokens are never returned to the browser.
-  - Email and username reset requests use non-enumerating responses and rate limits.
-  - Recovery email can use Resend or TLS-capable SMTP.
-
-Validation command:
+Automated validation:
   npm run check
+  TypeScript bootstrap: PASSED
+  Node test suite: 249 tests passed, 0 failed
+  Node syntax checks (server.js and public/app.js): PASSED
 
-Result:
-  132 tests passed
-  0 tests failed
-  TypeScript bootstrap compiled successfully
-  server.js syntax check passed
-  public/app.js syntax check passed
+Live server integration validations:
+  Ranked matches restrict Leave Game for matched players
+  Ranked spectators may leave normally
+  Unranked unanimous End Game vote waits five full seconds
+  Unranked proposer can withdraw and reapprove, restarting countdown
+  AI participants approve End Game votes without bypassing the countdown
 
-2026-11-06 ranked lobby v18 UI validation:
-  npm run check
-  248 tests passed, 0 failed
-  TypeScript bootstrap compiled successfully
-  server.js syntax check passed
-  public/app.js syntax check passed
-  Headless Chromium static UI checks passed at desktop sizes:
-    1024x768, 1280x720, 1366x768, 1731x865, 1920x1080
-  Legal dialog buttons and close interactions passed on login and game-type screens.
-  Mobile viewport retains scrolling for accessibility.
+Visual layout checks (headless Chromium):
+  Resolutions: 390x844, 768x1024, 1280x720
+  Right Resources card and contents retain full dock width across
+  60%, 100%, and 150% scale settings
+  Mobile Tools card visible at board top
+
+No changes deployed to hexsettlers.org.

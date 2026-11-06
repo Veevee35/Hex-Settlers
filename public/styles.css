@@ -344,6 +344,9 @@ body.in-game .boardFooter{display:none;}
   background:transparent;
 }
 .rightSidebar #resourcesCard > .panelScaleContent > .smallNote{display:none;}
+/* Resources fill the right dock at every text scale; counteract zoom's box sizing. */
+.rightSidebar #resourcesCard{width:100%; max-width:none; min-width:0; box-sizing:border-box;}
+
 .rightSidebarInner > #logCard,
 .rightSidebarInner > #devCard{flex:1 1 0; min-height:0;}
 .rightSidebarResourceDock{
@@ -1120,6 +1123,19 @@ select.input{
   margin-top:10px;
   font-size: 12px;
   color: var(--muted);
+}
+
+.endVoteCountdown{
+  margin:12px 0;
+  padding:12px 18px;
+  border:1px solid rgba(255,198,60,.65);
+  border-radius:12px;
+  background:rgba(255,183,25,.09);
+  color:#ffd56d;
+  font-size:32px;
+  font-weight:900;
+  font-family:var(--mono);
+  text-align:center;
 }
 
 /* keep the Show Stats button accessible over the board */
@@ -3108,4 +3124,63 @@ body.ranked-lobby #errBox{flex:none; padding:6px 8px; margin:3px 0 0;}
   .legalDialog{height:92dvh;}
   .legalDialogHeader{padding:10px 12px;}
   .legalDialogFooter{padding:8px 12px;}
+}
+
+
+/* v19: scale the resources' text/controls, not their dock or content width. */
+.rightSidebar #resourcesCard{width:100% !important; min-width:0; max-width:100%;}
+.rightSidebar #resourcesCard > .panelScaleContent{
+  width:100%; max-width:100%; min-width:0; box-sizing:border-box;
+}
+.rightSidebarResourceDock{width:100%; min-width:0; max-width:100%; overflow-x:clip;}
+.rightSidebarResourcesBody{width:100%; max-width:100%; min-width:0;box-sizing:border-box;}
+
+/* v19: Mobile game tools remain visible at the TOP of the board. The Actions
+   button still expands the bar for browsing every option. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px){
+  body.in-game .hudTopLeft,
+  body.in-game:not(.mobileActionsOpen) .hudTopLeft{
+    display:block !important;
+    position:absolute !important;
+    top:calc(4px + var(--safe-top)) !important;
+    left:calc(6px + var(--safe-left)) !important;
+    right:calc(6px + var(--safe-right)) !important;
+    bottom:auto !important;
+    width:auto !important;
+    max-width:none;
+    max-height:57px;
+    padding:5px 7px;
+    overflow:hidden;
+    z-index:32;
+  }
+  body.in-game .hudTopLeft .hudBarRow{
+    display:flex;align-items:center;gap:6px;
+    width:100%;min-width:0;
+  }
+  body.in-game .hudTopLeft .dragGrip{display:none;}
+  body.in-game .hudTopLeft .hudConn{flex:0 0 auto;min-width:0;}
+  body.in-game .hudTopLeft .hudBtns{
+    display:flex;flex:1 1 auto;min-width:0;
+    flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+    scrollbar-width:thin;scrollbar-color:#547089 transparent;
+    -webkit-overflow-scrolling:touch;
+    touch-action:pan-x;
+  }
+  body.in-game .hudTopLeft .hudBtns .btn{flex:0 0 auto;white-space:nowrap;}
+  body.in-game .hudTopLeft .hudBarScaleHost{flex:0 0 auto;}
+  body.in-game.mobileActionsOpen .hudTopLeft{
+    max-height:min(56dvh,420px);
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+  body.in-game.mobileActionsOpen .hudTopLeft .hudBarRow{align-items:flex-start;flex-wrap:wrap;}
+  body.in-game.mobileActionsOpen .hudTopLeft .hudBtns{
+    flex:1 1 100%;order:2;flex-wrap:wrap;
+    max-height:min(44dvh,320px);overflow-y:auto;overflow-x:hidden;
+  }
+  body.in-game .rightHud{top:calc(67px + var(--safe-top)) !important;}
+}
+@media (max-width:480px){
+  body.in-game .hudTopLeft .hudConn .connText{display:none;}
+  body.in-game .rightHud{top:calc(67px + var(--safe-top)) !important;}
 }
