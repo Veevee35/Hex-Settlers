@@ -13,8 +13,8 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 test('pre-game tools are hidden in markup and postgame navigation is player-specific', () => {
   assert.match(html, /class="card hidden" id="toolsCard"/);
   assert.match(html, /id="pgMainMenuBtn"[\s\S]*?id="pgRematchBtn"/);
-  assert.match(client, /pgMainMenuBtn[\s\S]*?returnToModeSelectionAfterLeave = wasRanked[\s\S]*?send\(\{ type: 'leave_room' \}\)/);
-  assert.match(client, /msg\.type === 'left_room'[\s\S]*?handleLocalRoomExit[\s\S]*?returnToRankedQueue[\s\S]*?returnToModeSelection/);
+  assert.match(client, /pgMainMenuBtn[\s\S]*?returnToModeSelectionAfterLeave = true[\s\S]*?send\(\{ type: 'leave_room' \}\)/);
+  assert.match(client, /msg\.type === 'left_room'[\s\S]*?returnToModeSelection[\s\S]*?returnToRankedReady[\s\S]*?returnToGameTypeSelection/);
   assert.match(server, /const gameOver = [\s\S]*?room\.game\.phase === 'game-over'[\s\S]*?leavingHost[\s\S]*?nextHost/);
   assert.match(server, /room\.rematchRoomCode = newRoom\.code/);
   assert.match(server, /Transfer ONLY the player who clicked Rematch[\s\S]*?room\.sockets\.delete\(pid\)[\s\S]*?bindSocketToRoomMember\(newRoom, pid, ws\)/);

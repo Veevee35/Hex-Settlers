@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'nov-2026-ranked-ballot-v17';
+  const ASSET_CACHE_SW_BUILD = 'ranked-lobby-v20';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -5159,7 +5159,10 @@ function syncPostgameToState() {
       if (postgameState && postgameState.historyMode) closePostgameSnapshot();
       else if (postgameState && postgameState.active) exitPostgame();
     } catch (_) {}
-    try { closeModal(); } catch (_) {}
+    try { forceCloseModal(); } catch (_) {}
+    lastEndVotePromptIdSeen = 0;
+    lastEndVotePromptRoomCode = '';
+    pendingEndVotePromptId = 0;
     pendingAutoRejoin = false;
     roomConnectionReady = false;
     clearRoomRecoveryState();
@@ -5190,6 +5193,43 @@ function syncPostgameToState() {
     renderLobby();
     render();
     setError(reason || 'You left the room.');
+  }
+
+  // The game-type selection is the single Main Menu destination, including
+  // administrator room closures and postgame Main Menu. Never leave players
+  // stranded looking at a blank board or auto-rejoining a deleted room.
+  function returnToGameTypeSelection(reason = '') {
+    pendingRankedMatchmaking = false;
+    returnToUnrankedAfterLeave = false;
+    returnToModeSelectionAfterLeave = false;
+    selectedPlayMode = '';
+    try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
+    try { sessionStorage.removeItem(AUTO_CREATE_ROOM_KEY); } catch (_) {}
+    try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+    $('rankedReadyBtn')?.classList.remove('hidden');
+    $('rankedCancelBtn')?.classList.add('hidden');
+    const status = $('rankedStatus');
+    if (status) status.textContent = 'Ready to start matchmaking.';
+    if (room || state) handleLocalRoomExit('');
+    else updateAuthUi();
+    setError(null);
+    const notice = $('playModeNotice');
+    if (notice) {
+      notice.textContent = reason;
+      notice.classList.toggle('hidden', !reason);
+    }
+  }
+
+  function returnToRankedReadyScreen() {
+    pendingRankedMatchmaking = false;
+    selectedPlayMode = 'ranked';
+    try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+    $('rankedReadyBtn')?.classList.remove('hidden');
+    $('rankedCancelBtn')?.classList.add('hidden');
+    const status = $('rankedStatus');
+    if (status) status.textContent = 'Ready for another ranked match. Press Start Matchmaking when you want to queue.';
+    setError(null);
+    updateAuthUi();
   }
 
   let isHost = false;
@@ -6204,40 +6244,26 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'left_room') {
-        const returnToMenu = returnToUnrankedAfterLeave;
-        const returnToModeSelection = returnToModeSelectionAfterLeave || !!msg.rankedMenu;
-        const returnToRankedQueue = !!msg.rankedRequeue;
+        const returnToModeSelection = returnToModeSelectionAfterLeave || returnToUnrankedAfterLeave || !!msg.rankedMenu || !!msg.kicked;
+        const returnToRankedReady = !!msg.rankedReady;
         returnToUnrankedAfterLeave = false;
         returnToModeSelectionAfterLeave = false;
         roomConnectionReady = false;
         if (ui.pgMainMenuBtn) { ui.pgMainMenuBtn.disabled = false; ui.pgMainMenuBtn.textContent = 'Main Menu'; }
         if (ui.pgRematchBtn) { ui.pgRematchBtn.disabled = false; ui.pgRematchBtn.textContent = 'Rematch'; }
-        handleLocalRoomExit(returnToRankedQueue ? '' : (msg.reason || (msg.kicked ? 'You were removed from the room.' : 'You left the room.')));
-        if (returnToRankedQueue) {
-          selectedPlayMode = 'ranked';
-          try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
-          if ($('rankedStatus')) $('rankedStatus').textContent = 'Searching for your next ranked match…';
-          $('rankedReadyBtn')?.classList.add('hidden');
-          $('rankedCancelBtn')?.classList.remove('hidden');
-          setError(null);
-          updateAuthUi();
-        } else if (returnToModeSelection) {
-          selectedPlayMode = '';
-          try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
-          try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
-          setError(null);
-          updateAuthUi();
-        } else if (returnToMenu) {
-          selectedPlayMode = 'unranked';
-          try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
-          try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
-          location.reload();
+        if (returnToModeSelection) {
+          returnToGameTypeSelection(msg.kicked ? (msg.reason || 'You were removed from the room.') : '');
+        } else if (returnToRankedReady) {
+          handleLocalRoomExit('');
+          returnToRankedReadyScreen();
+        } else {
+          handleLocalRoomExit(msg.reason || 'You left the room.');
         }
         return;
       }
 
       if (msg.type === 'room_closed_by_admin') {
-        handleLocalRoomExit(msg.reason || 'This room was closed by an administrator.');
+        returnToGameTypeSelection(msg.reason || 'This room was closed by an administrator.');
         return;
       }
 
@@ -9760,7 +9786,12 @@ function refreshLobbyJoinLinkUi() {
       event.target.reset();
     } catch (error) { if (message) message.textContent = error.message || 'Registration failed.'; }
   });
-  function choosePlayMode(mode) { selectedPlayMode = mode; try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {} updateAuthUi(); }
+  function choosePlayMode(mode) {
+    $('playModeNotice')?.classList.add('hidden');
+    selectedPlayMode = mode;
+    try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {}
+    updateAuthUi();
+  }
   $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
   $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('unranked'));
   function startRankedMatchmaking() {
@@ -10092,14 +10123,16 @@ function refreshLobbyJoinLinkUi() {
   if (ui.leaveGameBtn) ui.leaveGameBtn.addEventListener('click', () => openLeaveGameConfirm());
   if (ui.endGameVoteBtn) ui.endGameVoteBtn.addEventListener('click', () => {
     const inGame = !!(state && state.phase && state.phase !== 'lobby' && state.phase !== 'game-over');
-    const canVote = !!(inGame && myPlayerId && !amSpectator && !historyReplay.active && !room?.ranked);
+    const canVote = !!(inGame && myPlayerId && !amRoomSpectator() && !historyReplay.active && !room?.ranked);
     if (!canVote) return;
     // If a vote is already open, just re-open the panel.
     if (state && state.endVote && state.endVote.id) {
       openEndGameVoteModal(true);
       return;
     }
-    sendGameAction({ kind: 'propose_endgame' });
+    if (sendGameAction({ kind: 'propose_endgame' })) {
+      toast('Requesting End Game vote…');
+    }
   });
   if (ui.idsBtn) ui.idsBtn.addEventListener('click', () => openRoomIdsModal());
 
@@ -10150,11 +10183,20 @@ function refreshLobbyJoinLinkUi() {
     // Turn-undo voting intentionally pauses the game; the vote must still be
     // usable while paused or the unanimous approval flow could never finish.
     const undoVoteAction = action.kind === 'propose_turn_undo' || action.kind === 'respond_turn_undo';
-    if (state && state.paused && !undoVoteAction) {
+    // End Game votes are permitted while a room is paused, too. The server
+    // explicitly permits these actions; blocking them here made the button
+    // silently fail for paused unranked and AI games.
+    const endVoteAction = action.kind === 'propose_endgame' || action.kind === 'respond_endgame';
+    if (state && state.paused && !undoVoteAction && !endVoteAction) {
       setError('Game is paused.');
-      return;
+      return false;
+    }
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setError('Connection interrupted. Reconnect to request an End Game vote.');
+      return false;
     }
     send({ type: 'game_action', action });
+    return true;
   }
 
   let hoverNodeBuild = { nodeId: null, absX: 0, absY: 0, actionKind: null };
@@ -10910,15 +10952,14 @@ if (ui.pgMainMenuBtn) ui.pgMainMenuBtn.addEventListener('click', () => {
     closePostgameSnapshot();
     return;
   }
-  // Acknowledge the server departure before changing screens. In particular,
-  // ranked Main Menu goes to game-type selection, never into a private lobby.
+  // Main Menu always returns to the change-game-type screen. Wait for the
+  // server to unbind a connected match, but never trap a disconnected player.
   if (!room || !ws || ws.readyState !== WebSocket.OPEN) {
-    setError('Connection lost. Reconnect before leaving this match.');
+    returnToGameTypeSelection();
     return;
   }
-  const wasRanked = !!room.ranked;
-  returnToModeSelectionAfterLeave = wasRanked;
-  returnToUnrankedAfterLeave = !wasRanked;
+  returnToModeSelectionAfterLeave = true;
+  returnToUnrankedAfterLeave = false;
   ui.pgMainMenuBtn.disabled = true;
   ui.pgMainMenuBtn.textContent = 'Leaving…';
   if (ui.pgRematchBtn) ui.pgRematchBtn.disabled = true;
@@ -10928,9 +10969,9 @@ if (ui.pgRematchBtn) ui.pgRematchBtn.addEventListener('click', () => {
   if (postgameState.historyMode || !ws || ws.readyState !== WebSocket.OPEN) return;
   ui.pgRematchBtn.disabled = true;
   const rankedRematch = !!room?.ranked;
-  ui.pgRematchBtn.textContent = rankedRematch ? 'Queueing…' : 'Joining…';
-  // The ranked queue view is opened by the server's requeue acknowledgement.
-  // Changing screens here would hide an error and strand the completed game.
+  ui.pgRematchBtn.textContent = rankedRematch ? 'Returning…' : 'Joining…';
+  // Ranked Rematch only returns to the ready screen; queueing is always a
+  // separate, explicit click on Start Matchmaking.
   send({ type: 'rematch_room' });
 });
 
@@ -11702,6 +11743,7 @@ if (ui.moveShipBtn) {
   let pendingTradePromptId = 0;
   let pendingTradeModalKey = '';
   let lastEndVotePromptIdSeen = 0;
+  let lastEndVotePromptRoomCode = '';
   let pendingEndVotePromptId = 0;
   // When the trade proposer hits "Revise Trade" from the proposed-trade popup,
   // we keep track of which trade is being replaced so the server can atomically
@@ -12803,6 +12845,16 @@ if (ui.moveShipBtn) {
 
   function handleEndGameVotePrompt() {
     if (!state || !myPlayerId) return;
+
+    // Server vote sequences restart for each new room. Deduplication must be
+    // scoped to the room, otherwise the first End Game vote in a rematch can
+    // reuse a prior vote ID and never open its popup.
+    const promptRoomCode = String(room?.code || state.roomCode || '');
+    if (lastEndVotePromptRoomCode !== promptRoomCode) {
+      lastEndVotePromptRoomCode = promptRoomCode;
+      lastEndVotePromptIdSeen = 0;
+      pendingEndVotePromptId = 0;
+    }
 
     const v = state.endVote;
 

@@ -1,23 +1,20 @@
-Hex Settlers Ranked Lobby v19
-Source: v18 user upload
+Hex Settlers v20 regression results — November 6, 2026
 
-Automated validation:
-  npm run check
-  TypeScript bootstrap: PASSED
-  Node test suite: 249 tests passed, 0 failed
-  Node syntax checks (server.js and public/app.js): PASSED
+npm run check
+TypeScript build: PASS
+Node --test: 255 passing, 0 failures
+Node --check server.js: PASS
+Node --check public/app.js: PASS
 
-Live server integration validations:
-  Ranked matches restrict Leave Game for matched players
-  Ranked spectators may leave normally
-  Unranked unanimous End Game vote waits five full seconds
-  Unranked proposer can withdraw and reapprove, restarting countdown
-  AI participants approve End Game votes without bypassing the countdown
+New client tests include the undefined spectator variable regression,
+paused vote actions, prompt ID reuse, administrator closure navigation,
+ranked ready screen behavior, and a server-handler test proving ranked
+Rematch detaches one player without joining matchmaking.
 
-Visual layout checks (headless Chromium):
-  Resolutions: 390x844, 768x1024, 1280x720
-  Right Resources card and contents retain full dock width across
-  60%, 100%, and 150% scale settings
-  Mobile Tools card visible at board top
+Chromium client smoke (mock WebSocket): PASS
+- End Game click sends propose_endgame and opens vote dialog.
+- No uncaught browser JavaScript errors.
+- Administrator room closure displays Change Game Type and closes the modal.
+- Ranked Rematch acknowledgement shows Ranked Play with Start Matchmaking.
 
-No changes deployed to hexsettlers.org.
+Deployment not performed.

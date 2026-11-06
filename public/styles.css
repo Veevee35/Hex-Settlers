@@ -3184,3 +3184,11 @@ body.ranked-lobby #errBox{flex:none; padding:6px 8px; margin:3px 0 0;}
   body.in-game .hudTopLeft .hudConn .connText{display:none;}
   body.in-game .rightHud{top:calc(67px + var(--safe-top)) !important;}
 }
+
+/* v20: room closures return to the game-type selection with an explanation. */
+.playModeNotice {
+  max-width: 610px; margin: 12px auto; padding: 10px 14px;
+  border: 1px solid rgba(245, 190, 79, .48); border-radius: 9px;
+  background: rgba(61, 44, 20, .6); color: #f5daa6;
+  font-size: .91rem; text-align: center;
+}

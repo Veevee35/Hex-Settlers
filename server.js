@@ -11259,8 +11259,9 @@ if (msg.type === 'create_room') {
         if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
         ws._roomCode = null;
         ws._playerId = null;
-        sendJson(ws, { type: 'left_room', code, reason: 'Returned to the ranked queue.', rankedRequeue: true });
-        enqueueRankedPlayer(ws, user);
+        // Rematch returns to Ranked Play with Start Matchmaking available;
+        // never silently enqueue the player into a second ranked match.
+        sendJson(ws, { type: 'left_room', code, reason: 'Ready for another ranked match.', rankedReady: true });
         if (!room.players.length && !room.spectators.length) rooms.delete(code);
         else broadcastRoom(room);
         scheduleActiveRoomsSave();
