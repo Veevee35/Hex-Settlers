@@ -1,0 +1,100 @@
+{
+  "totalGames": 13,
+  "gamesPerOption": 1,
+  "mapOptions": [
+    "classic",
+    "classic56",
+    "seafarers:four_islands",
+    "seafarers:through_the_desert",
+    "seafarers:fog_island",
+    "seafarers:heading_for_new_shores",
+    "seafarers:cartographer_4_manual",
+    "seafarers:cartographer_4_random",
+    "seafarers:six_islands",
+    "seafarers:through_the_desert_56",
+    "seafarers:fog_island_56",
+    "seafarers:cartographer_56_manual",
+    "seafarers:cartographer_56_random"
+  ],
+  "summary": [
+    {
+      "mapOption": "classic",
+      "games": 1,
+      "avgTurn": 8,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "classic56",
+      "games": 1,
+      "avgTurn": 10,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:four_islands",
+      "games": 1,
+      "avgTurn": 14,
+      "avgWinnerVp": 4
+    },
+    {
+      "mapOption": "seafarers:through_the_desert",
+      "games": 1,
+      "avgTurn": 16,
+      "avgWinnerVp": 4
+    },
+    {
+      "mapOption": "seafarers:heading_for_new_shores",
+      "games": 1,
+      "avgTurn": 9,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:fog_island",
+      "games": 1,
+      "avgTurn": 20,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:cartographer_4_manual",
+      "games": 1,
+      "avgTurn": 7,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:cartographer_4_random",
+      "games": 1,
+      "avgTurn": 26,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:six_islands",
+      "games": 1,
+      "avgTurn": 6,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:through_the_desert_56",
+      "games": 1,
+      "avgTurn": 11,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:fog_island_56",
+      "games": 1,
+      "avgTurn": 3,
+      "avgWinnerVp": 3
+    },
+    {
+      "mapOption": "seafarers:cartographer_56_random",
+      "games": 1,
+      "avgTurn": 23,
+      "avgWinnerVp": 4
+    },
+    {
+      "mapOption": "seafarers:cartographer_56_manual",
+      "games": 1,
+      "avgTurn": 13,
+      "avgWinnerVp": 4
+    }
+  ],
+  "csvPath": "/workspace/Hex-Settlers/scripts/output/all_playable_map_simulations.csv"
+}

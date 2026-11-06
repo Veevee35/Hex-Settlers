@@ -2876,3 +2876,50 @@ body.in-game .extraTurnCenterBanner{
 @media(max-width:480px){
   body.in-game .rightHud{top:calc(58px + var(--safe-top)) !important;}
 }
+
+/* Ranked lobby: full-screen ballot, no private-lobby setup controls or board. */
+body.ranked-lobby .layout{display:block;height:100%;min-height:0;overflow:hidden;padding:14px;}
+body.ranked-lobby .layout>.boardWrap{display:none!important;}
+body.ranked-lobby .layout>.panel{width:100%;max-width:none;height:100%;max-height:none;overflow-y:auto;padding:0 0 24px;}
+body.ranked-lobby #lobbyCard{width:100%;min-height:calc(100% - 4px);padding:clamp(16px,2.8vw,38px);}
+body.ranked-lobby #lobbyCard>h2{font-size:22px;letter-spacing:.6px;margin-bottom:16px;}
+body.ranked-lobby #lobbyCard .ranked-unavailable,
+body.ranked-lobby #createBtn{display:none!important;}
+body.ranked-lobby #lobbyRulesBtn{flex:0 1 180px;}
+body.ranked-lobby #roomCode{display:none;}
+.rankedRoomHeader{display:none;font-size:13px;letter-spacing:2px;font-weight:800;color:#ffd67e;}
+body.ranked-lobby .rankedRoomHeader{display:block;}
+body.ranked-lobby #roomBox{background:transparent;border:0;padding:0;}
+body.ranked-lobby #rankedScenarioVote{margin-top:24px;}
+body.ranked-lobby #texturePackRow{margin-top:20px;}
+body.ranked-lobby .lobbyPlayersHeading{font-weight:750;font-size:13px;margin-top:22px;}
+body.ranked-lobby #playersList{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
+body.ranked-lobby #playersList .playerRow{border:1px solid rgba(255,255,255,.09);background:rgba(9,16,25,.65);border-radius:12px;padding:12px;}
+.rankedScenarioVote{padding:clamp(18px,2vw,32px);border:2px solid #e6b94e;border-radius:20px;background:linear-gradient(155deg,rgba(222,167,49,.16),rgba(48,83,99,.09) 60%,rgba(222,167,49,.04));box-shadow:0 0 34px rgba(218,157,42,.12),inset 0 1px rgba(255,238,170,.16);}
+.rankedScenarioVoteHeading{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+.rankedScenarioVoteTitle{font-size:clamp(19px,2.6vw,34px);font-weight:900;letter-spacing:.9px;color:#ffdb84;text-shadow:0 0 18px rgba(227,172,62,.22);}
+.rankedScenarioCountdown{font-size:clamp(24px,3.5vw,42px);font-family:var(--mono);font-weight:900;color:#fff1b6;font-variant-numeric:tabular-nums;line-height:1;}
+.rankedScenarioCountdown.expiring{color:#ff8b75;}
+.rankedScenarioVoteInstructions{margin:10px 0 18px;font-size:13px;line-height:1.5;color:#e3d7b6;}
+.rankedScenarioOptions{gap:clamp(10px,1.5vw,20px);margin-top:0;}
+.rankedScenarioOption{min-height:255px;padding:12px;gap:12px;border:2px solid #395468;border-radius:16px;background:linear-gradient(180deg,#142635,#0c1823);box-shadow:0 10px 22px rgba(0,0,0,.2);transition:border-color .12s,transform .12s,box-shadow .12s;}
+.rankedScenarioOption:hover{transform:translateY(-2px);border-color:#f1c15a;box-shadow:0 12px 26px rgba(0,0,0,.35);}
+.rankedScenarioOption.selected{border-color:#ffce69;background:linear-gradient(180deg,#29392c,#201e19);box-shadow:0 0 0 2px rgba(224,174,58,.2) inset,0 0 26px rgba(240,176,45,.2);}
+.rankedScenarioMapPreview{width:100%;height:auto;aspect-ratio:3/2;object-fit:contain;border-radius:10px;background:radial-gradient(ellipse,#1b3546,#091722);}
+.rankedScenarioOptionInfo{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;flex-wrap:wrap;}
+.rankedScenarioOptionInfo strong{font-size:clamp(14px,1.5vw,19px);}
+.rankedScenarioOptionInfo span{font-size:12px;}
+.rankedScenarioSelectedMark{font-size:11px!important;color:#f2c962!important;font-weight:800;letter-spacing:1.2px!important;}
+@media (max-width:780px){
+  body.ranked-lobby .layout{padding:6px;}
+  body.ranked-lobby #lobbyCard{padding:12px;}
+  .rankedScenarioOptions{grid-template-columns:1fr;}
+  .rankedScenarioOption{min-height:0;}
+  .rankedScenarioMapPreview{max-height:235px;}
+  body.ranked-lobby #playersList{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width:430px){body.ranked-lobby #playersList{grid-template-columns:1fr;}}
+
+body.ranked-lobby #app .layout>.panel>.card:not(#lobbyCard){display:none!important;}
+.rankedScenarioOption:disabled{cursor:default;opacity:.79;}
+.rankedScenarioOption:disabled:hover{transform:none;}

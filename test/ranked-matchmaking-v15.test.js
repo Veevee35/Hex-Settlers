@@ -50,9 +50,11 @@ test('ranked ballot protocol and persistence retain options and votes', () => {
 test('ranked matchmaking is one four-player server-owned queue with a three-option ballot', () => {
   assert.doesNotMatch(indexHtml, /id="rankedMap"|id="rankedPlayers"/);
   assert.match(serverSource, /const RANKED_PLAYER_COUNT = 4/);
-  assert.match(serverSource, /options: randomRankedScenarioOptions\(3\)/);
+  assert.match(serverSource, /randomRankedScenarioOptions\(3\)/);
   assert.match(serverSource, /leaders\[crypto\.randomInt\(leaders\.length\)\]/);
-  assert.match(serverSource, /activePlayerIds\.every\(\(id\) => ballot\.votes/);
+  assert.match(serverSource, /now\(\) < Number\(ballot\.endsAt/);
+  assert.match(serverSource, /const RANKED_SCENARIO_VOTE_MS/);
+  assert.match(serverSource, /for \(const room of rooms\.values\(\)\)/);
   assert.match(serverSource, /hostId: room\.ranked \? null : room\.hostId/);
   assert.match(serverSource, /Ranked matches are server-controlled/);
   assert.match(serverSource, /if \(room\.ranked\)[\s\S]*?enqueueRankedPlayer\(ws, user\)/);
@@ -60,11 +62,12 @@ test('ranked matchmaking is one four-player server-owned queue with a three-opti
   assert.match(clientSource, /type: 'ranked_scenario_vote'/);
 });
 
-test('all players get unanimous Back and End Game controls', () => {
+test('ranked Back and End Game controls are disabled but available in unranked', () => {
   assert.doesNotMatch(serverSource, /playerId !== game\.hostId[\s\S]{0,100}end-game vote/);
   assert.match(serverSource, /Only an active player can start an end-game vote/);
   assert.match(clientSource, /canRequestEndVote = !!\(inGame && state\?\.phase !== 'game-over' && !amSpectator/);
-  assert.match(clientSource, /Any player can request a unanimous vote to undo the previous turn/);
+  assert.match(serverSource, /Back and End Game votes are disabled in ranked matches/);
+  assert.match(clientSource, /!room\?\.ranked/);
 });
 
 test('Player Stats exposes Ranked, Unranked, and Combined and hides rating on Unranked', () => {
@@ -72,6 +75,6 @@ test('Player Stats exposes Ranked, Unranked, and Combined and hides rating on Un
   assert.match(clientSource, /if \(mode !== 'unranked'\) columns\.push\(\{ key: 'rankedRating', label: 'Rating' \}\)/);
   assert.match(serverSource, /combined: emptyLeaderboardAggregate\(\)/);
   assert.match(serverSource, /if \(g\.ranked === true\).*rec\.ranked/);
-  assert.match(serverSource, /if \(g\.ranked === false\).*rec\.unranked/);
+  assert.match(serverSource, /if \(g\.ranked !== true\).*rec\.unranked/);
 });
 

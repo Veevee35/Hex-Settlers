@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=rating-mobile-v14" />
+  <link rel="stylesheet" href="styles.css?v=ranked-lobby-v17" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -118,31 +118,31 @@
           </div>
 
 
-          <div class="divider"></div>
+          <div class="divider ranked-unavailable"></div>
 
           <div class="row lobbyPrimaryActions">
             <button id="createBtn" class="btn primary">Create Lobby</button>
             <button id="lobbyRulesBtn" class="btn" type="button">Rules</button>
           </div>
 
-          <div class="divider"></div>
+          <div class="divider ranked-unavailable"></div>
 
-          <label class="label">Room code</label>
-          <input id="codeInput" class="input code" maxlength="8" placeholder="ABCD" />
+          <label class="label ranked-unavailable">Room code</label>
+          <input id="codeInput" class="input code ranked-unavailable" maxlength="8" placeholder="ABCD" />
 
-          <div class="row">
+          <div class="row ranked-unavailable">
             <button id="joinBtn" class="btn">Join Lobby</button>
           </div>
 
-          <div class="row">
+          <div class="row ranked-unavailable">
             <button id="rejoinLastBtn" class="btn">Rejoin Last Room</button>
           </div>
-          <div id="lastRoomHint" class="hint" style="margin-top:6px;"></div>
+          <div id="lastRoomHint" class="hint ranked-unavailable" style="margin-top:6px;"></div>
 <div id="roomBox" class="roomBox hidden">
             <div class="roomTop">
               <div>
-                <div class="labelTiny">Room</div>
-                <div id="roomCode" class="roomCode">----</div>
+                <div class="labelTiny ranked-unavailable">Room</div>
+                <div id="roomCode" class="roomCode">----</div><div class="rankedRoomHeader">RANKED · FOUR PLAYER MATCH</div>
               </div>
               <div class="lobbyReadyActions">
                 <button id="readyBtn" class="btn hidden" type="button">Ready</button>
@@ -150,11 +150,13 @@
               </div>
             </div>
 
+            <div id="rankedScenarioVote" class="rankedScenarioVote hidden" aria-live="polite"></div>
+
             <div style="margin-top:10px;">
-              <div class="labelTiny">Direct join link</div>
+              <div id="roomShareLabel" class="labelTiny">Direct join link</div>
               <div class="row" style="align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px;">
                 <input id="roomJoinLinkInput" class="input" readonly placeholder="Generate link for this room" style="flex:1; min-width:240px; font-family:var(--mono); font-size:11px;" />
-                <button id="genJoinLinkBtn" class="btn" type="button">Generate Link</button>
+                <button id="genJoinLinkBtn" class="btn ranked-unavailable" type="button">Generate Link</button>
                 <button id="copyJoinLinkBtn" class="btn" type="button" disabled>Copy Link</button>
               </div>
             </div>
@@ -179,10 +181,10 @@
   <div id="texturePackStatus" class="smallNote">Default and Simplified are built in. Uploaded packs save locally and can be shared with everyone in the lobby.</div>
 </div>
 
-            <div class="labelTiny">Players</div>
-            <div id="playersList" class="playersList"></div>
+            
 
-            <div id="rankedScenarioVote" class="rankedScenarioVote hidden" aria-live="polite"></div>
+            <div class="labelTiny lobbyPlayersHeading">Players</div>
+            <div id="playersList" class="playersList"></div>
 
             <div id="colorPickerRow" class="colorPickerRow hidden">
               <div class="labelTiny" style="margin-top:10px;">Your color</div>
@@ -673,6 +675,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=ranked-navigation-v16"></script>
+  <script src="app.js?v=ranked-lobby-v17"></script>
 </body>
 </html>

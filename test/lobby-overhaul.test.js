@@ -44,7 +44,7 @@ test('ranked matchmaking is one server-authoritative four-player scenario ballot
   assert.match(app, /send\(\{ type: 'ranked_queue_join' \}\)/);
   assert.match(server, /function rankedRatingRange[\s\S]*?RANKED_RANGE_STEP_MS/);
   assert.match(server, /const RANKED_PLAYER_COUNT = 4/);
-  assert.match(server, /rankedRoom\.ranked = true[\s\S]*?options: randomRankedScenarioOptions\(3\)/);
+  assert.match(server, /randomRankedScenarioOptions\(3\)[\s\S]*?rankedRoom\.ranked = true/);
   assert.match(server, /function resolveRankedScenarioVote[\s\S]*?startGame\(room\)/);
   const rankedOptions = html.match(/id="rankedScreen"[\s\S]*?<\/section>/)?.[0] || '';
   assert.doesNotMatch(rankedOptions, /id="rankedMap"|id="rankedPlayers"|Classic|Seafarers/);

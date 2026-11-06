@@ -60,7 +60,7 @@ test('ranked matchmaking uses one four-player queue before the scenario ballot',
   assert.match(server, /const RANKED_PLAYER_COUNT = 4/);
   assert.match(server, /const key = String\(RANKED_PLAYER_COUNT\)/);
   assert.match(server, /queue\.push\(\{ ws, user, rating, queuedAt \}\)/);
-  assert.match(server, /options: randomRankedScenarioOptions\(3\)/);
+  assert.match(server, /randomRankedScenarioOptions\(3\)/);
   assert.match(server, /const leaders = ballot\.options\.filter/);
   assert.match(server, /leaders\[crypto\.randomInt\(leaders\.length\)\]/);
 });

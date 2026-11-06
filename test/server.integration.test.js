@@ -116,10 +116,10 @@ class Peer {
   close() { try { this.ws.terminate(); } catch (_) {} }
 }
 
-test('ranked queue runs a server-owned scenario ballot and rematch requeues', { timeout: 20_000 }, async (t) => {
+test('ranked queue runs a timed server-owned ballot and locks ranked actions', { timeout: 25_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-ranked-ballot-'));
-  const server = await startServer(port, dataDir);
+  const server = await startServer(port, dataDir, 'server.js', { RANKED_BALLOT_TEST_MS: '3500' });
   const peers = [];
   t.after(async () => {
     for (const peer of peers) peer.close();
@@ -156,16 +156,38 @@ test('ranked queue runs a server-owned scenario ballot and rematch requeues', { 
   peers[0].send({ type: 'set_spectator_mode', enabled: true });
   assert.match((await peers[0].waitFor((message) => message.type === 'error')).error, /server-controlled/i);
 
+  assert.equal(ballot.endsAt - ballot.createdAt, 3500);
+  assert.ok(ballot.options.every(option => Array.isArray(option.preview) && option.preview.length > 15));
+
+  // Public ranked lobby URL is spectator-only: the roster is never extended.
+  const spectator = await Peer.connect(port);
+  peers.push(spectator);
+  spectator.send({ type: 'auth_register', username: `spec_${suffix}`, password: 'spectator test', displayName: 'Spectator' });
+  await spectator.waitFor(message => message.type === 'auth_ok');
+  spectator.send({ type: 'join_room', code: joined[0].room.code, spectator: true });
+  const spectatorJoined = await spectator.waitFor(message => message.type === 'joined');
+  assert.equal(spectatorJoined.role, 'spectator');
+  assert.equal(spectatorJoined.room.players.length, 4);
+  spectator.send({ type: 'ranked_scenario_vote', scenarioId: ballot.options[0].id });
+  assert.match((await spectator.waitFor(message => message.type === 'error')).error, /matched players/i);
+
   const firstId = ballot.options[0].id;
   const secondId = ballot.options[1].id;
+  // Two abstentions must not prevent the game from starting at the deadline.
+  // Voters can change selections freely throughout the ballot.
+  peers[0].send({ type: 'ranked_scenario_vote', scenarioId: secondId });
+  await peers[0].waitFor(message => message.type === 'room' && message.room.rankedScenarioVote?.votes[joined[0].playerId] === secondId);
   peers[0].send({ type: 'ranked_scenario_vote', scenarioId: firstId });
   peers[1].send({ type: 'ranked_scenario_vote', scenarioId: firstId });
-  peers[2].send({ type: 'ranked_scenario_vote', scenarioId: secondId });
-  peers[3].send({ type: 'ranked_scenario_vote', scenarioId: secondId });
+  const revised = await peers[0].waitFor(message => message.type === 'room' &&
+    message.room.rankedScenarioVote?.votes[joined[0].playerId] === firstId &&
+    message.room.rankedScenarioVote?.votes[joined[1].playerId] === firstId);
+  assert.equal(revised.room.gamePhase, 'lobby', 'two votes must not start the match early');
+  assert.equal(revised.room.rankedScenarioVote.votes[joined[2].playerId], undefined);
 
   const started = [];
-  for (const peer of peers) started.push((await peer.waitFor((message) => message.type === 'state' && message.state.phase !== 'lobby')).state);
-  assert.ok([firstId, secondId].includes(started[0].rules.mapMode === 'classic' ? 'classic' : started[0].rules.seafarersScenario));
+  for (const peer of peers.slice(0, 4)) started.push((await peer.waitFor((message) => message.type === 'state' && message.state.phase !== 'lobby', 10_000)).state);
+  assert.equal(started[0].rules.mapMode === 'classic' ? 'classic' : started[0].rules.seafarersScenario, firstId);
   assert.equal(started[0].hostId, null, 'ranked game state must not expose a player-host');
   assert.equal(started[0].rules.diceAlgorithm, 'probability_corrected');
   assert.equal(started[0].rules.friendlyRobber, false);
@@ -173,28 +195,14 @@ test('ranked queue runs a server-owned scenario ballot and rematch requeues', { 
   assert.equal(started[0].rules.playTurnMs, 30_000);
   peers[0].send({ type: 'pause_game', paused: true });
   assert.match((await peers[0].waitFor((message) => message.type === 'error')).error, /server-controlled/i);
-
+  peers[0].send({ type: 'game_action', action: { kind: 'propose_turn_undo' } });
+  assert.match((await peers[0].waitFor((message) => message.type === 'error')).error, /Back and End Game/i);
   peers[1].send({ type: 'game_action', action: { kind: 'propose_endgame' } });
-  const voteState = await peers[1].waitFor((message) => message.type === 'state' && message.state.endVote?.id);
-  for (const [index, peer] of peers.entries()) {
-    if (index === 1) continue;
-    peer.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: voteState.state.endVote.id, accept: true } });
-  }
-  await peers[0].waitFor((message) => message.type === 'state' && message.state.phase === 'game-over');
+  assert.match((await peers[1].waitFor((message) => message.type === 'error')).error, /Back and End Game/i);
 
-  peers[0].send({ type: 'rematch_room' });
-  await peers[0].waitFor((message) => message.type === 'left_room' && message.rankedRequeue === true);
-  const requeued = await peers[0].waitFor((message) => message.type === 'ranked_queue_status' && message.queued === true);
-  assert.equal(requeued.needed, 4);
+  spectator.send({ type: 'leave_room' });
+  assert.equal((await spectator.waitFor(message => message.type === 'left_room')).rankedMenu, true);
 
-  // Main Menu leaves ranked and returns to mode choice; it must not create a
-  // private lobby or silently enqueue the departing player.
-  peers[2].send({ type: 'leave_room' });
-  const left = await peers[2].waitFor((message) => message.type === 'left_room');
-  assert.equal(left.rankedMenu, true);
-  peers[2].send({ type: 'ranked_queue_join' });
-  const freshQueue = await peers[2].waitFor((message) => message.type === 'ranked_queue_status' && message.queued);
-  assert.equal(freshQueue.needed, 4);
 });
 
 test('six-player trades reach hosts and non-hosts promptly with private hands preserved', { timeout: 30_000 }, async (t) => {

@@ -137,7 +137,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'ranked-server-vote-navigation-v16';
+const SERVER_BUILD_ID = 'ranked-lobby-ballot-v17';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -587,7 +587,8 @@ function computeLeaderboardFromHistory() {
       }
       addGameToLeaderboardAggregate(rec.combined, g, p, st, wid);
       if (g.ranked === true) addGameToLeaderboardAggregate(rec.ranked, g, p, st, wid);
-      if (g.ranked === false) addGameToLeaderboardAggregate(rec.unranked, g, p, st, wid);
+      // Older games have no ranked flag: they predate the split and belong to Unranked.
+      if (g.ranked !== true) addGameToLeaderboardAggregate(rec.unranked, g, p, st, wid);
     }
   }
 
@@ -5818,7 +5819,7 @@ function startGame(room) {
 
   // Manual Cartographer 4-player scenario starts with a player tile draft before setup placements.
   if ((game.rules?.mapMode || 'classic') === 'seafarers' && (seafarersScenarioKey(game) === 'cartographer_4_manual' || seafarersScenarioKey(game) === 'cartographer_56_manual')) {
-    game.geom.tiles = generateBoardSeafarersCartographer4ManualDraft(game.geom);
+    if (!usedPreview) game.geom.tiles = generateBoardSeafarersCartographer4ManualDraft(game.geom);
     game.geom.ports = [];
     initCartographer4ManualDraftState(game);
   }
@@ -6201,6 +6202,9 @@ function applyActionCore(room, playerId, action) {
 
   const kind = action && action.kind;
   if (!kind) return { ok: false, error: 'Invalid action.' };
+  if (room.ranked && ['propose_turn_undo', 'respond_turn_undo', 'propose_endgame', 'respond_endgame'].includes(kind)) {
+    return { ok: false, error: 'Back and End Game votes are disabled in ranked matches.' };
+  }
   if (game.paused && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo') return { ok: false, error: 'Game is paused.' };
 
   const actingPlayer = playerById(game, playerId);
@@ -8292,6 +8296,9 @@ function sendToRoomMember(room, playerId, payload) {
 const rooms = new Map(); // code -> room
 const rankedQueues = new Map(); // one server-owned four-player ranked queue
 const RANKED_PLAYER_COUNT = 4;
+const RANKED_SCENARIO_VOTE_MS = (process.env.NODE_ENV === 'test' && process.env.RANKED_BALLOT_TEST_MS)
+  ? Math.max(800, Math.min(30_000, Math.floor(Number(process.env.RANKED_BALLOT_TEST_MS) || 30_000)))
+  : 30_000;
 const RANKED_INITIAL_RATING_RANGE = 100;
 const RANKED_RANGE_STEP = 100;
 const RANKED_RANGE_STEP_MS = 15_000;
@@ -8342,18 +8349,35 @@ function enqueueRankedPlayer(ws, user, queuedAt = now()) {
 function launchRankedMatch(matched) {
   const host = matched[0];
   const rankedRoom = createRoom(host.user.id, host.user.displayName || host.user.username);
-  rankedRoom.ranked = true;
+  // Seat all four matched players before locking this room to spectators.
   rankedRoom.rankedPreferences = { playerCount: RANKED_PLAYER_COUNT };
   // No Classic rules or preview are assigned before the ballot. The winning
   // scenario supplies its own complete defaults when voting concludes.
   rankedRoom.rules = null;
   rankedRoom.preview = null;
+  const ballotCreatedAt = now();
+  // Generate one real, randomized board per scenario. The winning layout is
+  // reused when the match begins, so the preview is not a misleading mockup.
+  const options = randomRankedScenarioOptions(3);
+  const layoutGeoms = Object.create(null);
+  for (const option of options) {
+    const scenarioRules = rankedRulesForScenario(option.id);
+    const geom = generatePreviewGeom(scenarioRules, { players: matched.map((entry) => entry.user) });
+    layoutGeoms[option.id] = geom;
+    option.preview = (geom.tiles || []).map((tile) => ({
+      x: tile.cx, y: tile.cy,
+      type: tile.fog && !tile.revealed ? 'unexplored' : tile.type,
+      number: tile.fog && !tile.revealed ? null : tile.number,
+    }));
+  }
   rankedRoom.rankedScenarioVote = {
-    options: randomRankedScenarioOptions(3),
+    options, layoutGeoms,
     votes: Object.create(null),
-    createdAt: now(),
+    createdAt: ballotCreatedAt,
+    endsAt: ballotCreatedAt + RANKED_SCENARIO_VOTE_MS,
   };
   for (const entry of matched.slice(1)) joinRoom(rankedRoom.code, entry.user.id, entry.user.displayName || entry.user.username);
+  rankedRoom.ranked = true;
   for (const player of rankedRoom.players) player.ready = true;
   for (const entry of matched) {
     bindSocketToRoomMember(rankedRoom, entry.user.id, entry.ws, 'Ranked match opened in another tab.');
@@ -8367,8 +8391,11 @@ function launchRankedMatch(matched) {
 function resolveRankedScenarioVote(room) {
   const ballot = room && room.rankedScenarioVote;
   if (!room || !room.ranked || !ballot || !Array.isArray(ballot.options) || !ballot.options.length) return false;
+  // Never finish early: all four players may revise their ballots until the
+  // 30-second server deadline; missing ballots are treated as abstentions.
+  if (ballot.selectedId || now() < Number(ballot.endsAt || (ballot.createdAt + RANKED_SCENARIO_VOTE_MS))) return false;
   const activePlayerIds = (room.players || []).filter((player) => player && !player.isAI).map((player) => String(player.id));
-  if (activePlayerIds.length !== RANKED_PLAYER_COUNT || !activePlayerIds.every((id) => ballot.votes && ballot.votes[id])) return false;
+  if (activePlayerIds.length !== RANKED_PLAYER_COUNT) return false;
 
   const counts = new Map(ballot.options.map((option) => [option.id, 0]));
   for (const playerId of activePlayerIds) {
@@ -8381,7 +8408,14 @@ function resolveRankedScenarioVote(room) {
   ballot.selectedId = winner.id;
   ballot.resolvedAt = now();
   room.rules = rankedRulesForScenario(winner.id);
-  ensurePreview(room, true);
+  const winningLayout = ballot.layoutGeoms && ballot.layoutGeoms[winner.id];
+  if (winningLayout) {
+    room.preview = { key: mapPreviewKey(room.rules, room.players.length), geom: winningLayout, at: now() };
+  } else {
+    ensurePreview(room, true); // Recovery for older persisted ballots.
+  }
+  // The ballot has ended; drop surplus geometry before persisting a match.
+  delete ballot.layoutGeoms;
 
   const started = startGame(room);
   if (!started) return false;
@@ -8427,7 +8461,12 @@ function processRankedQueue(key, timestamp = now()) {
 const rankedQueueSweepTimer = setInterval(() => {
   const timestamp = now();
   for (const key of rankedQueues.keys()) processRankedQueue(key, timestamp);
-}, 2_000);
+  // Scan persisted and live lobbies: the deadline survives reconnects/restarts.
+  for (const room of rooms.values()) {
+    if (room.ranked && room.rankedScenarioVote && !room.rankedScenarioVote.selectedId &&
+        (!room.game || room.game.phase === 'lobby')) resolveRankedScenarioVote(room);
+  }
+}, 250);
 if (typeof rankedQueueSweepTimer.unref === 'function') rankedQueueSweepTimer.unref();
 const ACTIVE_ROOMS_SAVE_DEBOUNCE_MS = 400;
 let activeRoomsSaveTimer = null;
@@ -8668,7 +8707,8 @@ function joinRoom(code, userId, name, options = {}) {
     return { ok: true, room, playerId: pid, role: roomRole(room, pid) || 'player' };
   }
 
-  const joinAsSpectator = !!(options && options.spectator)
+  const joinAsSpectator = !!room.ranked // A ranked roster is fixed by matchmaking. New arrivals watch only.
+    || !!(options && options.spectator)
     || !!(room.game && room.game.phase !== 'lobby')
     || (room.players.length >= maxPlayersForRules(room.rules || DEFAULT_RULES));
 
@@ -8858,6 +8898,8 @@ function roomSnapshot(room) {
     rankedScenarioVote: room.rankedScenarioVote ? {
       options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
       votes: room.rankedScenarioVote.votes || {},
+      createdAt: room.rankedScenarioVote.createdAt || null,
+      endsAt: room.rankedScenarioVote.endsAt || (room.rankedScenarioVote.createdAt + RANKED_SCENARIO_VOTE_MS),
       selectedId: room.rankedScenarioVote.selectedId || null,
     } : null,
     players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI), ready: roomPlayerIsReady(p), texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
@@ -10918,8 +10960,15 @@ if (msg.type === 'create_room') {
         sendJson(ws, { type: 'error', error: 'Choose one of the three ranked scenario options.' });
         return;
       }
+      // The server's clock, not a client countdown or the fourth vote,
+      // controls when a vote can be accepted or resolved.
+      if (now() >= Number(room.rankedScenarioVote.endsAt ||
+          (room.rankedScenarioVote.createdAt + RANKED_SCENARIO_VOTE_MS))) {
+        resolveRankedScenarioVote(room);
+        return;
+      }
       room.rankedScenarioVote.votes[pid] = optionId;
-      if (!resolveRankedScenarioVote(room)) broadcastRoom(room);
+      broadcastRoom(room);
       return;
     }
 

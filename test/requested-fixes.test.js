@@ -105,7 +105,7 @@ test('Room IDs includes a spectator link that joins directly as a spectator', ()
   assert.match(appJs, /spectatorLinkLabel\.textContent = 'Spectator link:'/);
   assert.match(appJs, /send\(\{ type: 'join_room', code: targetCode, displayName, spectator: joinAsSpectator \}\)/);
   assert.match(serverJs, /joinRoom\(code, ws\._userId, desiredName, \{ spectator: !!msg\.spectator \}\)/);
-  assert.match(serverJs, /const joinAsSpectator = !!\(options && options\.spectator\)/);
+  assert.match(serverJs, /const joinAsSpectator = !!room\.ranked[\s\S]*?\|\| !!\(options && options\.spectator\)/);
 });
 
 test('paired extra action turns show a larger red indicator that flips below a top-docked action bar', () => {

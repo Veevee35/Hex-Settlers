@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'nov-2026-ranked-navigation-v16';
+  const ASSET_CACHE_SW_BUILD = 'nov-2026-ranked-ballot-v17';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -2271,7 +2271,7 @@ function renderPostgameTab(tab) {
       ) : 0;
       const ratingResult = st?.ratingChanges?.[p.id] || null;
       const ratingDelta = Number(ratingResult?.delta || 0);
-      const ratingLabel = st?.ranked == null ? 'Prior season · Rating not recorded' : st.ranked ? (ratingResult ? `Rating: ${ratingResult.after} (${ratingDelta > 0 ? '+' : ''}${ratingDelta})` : 'Ranked · No rating change') : 'Unranked · Rating change: 0';
+      const ratingLabel = st?.ranked == null ? 'Unranked · Legacy game (no rating change)' : st.ranked ? (ratingResult ? `Rating: ${ratingResult.after} (${ratingDelta > 0 ? '+' : ''}${ratingDelta})` : 'Ranked · No rating change') : 'Unranked · Rating change: 0';
       return makePlayerOverviewCard(p, {
         headline: `${shownVP} VP`,
         headlineLabel: p.id === winnerId ? 'Final score · Winner' : 'Final score',
@@ -2293,7 +2293,7 @@ function renderPostgameTab(tab) {
     });
     appendOverviewGrid(section, cards);
     ui.pgTabBody.appendChild(section);
-    addNote(st?.ranked == null ? 'Prior-season game · rating changes were not recorded before the reset.' : st.ranked ? 'Ranked match · rating changes are reflected in each player’s final result.' : 'Unranked match · no ranked ratings were changed.');
+    addNote(st?.ranked == null ? 'Legacy unranked game · ranked ratings were not recorded.' : st.ranked ? 'Ranked match · rating changes are reflected in each player’s final result.' : 'Unranked match · no ranked ratings were changed.');
 
     const highlights = document.createElement('div');
     highlights.className = 'pgMatchHighlights';
@@ -3287,7 +3287,7 @@ function renderGamesHistoryTab() {
 
       const line2 = document.createElement('div');
       line2.className = 'historyLine2';
-      line2.textContent = `${fmtDateTime(g.endedAt)}  •  ${g.ranked == null ? 'Prior season · Unrated' : g.ranked ? 'Ranked' : 'Unranked'}  •  Turns: ${Number(g.turns || 0)}  •  ${mapLabelFromRules(g.rules)}`;
+      line2.textContent = `${fmtDateTime(g.endedAt)}  •  ${g.ranked == null ? 'Unranked · Legacy game' : g.ranked ? 'Ranked' : 'Unranked'}  •  Turns: ${Number(g.turns || 0)}  •  ${mapLabelFromRules(g.rules)}`;
 
       meta.appendChild(line1);
       meta.appendChild(line2);
@@ -5058,7 +5058,7 @@ function syncPostgameToState() {
   }
 
   function currentRoomPhase() {
-    const phase = String(((state && state.phase) || (room && room.gamePhase) || 'lobby') || 'lobby');
+    const phase = String(((room && room.gamePhase) || (state && state.phase) || 'lobby') || 'lobby');
     return phase || 'lobby';
   }
 
@@ -5787,7 +5787,7 @@ function buildSpectatorJoinUrl(roomCode) {
 function refreshLobbyJoinLinkUi() {
 
     const code = String((room && room.code) || '').trim().toUpperCase();
-    const link = code ? buildDirectJoinUrl(code) : '';
+    const link = code ? (room?.ranked ? buildSpectatorJoinUrl(code) : buildDirectJoinUrl(code)) : '';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = link;
     if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = !link;
     if (ui.genJoinLinkBtn) ui.genJoinLinkBtn.disabled = !code;
@@ -6159,6 +6159,7 @@ function refreshLobbyJoinLinkUi() {
         myPlayerId = msg.playerId;
         try { setLocalPanelLayoutOwnerKey(myPlayerId || null); } catch (_) {}
         room = msg.room;
+        state = null; // The previous room's game-over state must never hide a new ranked ballot.
         resetViewportForRoomChange();
         ensureStructureSpritesReady();
         isHost = !!msg.isHost;
@@ -6182,7 +6183,7 @@ function refreshLobbyJoinLinkUi() {
       if (msg.type === 'room') {
         room = msg.room;
         ensureStructureSpritesReady();
-        isHost = !!(myPlayerId && room && room.hostId === myPlayerId);
+        isHost = !!(myPlayerId && room && !room.ranked && room.hostId === myPlayerId);
         ui.roomBox.classList.remove('hidden');
         ui.roomCode.textContent = room.code;
         refreshLobbyJoinLinkUi();
@@ -9021,6 +9022,66 @@ function refreshLobbyJoinLinkUi() {
     });
   }
 
+  let rankedBallotClockTimer = null;
+  function stopRankedBallotClock() {
+    if (rankedBallotClockTimer !== null) clearInterval(rankedBallotClockTimer);
+    rankedBallotClockTimer = null;
+  }
+
+  function drawRankedMiniMap(canvas, tiles) {
+    if (!canvas || !Array.isArray(tiles) || !tiles.length) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const width = canvas.width, height = canvas.height;
+    context.clearRect(0, 0, width, height);
+    const visible = tiles.filter((tile) => Number.isFinite(tile.x) && Number.isFinite(tile.y));
+    if (!visible.length) return;
+    const halfWidth = Math.sqrt(3) / 2;
+    const minX = Math.min(...visible.map((tile) => tile.x - halfWidth));
+    const maxX = Math.max(...visible.map((tile) => tile.x + halfWidth));
+    const minY = Math.min(...visible.map((tile) => tile.y - 1));
+    const maxY = Math.max(...visible.map((tile) => tile.y + 1));
+    const scale = Math.min((width - 18) / (maxX - minX), (height - 16) / (maxY - minY));
+    const offX = (width - (maxX - minX) * scale) / 2;
+    const offY = (height - (maxY - minY) * scale) / 2;
+    const palette = {
+      sea: '#255575', forest: '#367e46', pasture: '#8aaf50', field: '#d3b45c',
+      hills: '#bd754b', mountains: '#9298a6', desert: '#e7c98e',
+      gold: '#daa43d', unexplored: '#687480', fog: '#687480',
+    };
+    for (const tile of visible) {
+      const cx = offX + (tile.x - minX) * scale;
+      const cy = offY + (tile.y - minY) * scale;
+      context.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 180 * (60 * i - 30);
+        const x = cx + Math.cos(angle) * scale * .985;
+        const y = cy + Math.sin(angle) * scale * .985;
+        if (i === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      }
+      context.closePath();
+      context.fillStyle = palette[tile.type] || '#738497';
+      context.fill();
+      context.lineWidth = Math.max(.75, scale * .055);
+      context.strokeStyle = 'rgba(5, 15, 24, .82)';
+      context.stroke();
+      // Readable number tokens help players judge the dice distribution.
+      if (scale >= 14 && Number.isInteger(tile.number) && tile.number >= 2 && tile.number <= 12) {
+        const tokenRadius = Math.min(11, Math.max(5.5, scale * .31));
+        context.beginPath();
+        context.arc(cx, cy, tokenRadius, 0, Math.PI * 2);
+        context.fillStyle = '#f7ecd8';
+        context.fill();
+        context.fillStyle = (tile.number === 6 || tile.number === 8) ? '#9a292a' : '#283036';
+        context.font = `bold ${Math.max(8, tokenRadius * 1.3)}px system-ui`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(String(tile.number), cx, cy + .4);
+      }
+    }
+  }
+
   function renderRankedScenarioVote() {
     const host = ui.rankedScenarioVote;
     const ballot = room && room.rankedScenarioVote;
@@ -9028,17 +9089,37 @@ function refreshLobbyJoinLinkUi() {
     if (!host) return;
     host.classList.toggle('hidden', !show);
     host.innerHTML = '';
-    if (!show) return;
+    if (!show) { stopRankedBallotClock(); return; }
 
     const votes = ballot.votes || {};
     const myVote = votes[myPlayerId] || '';
+    stopRankedBallotClock();
+    const heading = document.createElement('div');
+    heading.className = 'rankedScenarioVoteHeading';
     const title = document.createElement('div');
     title.className = 'rankedScenarioVoteTitle';
-    title.textContent = 'Vote for the ranked scenario';
+    title.textContent = 'CHOOSE YOUR BATTLEGROUND';
+    const countdown = document.createElement('div');
+    countdown.className = 'rankedScenarioCountdown';
+    countdown.setAttribute('role', 'timer');
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((Number(ballot.endsAt || (ballot.createdAt + 30_000)) - serverNowMs()) / 1000));
+      countdown.textContent = `${remaining}s`;
+      countdown.classList.toggle('expiring', remaining <= 10);
+    };
+    updateCountdown();
+    rankedBallotClockTimer = setInterval(() => {
+      if (!room?.ranked || currentRoomPhase() !== 'lobby' || room.rankedScenarioVote?.selectedId) {
+        stopRankedBallotClock();
+        return;
+      }
+      updateCountdown();
+    }, 200);
+    heading.append(title, countdown);
     const note = document.createElement('div');
-    note.className = 'smallNote';
+    note.className = 'rankedScenarioVoteInstructions';
     const voteCount = (room.players || []).filter((player) => player && votes[player.id]).length;
-    note.textContent = `${voteCount}/${room.players.length} votes submitted. A tied lead is resolved randomly.`;
+    note.textContent = `${voteCount}/${room.players.length} votes cast · Change your vote freely until the timer ends · Ties are decided randomly · Abstentions allowed`;
     const options = document.createElement('div');
     options.className = 'rankedScenarioOptions';
 
@@ -9048,18 +9129,36 @@ function refreshLobbyJoinLinkUi() {
       button.type = 'button';
       button.className = `rankedScenarioOption${myVote === option.id ? ' selected' : ''}`;
       button.setAttribute('aria-pressed', myVote === option.id ? 'true' : 'false');
+      button.disabled = amRoomSpectator() || !myPlayerId || serverNowMs() >= Number(ballot.endsAt || (ballot.createdAt + 30_000));
+      const preview = document.createElement('canvas');
+      preview.className = 'rankedScenarioMapPreview';
+      preview.width = 420;
+      preview.height = 280;
+      preview.setAttribute('aria-label', `Randomized preview of ${option.label || option.id}`);
+      const optionInfo = document.createElement('div');
+      optionInfo.className = 'rankedScenarioOptionInfo';
       const optionName = document.createElement('strong');
       optionName.textContent = option.label || option.id;
       const optionCount = document.createElement('span');
       optionCount.textContent = `${count} vote${count === 1 ? '' : 's'}`;
-      button.append(optionName, optionCount);
+      const selectedMarker = document.createElement('span');
+      selectedMarker.className = 'rankedScenarioSelectedMark';
+      selectedMarker.textContent = amRoomSpectator() ? 'SPECTATOR' : (myVote === option.id ? '✓ YOUR VOTE' : 'SELECT MAP');
+      optionInfo.append(optionName, optionCount);
+      button.append(preview, optionInfo, selectedMarker);
+      drawRankedMiniMap(preview, option.preview);
       button.addEventListener('click', () => send({ type: 'ranked_scenario_vote', scenarioId: option.id }));
       options.appendChild(button);
     }
-    host.append(title, note, options);
+    host.append(heading, note, options);
   }
 
   function renderLobby() {
+    const isRankedLobby = !!(room?.ranked && currentRoomPhase() === 'lobby');
+    document.body.classList.toggle('ranked-lobby', isRankedLobby);
+    if (!isRankedLobby) stopRankedBallotClock();
+    const shareLabel = document.getElementById('roomShareLabel');
+    if (shareLabel) shareLabel.textContent = isRankedLobby ? 'Spectator link · Invite viewers before the match begins' : 'Direct join link';
     refreshLobbyJoinLinkUi();
     refreshTexturePackUi();
 
@@ -9070,7 +9169,7 @@ function refreshLobbyJoinLinkUi() {
     if (!room) return;
 
     const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
-    const amHost = !!(myPlayerId && room.hostId === myPlayerId);
+    const amHost = !!(!room.ranked && myPlayerId && room.hostId === myPlayerId);
     const activePackIdNow = activeTexturePackId();
 
     function appendMemberRow(p, roleLabel) {
@@ -9156,7 +9255,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (p.id === myPlayerId) {
         if (!gameStartedNow || roleLabel === 'spectator') {
-          if (p.id !== room.hostId) {
+          if (room.ranked || p.id !== room.hostId) {
             const leaveBtn = document.createElement('button');
             leaveBtn.className = 'btn';
             leaveBtn.type = 'button';
@@ -9172,7 +9271,7 @@ function refreshLobbyJoinLinkUi() {
           }
         }
 
-        if (!gameStartedNow) {
+        if (!gameStartedNow && !room.ranked) {
           const spectBtn = document.createElement('button');
           spectBtn.className = 'btn';
           spectBtn.type = 'button';
@@ -9228,7 +9327,7 @@ function refreshLobbyJoinLinkUi() {
     // AI fill controls (host-only, lobby only)
     try {
       const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
-      const canManageAI = !!(myPlayerId && room.hostId === myPlayerId && !gameStartedNow);
+      const canManageAI = !!(!room.ranked && myPlayerId && room.hostId === myPlayerId && !gameStartedNow);
       if (ui.aiFillRow) ui.aiFillRow.classList.toggle('hidden', !canManageAI);
 
       // AI difficulty (host-only, lobby only)
@@ -9933,7 +10032,7 @@ function refreshLobbyJoinLinkUi() {
   if (ui.leaveGameBtn) ui.leaveGameBtn.addEventListener('click', () => openLeaveGameConfirm());
   if (ui.endGameVoteBtn) ui.endGameVoteBtn.addEventListener('click', () => {
     const inGame = !!(state && state.phase && state.phase !== 'lobby' && state.phase !== 'game-over');
-    const canVote = !!(inGame && myPlayerId && !amSpectator && !historyReplay.active);
+    const canVote = !!(inGame && myPlayerId && !amSpectator && !historyReplay.active && !room?.ranked);
     if (!canVote) return;
     // If a vote is already open, just re-open the panel.
     if (state && state.endVote && state.endVote.id) {
@@ -10702,7 +10801,7 @@ function refreshLobbyJoinLinkUi() {
     setError(null);
     send({ type: 'pause_game', paused: false });
   });
-  ui.backTurnBtn?.addEventListener('click', () => sendGameAction({ kind: 'propose_turn_undo' }));
+  ui.backTurnBtn?.addEventListener('click', () => { if (!room?.ranked) sendGameAction({ kind: 'propose_turn_undo' }); });
 
 
 
@@ -11022,7 +11121,7 @@ function ensureTimerUiInterval() {
     // Ranked matches are server-controlled. Back remains a unanimous vote;
     // solo pause/resume controls are available only in unranked games.
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId && !room.ranked);
-    ui.backTurnBtn?.classList.toggle('hidden', !(inGame && !historyReplay.active && !amSpectator));
+    ui.backTurnBtn?.classList.toggle('hidden', !(inGame && !historyReplay.active && !amSpectator && !room?.ranked));
     for (const control of [ui.pauseBtn, ui.playBtn]) control?.classList.toggle('hidden', !(inGame && !historyReplay.active && !amSpectator && !room?.ranked));
     if (ui.backTurnBtn) {
       ui.backTurnBtn.disabled = !myPlayerId || !state?.canUndoPreviousTurn || !!state?.turnUndoVote;
@@ -11057,7 +11156,7 @@ function ensureTimerUiInterval() {
 
     // Every active player may request the same unanimous end-game vote.
     if (ui.endGameVoteBtn) {
-      const canRequestEndVote = !!(inGame && state?.phase !== 'game-over' && !amSpectator && myPlayerId && !historyReplay.active);
+      const canRequestEndVote = !!(inGame && state?.phase !== 'game-over' && !amSpectator && myPlayerId && !historyReplay.active && !room?.ranked);
       ui.endGameVoteBtn.classList.toggle('hidden', !canRequestEndVote);
       ui.endGameVoteBtn.disabled = !canRequestEndVote;
       ui.endGameVoteBtn.textContent = state?.endVote?.id ? 'View End Game Vote' : 'End Game';
