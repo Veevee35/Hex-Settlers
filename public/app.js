@@ -1212,6 +1212,8 @@
     if (ui.authStats) {
       ui.authStats.textContent = loggedIn ? formatStatsLine(authUser.stats) : '';
     }
+    const rankedSummary = $('rankSummary');
+    if (rankedSummary) rankedSummary.textContent = `Ranked rating: ${loggedIn ? (authUser.rankedRating ?? 1000) : 1000}`;
     if (ui.logoutBtn) ui.logoutBtn.classList.toggle('hidden', !loggedIn);
     if (ui.forgotPasswordBtn) ui.forgotPasswordBtn.classList.toggle('hidden', loggedIn);
     if (ui.userManagementBtn) {
@@ -1739,7 +1741,7 @@ let historyState = {
   tab: 'games',
   games: [],
   leaderboard: [],
-  sortKey: 'wins',
+  sortKey: 'rankedRating',
   sortDir: 'desc',
   loadingGames: false,
   loadingBoard: false,
@@ -2191,6 +2193,12 @@ function renderPostgameTab(tab) {
     metrics.className = 'pgOverviewMetricGrid';
     for (const metric of (options.metrics || [])) metrics.appendChild(makeOverviewMetric(metric));
     card.appendChild(metrics);
+    if (options.ratingText) {
+      const ratingLine = document.createElement('div');
+      ratingLine.className = `pgOverviewRatingChange${options.ratingTone ? ` ${options.ratingTone}` : ''}`;
+      ratingLine.textContent = options.ratingText;
+      card.appendChild(ratingLine);
+    }
 
     const footer = document.createElement('div');
     footer.className = 'pgOverviewPlayerFooter';
@@ -2245,11 +2253,16 @@ function renderPostgameTab(tab) {
         safeNum(thieves.robber?.stolenFromByPlayer?.[p.id]) +
         safeNum(thieves.pirate?.stolenFromByPlayer?.[p.id])
       ) : 0;
+      const ratingResult = st?.ratingChanges?.[p.id] || null;
+      const ratingDelta = Number(ratingResult?.delta || 0);
+      const ratingLabel = st?.ranked == null ? 'Prior season · Rating not recorded' : st.ranked ? (ratingResult ? `Rating: ${ratingResult.after} (${ratingDelta > 0 ? '+' : ''}${ratingDelta})` : 'Ranked · No rating change') : 'Unranked · Rating change: 0';
       return makePlayerOverviewCard(p, {
         headline: `${shownVP} VP`,
         headlineLabel: p.id === winnerId ? 'Final score · Winner' : 'Final score',
         ribbon: p.id === winnerId ? '★ Winner' : '',
         winner: p.id === winnerId,
+        ratingText: ratingLabel,
+        ratingTone: st?.ranked && ratingResult ? (ratingDelta > 0 ? 'positive' : ratingDelta < 0 ? 'negative' : '') : '',
         metrics: [
           { piece: 'settlement', color: p.color, label: 'Settlement VP', value: settlementVP },
           { piece: 'city', color: p.color, label: 'City VP', value: cityVP },
@@ -2264,6 +2277,7 @@ function renderPostgameTab(tab) {
     });
     appendOverviewGrid(section, cards);
     ui.pgTabBody.appendChild(section);
+    addNote(st?.ranked == null ? 'Prior-season game · rating changes were not recorded before the reset.' : st.ranked ? 'Ranked match · rating changes are reflected in each player’s final result.' : 'Unranked match · no ranked ratings were changed.');
 
     const highlights = document.createElement('div');
     highlights.className = 'pgMatchHighlights';
@@ -3255,7 +3269,7 @@ function renderGamesHistoryTab() {
 
       const line2 = document.createElement('div');
       line2.className = 'historyLine2';
-      line2.textContent = `${fmtDateTime(g.endedAt)}  •  Turns: ${Number(g.turns || 0)}  •  ${mapLabelFromRules(g.rules)}`;
+      line2.textContent = `${fmtDateTime(g.endedAt)}  •  ${g.ranked == null ? 'Prior season · Unrated' : g.ranked ? 'Ranked' : 'Unranked'}  •  Turns: ${Number(g.turns || 0)}  •  ${mapLabelFromRules(g.rules)}`;
 
       meta.appendChild(line1);
       meta.appendChild(line2);
@@ -3295,7 +3309,7 @@ function renderGamesHistoryTab() {
 }
 
 function sortLeaderboardRows(rows) {
-  const key = historyState.sortKey || 'wins';
+  const key = historyState.sortKey || 'rankedRating';
   const dir = historyState.sortDir === 'asc' ? 1 : -1;
 
   const num = (v) => {
@@ -3348,7 +3362,7 @@ function renderLeaderboardTab() {
   if (!rows.length) {
     const h = document.createElement('div');
     h.className = 'hint';
-    h.textContent = 'No player stats yet (finish at least one game).';
+    h.textContent = 'No player stats are available yet.';
     ui.historyBody.appendChild(h);
     return;
   }
@@ -3379,8 +3393,7 @@ function renderLeaderboardTab() {
     { key: 'cities', label: 'Cities' },
     { key: 'devBought', label: 'Dev+' },
     { key: 'devPlayed', label: 'Dev▶' },
-    { key: 'resGained', label: 'Res+' },
-    { key: 'resLost', label: 'Res-' },
+    { key: 'rankedRating', label: 'Rating' },
   ];
 
   for (const c of columns) {
@@ -3433,8 +3446,7 @@ function renderLeaderboardTab() {
     add(r.cities);
     add(r.devBought);
     add(r.devPlayed);
-    add(r.resGained);
-    add(r.resLost);
+    add(Number.isFinite(Number(r.rankedRating)) ? Math.round(Number(r.rankedRating)) : 1000);
 
     tbody.appendChild(tr);
     rank += 1;
@@ -5926,6 +5938,8 @@ function refreshLobbyJoinLinkUi() {
         const snap = g && (g.snapshot || g);
         if (snap && g) {
           if (!snap.winnerId && g.winnerId) snap.winnerId = g.winnerId;
+          snap.ranked = (snap.ranked == null && g.ranked == null) ? null : !!(snap.ranked || g.ranked);
+          if (!snap.ratingChanges) snap.ratingChanges = g.ratingChanges || {};
           if (!snap.winnerName && g.winnerName) snap.winnerName = g.winnerName;
           if (snap.stats && !snap.stats.endedAt && g.endedAt) snap.stats.endedAt = g.endedAt;
           if (snap.stats && !snap.stats.startedAt && g.startedAt) snap.stats.startedAt = g.startedAt;
@@ -6506,7 +6520,7 @@ function refreshLobbyJoinLinkUi() {
     const totalVP = Math.max(0, Number(stats.totalVP || 0));
     const winRate = games ? Math.round((wins / games) * 100) : 0;
     const averageVP = games ? (totalVP / games).toFixed(1) : '0.0';
-    const rating = Math.max(500, Math.round(1000 + wins * 24 - Math.max(0, games - wins) * 12));
+    const rating = Number.isFinite(Number(profile.rankedRating)) && profile.rankedRating != null ? Math.round(Number(profile.rankedRating)) : 1000;
     const body = document.createElement('div');
     body.className = 'playerProfileCard';
     const hero = document.createElement('div');

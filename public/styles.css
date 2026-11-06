@@ -1405,6 +1405,16 @@ select.input{
   text-overflow:ellipsis;
   white-space:nowrap;
 }
+.pgOverviewRatingChange{
+  margin-top:10px;
+  text-align:center;
+  font-size:12px;
+  font-weight:850;
+  color:var(--muted);
+  letter-spacing:.02em;
+}
+.pgOverviewRatingChange.positive{color:#56d6a4;}
+.pgOverviewRatingChange.negative{color:#ff8d82;}
 .pgOverviewPlayerFooter{
   display:flex;
   align-items:center;

@@ -91,6 +91,7 @@ const {
 } = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
 const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = require('./server/land-masses');
+const { INITIAL_RANKED_RATING, rankedRating, calculateRankedChanges } = require('./server/ranked-rating');
 const {
   applyResourceDelta: applyResourceStatsDelta,
   applyResourceOpportunityLoss,
@@ -133,7 +134,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'rematch-shared-previous-turn-v12';
+const SERVER_BUILD_ID = 'ranked-rating-season-one-v13';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -171,7 +172,8 @@ const BUILTIN_ADMIN_ENABLED = (() => {
 const USERS_WRITER = new JsonFileWriter(USERS_DB_PATH);
 const ACTIVE_ROOMS_WRITER = new CoalescingJsonFileWriter(ACTIVE_ROOMS_PATH, { space: 0 });
 
-let USERS_DB = { version: 2, users: [] };
+const RANKED_RATING_SEASON = 1;
+let USERS_DB = { version: 2, rankedRatingSeason: RANKED_RATING_SEASON, users: [] };
 let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticate without fighting each other
 
 // -------------------- Game History (persistent) --------------------
@@ -376,6 +378,8 @@ function makeGameHistoryEntry(room, game, winnerId) {
     rules: game.rules || null,
     players: Array.isArray(game.players) ? game.players : [],
     stats: game.stats || null,
+    ranked: !!game.ranked,
+    ratingChanges: game.ratingChanges || {},
     longestRoad: game.longestRoad || null,
     largestArmy: game.largestArmy || null,
     diceStats: game.diceStats || null,
@@ -389,6 +393,8 @@ function makeGameHistoryEntry(room, game, winnerId) {
     turns: Math.max(0, Math.floor(Number(game.turnNumber || 0))),
     winnerId: wid || (w ? w.id : ''),
     winnerName: w ? w.name : '',
+    ranked: !!game.ranked,
+    ratingChanges: deepClone(game.ratingChanges || {}),
     rules: deepClone(game.rules || null),
     players,
     snapshot,
@@ -441,6 +447,8 @@ function listGameHistory(limit = 200) {
     turns: g.turns,
     winnerId: g.winnerId,
     winnerName: g.winnerName,
+    ranked: g.ranked == null ? null : !!g.ranked,
+    ratingChanges: g.ratingChanges || {},
     rules: g.rules || null,
     players: g.players || [],
     replaySteps: Math.max(0, Number(g.replayStepCount ?? (g.replay && Array.isArray(g.replay.steps) ? g.replay.steps.length : 0))),
@@ -543,6 +551,21 @@ function computeLeaderboardFromHistory() {
     }
   }
 
+  // Include newly registered players at their 1000-point starting rating,
+  // even before they have any completed games in the history archive.
+  for (const user of (USERS_DB.users || [])) {
+    if (!user || !user.id || by.has(user.id)) continue;
+    by.set(user.id, {
+      id: user.id, username: user.username || '',
+      name: user.displayName || user.username || user.id,
+      color: user.color || '#777',
+      gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0,
+      totalTurnMs: 0, totalTurns: 0,
+      roads: 0, ships: 0, settlements: 0, cities: 0,
+      devBought: 0, devPlayed: 0, resGained: 0, resLost: 0, lastGameAt: 0,
+    });
+  }
+
   const rows = [];
   for (const rec of by.values()) {
     const gp = rec.gamesPlayed || 0;
@@ -570,12 +593,14 @@ function computeLeaderboardFromHistory() {
       devPlayed: rec.devPlayed,
       resGained: rec.resGained,
       resLost: rec.resLost,
+      rankedRating: rankedRating(findUserById(rec.id)?.rankedRating),
       lastGameAt: rec.lastGameAt,
     });
   }
 
-  // default sort: wins desc, win% desc, avgVP desc
+  // Default leaderboard order prioritizes the actual ranked ladder.
   rows.sort((a,b) => {
+    if (b.rankedRating !== a.rankedRating) return b.rankedRating - a.rankedRating;
     if (b.wins !== a.wins) return b.wins - a.wins;
     if (b.winPct !== a.winPct) return b.winPct - a.winPct;
     if (b.avgVP !== a.avgVP) return b.avgVP - a.avgVP;
@@ -639,8 +664,20 @@ function loadUsersDb() {
         USERS_DB = {
           version: Number(parsed.version || 1),
           users: Array.isArray(parsed.users) ? parsed.users : [],
+          rankedRatingSeason: Number(parsed.rankedRatingSeason || 0),
         };
-        let migrated = false;
+        // One-time fresh start: previous 'ratings' were derived from all games,
+        // including unranked games. Never recalculate from old match history.
+        const newSeason = USERS_DB.rankedRatingSeason < RANKED_RATING_SEASON;
+        let migrated = newSeason;
+        for (const user of USERS_DB.users) {
+          if (!user || !user.id) continue;
+          if (newSeason || !Number.isFinite(Number(user.rankedRating))) {
+            user.rankedRating = INITIAL_RANKED_RATING;
+            migrated = true;
+          }
+        }
+        USERS_DB.rankedRatingSeason = RANKED_RATING_SEASON;
         for (const user of USERS_DB.users) {
           if (!user || !Array.isArray(user.tokens)) continue;
           for (const token of user.tokens) {
@@ -656,12 +693,12 @@ function loadUsersDb() {
     }
   } catch (e) {
     console.error('[users] Failed to load users.json:', e && e.message ? e.message : e);
-    USERS_DB = { version: 2, users: [] };
+    USERS_DB = { version: 2, rankedRatingSeason: RANKED_RATING_SEASON, users: [] };
   }
 }
 
 function saveUsersDb() {
-  const safe = { version: 2, users: USERS_DB.users || [] };
+  const safe = { version: 2, rankedRatingSeason: RANKED_RATING_SEASON, users: USERS_DB.users || [] };
   return USERS_WRITER.write(safe).catch((e) => {
     console.error('[users] Failed to save users.json:', e && e.message ? e.message : e);
   });
@@ -716,6 +753,7 @@ function safeUserPublic(u) {
     displayName: managed.displayName,
     isAdmin: managed.isAdmin,
     stats: managed.stats,
+    rankedRating: rankedRating(u.rankedRating),
     createdAt: managed.createdAt,
     lastLoginAt: managed.lastLoginAt,
     hasEmail: managed.hasEmail,
@@ -794,6 +832,7 @@ async function createUser({ username, password, displayName, role = 'user', syst
     pass: { salt, hash },
     tokens: [],
     stats: { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 },
+    rankedRating: INITIAL_RANKED_RATING,
     createdAt: now(),
     lastLoginAt: 0,
   };
@@ -2975,6 +3014,15 @@ function persistUserStatsFromGame(room, game, winnerId) {
   const endedAt = now();
   let changed = false;
 
+  // The backend alone sets room.ranked through matchmaking. Regular rooms,
+  // invites, private rematches and AI games do not change ratings.
+  const rankedMatch = !!room.ranked && !!game.ranked;
+  const rankedPlayers = rankedMatch ? (game.players || []).filter((gp) =>
+    gp && !gp.isAI && !!findUserById(gp.id)
+  ).map((gp) => ({ id: gp.id, rating: findUserById(gp.id).rankedRating })) : [];
+  const ratingChanges = rankedMatch ? calculateRankedChanges(rankedPlayers, wid) : {};
+  game.ratingChanges = ratingChanges;
+
   for (const gp of (game.players || [])) {
     const u = findUserById(gp && gp.id);
     if (!u) continue;
@@ -2984,6 +3032,9 @@ function persistUserStatsFromGame(room, game, winnerId) {
     u.stats.losses = Math.max(0, Math.floor(Number(u.stats.losses || 0))) + ((gp.id !== wid) ? 1 : 0);
     u.stats.totalVP = Math.max(0, Math.floor(Number(u.stats.totalVP || 0))) + Math.max(0, Math.floor(Number(gp.vp || 0)));
     u.stats.lastGameAt = endedAt;
+    if (Object.prototype.hasOwnProperty.call(ratingChanges, String(gp.id))) {
+      u.rankedRating = ratingChanges[String(gp.id)].after;
+    }
     changed = true;
   }
 
@@ -5493,6 +5544,7 @@ function newEmptyGame(room) {
     message: 'Waiting in lobby…',
     roomCode: room.code,
     hostId: room.hostId,
+    ranked: !!room.ranked,
     players: room.players.map(p => ({
       id: p.id,
       name: p.name,
@@ -5644,6 +5696,7 @@ function pushChat(room, fromId, text) {
 function startGame(room) {
   if (room.game && room.game.phase !== 'lobby') return false;
   const game = newEmptyGame(room);
+  game.ranked = !!room.ranked;
 
   initGameStats(game);
 
@@ -8696,6 +8749,7 @@ function roomSnapshot(room) {
   return {
     code: room.code,
     hostId: room.hostId,
+    ranked: !!room.ranked,
     players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI), ready: roomPlayerIsReady(p), texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     spectators: room.spectators.map(p => ({ id: p.id, name: p.name, color: p.color, isSpectator: true, texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES),
@@ -9898,6 +9952,7 @@ async function handleAccountHttp(req, res, urlPath) {
         username: target.username,
         displayName: target.displayName || target.username,
         createdAt: Number(target.createdAt || 0),
+        rankedRating: rankedRating(target.rankedRating),
         stats: {
           gamesPlayed: Math.max(0, Math.floor(Number(stats.gamesPlayed || 0))),
           wins: Math.max(0, Math.floor(Number(stats.wins || 0))),
@@ -10496,8 +10551,7 @@ if (msg.type === 'ranked_queue_join') {
       const requestedMap = String(msg.mapMode || 'classic').toLowerCase();
       const mapFamily = requestedMap === 'seafarers' ? 'seafarers' : 'classic';
       const user = findUserById(ws._userId);
-      const games = Number(user?.stats?.gamesPlayed || 0); const wins = Number(user?.stats?.wins || 0);
-      const rating = Math.max(500, Math.round(1000 + wins * 24 - Math.max(0, games - wins) * 12));
+      const rating = rankedRating(user?.rankedRating);
       for (const [key, entries] of rankedQueues) { const next = entries.filter((entry) => entry.ws !== ws && entry.ws.readyState === WebSocket.OPEN); if (next.length) rankedQueues.set(key, next); else rankedQueues.delete(key); }
       const key = `${mapFamily}:${playerCount}`;
       const queue = rankedQueues.get(key) || [];
