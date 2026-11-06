@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=ranked-lobby-v17" />
+  <link rel="stylesheet" href="styles.css?v=ranked-lobby-v18" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -35,6 +35,11 @@
         </a>
       </div>
     </div>
+    <nav class="portalLegalLinks" aria-label="Legal information">
+      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
+      <span class="portalLegalSeparator" aria-hidden="true">·</span>
+      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
+    </nav>
   </section>
 
   <section id="playModeScreen" class="portalScreen hidden">
@@ -47,12 +52,28 @@
         <button id="unrankedModeBtn" class="modeChoice"><strong>Unranked Play</strong><span>Create a private lobby or join friends with a room code.</span></button>
       </div>
     </div>
+    <nav class="portalLegalLinks" aria-label="Legal information">
+      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
+      <span class="portalLegalSeparator" aria-hidden="true">·</span>
+      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
+    </nav>
     <div class="loginSupport gameTypeSupport">
       <a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Buy me a coffee on Ko-fi">
         <img height="36" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com" />
       </a>
     </div>
   </section>
+
+  <div id="legalOverlay" class="portalOverlay legalOverlay hidden" aria-hidden="true">
+    <section id="legalDialog" class="portalCard legalDialog" role="dialog" aria-modal="true" aria-labelledby="legalDialogTitle" tabindex="-1">
+      <div class="legalDialogHeader">
+        <h2 id="legalDialogTitle">Terms of Service</h2>
+        <button id="legalDialogClose" class="legalCloseBtn" type="button" aria-label="Close legal document">× <span>Close</span></button>
+      </div>
+      <iframe id="legalDocumentFrame" class="legalDocumentFrame" title="Terms of Service" loading="lazy"></iframe>
+      <div class="legalDialogFooter"><a id="legalDocumentLink" href="/terms_of_service.html" target="_blank" rel="noopener noreferrer">Open full document in a new tab</a></div>
+    </section>
+  </div>
 
   <button id="accountOrb" class="accountOrb hidden" aria-label="Open account menu" aria-expanded="false" aria-controls="accountMenu"><span id="accountOrbInitial">?</span></button>
   <div id="accountMenu" class="accountMenu hidden">
@@ -152,7 +173,7 @@
 
             <div id="rankedScenarioVote" class="rankedScenarioVote hidden" aria-live="polite"></div>
 
-            <div style="margin-top:10px;">
+            <div class="roomShareControls" style="margin-top:10px;">
               <div id="roomShareLabel" class="labelTiny">Direct join link</div>
               <div class="row" style="align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px;">
                 <input id="roomJoinLinkInput" class="input" readonly placeholder="Generate link for this room" style="flex:1; min-width:240px; font-family:var(--mono); font-size:11px;" />
@@ -161,7 +182,7 @@
               </div>
             </div>
 
-            <div class="row" style="margin-top:10px; align-items:center;">
+            <div class="row roomAccountControls" style="margin-top:10px; align-items:center;">
               <div style="flex:1; min-width:0;">
                 <div class="labelTiny">Account</div>
                 <div id="myAccountLabel" style="font-family:var(--mono); font-size:11px; color:var(--muted); word-break:break-all;">—</div>
@@ -675,6 +696,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=ranked-lobby-v17"></script>
+  <script src="app.js?v=ranked-lobby-v18"></script>
 </body>
 </html>

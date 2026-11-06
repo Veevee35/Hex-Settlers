@@ -9194,7 +9194,7 @@ function refreshLobbyJoinLinkUi() {
       let label = p.name;
       if (p.isAI) label += ' (AI)';
       if (roleLabel === 'spectator') label += ' (spectator)';
-      if (p.id === room.hostId) label += ' (host)';
+      if (!room.ranked && p.id === room.hostId) label += ' (host)';
       if (p.id === myPlayerId) label += ' (you)';
       name.textContent = label;
       tag.appendChild(badge);
@@ -9668,6 +9668,64 @@ function refreshLobbyJoinLinkUi() {
     try { await authenticateInBrowser('login', { username, password }); }
     catch (error) { if (errorBox) { errorBox.textContent = error.message || 'Login failed.'; errorBox.classList.remove('hidden'); } }
   }
+
+  // Both portal screens share one accessible modal. Legal pages are separate,
+  // static documents served from /public so they also work on Cloudflare Assets.
+  {
+    const overlay = $('legalOverlay');
+    const dialog = $('legalDialog');
+    const frame = $('legalDocumentFrame');
+    const heading = $('legalDialogTitle');
+    const link = $('legalDocumentLink');
+    const closeButton = $('legalDialogClose');
+    const documents = {
+      terms: { label: 'Terms of Service', path: '/terms_of_service.html' },
+      privacy: { label: 'Privacy Policy', path: '/privacy_policy.html' },
+    };
+    let trigger = null;
+    const closeLegal = () => {
+      if (!overlay || overlay.classList.contains('hidden')) return;
+      overlay.classList.add('hidden');
+      overlay.setAttribute('aria-hidden', 'true');
+      // Clear the document so hidden iframes are not unnecessarily retained.
+      if (frame) frame.removeAttribute('src');
+      trigger?.focus?.();
+      trigger = null;
+    };
+    const openLegal = (key, from) => {
+      const documentInfo = documents[key];
+      if (!documentInfo || !overlay || !frame || !heading || !link) return;
+      trigger = from;
+      heading.textContent = documentInfo.label;
+      frame.title = documentInfo.label;
+      frame.src = documentInfo.path;
+      link.href = documentInfo.path;
+      overlay.classList.remove('hidden');
+      overlay.setAttribute('aria-hidden', 'false');
+      dialog?.focus();
+      closeButton?.focus();
+    };
+    document.querySelectorAll('[data-legal-page]').forEach((button) => {
+      button.addEventListener('click', () => openLegal(button.dataset.legalPage, button));
+    });
+    closeButton?.addEventListener('click', closeLegal);
+    overlay?.addEventListener('click', (event) => { if (event.target === overlay) closeLegal(); });
+    document.addEventListener('keydown', (event) => {
+      if (!overlay || overlay.classList.contains('hidden')) return;
+      if (event.key === 'Escape') { event.preventDefault(); closeLegal(); }
+      // Keep tab navigation in the dialog while it is open.
+      if (event.key === 'Tab') {
+        const controls = Array.from(dialog?.querySelectorAll('button, a[href], iframe') || []);
+        const focusable = controls.filter((element) => !element.hasAttribute('disabled'));
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    });
+  }
+
   $('landingLoginBtn')?.addEventListener('click', portalLogin);
   $('landingPassword')?.addEventListener('keydown', (event) => { if (event.key === 'Enter') portalLogin(); });
   {

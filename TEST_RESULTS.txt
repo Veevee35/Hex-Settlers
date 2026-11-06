@@ -21,3 +21,14 @@ Result:
   TypeScript bootstrap compiled successfully
   server.js syntax check passed
   public/app.js syntax check passed
+
+2026-11-06 ranked lobby v18 UI validation:
+  npm run check
+  248 tests passed, 0 failed
+  TypeScript bootstrap compiled successfully
+  server.js syntax check passed
+  public/app.js syntax check passed
+  Headless Chromium static UI checks passed at desktop sizes:
+    1024x768, 1280x720, 1366x768, 1731x865, 1920x1080
+  Legal dialog buttons and close interactions passed on login and game-type screens.
+  Mobile viewport retains scrolling for accessibility.
