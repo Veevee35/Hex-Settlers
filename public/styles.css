@@ -3274,3 +3274,101 @@ body.ranked-lobby #errBox{flex:none; padding:6px 8px; margin:3px 0 0;}
   }
   body.in-game .rightSidebarResize{display:none !important;}
 }
+
+
+/* v22: Mobile postgame header. The former three-column layout forced the
+   winner heading, navigation and text-size controls to occupy the same row.
+   Give each group a dedicated row while preserving the independently
+   scrollable summary below it. These rules also cover touch tablets. */
+@media (max-width: 800px), (pointer: coarse) and (max-width: 1180px) {
+  .postgamePanel {
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+  }
+  .postgameTop {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "result result"
+      "navigation navigation"
+      "type-size hide";
+    align-items: center;
+    gap: 8px 10px;
+    padding: calc(10px + env(safe-area-inset-top, 0px))
+             calc(12px + env(safe-area-inset-right, 0px))
+             10px calc(12px + env(safe-area-inset-left, 0px));
+  }
+  .postgameTopCenter {
+    grid-area: result;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    justify-self: center;
+    text-align: center;
+  }
+  .postgameWinnerLine {
+    max-width: 100%;
+    font-size: clamp(21px, 5vw, 30px);
+    line-height: 1.15;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    overflow: visible;
+  }
+  .postgameMetaLine {
+    width: 100%;
+    max-width: 100%;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  .postgameTopLeft {
+    grid-area: navigation;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    min-width: 0;
+    gap: 8px;
+  }
+  /* Flatten the tools wrapper so the scale controls and Hide Stats get their
+     own grid cells, rather than pushing across the result heading. */
+  .postgameTopRight { display: contents; }
+  .postgameTopRight > .tabScaleControl {
+    grid-area: type-size;
+    justify-self: start;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px;
+  }
+  .postgameTopRight > #pgHideBtn {
+    grid-area: hide;
+    justify-self: end;
+  }
+  .postgameTop .btn {
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+    line-height: 1.25;
+    text-align: center;
+    white-space: normal;
+  }
+  .postgameTop .tabScaleLabel { min-width: 45px; }
+  .postgameTabs {
+    flex: 0 0 auto;
+    gap: 6px;
+    padding: 7px 10px;
+    grid-template-columns: repeat(5, minmax(88px, 1fr));
+  }
+  .postgameBody {
+    min-height: 0;
+    padding: 10px calc(10px + env(safe-area-inset-right, 0px))
+             calc(14px + env(safe-area-inset-bottom, 0px))
+             calc(10px + env(safe-area-inset-left, 0px));
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}

@@ -32,8 +32,10 @@ test('mobile divider supports touch dragging, keyboard resizing, and persistence
 
 test('mobile assets are cache-busted together while desktop retains right dock', () => {
   const sw = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
-  assert.match(html, /styles\.css\?v=mobile-split-v21/);
-  assert.match(html, /app\.js\?v=mobile-split-v21/);
-  assert.match(sw, /mobile-split-v21/);
+  // Asset version changes with every release, but CSS, JS and SW must agree.
+  const version = html.match(/styles\.css\?v=([a-z0-9-]+)/)?.[1];
+  assert.ok(version, 'stylesheet needs an explicit cache-busting version');
+  assert.ok(html.includes(`app.js?v=${version}`));
+  assert.ok(sw.includes(`'${version}'`));
   assert.match(css, /\.rightSidebar\s*\{\s*position:absolute;/);
 });
