@@ -1,20 +1,8 @@
-Hex Settlers v20 regression results — November 6, 2026
+Hex Settlers — mobile split layout v21
 
-npm run check
-TypeScript build: PASS
-Node --test: 255 passing, 0 failures
-Node --check server.js: PASS
-Node --check public/app.js: PASS
-
-New client tests include the undefined spectator variable regression,
-paused vote actions, prompt ID reuse, administrator closure navigation,
-ranked ready screen behavior, and a server-handler test proving ranked
-Rematch detaches one player without joining matchmaking.
-
-Chromium client smoke (mock WebSocket): PASS
-- End Game click sends propose_endgame and opens vote dialog.
-- No uncaught browser JavaScript errors.
-- Administrator room closure displays Change Game Type and closes the modal.
-- Ranked Rematch acknowledgement shows Ranked Play with Start Matchmaking.
-
-Deployment not performed.
+Automated tests: 258 passed, 0 failed (node --test).
+JavaScript syntax: passed (node --check public/app.js).
+Chromium smoke tests: 390x844 portrait touch, 844x390 landscape touch,
+1024x768 touch tablet, 1280x800 desktop. Verified vertical splitter,
+mouse/touch pointer resizing, keyboard resizing, sidebar independent
+scrolling and desktop right sidebar retention.

@@ -3192,3 +3192,85 @@ body.ranked-lobby #errBox{flex:none; padding:6px 8px; margin:3px 0 0;}
   background: rgba(61, 44, 20, .6); color: #f5daa6;
   font-size: .91rem; text-align: center;
 }
+
+
+/* v21: Mobile gameplay is a persistent vertical split (board above, fully
+   scrollable game sidebar below). The handle is touch- and keyboard-resizable.
+   Desktop's existing side-by-side dock/width control are unchanged. */
+.mobileGameSplitter{display:none;}
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px){
+  body.in-game .boardWrap{
+    --mobile-sidebar-height:40dvh;
+    --mobile-divider-height:28px;
+    display:flex;flex-direction:column;min-height:0;overflow:hidden;
+    padding-right:0 !important;
+  }
+  body.in-game #board{flex:1 1 0;min-height:0;width:100%;height:auto;min-width:0;touch-action:none;}
+  body.in-game .mobileGameSplitter{
+    display:flex;flex:0 0 var(--mobile-divider-height);height:var(--mobile-divider-height);
+    position:relative;z-index:31;align-items:center;justify-content:center;
+    cursor:row-resize;touch-action:none;user-select:none;-webkit-user-select:none;
+    background:linear-gradient(180deg,#1d3445,#122432);
+    border-top:1px solid #42657a;border-bottom:1px solid #42657a;
+  }
+  body.in-game .mobileGameSplitter::before{
+    content:'';height:5px;width:72px;border-radius:999px;
+    background:#9ab6cb;box-shadow:0 0 0 1px rgba(255,255,255,.13),0 1px 7px rgba(0,0,0,.5);
+  }
+  body.in-game .mobileGameSplitter::after{
+    content:'Drag to resize';position:absolute;right:10px;top:50%;transform:translateY(-50%);
+    color:#9fbacc;font-size:10px;pointer-events:none;
+  }
+  body.in-game .mobileGameSplitter:focus-visible{outline:3px solid #f5c463;outline-offset:-3px;}
+  body.in-game .mobileGameSplitter.isDragging{background:#34566b;}
+  body.in-game .rightSidebar,
+  body.in-game.mobilePanelsOpen .rightSidebar{
+    position:relative !important;left:auto !important;right:auto !important;
+    top:auto !important;bottom:auto !important;
+    display:flex;flex-direction:column;
+    flex:0 0 var(--mobile-sidebar-height) !important;
+    height:var(--mobile-sidebar-height) !important;
+    max-height:none !important;width:100% !important;min-width:0;min-height:0;
+    transform:none !important;visibility:visible !important;pointer-events:auto !important;
+    transition:none !important;box-shadow:none;
+    border-top:0;border-left:0;border-radius:0;overflow:hidden;
+    background:#111d28;z-index:12;
+  }
+  body.in-game .rightSidebarInner{
+    flex:1 1 auto;min-height:0;height:100%;max-height:100%;
+    overflow-y:auto !important;overflow-x:hidden !important;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+    padding:10px 12px calc(18px + var(--safe-bottom)) !important;
+    touch-action:pan-y;
+  }
+  body.in-game .rightSidebarInner > #logCard,
+  body.in-game .rightSidebarInner > #devCard{flex:0 0 auto !important;min-height:min-content;overflow:visible;}
+  body.in-game .rightSidebar .logOverlay,
+  body.in-game .rightSidebar #devCard.rightSidebarDocked{overflow:visible;}
+  body.in-game .rightSidebar .logList,
+  body.in-game .rightSidebar .devHand{max-height:none !important;overflow:visible !important;}
+  body.in-game .mobilePanelTitle{
+    display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;
+    min-height:32px;padding:5px 12px;border-bottom:1px solid var(--line);
+    font-size:12px;letter-spacing:.03em;
+  }
+  body.in-game .mobilePanelTitle strong::after{
+    content:'  ·  Scroll to see all controls';color:#9bb6cb;font-weight:500;font-size:11px;
+  }
+  body.in-game #mobilePanelsClose{display:none !important;}
+  body.in-game .mobileGameControls{
+    bottom:calc(var(--mobile-sidebar-height) + var(--mobile-divider-height) + 6px + var(--safe-bottom)) !important;
+  }
+  body.in-game .hudBottomLeft{
+    bottom:calc(var(--mobile-sidebar-height) + var(--mobile-divider-height) + 60px + var(--safe-bottom)) !important;
+    visibility:visible !important;pointer-events:auto !important;
+  }
+  body.in-game .yourRollBanner,
+  body.in-game .extraTurnCenterBanner{
+    top:calc((100% - var(--mobile-sidebar-height) - var(--mobile-divider-height)) / 2) !important;
+  }
+  body.in-game .pausedOverlay{
+    bottom:calc(var(--mobile-sidebar-height) + var(--mobile-divider-height)) !important;
+  }
+  body.in-game .rightSidebarResize{display:none !important;}
+}

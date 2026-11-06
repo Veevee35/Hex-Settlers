@@ -282,6 +282,85 @@
   }
 
 
+  // v21 mobile split view: keep the game sidebar visible below the canvas.
+  // Save its relative height so it adapts to phone rotation and screen sizes.
+  const MOBILE_SPLIT_RATIO_KEY = 'hexsettlers_mobile_game_panel_ratio_v21';
+  const MOBILE_SPLITTER_PX = 28;
+  const mobileGameSplitter = $('mobileGameSplitter');
+  const gameBoardWrap = document.querySelector('section.boardWrap');
+  const isMobileGameSplit = () => window.matchMedia('(max-width:900px), (pointer:coarse) and (max-width:1180px)').matches;
+  function savedMobileSplitRatio() {
+    try {
+      const value = Number(localStorage.getItem(MOBILE_SPLIT_RATIO_KEY));
+      if (Number.isFinite(value) && value >= 0.12 && value <= 0.82) return value;
+    } catch (_) {}
+    return 0.4;
+  }
+  let mobileSplitRatio = savedMobileSplitRatio();
+  function setMobileSplitRatio(value, { persist = false, redraw = false } = {}) {
+    if (!gameBoardWrap || !mobileGameSplitter || !isMobileGameSplit()) return;
+    const height = gameBoardWrap.getBoundingClientRect().height;
+    if (height < 1) return;
+    const minBoard = Math.min(290, Math.max(145, Math.round(height * .34)));
+    const minPanel = Math.min(150, Math.max(90, Math.round(height * .2)));
+    const maxPanel = Math.max(minPanel, height - minBoard - MOBILE_SPLITTER_PX);
+    const requested = Number.isFinite(Number(value)) ? Number(value) : 0.4;
+    const pixels = Math.min(maxPanel, Math.max(minPanel, Math.round(height * requested)));
+    const actualRatio = pixels / height;
+    mobileSplitRatio = actualRatio;
+    const newValue = `${pixels}px`;
+    if (gameBoardWrap.style.getPropertyValue('--mobile-sidebar-height') !== newValue) {
+      gameBoardWrap.style.setProperty('--mobile-sidebar-height', newValue);
+      if (redraw) { resizeCanvas(); render(); }
+    }
+    mobileGameSplitter.setAttribute('aria-valuemin', String(Math.round(minPanel / height * 100)));
+    mobileGameSplitter.setAttribute('aria-valuemax', String(Math.round(maxPanel / height * 100)));
+    mobileGameSplitter.setAttribute('aria-valuenow', String(Math.round(actualRatio * 100)));
+    mobileGameSplitter.setAttribute('aria-valuetext', `${Math.round(actualRatio * 100)} percent for game panels`);
+    if (persist) {
+      try { localStorage.setItem(MOBILE_SPLIT_RATIO_KEY, String(actualRatio)); } catch (_) {}
+    }
+    return actualRatio;
+  }
+  function ensureMobileGameSplitter() {
+    if (!mobileGameSplitter || mobileGameSplitter.dataset.ready === '1') return;
+    mobileGameSplitter.dataset.ready = '1';
+    let pointer = null;
+    const end = (ev) => {
+      if (pointer === null || (ev && ev.pointerId !== pointer)) return;
+      try { mobileGameSplitter.releasePointerCapture(pointer); } catch (_) {}
+      pointer = null;
+      mobileGameSplitter.classList.remove('isDragging');
+      setMobileSplitRatio(mobileSplitRatio, { persist: true });
+    };
+    mobileGameSplitter.addEventListener('pointerdown', (ev) => {
+      if (!isMobileGameSplit() || (ev.button != null && ev.button !== 0)) return;
+      pointer = ev.pointerId;
+      mobileGameSplitter.classList.add('isDragging');
+      mobileGameSplitter.setPointerCapture?.(ev.pointerId);
+      ev.preventDefault();
+    });
+    mobileGameSplitter.addEventListener('pointermove', (ev) => {
+      if (ev.pointerId !== pointer || !gameBoardWrap) return;
+      const rect = gameBoardWrap.getBoundingClientRect();
+      setMobileSplitRatio((rect.bottom - ev.clientY - MOBILE_SPLITTER_PX / 2) / rect.height, { redraw: true });
+      ev.preventDefault();
+    });
+    mobileGameSplitter.addEventListener('pointerup', end);
+    mobileGameSplitter.addEventListener('pointercancel', end);
+    mobileGameSplitter.addEventListener('lostpointercapture', () => {
+      if (pointer !== null) { pointer = null; mobileGameSplitter.classList.remove('isDragging'); setMobileSplitRatio(mobileSplitRatio, { persist: true }); }
+    });
+    mobileGameSplitter.addEventListener('keydown', (ev) => {
+      if (!isMobileGameSplit() || !['ArrowUp','ArrowDown','PageUp','PageDown','Home','End'].includes(ev.key)) return;
+      ev.preventDefault();
+      const delta = ev.key === 'ArrowUp' || ev.key === 'PageUp' ? 1 : -1;
+      const step = ev.key.startsWith('Page') ? .12 : .04;
+      const requested = ev.key === 'Home' ? .12 : ev.key === 'End' ? .82 : mobileSplitRatio + delta * step;
+      setMobileSplitRatio(requested, { persist: true, redraw: true });
+    });
+  }
+
   const ctx = ui.canvas.getContext('2d');
 
   const DEFAULT_TEXTURE_PACK_ID = 'default';
@@ -4007,6 +4086,7 @@ function syncPostgameToState() {
       ensureRightSidebarResizeHandle();
       ui.rightSidebar.classList.remove('hidden');
       if (ui.rightSidebar.parentNode !== boardWrap) boardWrap.appendChild(ui.rightSidebar);
+      if (isMobileGameSplit()) { ensureMobileGameSplitter(); setMobileSplitRatio(mobileSplitRatio); }
 
       // Ensure the bottom resources dock uses the same scale as the Dev panel.
       try {
@@ -4176,9 +4256,21 @@ function syncPostgameToState() {
   }
   mobileActionsToggle?.addEventListener('click', () => {
     const open = !document.body.classList.contains('mobileActionsOpen');
-    setMobilePanelsOpen(false); setMobileActionsOpen(open);
+    if (!isMobileGameSplit()) setMobilePanelsOpen(false);
+    setMobileActionsOpen(open);
   });
-  mobilePanelsToggle?.addEventListener('click', () => setMobilePanelsOpen(!document.body.classList.contains('mobilePanelsOpen')));
+  mobilePanelsToggle?.addEventListener('click', () => {
+    if (isMobileGameSplit()) {
+      const expand = mobileSplitRatio < .52;
+      setMobileSplitRatio(expand ? .62 : .4, { persist: true, redraw: true });
+      mobilePanelsToggle.setAttribute('aria-expanded', String(expand));
+      mobilePanelsToggle.textContent = expand ? '▤ Shrink Panels' : '▤ Expand Panels';
+      setMobileActionsOpen(false);
+    } else {
+      setMobilePanelsOpen(!document.body.classList.contains('mobilePanelsOpen'));
+    }
+  });
+  if (mobilePanelsToggle) mobilePanelsToggle.textContent = '▤ Expand Panels';
   $('mobilePanelsClose')?.addEventListener('click', () => setMobilePanelsOpen(false));
   $('mobileFitBoard')?.addEventListener('click', () => { view.autoFit = true; resizeCanvas(); render(); });
 
@@ -4666,13 +4758,14 @@ function syncPostgameToState() {
     try {
       setRightSidebarWidth(getSavedRightSidebarWidth());
       syncRightSidebarDock(!!state && state.phase !== 'lobby');
+      if (document.body.classList.contains('in-game')) setMobileSplitRatio(mobileSplitRatio);
     } catch (_) {}
     resizeCanvas();
     render();
   });
   try {
     if (window.visualViewport) {
-      const onVvResize = () => { resizeCanvas(); render(); };
+      const onVvResize = () => { if (document.body.classList.contains('in-game')) setMobileSplitRatio(mobileSplitRatio); resizeCanvas(); render(); };
       window.visualViewport.addEventListener('resize', onVvResize);
       window.visualViewport.addEventListener('scroll', onVvResize);
     }
