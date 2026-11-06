@@ -22,11 +22,12 @@ test('landing page owns login and account creation requires email verification',
   assert.match(html, /class="loginSupport"[\s\S]*?href="https:\/\/ko-fi\.com\/L6D82A3L9Z"[\s\S]*?src="https:\/\/storage\.ko-fi\.com\/cdn\/kofi6\.png\?v=6"/);
 });
 
-test('Cartographer and Scattered Tiles allow high-probability numbers on Gold Fields', () => {
+test('Cartographer and Scattered Tiles keep 6 and 8 off Gold Fields', () => {
   assert.match(server, /function hasGoldSixOrEight[\s\S]*?tile\.type === 'gold'[\s\S]*?tile\.number === 6 \|\| tile\.number === 8/);
-  assert.match(server, /generateBoardSeafarersCartographer4[\s\S]*?hasGoldSixOrEight\(landLocal\)/);
-  assert.match(server, /generateBoardSeafarersCartographer56[\s\S]*?hasGoldSixOrEight\(landLocal\)/);
-  assert.match(server, /assignCartographer4NumbersRobberPirateAndPorts[\s\S]*?hasGoldSixOrEight\(cand\)/);
+  assert.match(server, /function moveSixEightOffGold[\s\S]*?replacement\.number = gold\.number[\s\S]*?gold\.number = previous/);
+  assert.match(server, /generateBoardSeafarersCartographer4[\s\S]*?!hasGoldSixOrEight\(landLocal\)/);
+  assert.match(server, /generateBoardSeafarersCartographer56[\s\S]*?!hasGoldSixOrEight\(landLocal\)/);
+  assert.match(server, /assignCartographer4NumbersRobberPirateAndPorts[\s\S]*?!hasGoldSixOrEight\(cand\)/);
 });
 
 test('authenticated portal offers ranked and unranked paths plus an account menu', () => {

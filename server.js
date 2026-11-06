@@ -805,18 +805,14 @@ async function verifyPassword(user, password) {
   return verifyPasswordHash(password, user && user.pass);
 }
 
-function setUserDisplayName(user, displayName) {
-  if (!user) return;
-  if (isBuiltInAdminUser(user)) {
-    user.displayName = BUILTIN_ADMIN_DISPLAY_NAME;
-    return;
-  }
+function setUserDisplayName(user, displayName, { allowBuiltInAdmin = false } = {}) {
+  if (!user || (isBuiltInAdminUser(user) && !allowBuiltInAdmin)) return;
   const dn = cleanDisplayName(displayName);
   if (dn) user.displayName = dn;
 }
 
 function authenticatedDisplayName(user, requestedName, fallback = 'Player') {
-  if (isBuiltInAdminUser(user)) return BUILTIN_ADMIN_DISPLAY_NAME;
+  if (isBuiltInAdminUser(user)) return cleanDisplayName(user.displayName) || BUILTIN_ADMIN_DISPLAY_NAME;
   return cleanDisplayName(requestedName) || cleanDisplayName(user && user.displayName) || fallback;
 }
 
@@ -993,7 +989,7 @@ async function ensureBuiltInAdminAccount() {
     if (!reset.ok) throw new Error(reset.error || 'Failed to secure built-in administrator account.');
     changed = true;
   } else {
-    if (user.displayName !== BUILTIN_ADMIN_DISPLAY_NAME) {
+    if (!cleanDisplayName(user.displayName)) {
       user.displayName = BUILTIN_ADMIN_DISPLAY_NAME;
       changed = true;
     }
@@ -3589,6 +3585,34 @@ function hasGoldSixOrEight(localTiles) {
   return (localTiles || []).some((tile) => tile && tile.type === 'gold' && (tile.number === 6 || tile.number === 8));
 }
 
+function moveSixEightOffGold(localTiles) {
+  const tiles = Array.isArray(localTiles) ? localTiles : [];
+  for (const gold of tiles.filter((tile) => tile && tile.type === 'gold' && (tile.number === 6 || tile.number === 8))) {
+    const replacement = tiles.find((tile) => tile && tile.type !== 'gold' && tile.number != null && tile.number !== 6 && tile.number !== 8);
+    if (!replacement) continue;
+    const previous = replacement.number;
+    replacement.number = gold.number;
+    gold.number = previous;
+  }
+  return !hasGoldSixOrEight(tiles);
+}
+
+// Reserve 6s and 8s for ordinary resource tiles before assigning other numbers.
+// Used by both Cartographer and Scattered Tiles, including manual drafts and
+// the final fallback if the non-adjacent-red-number layout cannot be found.
+function assignCartographerLandNumbers(landTiles, numbersPool) {
+  if (!Array.isArray(landTiles) || landTiles.length !== numbersPool.length) return false;
+  const redNumbers = shuffle(numbersPool.filter((number) => number === 6 || number === 8));
+  const otherNumbers = shuffle(numbersPool.filter((number) => number !== 6 && number !== 8));
+  const ordinaryTiles = shuffle(landTiles.filter((tile) => tile && tile.type !== 'gold'));
+  if (ordinaryTiles.length < redNumbers.length) return false;
+  for (const tile of landTiles) tile.number = null;
+  for (let i = 0; i < redNumbers.length; i++) ordinaryTiles[i].number = redNumbers[i];
+  const remaining = shuffle(landTiles.filter((tile) => tile.number == null));
+  for (let i = 0; i < remaining.length; i++) remaining[i].number = otherNumbers[i];
+  return !hasGoldSixOrEight(landTiles);
+}
+
 function pickLandTileIds(allTiles, landKeys) {
   const landTileIds = [];
   for (const t of allTiles) {
@@ -4721,16 +4745,15 @@ function generateBoardSeafarersCartographer4(geom) {
     const types = shuffle(typePool.slice());
     const local = allTiles.map((t, i) => ({ id: t.id, type: types[i], number: null }));
     const landLocal = local.filter(x => x.type !== 'sea');
-    const nums = shuffle(numbersPool.slice());
-    for (let i = 0; i < landLocal.length; i++) landLocal[i].number = nums[i];
-    if (!hasAdjacentSixEightForPlacement(geom, landLocal) && hasGoldSixOrEight(landLocal)) { placed = local; break; }
+    if (!assignCartographerLandNumbers(landLocal, numbersPool)) continue;
+    if (!hasAdjacentSixEightForPlacement(geom, landLocal) && !hasGoldSixOrEight(landLocal)) { placed = local; break; }
   }
   if (!placed) {
     const types = shuffle(typePool.slice());
     placed = allTiles.map((t, i) => ({ id: t.id, type: types[i], number: null }));
     const landLocal = placed.filter(x => x.type !== 'sea');
-    const nums = shuffle(numbersPool.slice());
-    for (let i = 0; i < landLocal.length; i++) landLocal[i].number = nums[i];
+    if (!assignCartographerLandNumbers(landLocal, numbersPool)) throw new Error('Could not assign Cartographer numbers without putting 6 or 8 on gold.');
+    moveSixEightOffGold(landLocal);
   }
 
   for (const upd of placed) {
@@ -4826,16 +4849,15 @@ function generateBoardSeafarersCartographer56(geom, playerCount = 6) {
     const local = allTiles.map((t, i) => ({ id: t.id, type: types[i], number: null }));
     const landLocal = local.filter(x => x.type !== 'sea' && x.type !== 'desert');
     if (landLocal.length !== numbersPool.length) continue;
-    const nums = shuffle(numbersPool.slice());
-    for (let i = 0; i < landLocal.length; i++) landLocal[i].number = nums[i];
-    if (!hasAdjacentSixEightForPlacement(geom, landLocal) && hasGoldSixOrEight(landLocal)) { placed = local; break; }
+    if (!assignCartographerLandNumbers(landLocal, numbersPool)) continue;
+    if (!hasAdjacentSixEightForPlacement(geom, landLocal) && !hasGoldSixOrEight(landLocal)) { placed = local; break; }
   }
   if (!placed) {
     const types = shuffle(typePool.slice());
     placed = allTiles.map((t, i) => ({ id: t.id, type: types[i], number: null }));
     const landLocal = placed.filter(x => x.type !== 'sea' && x.type !== 'desert');
-    const nums = shuffle(numbersPool.slice());
-    for (let i = 0; i < Math.min(landLocal.length, nums.length); i++) landLocal[i].number = nums[i];
+    if (!assignCartographerLandNumbers(landLocal, numbersPool)) throw new Error('Could not assign Scattered Tiles numbers without putting 6 or 8 on gold.');
+    moveSixEightOffGold(landLocal);
   }
 
   for (const upd of placed) {
@@ -4953,13 +4975,14 @@ function assignCartographer4NumbersRobberPirateAndPorts(game) {
   if (landIds.length === numbersPool.length) {
     let placed = null;
     for (let attempt = 0; attempt < 2000; attempt++) {
-      const nums = shuffle(numbersPool.slice());
-      const cand = landIds.map((id, i) => ({ id, type: tiles[id].type, number: nums[i] }));
-      if (!hasAdjacentSixEightForPlacement(game.geom, cand) && hasGoldSixOrEight(cand)) { placed = cand; break; }
+      const cand = landIds.map((id) => ({ id, type: tiles[id].type, number: null }));
+      if (!assignCartographerLandNumbers(cand, numbersPool)) continue;
+      if (!hasAdjacentSixEightForPlacement(game.geom, cand) && !hasGoldSixOrEight(cand)) { placed = cand; break; }
     }
     if (!placed) {
-      const nums = shuffle(numbersPool.slice());
-      placed = landIds.map((id, i) => ({ id, type: tiles[id].type, number: nums[i] }));
+      placed = landIds.map((id) => ({ id, type: tiles[id].type, number: null }));
+      if (!assignCartographerLandNumbers(placed, numbersPool)) throw new Error('Could not assign manual Cartographer numbers without putting 6 or 8 on gold.');
+      moveSixEightOffGold(placed);
     }
     for (const upd of placed) {
       if (tiles[upd.id]) tiles[upd.id].number = upd.number;
@@ -6085,6 +6108,8 @@ function applyActionCore(room, playerId, action) {
 
   // Only current player may act (except trade responses and simultaneous discard selections)
   const outOfTurnOk =
+    (kind === 'propose_turn_undo') ||
+    (kind === 'respond_turn_undo') ||
     (kind === 'respond_trade') ||
     (kind === 'propose_endgame') ||
     (kind === 'respond_endgame') ||
@@ -6094,10 +6119,10 @@ function applyActionCore(room, playerId, action) {
 
 
   // Gold-choice prompts (discovery or production) must be resolved before other actions.
-  if (game.special && game.special.kind === 'discovery_gold' && game.special.forPlayerId === playerId && kind !== 'choose_discovery') {
+  if (game.special && game.special.kind === 'discovery_gold' && game.special.forPlayerId === playerId && kind !== 'choose_discovery' && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo') {
     return { ok: false, error: 'Choose a resource for the discovered Gold Field first.' };
   }
-  if (game.special && game.special.kind === 'production_gold') {
+  if (game.special && game.special.kind === 'production_gold' && kind !== 'propose_turn_undo' && kind !== 'respond_turn_undo') {
     if (kind !== 'choose_production_gold') {
       return { ok: false, error: 'Resolve Gold Field production choices first.' };
     }
@@ -8724,6 +8749,7 @@ function buildSanitizableState(game) {
     stats: undefined,
     log: undefined,
   }));
+  state.canUndoPreviousTurn = !!game._previousTurnSnapshot;
   state.devDeckCount = (game.devDeck || []).length;
   state.stats = game.stats;
   state.log = game.log || [];
@@ -9910,6 +9936,37 @@ async function handleAccountHttp(req, res, urlPath) {
       emailDeliveryConfigured: isEmailDeliveryConfigured(process.env),
       emailDeliveryMode: emailDeliveryMode(process.env),
     });
+    return;
+  }
+
+  if (urlPath === '/api/account/change-name') {
+    const requestedName = String(body.displayName || '').trim();
+    if (!requestedName || requestedName.length > 20 || /[\x00-\x1f\x7f]/.test(requestedName)) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Player name must contain 1–20 characters and no control characters.' });
+      return;
+    }
+    // Names are not login identifiers; two distinct accounts may share a name.
+    setUserDisplayName(viewer, requestedName, { allowBuiltInAdmin: true });
+    await saveUsersDb();
+    for (const activeRoom of rooms.values()) {
+      let changed = false;
+      for (const member of [...(activeRoom.players || []), ...(activeRoom.spectators || [])]) {
+        if (member && member.id === viewer.id) { member.name = viewer.displayName; changed = true; }
+      }
+      if (activeRoom.game) {
+        for (const gameVersion of [activeRoom.game, activeRoom.game._previousTurnSnapshot, activeRoom.game._currentTurnStartSnapshot]) {
+          if (!gameVersion) continue;
+          for (const member of (gameVersion.players || [])) {
+            if (member && member.id === viewer.id) { member.name = viewer.displayName; changed = true; }
+          }
+        }
+      }
+      if (changed) {
+        broadcastRoom(activeRoom);
+        if (activeRoom.game) broadcastState(activeRoom);
+      }
+    }
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(viewer), message: 'Player name changed. Your username remains unchanged.' });
     return;
   }
 

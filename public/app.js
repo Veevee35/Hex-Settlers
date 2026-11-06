@@ -6708,8 +6708,8 @@ function refreshLobbyJoinLinkUi() {
     const intro = document.createElement('div');
     intro.className = 'userManagementIntro';
     intro.textContent = adminView
-      ? 'Manage your own recovery email and password. Administrator accounts can also reset passwords or delete other registered player accounts.'
-      : 'Only your account is shown. You can change your password and link a verified recovery email for password resets before login.';
+      ? 'Manage your own player name, recovery email and password. Administrator accounts can also reset passwords or delete other registered player accounts.'
+      : 'Only your account is shown. Change your player name or password, and link a verified recovery email for password resets before login. Player names may be shared; usernames are unique.';
     shell.appendChild(intro);
 
     if (!emailDeliveryConfigured) {
@@ -6882,6 +6882,58 @@ function refreshLobbyJoinLinkUi() {
         controls.className = 'userManagementControls';
 
         if (isCurrentUser) {
+          const nameSection = document.createElement('div');
+          nameSection.className = 'userManagementSection';
+          const nameHeading = document.createElement('div');
+          nameHeading.className = 'labelTiny';
+          nameHeading.textContent = adminView ? 'Administrator Player Name' : 'Change Player Name';
+          const nameInput = document.createElement('input');
+          nameInput.className = 'input';
+          nameInput.type = 'text';
+          nameInput.maxLength = 20;
+          nameInput.autocomplete = 'nickname';
+          nameInput.value = user.displayName || user.username || '';
+          nameInput.placeholder = 'Player name (1–20 characters)';
+          const nameButton = document.createElement('button');
+          nameButton.className = 'btn primary';
+          nameButton.type = 'button';
+          nameButton.textContent = 'Change Name';
+          const nameStatus = document.createElement('div');
+          nameStatus.className = 'userManagementStatus';
+          const nameNote = document.createElement('div');
+          nameNote.className = 'smallNote';
+          nameNote.textContent = 'Player names do not need to be unique. Your login username will stay the same.';
+          nameButton.addEventListener('click', async () => {
+            const nextName = String(nameInput.value || '').trim();
+            if (!nextName || nextName.length > 20) {
+              nameStatus.className = 'userManagementStatus error';
+              nameStatus.textContent = 'Enter a player name between 1 and 20 characters.';
+              nameInput.focus();
+              return;
+            }
+            nameButton.disabled = true;
+            nameStatus.className = 'userManagementStatus';
+            nameStatus.textContent = 'Changing name…';
+            try {
+              const response = await accountApi('change-name', { displayName: nextName });
+              if (response.user) {
+                Object.assign(user, response.user);
+                setAuthState(response.user, null, { clearToken: true });
+              }
+              playerName.textContent = `Player name: ${user.displayName || user.username || '—'}`;
+              nameStatus.className = 'userManagementStatus success';
+              nameStatus.textContent = response.message || 'Player name changed.';
+            } catch (error) {
+              nameStatus.className = 'userManagementStatus error';
+              nameStatus.textContent = error.message || 'Could not change player name.';
+            } finally {
+              nameButton.disabled = false;
+            }
+          });
+          nameInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); nameButton.click(); } });
+          nameSection.append(nameHeading, nameInput, nameNote, nameButton, nameStatus);
+          controls.appendChild(nameSection);
+
           const passwordSection = document.createElement('div');
           passwordSection.className = 'userManagementSection';
           const passwordHeading = document.createElement('div');
@@ -9696,7 +9748,10 @@ function refreshLobbyJoinLinkUi() {
       setError('Spectators cannot take game actions.');
       return;
     }
-    if (state && state.paused) {
+    // Turn-undo voting intentionally pauses the game; the vote must still be
+    // usable while paused or the unanimous approval flow could never finish.
+    const undoVoteAction = action.kind === 'propose_turn_undo' || action.kind === 'respond_turn_undo';
+    if (state && state.paused && !undoVoteAction) {
       setError('Game is paused.');
       return;
     }
@@ -10717,7 +10772,13 @@ function ensureTimerUiInterval() {
 
     // Every active player may request an undo vote, pause, or resume.
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId);
-    for (const control of [ui.backTurnBtn, ui.pauseBtn, ui.playBtn]) control?.classList.toggle('hidden', !(inGame && !historyReplay.active));
+    for (const control of [ui.backTurnBtn, ui.pauseBtn, ui.playBtn]) control?.classList.toggle('hidden', !(inGame && !historyReplay.active && !amSpectator));
+    if (ui.backTurnBtn) {
+      ui.backTurnBtn.disabled = !myPlayerId || !state?.canUndoPreviousTurn || !!state?.turnUndoVote;
+      ui.backTurnBtn.title = state?.canUndoPreviousTurn
+        ? 'Any player can request a unanimous vote to undo the previous turn.'
+        : 'The first turn must finish before Back is available.';
+    }
     if (ui.pauseBtn) ui.pauseBtn.disabled = !!(state && state.paused);
     if (ui.playBtn) ui.playBtn.disabled = !(state && state.paused);
 
@@ -12302,7 +12363,7 @@ if (ui.moveShipBtn) {
     const proposer = (state.players || []).find((player) => player.id === vote.fromId);
     const body = document.createElement('div');
     body.className = 'modalText';
-    body.textContent = `${proposer?.name || 'The host'} wants to undo the current turn and return the game to the start of the previous player's turn. This requires every player to approve.`;
+    body.textContent = `${proposer?.name || 'A player'} wants to undo the current turn and return the game to the start of the previous player's turn. This requires every player to approve.`;
     modalType = 'turnUndoVote';
     openModal({
       title: 'Undo Previous Turn?',
