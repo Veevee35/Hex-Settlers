@@ -4,7 +4,7 @@ Hex Settlers is a browser-based, server-authoritative hex strategy game. It supp
 
 ## Player reference
 
-The public [Player and Diagnostic Reference](docs/HEX_SETTLERS_GAME_REFERENCE.md) documents the complete player flow, rules, maps and scenarios, ranked play, AI, game tools, reconnect behavior, troubleshooting, privacy boundaries, and the latest reliability audit. A print-ready [PDF booklet](docs/HEX_SETTLERS_GAME_REFERENCE.pdf) is included for offline use.
+The public [Engineering Diagnostic Reference](docs/HEX_SETTLERS_GAME_REFERENCE.md) documents the backend JavaScript architecture, authoritative mechanics, browser/server message paths, maps, AI, privacy projections, persistence, diagnostics, and test coverage. A print-ready [PDF booklet](docs/HEX_SETTLERS_GAME_REFERENCE.pdf) is included for offline use.
 
 ## Run locally
 

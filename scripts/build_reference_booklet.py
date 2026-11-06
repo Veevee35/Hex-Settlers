@@ -114,14 +114,14 @@ def page_decor(canvas, doc):
     if doc.page > 1:
         canvas.setFont(REGULAR, 7.5)
         canvas.setFillColor(MUTED)
-        canvas.drawString(0.7 * inch, 0.38 * inch, "HEX SETTLERS - PLAYER AND DIAGNOSTIC REFERENCE")
+        canvas.drawString(0.7 * inch, 0.38 * inch, "HEX SETTLERS - ENGINEERING DIAGNOSTIC REFERENCE")
         canvas.drawRightString(width - 0.7 * inch, 0.38 * inch, f"{doc.page}")
     canvas.restoreState()
 
 
 class BookDoc(BaseDocTemplate):
     def __init__(self, filename):
-        super().__init__(filename, pagesize=letter, leftMargin=0.68*inch, rightMargin=0.68*inch, topMargin=0.58*inch, bottomMargin=0.62*inch, title="Hex Settlers: Player and Diagnostic Reference", author="Hex Settlers Project")
+        super().__init__(filename, pagesize=letter, leftMargin=0.68*inch, rightMargin=0.68*inch, topMargin=0.58*inch, bottomMargin=0.62*inch, title="Hex Settlers Engineering Diagnostic Reference", author="Hex Settlers Project")
         frame = Frame(self.leftMargin, self.bottomMargin, self.width, self.height, id="normal")
         self.addPageTemplates(PageTemplate(id="book", frames=[frame], onPage=page_decor))
 
@@ -131,9 +131,9 @@ def build_story(markdown):
     story = []
     story.extend([
         Spacer(1, 0.7 * inch),
-        Table([[Paragraph("HEX SETTLERS", styles["BookTitle"])], [Paragraph("Player and Diagnostic Reference", styles["BookSub"])], [Spacer(1, 0.2*inch)], [Paragraph("Public edition - Version 1.0 - 6 November 2026", styles["BookSub"]) ]], colWidths=[7.15*inch], rowHeights=[0.65*inch, 0.4*inch, 2.9*inch, 0.45*inch], style=TableStyle([("BACKGROUND",(0,0),(-1,-1),NAVY),("BOX",(0,0),(-1,-1),2,GOLD),("VALIGN",(0,0),(-1,-1),"MIDDLE")])) ,
+        Table([[Paragraph("HEX SETTLERS", styles["BookTitle"])], [Paragraph("Engineering Diagnostic Reference", styles["BookSub"])], [Spacer(1, 0.2*inch)], [Paragraph("Backend JavaScript and interaction architecture - 6 November 2026", styles["BookSub"]) ]], colWidths=[7.15*inch], rowHeights=[0.65*inch, 0.4*inch, 2.9*inch, 0.45*inch], style=TableStyle([("BACKGROUND",(0,0),(-1,-1),NAVY),("BOX",(0,0),(-1,-1),2,GOLD),("VALIGN",(0,0),(-1,-1),"MIDDLE")])) ,
         Spacer(1, 0.28*inch),
-        Paragraph("A complete public guide to gameplay, maps, ranked play, tools, recovery, privacy boundaries, troubleshooting, and verified system behavior.", styles["Calloutx"]),
+        Paragraph("A code-level guide to the authoritative engine, browser/server interaction paths, mechanics, security boundaries, persistence, AI, diagnostics, and tests.", styles["Calloutx"]),
         PageBreak(),
     ])
     i = 3  # skip source title/version already rendered
