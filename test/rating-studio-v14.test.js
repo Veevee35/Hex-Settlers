@@ -56,22 +56,13 @@ test('weight parameters are validated against malformed/out of bounds admin inpu
   assert.throws(() => validatedRatingPolicy(null));
 });
 
-test('either-map matchmaking uses shared count queue and selects compatible players', () => {
-  const start = server.indexOf('function mapsCompatible(');
-  const end = server.indexOf('function sendRankedQueueStatus(', start);
-  const selectStart = server.indexOf('let rankedEitherMapNext =');
-  const selectEnd = server.indexOf('function processRankedQueue(', selectStart);
-  assert.ok(start >= 0 && end > start && selectStart > 0 && selectEnd > selectStart);
-  const ctx = vm.createContext({ rankedRatingRange: () => 100, rankedEitherMapNext: 'classic' });
-  vm.runInContext(server.slice(start, end) + server.slice(selectStart, selectEnd), ctx);
-  const make = (i, mapFamily) => ({ ws: i, user: { id: String(i) }, rating: 1000, queuedAt: i, mapFamily });
-  const group = [make(1,'classic'), make(2,'either'), make(3,'classic'), make(4,'either')];
-  const found = ctx.selectRankedMatch(group, 4, 10000);
-  assert.equal(found.mapFamily, 'classic');
-  assert.equal(found.matched.length, 4);
-  const incompatible = [make(1,'classic'), make(2,'seafarers'), make(3,'classic'), make(4,'seafarers')];
-  assert.equal(ctx.selectRankedMatch(incompatible, 4, 10000), null);
-  assert.match(server, /const key = String\(playerCount\)/);
+test('ranked matchmaking uses one four-player queue before the scenario ballot', () => {
+  assert.match(server, /const RANKED_PLAYER_COUNT = 4/);
+  assert.match(server, /const key = String\(RANKED_PLAYER_COUNT\)/);
+  assert.match(server, /queue\.push\(\{ ws, user, rating, queuedAt \}\)/);
+  assert.match(server, /options: randomRankedScenarioOptions\(3\)/);
+  assert.match(server, /const leaders = ballot\.options\.filter/);
+  assert.match(server, /leaders\[crypto\.randomInt\(leaders\.length\)\]/);
 });
 
 test('mobile UI exposes accessible action and panel controls and board aligned prompts', () => {

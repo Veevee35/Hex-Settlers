@@ -39,23 +39,19 @@ test('authenticated portal offers ranked and unranked paths plus an account menu
   assert.match(html, /id="playModeScreen"[\s\S]*?class="loginSupport gameTypeSupport"[\s\S]*?href="https:\/\/ko-fi\.com\/L6D82A3L9Z"/);
 });
 
-test('ranked matchmaking is server authoritative and preference based', () => {
-  assert.match(protocol, /'ranked_queue_join', 'ranked_queue_leave'/);
-  assert.match(app, /type: 'ranked_queue_join'[\s\S]*?mapMode:[\s\S]*?playerCount:/);
+test('ranked matchmaking is one server-authoritative four-player scenario ballot', () => {
+  assert.match(protocol, /'ranked_queue_join', 'ranked_queue_leave', 'ranked_scenario_vote'/);
+  assert.match(app, /send\(\{ type: 'ranked_queue_join' \}\)/);
   assert.match(server, /function rankedRatingRange[\s\S]*?RANKED_RANGE_STEP_MS/);
-  assert.match(server, /rankedRoom\.ranked = true[\s\S]*?startGame\(rankedRoom\)/);
+  assert.match(server, /const RANKED_PLAYER_COUNT = 4/);
+  assert.match(server, /rankedRoom\.ranked = true[\s\S]*?options: randomRankedScenarioOptions\(3\)/);
+  assert.match(server, /function resolveRankedScenarioVote[\s\S]*?startGame\(room\)/);
   const rankedOptions = html.match(/id="rankedScreen"[\s\S]*?<\/section>/)?.[0] || '';
-  assert.match(rankedOptions, /value="classic">Classic/);
-  assert.match(rankedOptions, /value="seafarers">Seafarers/);
-  assert.doesNotMatch(rankedOptions, /Classic 5–6|<option>3<\/option>/);
-  for (const count of [4, 5, 6]) assert.match(rankedOptions, new RegExp(`<option(?: selected)?>${count}<\\/option>`));
+  assert.doesNotMatch(rankedOptions, /id="rankedMap"|id="rankedPlayers"|Classic|Seafarers/);
+  assert.match(rankedOptions, /one four-player queue/);
   assert.match(rankedOptions, /id="rankedReadyBtn"[^>]*>Start Matchmaking<\/button>/);
-  assert.match(server, /const key = String\(playerCount\)/);
-  assert.match(rankedOptions, /value="either">Either/);
-  assert.match(server, /function mapsCompatible\(/);
-  assert.match(server, /function selectRankedMatch[\s\S]*?Math\.abs\(entry\.rating - anchor\.rating\) <= range/);
-  assert.match(server, /mapFamily === 'classic' && playerCount > 4 \? 'classic56' : mapFamily/);
-  assert.match(server, /playerCount > 4 \? 'six_islands' : 'four_islands'/);
+  assert.match(server, /const key = String\(RANKED_PLAYER_COUNT\)/);
+  assert.match(server, /Ranked matches are server-controlled/);
 });
 
 test('friends persist on accounts and lobby rows support friend requests', () => {

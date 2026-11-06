@@ -127,6 +127,15 @@ body.in-game .panel{display:none;}
   padding:10px;
   background: rgba(0,0,0,.22);
 }
+
+.rankedScenarioVote{margin-top:14px;padding:14px;border:1px solid rgba(224,174,58,.42);border-radius:14px;background:rgba(224,174,58,.08)}
+.rankedScenarioVoteTitle{color:#fff;font-size:15px;font-weight:850}
+.rankedScenarioOptions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
+.rankedScenarioOption{display:flex;min-height:76px;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:8px;padding:12px;border:1px solid #36566b;border-radius:11px;background:#111d27;color:#eef5f8;text-align:left;cursor:pointer}
+.rankedScenarioOption:hover{border-color:#e0ae3a;background:#172937}
+.rankedScenarioOption.selected{border-color:#e0ae3a;box-shadow:0 0 0 2px rgba(224,174,58,.2) inset;background:rgba(224,174,58,.13)}
+.rankedScenarioOption strong{font-size:13px;line-height:1.25}
+.rankedScenarioOption span{color:var(--muted);font-family:var(--mono);font-size:10px}
 .roomTop{display:flex; align-items:center; justify-content:space-between; gap:10px}
 .lobbyReadyActions{display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap}
 .roomCode{
@@ -2221,6 +2230,7 @@ select.input{
   border-bottom:1px solid rgba(255,255,255,.08);
   background: rgba(0,0,0,.12);
 }
+.leaderboardSubTabs{display:flex;justify-content:center;gap:8px;margin:0 0 14px;flex-wrap:wrap}
 
 .hTab{
   padding:8px 10px;
@@ -2721,6 +2731,7 @@ body.rules-page-open{overflow:hidden;}
 .loginSupport{position:fixed;z-index:3;right:max(18px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));display:flex}.loginSupport a{display:inline-flex;border-radius:8px;filter:drop-shadow(0 8px 18px rgba(0,0,0,.48));transition:transform .16s,filter .16s}.loginSupport a:hover,.loginSupport a:focus-visible{transform:translateY(-2px);filter:brightness(1.08) drop-shadow(0 9px 20px rgba(0,0,0,.55));outline:2px solid rgba(217,166,46,.7);outline-offset:3px}.loginSupport img{display:block;height:36px;width:auto;border:0}@media(max-width:560px){.loginSupport{right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom))}.loginSupport img{height:32px}}
 .playerProfileLink{cursor:pointer;border-radius:9px;padding:4px 6px;margin:-4px -6px;transition:background .16s,transform .16s}.playerProfileLink:hover,.playerProfileLink:focus-visible{background:rgba(93,167,210,.13);outline:1px solid rgba(93,167,210,.45);transform:translateY(-1px)}.friendProfileLink{border:0;background:none;color:#dceaf2;font:inherit;font-weight:800;padding:3px 4px;cursor:pointer}.friendProfileLink:hover{text-decoration:underline;color:#fff}.friendRowProfile{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#101b24;color:#dceaf2;text-align:left;cursor:pointer}.friendRowProfile:hover{border-color:#d9a62e;background:#152633}.friendRowProfile span:first-child{display:grid;gap:2px}.friendRowProfile small{color:#8399a7}.friendPresence{font-size:11px;color:#8399a7}.friendPresence.online{color:#61d995}.playerProfileCard{min-width:min(500px,78vw);overflow:hidden}.playerProfileHero{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:15px;padding:18px;border:1px solid rgba(217,166,46,.35);border-radius:16px;background:radial-gradient(circle at 0 0,rgba(217,166,46,.16),transparent 45%),linear-gradient(145deg,#152735,#0e1821)}.playerProfileAvatar{display:grid;place-items:center;width:64px;height:64px;border:2px solid #d9a62e;border-radius:50%;background:#1d3445;color:#fff;font-size:27px;font-weight:950;box-shadow:0 8px 24px rgba(0,0,0,.35)}.playerProfileName{color:#fff;font-size:22px;font-weight:900}.playerProfileUsername{margin-top:3px;color:#91a8b7}.playerProfileRating{display:grid;justify-items:end;color:#f0c75d}.playerProfileRating span{font-size:9px;letter-spacing:.13em;font-weight:900}.playerProfileRating strong{font-size:25px}.playerProfileStats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:12px}.playerProfileStat{display:grid;place-items:center;padding:13px 8px;border:1px solid #293f4e;border-radius:12px;background:rgba(12,22,30,.72)}.playerProfileStat strong{color:#fff;font-size:20px}.playerProfileStat span{margin-top:3px;color:#8fa4b2;font-size:10px;text-transform:uppercase;letter-spacing:.08em}.playerProfileFooter{margin-top:12px;color:#8298a6;text-align:center;font-size:11px}@media(max-width:540px){.playerProfileCard{min-width:0}.playerProfileHero{grid-template-columns:auto 1fr}.playerProfileRating{grid-column:1/-1;justify-items:center}.playerProfileStats{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:650px){.modeChoices{grid-template-columns:1fr}.portalScreen{padding:12px}.portalCard{padding:26px 20px}.portalLogo{width:185px}}
+@media(max-width:650px){.rankedScenarioOptions{grid-template-columns:1fr}.rankedScenarioOption{min-height:58px}}
 .accountOrb{z-index:990}.accountMenu{z-index:1000}
 .portalBackdrop{background:radial-gradient(circle at 50% 15%,rgba(214,161,43,.2),transparent 35%),linear-gradient(145deg,#081019,#0b1924)}
 

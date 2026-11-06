@@ -56,8 +56,10 @@ const {
 } = require('./server/security');
 const {
   DEFAULT_RULES,
+  RANKED_SCENARIOS,
   bankMaxForRules,
   microActionDurationMs,
+  rankedRulesForScenario,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,
   seafarersExplorationPointsEnabled,
@@ -135,7 +137,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'rating-studio-mobile-matchmaking-v14';
+const SERVER_BUILD_ID = 'ranked-server-vote-navigation-v16';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -499,14 +501,62 @@ function getGameHistoryEntry(id) {
   return null;
 }
 
-function computeLeaderboardFromHistory() {
-  const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
-  const by = new Map(); // pid -> agg
+function emptyLeaderboardAggregate() {
+  return {
+    gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0,
+    totalTurnMs: 0, totalTurns: 0,
+    roads: 0, ships: 0, settlements: 0, cities: 0,
+    devBought: 0, devPlayed: 0, resGained: 0, resLost: 0, lastGameAt: 0,
+  };
+}
 
+function addGameToLeaderboardAggregate(rec, game, player, stats, winnerId) {
   const sumRes = (m) => {
     if (!m || typeof m !== 'object') return 0;
     return (Number(m.brick||0)+Number(m.lumber||0)+Number(m.wool||0)+Number(m.grain||0)+Number(m.ore||0));
   };
+  const pid = String(player.id || '');
+  rec.gamesPlayed += 1;
+  if (pid === winnerId) rec.wins += 1; else rec.losses += 1;
+  rec.totalVP += Math.max(0, Math.floor(Number(player.vp || 0)));
+  rec.lastGameAt = Math.max(rec.lastGameAt, Number(game.endedAt || 0));
+  if (stats?.turnTimes?.byPlayer?.[pid]) {
+    const tt = stats.turnTimes.byPlayer[pid];
+    rec.totalTurnMs += Math.max(0, Number(tt.totalMs || 0));
+    rec.totalTurns += Math.max(0, Number(tt.turns || 0));
+  }
+  if (stats?.builds?.byPlayer?.[pid]) {
+    const b = stats.builds.byPlayer[pid];
+    rec.roads += Math.max(0, Number(b.road || 0));
+    rec.ships += Math.max(0, Number(b.ship || 0));
+    rec.settlements += Math.max(0, Number(b.settlement || 0));
+    rec.cities += Math.max(0, Number(b.city || 0));
+  }
+  if (stats?.dev?.byPlayer?.[pid]) {
+    const d = stats.dev.byPlayer[pid];
+    rec.devBought += Math.max(0, Number(d.bought || 0));
+    rec.devPlayed += Math.max(0, Number(d.played || 0));
+  }
+  if (stats?.resources?.byPlayer?.[pid]) {
+    const r = stats.resources.byPlayer[pid];
+    rec.resGained += sumRes(r.gained);
+    rec.resLost += sumRes(r.lost);
+  }
+}
+
+function finalizedLeaderboardAggregate(rec) {
+  const gp = rec.gamesPlayed || 0;
+  return {
+    ...rec,
+    winPct: Math.round((gp ? rec.wins / gp : 0) * 1000) / 1000,
+    avgVP: Math.round((gp ? rec.totalVP / gp : 0) * 1000) / 1000,
+    avgTurnSec: Math.round((rec.totalTurns ? rec.totalTurnMs / rec.totalTurns / 1000 : 0) * 1000) / 1000,
+  };
+}
+
+function computeLeaderboardFromHistory() {
+  const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
+  const by = new Map(); // pid -> aggregate split by ranked/unranked/combined
 
   for (const g of games) {
     if (!g || !Array.isArray(g.players)) continue;
@@ -529,58 +579,15 @@ function computeLeaderboardFromHistory() {
           username: u.username || '',
           name: (u.displayName || u.username || p.name || pid),
           color: p.color || u.color || '#777',
-          gamesPlayed: 0,
-          wins: 0,
-          losses: 0,
-          totalVP: 0,
-
-          totalTurnMs: 0,
-          totalTurns: 0,
-
-          roads: 0,
-          ships: 0,
-          settlements: 0,
-          cities: 0,
-
-          devBought: 0,
-          devPlayed: 0,
-
-          resGained: 0,
-          resLost: 0,
-
-          lastGameAt: 0,
+          combined: emptyLeaderboardAggregate(),
+          ranked: emptyLeaderboardAggregate(),
+          unranked: emptyLeaderboardAggregate(),
         };
         by.set(pid, rec);
       }
-
-      rec.gamesPlayed += 1;
-      if (pid === wid) rec.wins += 1; else rec.losses += 1;
-      rec.totalVP += Math.max(0, Math.floor(Number(p.vp || 0)));
-      rec.lastGameAt = Math.max(rec.lastGameAt, Number(g.endedAt || 0));
-
-      // Pull richer stats from snapshot if present
-      if (st && st.turnTimes && st.turnTimes.byPlayer && st.turnTimes.byPlayer[pid]) {
-        const tt = st.turnTimes.byPlayer[pid];
-        rec.totalTurnMs += Math.max(0, Number(tt.totalMs || 0));
-        rec.totalTurns += Math.max(0, Number(tt.turns || 0));
-      }
-      if (st && st.builds && st.builds.byPlayer && st.builds.byPlayer[pid]) {
-        const b = st.builds.byPlayer[pid];
-        rec.roads += Math.max(0, Number(b.road || 0));
-        rec.ships += Math.max(0, Number(b.ship || 0));
-        rec.settlements += Math.max(0, Number(b.settlement || 0));
-        rec.cities += Math.max(0, Number(b.city || 0));
-      }
-      if (st && st.dev && st.dev.byPlayer && st.dev.byPlayer[pid]) {
-        const d = st.dev.byPlayer[pid];
-        rec.devBought += Math.max(0, Number(d.bought || 0));
-        rec.devPlayed += Math.max(0, Number(d.played || 0));
-      }
-      if (st && st.resources && st.resources.byPlayer && st.resources.byPlayer[pid]) {
-        const r = st.resources.byPlayer[pid];
-        rec.resGained += sumRes(r.gained);
-        rec.resLost += sumRes(r.lost);
-      }
+      addGameToLeaderboardAggregate(rec.combined, g, p, st, wid);
+      if (g.ranked === true) addGameToLeaderboardAggregate(rec.ranked, g, p, st, wid);
+      if (g.ranked === false) addGameToLeaderboardAggregate(rec.unranked, g, p, st, wid);
     }
   }
 
@@ -592,42 +599,27 @@ function computeLeaderboardFromHistory() {
       id: user.id, username: user.username || '',
       name: user.displayName || user.username || user.id,
       color: user.color || '#777',
-      gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0,
-      totalTurnMs: 0, totalTurns: 0,
-      roads: 0, ships: 0, settlements: 0, cities: 0,
-      devBought: 0, devPlayed: 0, resGained: 0, resLost: 0, lastGameAt: 0,
+      combined: emptyLeaderboardAggregate(),
+      ranked: emptyLeaderboardAggregate(),
+      unranked: emptyLeaderboardAggregate(),
     });
   }
 
   const rows = [];
   for (const rec of by.values()) {
-    const gp = rec.gamesPlayed || 0;
-    const winPct = gp ? (rec.wins / gp) : 0;
-    const avgVP = gp ? (rec.totalVP / gp) : 0;
-    const avgTurnSec = rec.totalTurns ? (rec.totalTurnMs / rec.totalTurns / 1000) : 0;
-
+    const combined = finalizedLeaderboardAggregate(rec.combined);
+    const ranked = finalizedLeaderboardAggregate(rec.ranked);
+    const unranked = finalizedLeaderboardAggregate(rec.unranked);
     rows.push({
       id: rec.id,
       username: rec.username,
       name: rec.name,
       color: rec.color,
-      gamesPlayed: gp,
-      wins: rec.wins,
-      losses: rec.losses,
-      winPct: Math.round(winPct * 1000) / 1000,
-      totalVP: rec.totalVP,
-      avgVP: Math.round(avgVP * 1000) / 1000,
-      avgTurnSec: Math.round(avgTurnSec * 1000) / 1000,
-      roads: rec.roads,
-      ships: rec.ships,
-      settlements: rec.settlements,
-      cities: rec.cities,
-      devBought: rec.devBought,
-      devPlayed: rec.devPlayed,
-      resGained: rec.resGained,
-      resLost: rec.resLost,
+      ...combined,
+      combined,
+      ranked,
+      unranked,
       rankedRating: rankedRating(findUserById(rec.id)?.rankedRating),
-      lastGameAt: rec.lastGameAt,
     });
   }
 
@@ -5579,7 +5571,7 @@ function newEmptyGame(room) {
     phase: 'lobby', // lobby | setup1-settlement | setup1-road | setup2-settlement | setup2-road | main-await-roll | main-actions | robber-move | game-over
     message: 'Waiting in lobby…',
     roomCode: room.code,
-    hostId: room.hostId,
+    hostId: room.ranked ? null : room.hostId,
     ranked: !!room.ranked,
     players: room.players.map(p => ({
       id: p.id,
@@ -5615,7 +5607,7 @@ function newEmptyGame(room) {
     pendingTrade: null, // {id, fromId, offer:{}, request:{}, responses:{pid:'accept'|'reject'|null}, createdAt}
 
 
-    // End-game vote (host initiated)
+    // End-game vote (any active player may initiate; unanimous approval required)
     endVoteSeq: 1,
     endVote: null, // {id, fromId, responses:{pid:'accept'|'reject'|null}, createdAt}
 
@@ -5731,6 +5723,13 @@ function pushChat(room, fromId, text) {
 
 function startGame(room) {
   if (room.game && room.game.phase !== 'lobby') return false;
+  if (room.ranked) {
+    const selectedId = room.rankedScenarioVote?.selectedId;
+    if (!selectedId || !RANKED_SCENARIOS.some((scenario) => scenario.id === selectedId)) return false;
+    // Re-apply the selected map's defaults on the server. No lobby packet or
+    // persisted placeholder may influence competitive game configuration.
+    room.rules = rankedRulesForScenario(selectedId);
+  }
   const game = newEmptyGame(room);
   game.ranked = !!room.ranked;
   // Lock each ranked match to the rules active at the start of that match.
@@ -7728,13 +7727,17 @@ if (kind === 'pirate_steal') {
     const restoredTurnMs = phaseDurationMs(game, game.phase);
     setTimerForCurrentPhase(game, restoredTurnMs, restoredTurnMs);
     pauseGame(game, playerId);
-    game.message = `Returned to the start of ${playerName(game, game.currentPlayerId)}'s previous turn. Press Play to continue.`;
+    if (room.ranked) resumeGame(game); // Ranked has no player-controlled pause/resume.
+    game.message = room.ranked
+      ? `Unanimous Back vote: returned to the start of ${playerName(game, game.currentPlayerId)}'s previous turn.`
+      : `Returned to the start of ${playerName(game, game.currentPlayerId)}'s previous turn. Press Play to continue.`;
     pushLog(game, game.message, 'system', { kind: 'turn_undo_applied', voteId });
     return { ok: true };
   }
 
   if (kind === 'propose_endgame') {
-    if (playerId !== game.hostId) return { ok: false, error: 'Only the host can start an end-game vote.' };
+    const proposer = (game.players || []).find((player) => player && player.id === playerId && !player.departed);
+    if (!proposer) return { ok: false, error: 'Only an active player can start an end-game vote.' };
     if (game.endVote && game.endVote.id) return { ok: false, error: 'An end-game vote is already in progress.' };
 
     const responses = {};
@@ -8287,7 +8290,8 @@ function sendToRoomMember(room, playerId, payload) {
 }
 
 const rooms = new Map(); // code -> room
-const rankedQueues = new Map(); // map/player-count preference -> waiting entries
+const rankedQueues = new Map(); // one server-owned four-player ranked queue
+const RANKED_PLAYER_COUNT = 4;
 const RANKED_INITIAL_RATING_RANGE = 100;
 const RANKED_RANGE_STEP = 100;
 const RANKED_RANGE_STEP_MS = 15_000;
@@ -8298,71 +8302,123 @@ function rankedRatingRange(waitMs) {
   return Math.min(RANKED_MAX_RATING_RANGE, RANKED_INITIAL_RATING_RANGE + (steps * RANKED_RANGE_STEP));
 }
 
-function mapsCompatible(left, right) {
-  return left === 'either' || right === 'either' || left === right;
-}
 function sendRankedQueueStatus(queue, playerCount, timestamp = now()) {
   for (const entry of queue) {
     if (entry.ws.readyState !== WebSocket.OPEN) continue;
-    const eligible = queue.filter(other => mapsCompatible(entry.mapFamily, other.mapFamily));
     sendJson(entry.ws, {
       type: 'ranked_queue_status', queued: true,
-      waiting: eligible.length, needed: playerCount, mapMode: entry.mapFamily,
+      waiting: queue.length, needed: playerCount, mapMode: 'ranked',
       rating: entry.rating, ratingRange: rankedRatingRange(timestamp - entry.queuedAt),
     });
   }
 }
 
-function launchRankedMatch(matched, mapFamily, playerCount) {
+function randomRankedScenarioOptions(count = 3) {
+  const pool = RANKED_SCENARIOS.map((scenario) => ({ ...scenario }));
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, Math.max(1, Math.min(pool.length, Math.floor(Number(count) || 3))));
+}
+
+function enqueueRankedPlayer(ws, user, queuedAt = now()) {
+  if (!ws || !user) return false;
+  const rating = rankedRating(user?.rankedRating);
+  for (const [key, entries] of rankedQueues) {
+    const next = entries.filter((entry) => entry.ws !== ws && entry.user.id !== user.id &&
+      entry.ws.readyState === WebSocket.OPEN && !entry.ws._roomCode);
+    if (next.length) rankedQueues.set(key, next);
+    else rankedQueues.delete(key);
+  }
+  const key = String(RANKED_PLAYER_COUNT);
+  const queue = rankedQueues.get(key) || [];
+  queue.push({ ws, user, rating, queuedAt });
+  rankedQueues.set(key, queue);
+  processRankedQueue(key);
+  return true;
+}
+
+function launchRankedMatch(matched) {
   const host = matched[0];
   const rankedRoom = createRoom(host.user.id, host.user.displayName || host.user.username);
   rankedRoom.ranked = true;
-  rankedRoom.rankedPreferences = { map: mapFamily, playerCount };
-  rankedRoom.rules.mapMode = mapFamily === 'classic' && playerCount > 4 ? 'classic56' : mapFamily;
-  if (mapFamily === 'seafarers') rankedRoom.rules.seafarersScenario = playerCount > 4 ? 'six_islands' : 'four_islands';
+  rankedRoom.rankedPreferences = { playerCount: RANKED_PLAYER_COUNT };
+  // No Classic rules or preview are assigned before the ballot. The winning
+  // scenario supplies its own complete defaults when voting concludes.
+  rankedRoom.rules = null;
+  rankedRoom.preview = null;
+  rankedRoom.rankedScenarioVote = {
+    options: randomRankedScenarioOptions(3),
+    votes: Object.create(null),
+    createdAt: now(),
+  };
   for (const entry of matched.slice(1)) joinRoom(rankedRoom.code, entry.user.id, entry.user.displayName || entry.user.username);
   for (const player of rankedRoom.players) player.ready = true;
-  ensurePreview(rankedRoom, true);
   for (const entry of matched) {
     bindSocketToRoomMember(rankedRoom, entry.user.id, entry.ws, 'Ranked match opened in another tab.');
-    sendJson(entry.ws, { type: 'ranked_match_found', rating: entry.rating, roomCode: rankedRoom.code, mapMode: mapFamily });
-    sendJson(entry.ws, { type: 'joined', playerId: entry.user.id, room: roomSnapshot(rankedRoom), isHost: entry.user.id === rankedRoom.hostId, role: 'player' });
+    sendJson(entry.ws, { type: 'ranked_match_found', rating: entry.rating, roomCode: rankedRoom.code, mapMode: 'ranked' });
+    sendJson(entry.ws, { type: 'joined', playerId: entry.user.id, room: roomSnapshot(rankedRoom), isHost: false, role: 'player' });
   }
-  startGame(rankedRoom);
   broadcastRoom(rankedRoom);
-  broadcastState(rankedRoom);
   scheduleActiveRoomsSave();
 }
 
-let rankedEitherMapNext = 'classic';
+function resolveRankedScenarioVote(room) {
+  const ballot = room && room.rankedScenarioVote;
+  if (!room || !room.ranked || !ballot || !Array.isArray(ballot.options) || !ballot.options.length) return false;
+  const activePlayerIds = (room.players || []).filter((player) => player && !player.isAI).map((player) => String(player.id));
+  if (activePlayerIds.length !== RANKED_PLAYER_COUNT || !activePlayerIds.every((id) => ballot.votes && ballot.votes[id])) return false;
+
+  const counts = new Map(ballot.options.map((option) => [option.id, 0]));
+  for (const playerId of activePlayerIds) {
+    const optionId = ballot.votes[playerId];
+    if (counts.has(optionId)) counts.set(optionId, counts.get(optionId) + 1);
+  }
+  const highest = Math.max(...counts.values());
+  const leaders = ballot.options.filter((option) => counts.get(option.id) === highest);
+  const winner = leaders[crypto.randomInt(leaders.length)];
+  ballot.selectedId = winner.id;
+  ballot.resolvedAt = now();
+  room.rules = rankedRulesForScenario(winner.id);
+  ensurePreview(room, true);
+
+  const started = startGame(room);
+  if (!started) return false;
+  broadcastRoom(room);
+  broadcastState(room);
+  scheduleActiveRoomsSave();
+  return true;
+}
+
 function selectRankedMatch(queue, playerCount, timestamp) {
   const ordered = queue.slice().sort((a, b) => a.queuedAt - b.queuedAt);
   for (const anchor of ordered) {
     const range = rankedRatingRange(timestamp - anchor.queuedAt);
-    const candidates = ordered.filter(entry => Math.abs(entry.rating - anchor.rating) <= range);
-    const maps = anchor.mapFamily === 'either'
-      ? [rankedEitherMapNext, rankedEitherMapNext === 'classic' ? 'seafarers' : 'classic']
-      : [anchor.mapFamily];
-    for (const mapFamily of maps) {
-      const matches = candidates.filter(entry => entry.mapFamily === mapFamily || entry.mapFamily === 'either')
-        .sort((a, b) => (a === anchor ? -1 : b === anchor ? 1 : 0) ||
-          Math.abs(a.rating - anchor.rating) - Math.abs(b.rating - anchor.rating) || a.queuedAt - b.queuedAt);
-      if (matches.length >= playerCount) return { matched: matches.slice(0, playerCount), mapFamily };
-    }
+    const candidates = ordered.filter(entry => Math.abs(entry.rating - anchor.rating) <= range)
+      .sort((a, b) => (a === anchor ? -1 : b === anchor ? 1 : 0) ||
+        Math.abs(a.rating - anchor.rating) - Math.abs(b.rating - anchor.rating) || a.queuedAt - b.queuedAt);
+    const seenUsers = new Set();
+    const matches = candidates.filter(entry => {
+      if (seenUsers.has(entry.user.id)) return false;
+      seenUsers.add(entry.user.id);
+      return true;
+    });
+    if (matches.length >= playerCount) return { matched: matches.slice(0, playerCount) };
   }
   return null;
 }
 function processRankedQueue(key, timestamp = now()) {
   const playerCount = Math.max(4, Math.min(6, Math.floor(Number(key) || 4)));
-  let queue = (rankedQueues.get(key) || []).filter(entry => entry.ws.readyState === WebSocket.OPEN);
+  let queue = (rankedQueues.get(key) || []).filter(entry =>
+    entry.ws.readyState === WebSocket.OPEN && !entry.ws._roomCode && entry.ws._userId === entry.user.id);
   if (!queue.length) { rankedQueues.delete(key); return; }
   while (queue.length >= playerCount) {
     const match = selectRankedMatch(queue, playerCount, timestamp);
     if (!match) break;
     const sockets = new Set(match.matched.map(entry => entry.ws));
     queue = queue.filter(entry => !sockets.has(entry.ws));
-    rankedEitherMapNext = match.mapFamily === 'classic' ? 'seafarers' : 'classic';
-    launchRankedMatch(match.matched, match.mapFamily, playerCount);
+    launchRankedMatch(match.matched);
   }
   if (queue.length) { rankedQueues.set(key, queue); sendRankedQueueStatus(queue, playerCount, timestamp); }
   else rankedQueues.delete(key);
@@ -8767,7 +8823,7 @@ function makePreviewGame(room) {
 }
 
 function broadcastPreviewState(room) {
-  if (!room) return;
+  if (!room || (room.ranked && !room.rankedScenarioVote?.selectedId)) return;
   const previewGame = makePreviewGame(room);
   const baseState = buildSanitizableState(previewGame);
   for (const [pid, ws] of room.sockets.entries()) {
@@ -8785,6 +8841,7 @@ function sendRoomStateToSocket(room, ws, pid) {
     sendJson(ws, { type: 'state', state: stateForRoomSocket(room, ws, pid) });
     return;
   }
+  if (room.ranked && !room.rankedScenarioVote?.selectedId) return;
   ensurePreview(room, false);
   const previewGame = makePreviewGame(room);
   sendJson(ws, { type: 'state', state: sanitizeStateFor(previewGame, pid) });
@@ -8794,13 +8851,20 @@ function roomSnapshot(room) {
   ensureRoomRoleLists(room);
   return {
     code: room.code,
-    hostId: room.hostId,
+    // Ranked rooms keep an internal coordinator for persistence compatibility,
+    // but matched players never receive host/admin ownership.
+    hostId: room.ranked ? null : room.hostId,
     ranked: !!room.ranked,
+    rankedScenarioVote: room.rankedScenarioVote ? {
+      options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
+      votes: room.rankedScenarioVote.votes || {},
+      selectedId: room.rankedScenarioVote.selectedId || null,
+    } : null,
     players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, isAI: !!(p && p.isAI), ready: roomPlayerIsReady(p), texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     spectators: room.spectators.map(p => ({ id: p.id, name: p.name, color: p.color, isSpectator: true, texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES),
     gamePhase: room.game ? room.game.phase : 'lobby',
-    rules: room.rules || { ...DEFAULT_RULES },
+    rules: room.ranked && !room.rankedScenarioVote?.selectedId ? null : (room.rules || { ...DEFAULT_RULES }),
     aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
     chat: room.chat || [],
   };
@@ -10694,18 +10758,10 @@ if (msg.type === 'ranked_queue_leave') {
 
 if (msg.type === 'ranked_queue_join') {
       if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
-      const requestedPlayerCount = Math.floor(Number(msg.playerCount || 4));
-      const playerCount = [4, 5, 6].includes(requestedPlayerCount) ? requestedPlayerCount : 4;
-      const requestedMap = String(msg.mapMode || 'classic').toLowerCase();
-      const mapFamily = ['classic', 'seafarers', 'either'].includes(requestedMap) ? requestedMap : 'classic';
+      if (ws._roomCode) { sendJson(ws, { type: 'error', error: 'Leave your current room before entering matchmaking.' }); return; }
       const user = findUserById(ws._userId);
-      const rating = rankedRating(user?.rankedRating);
-      for (const [key, entries] of rankedQueues) { const next = entries.filter((entry) => entry.ws !== ws && entry.ws.readyState === WebSocket.OPEN); if (next.length) rankedQueues.set(key, next); else rankedQueues.delete(key); }
-      const key = String(playerCount);
-      const queue = rankedQueues.get(key) || [];
-      queue.push({ ws, user, rating, mapFamily, queuedAt: now() });
-      rankedQueues.set(key, queue);
-      processRankedQueue(key);
+      if (!user) { sendJson(ws, { type: 'error', error: 'Account not found.' }); return; }
+      enqueueRankedPlayer(ws, user);
       return;
     }
 
@@ -10762,7 +10818,7 @@ if (msg.type === 'create_room') {
 
       ensurePreview(room, false);
 
-      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: ws._userId === room.hostId, role: roomRole(room, ws._userId) || 'player' });
+      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: !room.ranked && ws._userId === room.hostId, role: roomRole(room, ws._userId) || 'player' });
       sendRoomStateToSocket(room, ws, ws._userId);
       broadcastRoom(room);
       return;
@@ -10790,7 +10846,7 @@ if (msg.type === 'create_room') {
 
         bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
 
-        sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
+        sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: !room.ranked && pid === room.hostId, role: roomRole(room, pid) || 'player' });
         sendRoomStateToSocket(room, ws, pid);
         broadcastRoom(room);
         return;
@@ -10807,7 +10863,7 @@ if (msg.type === 'create_room') {
 
       bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
 
-      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player' });
+      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: !room.ranked && pid === room.hostId, role: roomRole(room, pid) || 'player' });
       if (room.game) {
         clearLegacyTradeTimerPause(room.game);
         syncTimer(room.game);
@@ -10842,9 +10898,39 @@ if (msg.type === 'create_room') {
       room = recovered.room;
       code = room.code;
       pid = recovered.playerId;
-      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: pid === room.hostId, role: roomRole(room, pid) || 'player', recovered: true });
+      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: !room.ranked && pid === room.hostId, role: roomRole(room, pid) || 'player', recovered: true });
       sendRoomStateToSocket(room, ws, pid);
       broadcastRoom(room);
+    }
+
+    if (msg.type === 'ranked_scenario_vote') {
+      if (!room.ranked || !room.rankedScenarioVote || (room.game && room.game.phase !== 'lobby')) {
+        sendJson(ws, { type: 'error', error: 'There is no ranked scenario vote in progress.' });
+        return;
+      }
+      if (roomRole(room, pid) !== 'player') {
+        sendJson(ws, { type: 'error', error: 'Only matched players can vote for the ranked scenario.' });
+        return;
+      }
+      const optionId = String(msg.scenarioId || '').trim();
+      const valid = room.rankedScenarioVote.options.some((option) => option && option.id === optionId);
+      if (!valid) {
+        sendJson(ws, { type: 'error', error: 'Choose one of the three ranked scenario options.' });
+        return;
+      }
+      room.rankedScenarioVote.votes[pid] = optionId;
+      if (!resolveRankedScenarioVote(room)) broadcastRoom(room);
+      return;
+    }
+
+    const rankedAdministrativeMessages = new Set([
+      'clear_ai', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
+      'kick_player', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_rules', 'start_game',
+      'set_ready', 'set_spectator_mode', 'respond_leave_game',
+    ]);
+    if (room.ranked && rankedAdministrativeMessages.has(msg.type)) {
+      sendJson(ws, { type: 'error', error: 'Ranked matches are server-controlled.' });
+      return;
     }
 
     if (msg.type === 'leave_room') {
@@ -10854,7 +10940,7 @@ if (msg.type === 'create_room') {
         return;
       }
       const gameOver = !!(room.game && room.game.phase === 'game-over');
-      if (pid === room.hostId && !gameOver) {
+      if (!room.ranked && pid === room.hostId && !gameOver) {
         sendJson(ws, { type: 'error', error: 'The host cannot leave this room.' });
         return;
       }
@@ -10871,13 +10957,14 @@ if (msg.type === 'create_room') {
       if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
       ws._roomCode = null;
       ws._playerId = null;
-      sendJson(ws, { type: 'left_room', code, reason: 'You left the room.' });
+      sendJson(ws, { type: 'left_room', code, reason: 'You left the room.', rankedMenu: !!room.ranked });
       if (!room.players.length) rooms.delete(code);
       else {
-        if (!room.game || room.game.phase === 'lobby') ensurePreview(room, true);
+        if ((!room.game || room.game.phase === 'lobby') && !room.ranked) ensurePreview(room, true);
         broadcastRoom(room);
         if (!room.game || room.game.phase === 'lobby') broadcastPreviewState(room);
       }
+      scheduleActiveRoomsSave();
       return;
     }
 
@@ -10956,12 +11043,23 @@ if (msg.type === 'create_room') {
         sendJson(ws, { type: 'error', error: 'No active game to leave.' });
         return;
       }
-      if (pid === room.hostId) {
+      if (!room.ranked && pid === room.hostId) {
         sendJson(ws, { type: 'error', error: 'The host cannot use Leave Game.' });
         return;
       }
       if (roomRole(room, pid) !== 'player') {
         sendJson(ws, { type: 'error', error: 'Only active players can leave the game.' });
+        return;
+      }
+      if (room.ranked) {
+        const moved = moveRoomPlayerToSpectator(room, pid);
+        if (!moved.ok) {
+          sendJson(ws, { type: 'error', error: moved.error || 'Could not leave the ranked game.' });
+          return;
+        }
+        sendJson(ws, { type: 'leave_game_result', accepted: true, playerId: pid, message: 'You are now spectating this ranked match.' });
+        broadcastRoom(room);
+        broadcastState(room);
         return;
       }
       room.pendingLeaveRequests = room.pendingLeaveRequests || Object.create(null);
@@ -11017,6 +11115,10 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'kick_player') {
+      if (room.ranked) {
+        sendJson(ws, { type: 'error', error: 'Ranked matches are server-controlled; players cannot be kicked.' });
+        return;
+      }
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only the host can kick players.' });
         return;
@@ -11065,6 +11167,26 @@ if (msg.type === 'create_room') {
       const prior = findRoomPlayer(room, pid);
       if (!prior || prior.isAI) {
         sendJson(ws, { type: 'error', error: 'Only players in the completed game can rematch.' });
+        return;
+      }
+
+      if (room.ranked) {
+        const user = findUserById(pid);
+        if (!user) { sendJson(ws, { type: 'error', error: 'Account not found for ranked requeue.' }); return; }
+        const leavingHost = pid === room.hostId;
+        removeRoomMember(room, pid);
+        if (leavingHost) {
+          const nextHost = room.players.find((player) => player && !player.isAI) || room.players[0] || null;
+          if (nextHost) room.hostId = nextHost.id;
+        }
+        if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
+        ws._roomCode = null;
+        ws._playerId = null;
+        sendJson(ws, { type: 'left_room', code, reason: 'Returned to the ranked queue.', rankedRequeue: true });
+        enqueueRankedPlayer(ws, user);
+        if (!room.players.length && !room.spectators.length) rooms.delete(code);
+        else broadcastRoom(room);
+        scheduleActiveRoomsSave();
         return;
       }
 
@@ -11529,6 +11651,7 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'pause_game') {
+      if (room.ranked) { sendJson(ws, { type: 'error', error: 'Ranked match timing is server-controlled.' }); return; }
       if (!room.game || room.game.phase === 'lobby') {
         sendJson(ws, { type: 'error', error: 'No active game.' });
         return;

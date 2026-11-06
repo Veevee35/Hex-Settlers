@@ -81,7 +81,7 @@
 
   <div id="friendsOverlay" class="portalOverlay hidden"><div class="portalCard registerCard"><button id="friendsCloseBtn" class="overlayClose">×</button><h2>Friends</h2><div id="friendsList" class="friendsList"></div></div></div>
 
-  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><label class="label">Map</label><select id="rankedMap" class="input"><option value="classic">Classic</option><option value="seafarers">Seafarers</option><option value="either">Either — first available</option></select><p class="smallNote">Either joins Classic or Seafarers queues, whichever fills first.</p><label class="label">Players</label><select id="rankedPlayers" class="input"><option selected>4</option><option>5</option><option>6</option></select><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Choose your preferences when you are ready.</p></div></section>
+  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">Join one four-player queue. After a match is found, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div></section>
   <div id="app">
     <main class="layout">
       <section class="panel">
@@ -181,6 +181,8 @@
 
             <div class="labelTiny">Players</div>
             <div id="playersList" class="playersList"></div>
+
+            <div id="rankedScenarioVote" class="rankedScenarioVote hidden" aria-live="polite"></div>
 
             <div id="colorPickerRow" class="colorPickerRow hidden">
               <div class="labelTiny" style="margin-top:10px;">Your color</div>
@@ -671,6 +673,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=rating-mobile-v14"></script>
+  <script src="app.js?v=ranked-navigation-v16"></script>
 </body>
 </html>

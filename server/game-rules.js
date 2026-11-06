@@ -19,6 +19,45 @@ const DEFAULT_RULES = Object.freeze({
   randomMapAtStart: false,
 });
 
+// Ranked matchmaking is intentionally limited to competitive four-player maps.
+// Test Builder is a sandbox, so it is not part of the ranked ballot.
+const RANKED_SCENARIOS = Object.freeze([
+  Object.freeze({ id: 'classic', label: 'Classic', mapMode: 'classic' }),
+  Object.freeze({ id: 'four_islands', label: 'Four Islands', mapMode: 'seafarers', seafarersScenario: 'four_islands' }),
+  Object.freeze({ id: 'through_the_desert', label: 'Through the Desert', mapMode: 'seafarers', seafarersScenario: 'through_the_desert' }),
+  Object.freeze({ id: 'fog_island', label: 'Fog Island', mapMode: 'seafarers', seafarersScenario: 'fog_island' }),
+  Object.freeze({ id: 'heading_for_new_shores', label: 'Heading for New Shores', mapMode: 'seafarers', seafarersScenario: 'heading_for_new_shores' }),
+  Object.freeze({ id: 'cartographer_4_manual', label: 'Cartographer', mapMode: 'seafarers', seafarersScenario: 'cartographer_4_manual' }),
+  Object.freeze({ id: 'cartographer_4_random', label: 'Scattered Tiles', mapMode: 'seafarers', seafarersScenario: 'cartographer_4_random' }),
+]);
+
+function defaultVictoryPointsForScenario(scenario) {
+  const id = String(scenario?.id || scenario?.seafarersScenario || 'classic').toLowerCase();
+  if (id === 'classic') return 10;
+  if (id === 'fog_island' || id === 'cartographer_4_manual' || id === 'cartographer_4_random') return 12;
+  if (id === 'four_islands') return 13;
+  return 14;
+}
+
+function rankedRulesForScenario(scenarioOrId) {
+  const requestedId = typeof scenarioOrId === 'string' ? scenarioOrId : scenarioOrId?.id;
+  const scenario = RANKED_SCENARIOS.find((candidate) => candidate.id === requestedId) || RANKED_SCENARIOS[0];
+  return {
+    ...DEFAULT_RULES,
+    mapMode: scenario.mapMode,
+    seafarersScenario: scenario.seafarersScenario || 'four_islands',
+    victoryPointsToWin: defaultVictoryPointsForScenario(scenario),
+    // Ranked rules are server-owned and cannot be changed by a player.
+    setupTurnMs: 60_000,
+    playTurnMs: 30_000,
+    microMs: 15_000,
+    microPhaseMs: 15_000,
+    friendlyRobber: false,
+    diceAlgorithm: 'probability_corrected',
+    randomMapAtStart: false,
+  };
+}
+
 function isClassic56MapModeRaw(raw) {
   const value = String(raw || '').toLowerCase();
   return value === 'classic56' || value === 'classic_5_6' || value === 'classic-5-6' ||
@@ -74,11 +113,14 @@ module.exports = {
   BANK_MAX_DEFAULT,
   BANK_MAX_56,
   DEFAULT_RULES,
+  RANKED_SCENARIOS,
   bankMaxForRules,
+  defaultVictoryPointsForScenario,
   isClassic56MapModeRaw,
   isSeafarers56Scenario,
   microActionDurationMs,
   normalizedMapModeRaw,
+  rankedRulesForScenario,
   seafarersAwardsNewIslandBonus,
   seafarersDesertsSeparateLandMasses,
   seafarersExplorationPointsEnabled,

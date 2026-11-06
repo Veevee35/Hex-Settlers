@@ -116,6 +116,87 @@ class Peer {
   close() { try { this.ws.terminate(); } catch (_) {} }
 }
 
+test('ranked queue runs a server-owned scenario ballot and rematch requeues', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-ranked-ballot-'));
+  const server = await startServer(port, dataDir);
+  const peers = [];
+  t.after(async () => {
+    for (const peer of peers) peer.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const suffix = Date.now().toString(36).slice(-8);
+  for (let index = 0; index < 4; index++) {
+    const peer = await Peer.connect(port);
+    peers.push(peer);
+    peer.send({ type: 'auth_register', username: `ranked_${suffix}_${index}`, password: 'ranked ballot test', displayName: `Ranked ${index + 1}` });
+    await peer.waitFor((message) => message.type === 'auth_ok');
+    peer.send({ type: 'ranked_queue_join', mapMode: 'classic', playerCount: 6 });
+  }
+
+  const joined = [];
+  for (const peer of peers) {
+    await peer.waitFor((message) => message.type === 'ranked_match_found');
+    joined.push(await peer.waitFor((message) => message.type === 'joined'));
+  }
+  const ballot = joined[0].room.rankedScenarioVote;
+  assert.equal(joined.every((message) => message.isHost === false && message.room.hostId === null), true);
+  assert.equal(joined.every((message) => message.room.ranked === true), true);
+  assert.equal(joined[0].room.players.length, 4);
+  assert.equal(ballot.options.length, 3);
+  assert.equal(joined[0].room.rules, null, 'No Classic rules before scenario vote');
+
+  peers[0].send({ type: 'kick_player', playerId: joined[1].playerId });
+  const adminError = await peers[0].waitFor((message) => message.type === 'error');
+  assert.match(adminError.error, /server-controlled/i);
+  peers[0].send({ type: 'start_game' });
+  assert.match((await peers[0].waitFor((message) => message.type === 'error')).error, /server-controlled/i);
+  peers[0].send({ type: 'set_spectator_mode', enabled: true });
+  assert.match((await peers[0].waitFor((message) => message.type === 'error')).error, /server-controlled/i);
+
+  const firstId = ballot.options[0].id;
+  const secondId = ballot.options[1].id;
+  peers[0].send({ type: 'ranked_scenario_vote', scenarioId: firstId });
+  peers[1].send({ type: 'ranked_scenario_vote', scenarioId: firstId });
+  peers[2].send({ type: 'ranked_scenario_vote', scenarioId: secondId });
+  peers[3].send({ type: 'ranked_scenario_vote', scenarioId: secondId });
+
+  const started = [];
+  for (const peer of peers) started.push((await peer.waitFor((message) => message.type === 'state' && message.state.phase !== 'lobby')).state);
+  assert.ok([firstId, secondId].includes(started[0].rules.mapMode === 'classic' ? 'classic' : started[0].rules.seafarersScenario));
+  assert.equal(started[0].hostId, null, 'ranked game state must not expose a player-host');
+  assert.equal(started[0].rules.diceAlgorithm, 'probability_corrected');
+  assert.equal(started[0].rules.friendlyRobber, false);
+  assert.equal(started[0].rules.setupTurnMs, 60_000);
+  assert.equal(started[0].rules.playTurnMs, 30_000);
+  peers[0].send({ type: 'pause_game', paused: true });
+  assert.match((await peers[0].waitFor((message) => message.type === 'error')).error, /server-controlled/i);
+
+  peers[1].send({ type: 'game_action', action: { kind: 'propose_endgame' } });
+  const voteState = await peers[1].waitFor((message) => message.type === 'state' && message.state.endVote?.id);
+  for (const [index, peer] of peers.entries()) {
+    if (index === 1) continue;
+    peer.send({ type: 'game_action', action: { kind: 'respond_endgame', voteId: voteState.state.endVote.id, accept: true } });
+  }
+  await peers[0].waitFor((message) => message.type === 'state' && message.state.phase === 'game-over');
+
+  peers[0].send({ type: 'rematch_room' });
+  await peers[0].waitFor((message) => message.type === 'left_room' && message.rankedRequeue === true);
+  const requeued = await peers[0].waitFor((message) => message.type === 'ranked_queue_status' && message.queued === true);
+  assert.equal(requeued.needed, 4);
+
+  // Main Menu leaves ranked and returns to mode choice; it must not create a
+  // private lobby or silently enqueue the departing player.
+  peers[2].send({ type: 'leave_room' });
+  const left = await peers[2].waitFor((message) => message.type === 'left_room');
+  assert.equal(left.rankedMenu, true);
+  peers[2].send({ type: 'ranked_queue_join' });
+  const freshQueue = await peers[2].waitFor((message) => message.type === 'ranked_queue_status' && message.queued);
+  assert.equal(freshQueue.needed, 4);
+});
+
 test('six-player trades reach hosts and non-hosts promptly with private hands preserved', { timeout: 30_000 }, async (t) => {
   const port = await unusedPort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-trade-sync-'));
