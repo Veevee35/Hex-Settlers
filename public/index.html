@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=mobile-summary-v22" />
+  <link rel="stylesheet" href="styles.css?v=game-panels-v23" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -452,7 +452,8 @@
           <div id="mapGenNote" class="smallNote"></div>
 
           <div class="row">
-            <button id="saveRulesBtn" class="btn primary">Save Settings</button>
+            <button id="saveRulesBtn" class="btn primary" type="button">Save Settings Template</button>
+            <span id="settingsAutosaveStatus" class="smallNote" aria-live="polite">Changes save automatically.</span>
           </div>
 
           <div id="rulesPreview" class="smallNote"></div>
@@ -467,7 +468,7 @@
             </div>
           </div>
           <div class="actions">
-            <button id="logBtn" class="btn">Game Log</button>
+            <button id="logBtn" class="btn">Game Panels</button>
             <button id="rulesBtn" class="btn">Rules</button>
             <button id="diceBtn" class="btn">Dice Stats</button>
             <button id="texturePackBtn" class="btn">Change Texture Pack</button>
@@ -559,6 +560,11 @@
         <div id="rightSidebar" class="rightSidebar hidden">
           <div class="mobilePanelTitle"><strong>Game Panels</strong><button id="mobilePanelsClose" class="mobileControlBtn" type="button" aria-label="Close game panels">✕ Close</button></div>
           <div id="rightSidebarResize" class="rightSidebarResize" title="Resize right panel"></div>
+          <div id="mobilePanelTabs" class="mobilePanelTabs" role="tablist" aria-label="Game panels">
+            <button type="button" class="mobilePanelTab active" data-panel="resources" role="tab" aria-selected="true">Resources</button>
+            <button type="button" class="mobilePanelTab" data-panel="log" role="tab" aria-selected="false">Game Log</button>
+            <button type="button" class="mobilePanelTab" data-panel="dev" role="tab" aria-selected="false">Dev Cards</button>
+          </div>
           <div id="rightSidebarInner" class="rightSidebarInner">
             <div id="rightSidebarResourcesDock" class="rightSidebarResourceDock">
               <div id="rightSidebarResourcesBody" class="rightSidebarResourcesBody"></div>
@@ -589,7 +595,7 @@
 	        <div class="card logOverlay hidden" id="logCard">
 	          <div class="cardTitleRow">
 	            <h2>Game Log</h2>
-	            <button id="logHideBtn" class="btn">Hide</button>
+	            <button id="logHideBtn" class="btn hidden">Hide</button>
 	          </div>
 	          <div id="logList" class="logList"></div>
 	        </div>
@@ -698,6 +704,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=mobile-summary-v22"></script>
+  <script src="app.js?v=game-panels-v23"></script>
 </body>
 </html>

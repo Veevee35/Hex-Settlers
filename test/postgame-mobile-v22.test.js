@@ -34,7 +34,8 @@ test('postgame markup preserves main menu, rematch, hide and all result tabs', (
   for (const id of ['pgWinnerLine', 'pgMetaLine', 'pgMainMenuBtn', 'pgRematchBtn', 'pgHideBtn', 'postgameTabs', 'pgTabBody']) {
     assert.ok(html.includes(`id="${id}"`), `missing ${id}`);
   }
-  assert.match(html, /styles\.css\?v=mobile-summary-v22/);
-  assert.match(html, /app\.js\?v=mobile-summary-v22/);
-  assert.match(sw, /mobile-summary-v22/);
+  // The responsive v22 layout is retained; asset cache tags must advance with each release.
+  assert.match(html, /styles\.css\?v=game-panels-v23/);
+  assert.match(html, /app\.js\?v=game-panels-v23/);
+  assert.match(sw, /game-panels-v23/);
 });

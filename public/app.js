@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'mobile-summary-v22';
+  const ASSET_CACHE_SW_BUILD = 'game-panels-v23';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -37,6 +37,7 @@
 
   const ui = {
     connDot: $('connDot'),
+    accountOrb: $('accountOrb'),
     connText: $('connText'),
     nameInput: $('nameInput'),
     codeInput: $('codeInput'),
@@ -285,16 +286,19 @@
   // v21 mobile split view: keep the game sidebar visible below the canvas.
   // Save its relative height so it adapts to phone rotation and screen sizes.
   const MOBILE_SPLIT_RATIO_KEY = 'hexsettlers_mobile_game_panel_ratio_v21';
+  const MOBILE_LANDSCAPE_RATIO_KEY = 'hexsettlers_mobile_game_landscape_ratio_v23';
+  const mobileLandscape = () => window.innerWidth > window.innerHeight && window.innerHeight < 550;
+  let lastMobileLandscape = mobileLandscape();
   const MOBILE_SPLITTER_PX = 28;
   const mobileGameSplitter = $('mobileGameSplitter');
   const gameBoardWrap = document.querySelector('section.boardWrap');
   const isMobileGameSplit = () => window.matchMedia('(max-width:900px), (pointer:coarse) and (max-width:1180px)').matches;
   function savedMobileSplitRatio() {
     try {
-      const value = Number(localStorage.getItem(MOBILE_SPLIT_RATIO_KEY));
+      const value = Number(localStorage.getItem(mobileLandscape() ? MOBILE_LANDSCAPE_RATIO_KEY : MOBILE_SPLIT_RATIO_KEY));
       if (Number.isFinite(value) && value >= 0.12 && value <= 0.82) return value;
     } catch (_) {}
-    return 0.4;
+    return mobileLandscape() ? .30 : .40;
   }
   let mobileSplitRatio = savedMobileSplitRatio();
   function setMobileSplitRatio(value, { persist = false, redraw = false } = {}) {
@@ -304,7 +308,10 @@
     const minBoard = Math.min(290, Math.max(145, Math.round(height * .34)));
     const minPanel = Math.min(150, Math.max(90, Math.round(height * .2)));
     const maxPanel = Math.max(minPanel, height - minBoard - MOBILE_SPLITTER_PX);
-    const requested = Number.isFinite(Number(value)) ? Number(value) : 0.4;
+    const landscape = mobileLandscape();
+    const orientationChanged = lastMobileLandscape !== landscape;
+    if (orientationChanged) { mobileSplitRatio = savedMobileSplitRatio(); lastMobileLandscape = landscape; }
+    const requested = orientationChanged ? mobileSplitRatio : (Number.isFinite(Number(value)) ? Number(value) : mobileSplitRatio);
     const pixels = Math.min(maxPanel, Math.max(minPanel, Math.round(height * requested)));
     const actualRatio = pixels / height;
     mobileSplitRatio = actualRatio;
@@ -318,7 +325,7 @@
     mobileGameSplitter.setAttribute('aria-valuenow', String(Math.round(actualRatio * 100)));
     mobileGameSplitter.setAttribute('aria-valuetext', `${Math.round(actualRatio * 100)} percent for game panels`);
     if (persist) {
-      try { localStorage.setItem(MOBILE_SPLIT_RATIO_KEY, String(actualRatio)); } catch (_) {}
+      try { localStorage.setItem(landscape ? MOBILE_LANDSCAPE_RATIO_KEY : MOBILE_SPLIT_RATIO_KEY, String(actualRatio)); } catch (_) {}
     }
     return actualRatio;
   }
@@ -4068,6 +4075,48 @@ function syncPostgameToState() {
     try { if (el.dataset) el.dataset.popupDragged = '0'; } catch (_) {}
   }
 
+  let gamePanelsExpanded = true;
+  let activeMobilePanelTab = 'resources';
+  const panelTabs = $('mobilePanelTabs');
+  function selectGamePanelTab(name) {
+    activeMobilePanelTab = ['resources', 'log', 'dev'].includes(name) ? name : 'resources';
+    if (ui.rightSidebar) ui.rightSidebar.dataset.activePanel = activeMobilePanelTab;
+    panelTabs?.querySelectorAll('[data-panel]').forEach(button => {
+      const selected = button.dataset.panel === activeMobilePanelTab;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-selected', String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+    if (activeMobilePanelTab === 'log' && state && ui.logList) renderLogList(ui.logList);
+  }
+  panelTabs?.addEventListener('click', event => {
+    const button = event.target.closest('[data-panel]');
+    if (button) selectGamePanelTab(button.dataset.panel);
+  });
+  panelTabs?.addEventListener('keydown', event => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    event.preventDefault();
+    const names = ['resources','log','dev'];
+    selectGamePanelTab(names[(names.indexOf(activeMobilePanelTab) + (event.key === 'ArrowRight' ? 1 : 2)) % 3]);
+    panelTabs.querySelector(`[data-panel="${activeMobilePanelTab}"]`)?.focus();
+  });
+  function setGamePanelsExpanded(next) {
+    gamePanelsExpanded = !!next;
+    document.body.classList.toggle('gamePanelsCollapsed', !gamePanelsExpanded);
+    if (ui.logBtn) {
+      ui.logBtn.textContent = gamePanelsExpanded ? 'Hide Game Panels' : 'Show Game Panels';
+      ui.logBtn.setAttribute('aria-expanded', String(gamePanelsExpanded));
+    }
+    if (mobilePanelsToggle) {
+      mobilePanelsToggle.textContent = gamePanelsExpanded ? 'Hide Game Panels' : 'Show Game Panels';
+      mobilePanelsToggle.setAttribute('aria-expanded', String(gamePanelsExpanded));
+    }
+    if (state && state.phase !== 'lobby') {
+      requestAnimationFrame(() => { resizeCanvas(); render(); });
+    }
+  }
+  selectGamePanelTab('resources');
+
   function syncRightSidebarDock(inGame) {
     const boardWrap = document.querySelector('section.boardWrap');
     if (!boardWrap || !ui.rightSidebar || !ui.rightSidebarInner) return;
@@ -4096,6 +4145,14 @@ function syncPostgameToState() {
       } catch (_) {}
 
       const anchor = ui.rightSidebarResourcesDock || null;
+      if (anchor) {
+        if (isMobileGameSplit()) {
+          if (anchor.parentNode !== ui.rightSidebar) ui.rightSidebar.insertBefore(anchor, ui.rightSidebarInner);
+        } else if (anchor.parentNode !== ui.rightSidebarInner) {
+          ui.rightSidebarInner.appendChild(anchor);
+        }
+      }
+      selectGamePanelTab(activeMobilePanelTab);
       if (ui.resourcesCard) {
         ui.resourcesCard.dataset.dragDisabled = '1';
         clearDockedPanelPosition(ui.resourcesCard);
@@ -4108,7 +4165,7 @@ function syncPostgameToState() {
         ui.logCard.classList.add('rightSidebarDocked');
         clearDockedPanelPosition(ui.logCard);
         if (ui.logCard.parentNode !== ui.rightSidebarInner) {
-          if (anchor) ui.rightSidebarInner.insertBefore(ui.logCard, anchor);
+          if (anchor && anchor.parentNode === ui.rightSidebarInner) ui.rightSidebarInner.insertBefore(ui.logCard, anchor);
           else ui.rightSidebarInner.appendChild(ui.logCard);
         }
       }
@@ -4118,7 +4175,7 @@ function syncPostgameToState() {
         ui.devCard.classList.remove('hudDevOverlay');
         clearDockedPanelPosition(ui.devCard);
         if (ui.devCard.parentNode !== ui.rightSidebarInner) {
-          if (anchor) ui.rightSidebarInner.insertBefore(ui.devCard, anchor);
+          if (anchor && anchor.parentNode === ui.rightSidebarInner) ui.rightSidebarInner.insertBefore(ui.devCard, anchor);
           else ui.rightSidebarInner.appendChild(ui.devCard);
         }
       }
@@ -4126,6 +4183,7 @@ function syncPostgameToState() {
     }
 
     ui.rightSidebar.classList.add('hidden');
+    if (ui.rightSidebarResourcesDock && ui.rightSidebarResourcesDock.parentNode !== ui.rightSidebarInner) ui.rightSidebarInner.appendChild(ui.rightSidebarResourcesDock);
     if (!rightSidebarDock.isDocked) return;
     rightSidebarDock.isDocked = false;
 
@@ -4180,8 +4238,40 @@ function syncPostgameToState() {
       btns.appendChild(b);
     }
     row.appendChild(btns);
-
-    card.appendChild(row);
+    if (ui.accountOrb) {
+      ui.accountOrb.classList.add('inGameOrb');
+      row.appendChild(ui.accountOrb);
+    }
+    const buildMenuToggle = document.createElement('button');
+    buildMenuToggle.id = 'mobileBuildMenuToggle';
+    buildMenuToggle.className = 'btn btnTiny';
+    buildMenuToggle.textContent = 'Build ▾';
+    buildMenuToggle.type = 'button';
+    buildMenuToggle.setAttribute('aria-expanded','false');
+    btns.appendChild(buildMenuToggle);
+    const buildMenu = document.createElement('div');
+    buildMenu.className = 'mobileBuildMenu hidden';
+    const buildChoices = [ui.buildRoadBtn,ui.buildShipBtn,ui.moveShipBtn,ui.buildSettlementBtn,ui.buildCityBtn];
+    buildChoices.filter(Boolean).forEach(source => {
+      const proxy = document.createElement('button');
+      proxy.type = 'button'; proxy.className = 'btn'; proxy.textContent = source.textContent;
+      proxy.dataset.buildProxyFor = source.id;
+      proxy.addEventListener('click', () => { if (!source.disabled && !source.classList.contains('hidden')) source.click(); buildMenu.classList.add('hidden'); buildMenuToggle.setAttribute('aria-expanded','false'); });
+      buildMenu.appendChild(proxy);
+      const observer = new MutationObserver(() => {
+        proxy.disabled = source.disabled;
+        proxy.classList.toggle('hidden', source.classList.contains('hidden'));
+        proxy.textContent = source.textContent;
+      });
+      observer.observe(source, { attributes: true, attributeFilter: ['disabled','class'], childList: true });
+      proxy.disabled = source.disabled;
+    });
+    buildMenuToggle.addEventListener('click', () => {
+      const willOpen = buildMenu.classList.contains('hidden');
+      buildMenu.classList.toggle('hidden', !willOpen);
+      buildMenuToggle.setAttribute('aria-expanded', String(willOpen));
+    });
+    card.append(row, buildMenu);
     ensureInGamePanelScaleControls();
   }
 
@@ -4206,8 +4296,6 @@ function syncPostgameToState() {
     const actions = document.createElement('div');
     actions.className = 'hudBtns';
     const order = [
-      ui.rollBtn,
-      ui.endBtn,
       ui.buildRoadBtn,
       ui.buildShipBtn,
       ui.moveShipBtn,
@@ -4226,19 +4314,18 @@ function syncPostgameToState() {
       actions.appendChild(b);
     }
     row.appendChild(actions);
-
-    // Reserve the scale-control slot between actions and the turn/timer text so the
-    // bottom bar reads left-to-right as: buttons → scale → status text.
-    const scaleHost = document.createElement('div');
-    scaleHost.className = 'hudBarScaleHost';
-    row.appendChild(scaleHost);
-
-    const info = document.createElement('div');
-    info.className = 'hudTurnInfo';
-    if (ui.turnInfo) info.appendChild(ui.turnInfo);
-    if (ui.timerInfo) info.appendChild(ui.timerInfo);
-    row.appendChild(info);
-
+    // The action text belongs in the clock now, where it stays visible even
+    // when the bottom action row needs to scroll or wrap on smaller displays.
+    if (ui.countdownClock) {
+      let message = $('clockActionInfo');
+      if (!message) {
+        message = document.createElement('div');
+        message.id = 'clockActionInfo'; message.className = 'clockActionInfo';
+        ui.countdownClock.appendChild(message);
+      }
+      if (ui.turnInfo) message.appendChild(ui.turnInfo);
+      if (ui.timerInfo) message.appendChild(ui.timerInfo);
+    }
     card.appendChild(row);
     ensureInGamePanelScaleControls();
   }
@@ -4259,18 +4346,8 @@ function syncPostgameToState() {
     if (!isMobileGameSplit()) setMobilePanelsOpen(false);
     setMobileActionsOpen(open);
   });
-  mobilePanelsToggle?.addEventListener('click', () => {
-    if (isMobileGameSplit()) {
-      const expand = mobileSplitRatio < .52;
-      setMobileSplitRatio(expand ? .62 : .4, { persist: true, redraw: true });
-      mobilePanelsToggle.setAttribute('aria-expanded', String(expand));
-      mobilePanelsToggle.textContent = expand ? '▤ Shrink Panels' : '▤ Expand Panels';
-      setMobileActionsOpen(false);
-    } else {
-      setMobilePanelsOpen(!document.body.classList.contains('mobilePanelsOpen'));
-    }
-  });
-  if (mobilePanelsToggle) mobilePanelsToggle.textContent = '▤ Expand Panels';
+  mobilePanelsToggle?.addEventListener('click', () => setGamePanelsExpanded(!gamePanelsExpanded));
+  if (mobilePanelsToggle) mobilePanelsToggle.textContent = 'Hide Game Panels';
   $('mobilePanelsClose')?.addEventListener('click', () => setMobilePanelsOpen(false));
   $('mobileFitBoard')?.addEventListener('click', () => { view.autoFit = true; resizeCanvas(); render(); });
 
@@ -4283,6 +4360,7 @@ function syncPostgameToState() {
       hudDock.isDocked = true;
       hudDock.originals = {
         tools: ui.toolsCard ? rememberOriginal(ui.toolsCard) : null,
+        orb: ui.accountOrb ? rememberOriginal(ui.accountOrb) : null,
         turn: ui.turnCard ? rememberOriginal(ui.turnCard) : null,
         dev: ui.devCard ? rememberOriginal(ui.devCard) : null,
         dock: ui.rollDock ? rememberOriginal(ui.rollDock) : null,
@@ -4342,6 +4420,7 @@ function syncPostgameToState() {
       }
 
       restoreOriginal(ui.toolsCard, hudDock.originals?.tools);
+      if (ui.accountOrb) { ui.accountOrb.classList.remove('inGameOrb'); restoreOriginal(ui.accountOrb, hudDock.originals?.orb); }
       restoreOriginal(ui.turnCard, hudDock.originals?.turn);
       restoreOriginal(ui.devCard, hudDock.originals?.dev);
       restoreOriginal(ui.rollDock, hudDock.originals?.dock);
@@ -5498,10 +5577,7 @@ function syncPostgameToState() {
   }
 
   // Game Log panel (toggleable overlay)
-  let logPanelOpen = false;
-  try {
-    logPanelOpen = localStorage.getItem('hexsettlers_log_open_v1') === '1';
-  } catch (_) {}
+  let logPanelOpen = true; // Permanently available while playing; tabbed on mobile.
 
   const images = {};
   const TILE_IMG = {
@@ -5616,21 +5692,11 @@ function syncPostgameToState() {
         for (const a of pool) {
           try {
             applyPoolVolume(a);
-            // Unlock/decode media during the user's gesture without leaking a
-            // few milliseconds from every pooled sound into the speakers.
-            // Playing all pools audibly at once produced a robotic startup burst.
-            const targetVolume = a.volume;
-            a.volume = 0;
             const p = a.play();
             if (p && typeof p.then === 'function') {
-              p.then(() => {
-                try { a.pause(); a.currentTime = 0; a.__hsPausedForGamePause = false; } catch (_) {}
-                try { a.volume = targetVolume; } catch (_) {}
-              }).catch(() => { try { a.volume = targetVolume; } catch (_) {} });
-            } else {
-              try { a.pause(); a.currentTime = 0; a.volume = targetVolume; } catch (_) {}
+              p.then(() => { try { a.pause(); a.currentTime = 0; a.__hsPausedForGamePause = false; } catch (_) {} }).catch(() => {});
             }
-          } catch (_) { try { applyPoolVolume(a); } catch (_) {} }
+          } catch (_) {}
         }
       },
       setGainPercent(pct) {
@@ -6483,7 +6549,7 @@ function refreshLobbyJoinLinkUi() {
         // Keep the draggable Game Log overlay in sync while it's open.
         try {
           const inGame = !!(state && state.phase && state.phase !== 'lobby');
-          if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
+          if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame);
           if (ui.logList && inGame && logPanelOpen) renderLogList(ui.logList);
         } catch (_) {}
 
@@ -7976,21 +8042,17 @@ function refreshLobbyJoinLinkUi() {
   }
 
   function setLogPanelVisible(next) {
-    logPanelOpen = !!next;
-    try { localStorage.setItem('hexsettlers_log_open_v1', logPanelOpen ? '1' : '0'); } catch (_) {}
+    logPanelOpen = true; // The Game Log is never dismissed, only its parent Game Panels.
 
     const inGame = !!(state && state.phase && state.phase !== 'lobby');
-    if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
+    if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame);
     if (ui.logList && inGame && logPanelOpen) renderLogList(ui.logList);
   }
 
   function toggleLogPanel() {
     const inGame = !!(state && state.phase && state.phase !== 'lobby');
-    if (!inGame) {
-      openLogModal();
-      return;
-    }
-    setLogPanelVisible(!logPanelOpen);
+    if (!inGame) { openLogModal(); return; }
+    setGamePanelsExpanded(!gamePanelsExpanded);
   }
 
   function makeLogRow(entry) {
@@ -10164,39 +10226,180 @@ function refreshLobbyJoinLinkUi() {
     ui.testToolSelect.addEventListener('change', syncTestBuilderToolModeUi);
   }
 
-  // Lobby setup
-  ui.saveRulesBtn.addEventListener('click', () => {
-    if (!room || room.hostId !== myPlayerId) return;
+  // v23: settings are committed to the room automatically; the Save button
+  // now creates a named, reusable subset of settings, not an implicit commit.
+  const SETTINGS_TEMPLATE_STORAGE = 'hexsettlers_rules_templates_v23';
+  const SETTINGS_FIELDS = [
+    ['discardLimitInput', 'Discard limit'], ['friendlyRobberToggle', 'Friendly Robber'],
+    ['timerSpeedSelect', 'Timer speed'], ['diceAlgorithmSelect', 'Dice algorithm'],
+    ['baseResourceCountSelect', 'Bank resources per type'], ['mapModeSelect', 'Map type'],
+    ['mapScenarioSelect', 'Seafarers scenario'], ['mapScenario56Select', '5–6-player scenario'],
+    ['explorationPointsToggle', 'Exploration victory points'],
+    ['victoryPointsSelect', 'Victory points to win'], ['devDeckModeSelect', 'Development deck'],
+    ['randomMapAtStartToggle', 'Surprise map at start'],
+  ];
+  const changedSettingsForTemplate = new Set();
+  let settingsAutosaveTimer = null;
+  let applyingSettingsTemplate = false;
+  const settingNode = id => $(id);
+  const settingValue = id => {
+    const node = settingNode(id);
+    return node?.type === 'checkbox' ? !!node.checked : String(node?.value ?? '');
+  };
+  function collectCurrentRules() {
     const discardLimit = parseInt(ui.discardLimitInput.value, 10);
-    const vpToWin = ui.victoryPointsSelect ? parseInt(ui.victoryPointsSelect.value, 10) : NaN;
-    const devDeckMode = ui.devDeckModeSelect ? parseInt(ui.devDeckModeSelect.value, 10) : NaN;
-    const baseResourcesPerType = ui.baseResourceCountSelect ? parseInt(ui.baseResourceCountSelect.value, 10) : NaN;
-    const preset = (ui.timerSpeedSelect.value || 'normal');
-    const factor = preset === 'fast' ? 0.5 : (preset === 'slow' ? 2 : 1);
-    const mmSel = (ui.mapModeSelect ? ui.mapModeSelect.value : 'classic');
-    // 'seafarers56' is a UI convenience. The server stores this as seafarers + scenario.
-    const mm = (String(mmSel).toLowerCase() === 'seafarers56') ? 'seafarers' : mmSel;
-    const scenario = (String(mmSel).toLowerCase() === 'seafarers56')
-      ? (ui.mapScenario56Select?.value || 'six_islands')
-      : ((ui.mapScenarioSelect && mm === 'seafarers') ? ui.mapScenarioSelect.value : (room?.rules?.seafarersScenario || 'four_islands'));
-    const rules = {
+    const vpToWin = parseInt(ui.victoryPointsSelect?.value, 10);
+    const devDeckMode = parseInt(ui.devDeckModeSelect?.value, 10);
+    const baseResourcesPerType = parseInt(ui.baseResourceCountSelect?.value, 10);
+    const preset = ui.timerSpeedSelect?.value || 'normal';
+    const factor = preset === 'fast' ? .5 : preset === 'slow' ? 2 : 1;
+    const modeUi = ui.mapModeSelect?.value || 'classic';
+    const mapMode = modeUi === 'seafarers56' ? 'seafarers' : modeUi;
+    const seafarersScenario = modeUi === 'seafarers56' ? ui.mapScenario56Select?.value
+      : modeUi === 'seafarers' ? ui.mapScenarioSelect?.value : (room?.rules?.seafarersScenario || 'four_islands');
+    return {
       discardLimit: Number.isFinite(discardLimit) ? discardLimit : 7,
-      setupTurnMs: Math.round(60000 * factor),
-      playTurnMs: Math.round(30000 * factor),
-      microPhaseMs: Math.round(15000 * factor),
-      diceAlgorithm: normalizeDiceAlgorithmClient(ui.diceAlgorithmSelect?.value),
-      mapMode: mm,
-      victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
-      devDeckMode: (devDeckMode === 13 || devDeckMode === 25 || devDeckMode === 38) ? devDeckMode : undefined,
+      setupTurnMs: Math.round(60000 * factor), playTurnMs: Math.round(30000 * factor),
+      microPhaseMs: Math.round(15000 * factor), diceAlgorithm: normalizeDiceAlgorithmClient(ui.diceAlgorithmSelect?.value),
+      mapMode, seafarersScenario, victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
+      devDeckMode: [13,25,38].includes(devDeckMode) ? devDeckMode : undefined,
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
       friendlyRobber: ui.friendlyRobberToggle ? !!ui.friendlyRobberToggle.checked : false,
       explorationPointsEnabled: ui.explorationPointsToggle ? !!ui.explorationPointsToggle.checked : true,
-      randomMapAtStart: ui.randomMapAtStartToggle ? !!ui.randomMapAtStartToggle.checked : false,
-      // Only used if mapMode === 'seafarers'
-      seafarersScenario: (mm === 'seafarers') ? scenario : (room?.rules?.seafarersScenario || 'four_islands'),
+      randomMapAtStart: !!ui.randomMapAtStartToggle?.checked,
     };
+  }
+  function commitLobbySettings() {
+    if (!room || !myPlayerId || room.hostId !== myPlayerId || room.ranked || (state && state.phase !== 'lobby')) return;
+    if (settingsAutosaveTimer) clearTimeout(settingsAutosaveTimer);
+    settingsAutosaveTimer = null;
+    const rules = collectCurrentRules();
+    if (ui.settingsAutosaveStatus) ui.settingsAutosaveStatus.textContent = 'Saving…';
     send({ type: 'set_rules', rules });
-  });
+    if (ui.settingsAutosaveStatus) ui.settingsAutosaveStatus.textContent = 'Changes sent to lobby automatically.';
+  }
+  function scheduleSettingsAutosave() {
+    if (!room || room.hostId !== myPlayerId || room.ranked || (state && state.phase !== 'lobby')) return;
+    if (settingsAutosaveTimer) clearTimeout(settingsAutosaveTimer);
+    settingsAutosaveTimer = setTimeout(commitLobbySettings, 170);
+  }
+  for (const [id] of SETTINGS_FIELDS) {
+    const control = settingNode(id);
+    if (!control) continue;
+    control.addEventListener('change', () => {
+      if (applyingSettingsTemplate || control.disabled) return;
+      changedSettingsForTemplate.add(id);
+      scheduleSettingsAutosave();
+    });
+  }
+  function getSavedRuleTemplates() {
+    try { const data = JSON.parse(localStorage.getItem(SETTINGS_TEMPLATE_STORAGE) || '[]'); return Array.isArray(data) ? data : []; }
+    catch (_) { return []; }
+  }
+  function storeSavedRuleTemplates(templates) {
+    try { localStorage.setItem(SETTINGS_TEMPLATE_STORAGE, JSON.stringify(templates.slice(-40))); }
+    catch (_) { setError('Templates could not be saved in this browser.'); }
+  }
+  function applyRulesTemplate(template) {
+    if (!room || room.hostId !== myPlayerId || room.ranked) return;
+    applyingSettingsTemplate = true;
+    try {
+      // Map mode before scenario so standard visibility/target defaults update properly.
+      const fields = template.fields || {};
+      for (const [id] of SETTINGS_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(fields, id)) continue;
+        const node = settingNode(id);
+        if (!node) continue;
+        if (node.type === 'checkbox') node.checked = !!fields[id];
+        else node.value = String(fields[id]);
+        changedSettingsForTemplate.add(id);
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      // Manual target and resource choices in a template must not be overwritten
+      // when scenario defaults are recalculated on subsequent map changes.
+      vpTouched = Object.prototype.hasOwnProperty.call(fields, 'victoryPointsSelect');
+      baseResourceCountTouched = Object.prototype.hasOwnProperty.call(fields, 'baseResourceCountSelect');
+      ui.mapModeSelect?.dispatchEvent(new Event('change', { bubbles: true }));
+    } finally { applyingSettingsTemplate = false; }
+    commitLobbySettings();
+  }
+  function openRulesTemplateDialog() {
+    if (!room || room.hostId !== myPlayerId || room.ranked) return;
+    // Draft values are read from controls so templates capture what was just edited,
+    // whether or not a server acknowledgement has arrived.
+    const form = document.createElement('div');
+    form.className = 'settingsTemplateEditor';
+    const label = document.createElement('label');
+    label.className = 'label'; label.textContent = 'Template name';
+    const name = document.createElement('input');
+    name.className = 'input'; name.maxLength = 60; name.placeholder = 'My custom game rules';
+    label.appendChild(name); form.appendChild(label);
+    const info = document.createElement('p');
+    info.className = 'smallNote'; info.textContent = 'Changed settings are selected by default. Choose the fields you want to save; other settings remain unchanged when this template is applied.';
+    form.appendChild(info);
+    const choices = document.createElement('div'); choices.className = 'settingsTemplateFields';
+    const boxes = [];
+    for (const [id, title] of SETTINGS_FIELDS) {
+      const node = settingNode(id);
+      if (!node || node.closest('.hidden')) continue;
+      const row = document.createElement('label'); row.className = 'settingsTemplateField';
+      const box = document.createElement('input'); box.type = 'checkbox'; box.checked = changedSettingsForTemplate.has(id);
+      boxes.push({ id, box });
+      const text = document.createElement('span'); text.textContent = title;
+      const value = document.createElement('small'); value.textContent = node.type === 'checkbox' ? (node.checked ? 'On' : 'Off') : (node.selectedOptions?.[0]?.textContent || node.value);
+      row.append(box, text, value); choices.appendChild(row);
+    }
+    form.appendChild(choices);
+    const selectAll = document.createElement('label'); selectAll.className = 'settingsTemplateSelectAll';
+    const allBox = document.createElement('input'); allBox.type = 'checkbox';
+    allBox.checked = boxes.length > 0 && boxes.every(({box}) => box.checked);
+    allBox.indeterminate = boxes.some(({box}) => box.checked) && !allBox.checked;
+    allBox.addEventListener('change', () => { for (const item of boxes) item.box.checked = allBox.checked; allBox.indeterminate = false; });
+    for (const item of boxes) item.box.addEventListener('change', () => {
+      allBox.checked = boxes.every(({box}) => box.checked);
+      allBox.indeterminate = boxes.some(({box}) => box.checked) && !allBox.checked;
+    });
+    selectAll.append(allBox, document.createTextNode(' Select all settings'));
+    form.appendChild(selectAll);
+    const savedHeading = document.createElement('h3'); savedHeading.textContent = 'Saved templates'; form.appendChild(savedHeading);
+    const savedList = document.createElement('div'); savedList.className = 'settingsTemplateSaved'; form.appendChild(savedList);
+    const renderSaved = () => {
+      savedList.replaceChildren();
+      const entries = getSavedRuleTemplates();
+      if (!entries.length) { const empty = document.createElement('p'); empty.className = 'smallNote'; empty.textContent = 'No templates saved in this browser yet.'; savedList.appendChild(empty); }
+      entries.forEach((template, index) => {
+        const row = document.createElement('div'); row.className = 'settingsTemplateSavedRow';
+        const title = document.createElement('span'); title.textContent = template.name;
+        const load = document.createElement('button'); load.type = 'button'; load.className = 'btn'; load.textContent = 'Apply';
+        load.addEventListener('click', () => { applyRulesTemplate(template); closeModal(); });
+        const del = document.createElement('button'); del.type = 'button'; del.className = 'btn subtle'; del.textContent = 'Delete';
+        del.addEventListener('click', () => { const next = getSavedRuleTemplates(); next.splice(index, 1); storeSavedRuleTemplates(next); renderSaved(); });
+        row.append(title, load, del); savedList.appendChild(row);
+      });
+    };
+    renderSaved();
+    openModal({ title: 'Save Settings Template', bodyNode: form, actions: [
+      { label: 'Cancel', onClick: closeModal },
+      { label: 'Save Template', primary: true, onClick: () => {
+        const templateName = name.value.trim();
+        const selected = boxes.filter(({box}) => box.checked);
+        if (!templateName) { name.focus(); return; }
+        if (!selected.length) { info.textContent = 'Select at least one setting to save.'; return; }
+        const fields = {};
+        for (const {id} of selected) fields[id] = settingValue(id);
+        const entries = getSavedRuleTemplates();
+        const matching = entries.findIndex(t => t.name.toLowerCase() === templateName.toLowerCase());
+        if (matching >= 0) entries.splice(matching, 1);
+        entries.push({ name: templateName, fields, savedAt: Date.now() });
+        storeSavedRuleTemplates(entries);
+        for (const {id} of selected) changedSettingsForTemplate.delete(id);
+        closeModal();
+      } },
+    ] });
+    name.focus();
+  }
+  ui.settingsAutosaveStatus = $('settingsAutosaveStatus');
+  ui.saveRulesBtn?.addEventListener('click', openRulesTemplateDialog);
 
   if (ui.regenMapBtn) {
     ui.regenMapBtn.addEventListener('click', () => {
@@ -10240,7 +10443,7 @@ function refreshLobbyJoinLinkUi() {
   if (ui.idsBtn) ui.idsBtn.addEventListener('click', () => openRoomIdsModal());
 
   if (ui.logHideBtn) {
-    ui.logHideBtn.addEventListener('click', () => setLogPanelVisible(false));
+    ui.logHideBtn.addEventListener('click', () => setGamePanelsExpanded(!gamePanelsExpanded));
   }
 
   // Game action mode
@@ -11044,9 +11247,9 @@ if (ui.historyReplaySlider) ui.historyReplaySlider.addEventListener('input', () 
   scheduleHistoryReplayFrame(ui.historyReplaySlider.value);
 });
 if (ui.historyReplayLogBtn) ui.historyReplayLogBtn.addEventListener('click', () => {
-  logPanelOpen = !logPanelOpen;
-  if (ui.logCard) ui.logCard.classList.toggle('hidden', !logPanelOpen);
-  if (ui.logList && logPanelOpen) renderLogList(ui.logList);
+  setGamePanelsExpanded(true);
+  selectGamePanelTab('log');
+  if (ui.logList) renderLogList(ui.logList);
 });
 
 // Post-game overlay controls
@@ -11215,6 +11418,12 @@ function updateTimerInfo() {
       : (isGoldChoice ? 'Gold choice' : 'Turn');
     const meta = `${timerStatus}: ${who}${pairTag} · ${phaseLabel}`;
     if (metaEl) metaEl.textContent = meta;
+    if (ui.turnInfo) {
+      const actionPlayer = (state.players || []).find(p => p.id === timedPlayerId);
+      const actionColor = actionPlayer?.color || '#e8eef6';
+      ui.turnInfo.style.color = actionColor;
+      ui.turnInfo.style.textShadow = '0 1px 2px rgba(0,0,0,.95)';
+    }
   }
 
   if (ui.pausedOverlay) ui.pausedOverlay.classList.toggle('hidden', !state.paused);
@@ -11258,12 +11467,13 @@ function ensureTimerUiInterval() {
     const inGame = !!state && state.phase !== 'lobby';
     const amSpectator = inGame && amRoomSpectator();
     if (ui.toolsCard) ui.toolsCard.classList.toggle('hidden', !inGame);
+    if (ui.logBtn) ui.logBtn.textContent = gamePanelsExpanded ? 'Hide Game Panels' : 'Show Game Panels';
 
     // Hide in-game HUD cards during lobby.
     if (ui.turnCard) ui.turnCard.classList.toggle('hidden', !inGame);
     if (ui.devCard) ui.devCard.classList.toggle('hidden', !inGame);
     if (ui.resourcesCard) ui.resourcesCard.classList.toggle('hidden', !inGame);
-    if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame || !logPanelOpen);
+    if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame);
     const myTurn = inGame && !historyReplay.active && !amSpectator && state.currentPlayerId === myPlayerId;
     const pairedExtraTurnActive = !!(
       inGame && !historyReplay.active && myTurn && state?.paired?.enabled &&
@@ -11375,7 +11585,7 @@ function ensureTimerUiInterval() {
       ui.endBtn.disabled = true;
       if (ui.rollDockBtn) ui.rollDockBtn.disabled = true;
       if (ui.endDockBtn) ui.endDockBtn.disabled = true;
-      if (ui.rollDock) ui.rollDock.classList.add('hidden');
+      if (ui.rollDock) ui.rollDock.classList.toggle('hidden', !inGame);
       ui.buildRoadBtn.disabled = true;
       ui.buildShipBtn.disabled = true;
       if (ui.moveShipBtn) ui.moveShipBtn.disabled = true;
@@ -11414,8 +11624,7 @@ function ensureTimerUiInterval() {
     if (ui.rollDockBtn) ui.rollDockBtn.disabled = ui.rollBtn.disabled;
     if (ui.endDockBtn) ui.endDockBtn.disabled = ui.endBtn.disabled;
     if (ui.rollDock) {
-      const showDock = !!(myTurn && state.phase === 'main-await-roll');
-      ui.rollDock.classList.toggle('hidden', !showDock);
+      ui.rollDock.classList.toggle('hidden', !inGame);
     }
 
     const setupSettlement = myTurn && (state.phase === 'setup1-settlement' || state.phase === 'setup2-settlement');
@@ -11696,15 +11905,18 @@ if (ui.moveShipBtn) {
 
     if (!sideBox) return;
 
+    const bankRow = document.createElement('div');
+    bankRow.className = 'rightSidebarBankRow';
+    sideBox.appendChild(bankRow);
     const bankTitle = document.createElement('div');
     bankTitle.className = 'rightSidebarBankTitle';
     bankTitle.textContent = 'Bank Resources';
-    sideBox.appendChild(bankTitle);
+    bankRow.appendChild(bankTitle);
 
     const bankStrip = document.createElement('div');
     bankStrip.className = 'rightSidebarResStrip';
     for (const k of RES_KEYS) bankStrip.appendChild(makeResCell(k, (state.bank && state.bank[k]) ?? 0));
-    sideBox.appendChild(bankStrip);
+    bankRow.appendChild(bankStrip);
 
     sideBox.appendChild(document.createElement('div')).className = 'rightSidebarSeparator';
 
@@ -11717,6 +11929,9 @@ if (ui.moveShipBtn) {
       return;
     }
 
+    const playerRow = document.createElement('div');
+    playerRow.className = 'rightSidebarPlayerRow';
+    sideBox.appendChild(playerRow);
     const myHandCount = RES_KEYS.reduce((sum, k) => sum + Number(me.resources?.[k] || 0), 0);
     const meta = document.createElement('div');
     meta.className = 'rightSidebarMeta';
@@ -11732,12 +11947,12 @@ if (ui.moveShipBtn) {
       viewing.textContent = `VIEWING: ${me.name || 'Player'}`;
       meta.prepend(viewing);
     }
-    sideBox.appendChild(meta);
+    playerRow.appendChild(meta);
 
     const myResStrip = document.createElement('div');
     myResStrip.className = 'rightSidebarResStrip';
     for (const k of RES_KEYS) myResStrip.appendChild(makeResCell(k, me.resources?.[k] ?? 0));
-    sideBox.appendChild(myResStrip);
+    playerRow.appendChild(myResStrip);
 
     const pc = pieceCounts(me.id);
     const pieceStrip = document.createElement('div');
@@ -11746,12 +11961,12 @@ if (ui.moveShipBtn) {
     pieceStrip.appendChild(makePieceCellForColor(me.color, 'ship', seafarers ? pc.shipsLeft : '--'));
     pieceStrip.appendChild(makePieceCellForColor(me.color, 'settlement', pc.settlementsLeft));
     pieceStrip.appendChild(makePieceCellForColor(me.color, 'city', pc.citiesLeft));
-    sideBox.appendChild(pieceStrip);
+    playerRow.appendChild(pieceStrip);
 
     const cost = document.createElement('div');
     cost.className = 'rightSidebarNote';
     cost.textContent = 'Costs: Road (brick+lumber), Ship (lumber+wool), Settlement (brick+lumber+wool+grain), City (2 grain + 3 ore).';
-    sideBox.appendChild(cost);
+    playerRow.appendChild(cost);
   }
 
   function renderDevCards() {

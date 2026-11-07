@@ -2,10 +2,6 @@
 
 Hex Settlers is a browser-based, server-authoritative hex strategy game. It supports account-backed online lobbies, classic and 5–6-player maps, multiple seafaring scenarios, spectators, game history, custom texture packs, and test/normal/expert/neural AI opponents.
 
-## Player reference
-
-The public [Engineering Diagnostic Reference](docs/HEX_SETTLERS_GAME_REFERENCE.md) documents the backend JavaScript architecture, authoritative mechanics, browser/server message paths, maps, AI, privacy projections, persistence, diagnostics, and test coverage. A print-ready [PDF booklet](docs/HEX_SETTLERS_GAME_REFERENCE.pdf) is included for offline use.
-
 ## Run locally
 
 Requirements: Node.js 20 or newer.

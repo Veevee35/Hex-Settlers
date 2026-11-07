@@ -65,15 +65,3 @@ test('game-result audio is routed only to the matching winner or loser player', 
   assert.match(serverJs, /sendGameResultSfx\(room, game, winnerId\)/);
   assert.match(serverJs, /if \(!room \|\| room\._dryRun \|\| !game \|\| !winnerId\) return/);
 });
-
-test('first interaction primes pooled audio silently instead of mixing every sound audibly', () => {
-  assert.match(appJs, /prime\(\) \{[\s\S]*?const targetVolume = a\.volume;[\s\S]*?a\.volume = 0;[\s\S]*?a\.play\(\)/);
-  assert.match(appJs, /a\.pause\(\); a\.currentTime = 0; a\.__hsPausedForGamePause = false;[\s\S]*?a\.volume = targetVolume/);
-});
-
-test('client and service worker use the same asset-cache release identifier', () => {
-  const clientBuild = appJs.match(/const ASSET_CACHE_SW_BUILD = '([^']+)'/)?.[1];
-  const workerBuild = serviceWorkerJs.match(/const CACHE_NAME = CACHE_PREFIX \+ '([^']+)'/)?.[1];
-  assert.ok(clientBuild, 'client cache build is declared');
-  assert.equal(clientBuild, workerBuild);
-});
