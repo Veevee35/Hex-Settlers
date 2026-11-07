@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=features-v37" />
+  <link rel="stylesheet" href="styles.css?v=features-v38" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -81,6 +81,7 @@
   <div id="accountMenu" class="accountMenu hidden">
     <div id="accountMenuName" class="accountMenuName"></div>
     <button id="accountManageBtn" class="accountMenuItem">Manage Account</button>
+    <button id="adminManagementBtn" class="accountMenuItem hidden">Admin Management</button>
     <button id="friendsBtn" class="accountMenuItem">Friends <span id="friendBadge" class="friendBadge hidden">0</span></button>
     <button id="changeModeBtn" class="accountMenuItem">Change Game Type</button>
     <button id="accountPlayerStatsBtn" class="accountMenuItem">Player Stats</button>
@@ -697,6 +698,8 @@
         <button id="rulesPageCloseBtn" class="btn primary rulesPageCloseBtn" type="button">Back to Lobby</button>
       </header>
 
+      <div id="rulesPageCategoryTabs" class="rulesCategoryTabs hidden" role="tablist" aria-label="Game map categories"></div>
+      <div id="rulesPageScenarioTabs" class="rulesScenarioTabs hidden" role="tablist" aria-label="Seafarers scenarios"></div>
       <div class="rulesPageLayout">
         <nav id="rulesPageNav" class="rulesPageNav" aria-label="Rules contents"></nav>
         <main id="rulesPageContent" class="rulesPageContent"></main>
@@ -747,6 +750,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=features-v37"></script>
+  <script src="app.js?v=features-v38"></script>
 </body>
 </html>

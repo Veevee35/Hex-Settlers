@@ -10,9 +10,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
+const { monitorEventLoopDelay } = require('perf_hooks');
 const WebSocket = require('ws');
 
 const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
+const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
 const { parseClientMessage } = require('./server/protocol');
@@ -138,7 +141,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'ranked-lobby-v19';
+const SERVER_BUILD_ID = 'features-v38';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -190,6 +193,17 @@ const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH, { space: 0 });
 const NEURAL_AI_MODEL_WRITER = new JsonFileWriter(NEURAL_AI_MODEL_PATH);
 
 let HISTORY_DB = { version: 1, games: [] };
+// Reset tokens are bound to the administrator and the current archive contents.
+const historyResetChallenges = new Map();
+function historyArchiveSignature() {
+  return crypto.createHash('sha256').update(JSON.stringify((HISTORY_DB.games || []).map(g => [g.id, g.endedAt]))).digest('hex');
+}
+async function backupGameHistory(label) {
+  const filename = `${label}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.json`;
+  await fs.promises.writeFile(path.join(DATA_DIR, filename), JSON.stringify({ format: HISTORY_EXPORT_FORMAT, exportedAt: Date.now(), games: HISTORY_DB.games || [] }), { flag: 'wx', mode: 0o600 });
+  return filename;
+}
+
 const RATING_POLICY_PATH = path.join(DATA_DIR, 'rating_policy.json');
 const RATING_POLICY_WRITER = new JsonFileWriter(RATING_POLICY_PATH);
 let RATING_POLICY = validatedRatingPolicy(DEFAULT_RATING_POLICY);
@@ -9260,6 +9274,10 @@ const passwordAuthLimiter = new SlidingWindowRateLimiter({
   maxAttempts: APP_CONFIG.authAttemptsPerMinute,
   windowMs: 60_000,
 });
+const eventLoopHistogram = monitorEventLoopDelay({ resolution: 25 });
+eventLoopHistogram.enable();
+let adminCpuSample = { at: Date.now(), cpu: process.cpuUsage() };
+
 const adminActionLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 60,
   windowMs: 60_000,
@@ -9743,7 +9761,7 @@ async function handleAuthHttp(req, res, urlPath) {
 
   const secure = requestIsTls(req, APP_CONFIG.trustProxy);
   let body;
-  try { body = await readJsonBody(req); }
+  try { body = await readJsonBody(req, urlPath === '/api/admin/history-import' ? MAX_HISTORY_IMPORT_BYTES : 16 * 1024); }
   catch (error) {
     sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Invalid request.' });
     return;
@@ -9977,6 +9995,143 @@ async function handleAdminHttp(req, res, urlPath) {
   try { body = await readJsonBody(req); }
   catch (error) {
     sendHttpJson(req, res, Number(error.statusCode || 400), { ok: false, error: error.message || 'Invalid request.' });
+    return;
+  }
+
+
+  if (urlPath === '/api/admin/history-list') {
+    sendHttpJson(req, res, 200, { ok: true, games: listGameHistory(HISTORY_MAX_GAMES), total: (HISTORY_DB.games || []).length, limit: HISTORY_MAX_GAMES });
+    return;
+  }
+
+  if (urlPath === '/api/admin/history-export') {
+    // Full game archives include replay steps and logs. They are available only to admins.
+    sendHttpJson(req, res, 200, { ok: true, archive: {
+      format: HISTORY_EXPORT_FORMAT, exportedAt: Date.now(), games: HISTORY_DB.games || [],
+    } });
+    return;
+  }
+
+  if (urlPath === '/api/admin/history-delete') {
+    const ids = Array.isArray(body.ids) ? Array.from(new Set(body.ids.map(v => String(v || '')))) : [];
+    if (!ids.length || ids.length > HISTORY_MAX_GAMES || !ids.every(id => /^[a-zA-Z0-9_-]{8,100}$/.test(id))) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Select one or more valid game IDs.' }); return;
+    }
+    if (body.confirm !== 'DELETE SELECTED' || !body.acknowledgePermanent) {
+      sendHttpJson(req, res, 400, { ok: false, error: 'Confirm the permanent deletion of selected games.' }); return;
+    }
+    const remaining = (HISTORY_DB.games || []).filter(g => !ids.includes(g.id));
+    const removed = (HISTORY_DB.games || []).length - remaining.length;
+    if (!removed) { sendHttpJson(req, res, 404, { ok: false, error: 'No selected games were found.' }); return; }
+    let backup;
+    try {
+      await HISTORY_WRITER.flush();
+      backup = await backupGameHistory('history_selected_delete_backup');
+      const previous = HISTORY_DB.games;
+      HISTORY_DB.games = remaining;
+      try { await saveHistoryDb(); }
+      catch (error) { HISTORY_DB.games = previous; throw error; }
+      await rebuildUserStatsFromHistory();
+    } catch (error) {
+      sendHttpJson(req, res, 500, { ok: false, error: 'Failed to save history changes; check server storage.' }); return;
+    }
+    sendHttpJson(req, res, 200, { ok: true, removed, backup, message: `Deleted ${removed} archived game(s). Server backup: ${backup}. Rating values were not changed.` });
+    return;
+  }
+
+  if (urlPath === '/api/admin/history-reset-challenge') {
+    const challenge = crypto.randomBytes(32).toString('hex');
+    historyResetChallenges.set(admin.id, { challenge, signature: historyArchiveSignature(), expiresAt: Date.now() + 120_000 });
+    sendHttpJson(req, res, 200, { ok: true, challenge, total: (HISTORY_DB.games || []).length, expiresSeconds: 120 });
+    return;
+  }
+
+  if (urlPath === '/api/admin/history-reset') {
+    const pending = historyResetChallenges.get(admin.id);
+    historyResetChallenges.delete(admin.id);
+    if (!pending || pending.expiresAt < Date.now() || pending.challenge !== body.challenge || pending.signature !== historyArchiveSignature() ||
+      body.confirm !== 'DELETE ALL GAME HISTORY' || body.check1 !== true || body.check2 !== true || body.check3 !== true) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'The three confirmations, reset phrase, or fresh reset challenge did not match.' }); return;
+    }
+    let backup;
+    try {
+      await HISTORY_WRITER.flush();
+      backup = await backupGameHistory('history_full_reset_backup');
+      const previous = HISTORY_DB.games;
+      HISTORY_DB.games = [];
+      try { await saveHistoryDb(); }
+      catch (error) { HISTORY_DB.games = previous; throw error; }
+      await rebuildUserStatsFromHistory();
+    } catch (error) {
+      sendHttpJson(req, res, 500, { ok: false, error: 'History reset failed; check server storage.' }); return;
+    }
+    sendHttpJson(req, res, 200, { ok: true, backup, message: `All game history deleted. Recovery backup retained on the server as ${backup}. Rating values were not changed.` });
+    return;
+  }
+
+  if (urlPath === '/api/admin/history-import') {
+    let imported;
+    try { imported = validatedImportedHistory(body.archive, isValidHistoryEntry, packHistoryEntry, HISTORY_MAX_GAMES); }
+    catch (error) {
+      sendHttpJson(req, res, 400, { ok: false, error: `Invalid history backup: ${error.message}` }); return;
+    }
+    const previous = HISTORY_DB.games || [];
+    let result;
+    try { result = mergeHistory(previous, imported, HISTORY_MAX_GAMES); }
+    catch (error) { sendHttpJson(req, res, 409, { ok: false, error: error.message }); return; }
+    if (!result.added) { sendHttpJson(req, res, 200, { ok: true, added: 0, skipped: result.skipped, message: 'All uploaded games already exist in history.' }); return; }
+    let backup;
+    try {
+      await HISTORY_WRITER.flush();
+      backup = await backupGameHistory('history_before_import_backup');
+      HISTORY_DB.games = result.games;
+      try { await saveHistoryDb(); }
+      catch (error) { HISTORY_DB.games = previous; throw error; }
+      await rebuildUserStatsFromHistory();
+    } catch (error) {
+      sendHttpJson(req, res, 500, { ok: false, error: 'Could not save imported history; server storage may be unavailable.' }); return;
+    }
+    sendHttpJson(req, res, 200, { ok: true, added: result.added, skipped: result.skipped, backup, message: `Imported ${result.added} game(s), skipped ${result.skipped} duplicate(s). Backup: ${backup}. Ratings remain unchanged until manually rebuilt.` });
+    return;
+  }
+
+  if (urlPath === '/api/admin/health') {
+    const heap = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const durationMs = Math.max(1, Date.now() - adminCpuSample.at);
+    const cpuMs = (cpu.user - adminCpuSample.cpu.user + cpu.system - adminCpuSample.cpu.system) / 1000;
+    const cpuPercent = Math.max(0, Math.round(cpuMs / durationMs * 1000) / 10);
+    adminCpuSample = { at: Date.now(), cpu };
+    const files = [USERS_DB_PATH, HISTORY_DB_PATH, ACTIVE_ROOMS_PATH, RATING_POLICY_PATH, NEURAL_AI_MODEL_PATH].map(file => {
+      try {
+        const stats = fs.statSync(file);
+        return { name: path.basename(file), exists: true, bytes: stats.size, updatedAt: stats.mtimeMs };
+      } catch (_) { return { name: path.basename(file), exists: false, bytes: 0, updatedAt: null }; }
+    });
+    let writable = false;
+    try { fs.accessSync(DATA_DIR, fs.constants.W_OK); writable = true; } catch (_) {}
+    let activeGames = 0, pausedGames = 0, waitingRooms = 0, casualRooms = 0, rankedRooms = 0;
+    for (const room of rooms.values()) {
+      if (!room.game || room.game.phase === 'lobby') waitingRooms++;
+      else if (room.game.phase !== 'game-over') activeGames++;
+      if (room.game?.paused) pausedGames++;
+      if (room.casual) casualRooms++;
+      if (room.ranked) rankedRooms++;
+    }
+    let queuedPlayers = 0;
+    for (const group of rankedQueues.values()) queuedPlayers += group.length;
+    sendHttpJson(req, res, 200, { ok: true, sampledAt: Date.now(), build: SERVER_BUILD_ID, instanceId: SERVER_INSTANCE_ID,
+      startedAt: SERVER_STARTED_AT, uptimeSeconds: Math.floor(process.uptime()),
+      cpu: { percentOneCore: cpuPercent, percentTotalCapacity: Math.round(cpuPercent / Math.max(1, os.availableParallelism?.() || os.cpus().length) * 10) / 10,
+        logicalCores: os.availableParallelism?.() || os.cpus().length, samplePeriodMs: durationMs },
+      memory: { rssBytes: heap.rss, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal, externalBytes: heap.external, arrayBuffersBytes: heap.arrayBuffers },
+      eventLoop: { p99DelayMs: Math.round(eventLoopHistogram.percentile(99) / 1e6 * 10) / 10, maxDelayMs: Math.round(eventLoopHistogram.max / 1e6 * 10) / 10 },
+      connections: { webSocketClients: wss.clients.size, authenticatedUsers: userSockets.size, queuedPlayers, rankedQueueGroups: rankedQueues.size },
+      rooms: { total: rooms.size, waiting: waitingRooms, activeGames, pausedGames, casual: casualRooms, ranked: rankedRooms },
+      persistence: { writable, files, historyGames: (HISTORY_DB.games || []).length, historyLimit: HISTORY_MAX_GAMES,
+        activeRoomSavePending: !!activeRoomsSaveTimer, historyWriterAvailable: !!HISTORY_WRITER },
+      email: { configured: isEmailDeliveryConfigured(process.env), provider: emailDeliveryMode(process.env) },
+    });
     return;
   }
 
@@ -11596,6 +11751,12 @@ if (msg.type === 'create_room') {
             ? 'six_islands'
             : 'four_islands';
 
+      // Casual play deliberately excludes all custom-board editors, including
+      // uploads and crafted settings messages. Enforce on the server, not only UI.
+      if (room.casual && (r.customMap === true || next.seafarersScenario === 'test_builder' || next.seafarersScenario === 'test_builder_56')) {
+        sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
+        return;
+      }
       next.customMap = next.mapMode !== 'seafarers' && r.customMap === true;
       if (editableCustomMapRules(next)) next.randomMapAtStart = false;
 
@@ -11764,6 +11925,13 @@ if (msg.type === 'create_room') {
       }
       ensurePreview(room, true);
       broadcastPreviewState(room);
+      return;
+    }
+
+    // Older saved rooms may predate the Casual custom-map restriction.
+    // Block map-editor messages there as well as new settings changes.
+    if (room.casual && ['download_custom_map', 'upload_custom_map', 'edit_preview_tile', 'edit_preview_port'].includes(msg.type)) {
+      sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
       return;
     }
 
@@ -11953,6 +12121,10 @@ if (msg.type === 'create_room') {
           ? 'classic56'
           : 'classic';
 
+      if (room.casual && editableCustomMapRules(room.rules)) {
+        sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
+        return;
+      }
       const allowSolo = room.casual || editableCustomMapRules(room.rules);
       if (room.casual && (room.players.some(p => !p.isAI && p.id !== room.hostId) || !room.players.some(p => !p.isAI && p.id === room.hostId))) {
         sendJson(ws, { type: 'error', error: 'Casual play allows one human player only.' }); return;

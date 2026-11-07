@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'features-v37';
+  const ASSET_CACHE_SW_BUILD = 'features-v38';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -66,6 +66,8 @@
     rulesPageTitle: $('rulesPageTitle'),
     rulesPageSubtitle: $('rulesPageSubtitle'),
     rulesPageNav: $('rulesPageNav'),
+    rulesPageCategoryTabs: $('rulesPageCategoryTabs'),
+    rulesPageScenarioTabs: $('rulesPageScenarioTabs'),
     rulesPageContent: $('rulesPageContent'),
     joinBtn: $('joinBtn'),
     readyBtn: $('readyBtn'),
@@ -1349,6 +1351,23 @@
     reconnectForCookieAuth();
   }
 
+  function enforceCasualMapRestrictions() {
+    const casual = selectedPlayMode === 'casual' || !!room?.casual;
+    for (const select of [ui.mapScenarioSelect, ui.mapScenario56Select]) {
+      for (const option of select?.options || []) {
+        if (!option.value.startsWith('test_builder')) continue;
+        option.hidden = casual;
+        option.disabled = casual;
+      }
+      if (casual && String(select?.value || '').startsWith('test_builder')) {
+        select.value = select === ui.mapScenarioSelect ? 'four_islands' : 'six_islands';
+      }
+    }
+    if (casual && ui.classicCustomMapToggle) ui.classicCustomMapToggle.checked = false;
+    if (ui.classicCustomMapRow) ui.classicCustomMapRow.classList.toggle('hidden', casual || !['classic','classic56'].includes(ui.mapModeSelect?.value));
+    if (casual) ui.testBuilderRow?.classList.add('hidden');
+  }
+
   function updateAuthUi() {
     const loggedIn = !!authUser;
     const landing = $('authLanding');
@@ -1391,38 +1410,10 @@
       ui.userManagementBtn.classList.toggle('hidden', !loggedIn);
       ui.userManagementBtn.textContent = loggedIn && authUser.isAdmin ? 'User Management' : 'My Account';
     }
-    let serverManagementBtn = $('serverManagementBtn');
-    if (loggedIn && authUser.isAdmin) {
-      if (!serverManagementBtn) {
-        serverManagementBtn = document.createElement('button');
-        serverManagementBtn.id = 'serverManagementBtn';
-        serverManagementBtn.className = 'accountMenuItem';
-        serverManagementBtn.textContent = 'Server Management';
-        serverManagementBtn.addEventListener('click', () => {
-          stopRankedMatchmaking();
-          $('accountMenu')?.classList.add('hidden');
-          void openServerManagementConsole();
-        });
-        $('accountMenu')?.insertBefore(serverManagementBtn, $('accountLogoutBtn'));
-      }
-    } else {
-      serverManagementBtn?.remove();
-    }
-    let ratingManagementBtn = $('ratingManagementBtn');
-    if (loggedIn && authUser.isAdmin) {
-      if (!ratingManagementBtn) {
-        ratingManagementBtn = document.createElement('button');
-        ratingManagementBtn.id = 'ratingManagementBtn';
-        ratingManagementBtn.className = 'accountMenuItem';
-        ratingManagementBtn.textContent = 'Rating Management';
-        ratingManagementBtn.addEventListener('click', () => {
-          stopRankedMatchmaking();
-          $('accountMenu')?.classList.add('hidden');
-          void openRatingManagementScreen();
-        });
-        $('accountMenu')?.insertBefore(ratingManagementBtn, $('accountLogoutBtn'));
-      }
-    } else ratingManagementBtn?.remove();
+    $('adminManagementBtn')?.classList.toggle('hidden', !loggedIn || !authUser?.isAdmin);
+    // Legacy per-feature menu items are now combined in Admin Management.
+    $('serverManagementBtn')?.remove();
+    $('ratingManagementBtn')?.remove();
     if (ui.loginBtn) ui.loginBtn.disabled = loggedIn;
     if (ui.registerBtn) ui.registerBtn.disabled = loggedIn;
     if (ui.usernameInput) ui.usernameInput.disabled = loggedIn;
@@ -7589,7 +7580,7 @@ function refreshLobbyJoinLinkUi() {
     }
   }
 
-  async function openRatingManagementScreen() {
+  async function openRatingManagementScreen(container = null) {
     if (!authUser?.isAdmin) { setError('Administrator access required.'); return; }
     const body = document.createElement('div');
     body.className = 'ratingManagementPanel';
@@ -7597,8 +7588,8 @@ function refreshLobbyJoinLinkUi() {
     message.className = 'smallNote';
     message.textContent = 'Loading rating policy…';
     body.appendChild(message);
-    openModal({ title: 'Rating Management', bodyNode: body,
-      actions: [{ label: 'Close', onClick: closeModal }] });
+    if (container) container.replaceChildren(body);
+    else openModal({ title: 'Rating Management', bodyNode: body, actions: [{ label: 'Close', onClick: closeModal }] });
     try {
       const response = await adminApi('rating-policy');
       const policy = JSON.parse(JSON.stringify(response.policy));
@@ -7701,7 +7692,7 @@ function refreshLobbyJoinLinkUi() {
     } catch (error) { message.textContent = error.message || 'Could not load rating policy.'; }
   }
 
-  async function openServerManagementConsole() {
+  async function openServerManagementConsole(container = null) {
     if (!authUser?.isAdmin) {
       setError('Administrator access is required.');
       return;
@@ -7780,10 +7771,7 @@ function refreshLobbyJoinLinkUi() {
       }
     };
 
-    openModal({
-      title: 'Server Management',
-      bodyNode: body,
-      actions: [
+    const serverManagementActions = [
         { label: 'Refresh', onClick: render },
         { label: 'Spectate Selected', onClick: () => {
           const codes = selectedCodes();
@@ -7801,12 +7789,22 @@ function refreshLobbyJoinLinkUi() {
           } catch (error) { setError(error.message || 'Could not close selected rooms.'); }
         } },
         { label: 'Close Console', primary: true, onClick: closeModal },
-      ],
-    });
+      ];
+    if (container) {
+      const toolbar = document.createElement('div');
+      toolbar.className = 'adminActionBar';
+      serverManagementActions.filter(action => action.label !== 'Close Console').forEach(action => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'btn'; button.textContent = action.label;
+        button.addEventListener('click', () => action.onClick());
+        toolbar.appendChild(button);
+      });
+      container.replaceChildren(toolbar, body);
+    } else openModal({ title: 'Server Management', bodyNode: body, actions: serverManagementActions });
     await render();
   }
 
-  async function openUserManagementScreen() {
+  async function openUserManagementScreen({ container = null, selfOnly = false, adminOnly = false } = {}) {
     if (!authUser) {
       setError('Log in first.');
       return;
@@ -7818,8 +7816,9 @@ function refreshLobbyJoinLinkUi() {
     loading.className = 'hint';
     loading.textContent = 'Loading account information…';
     shell.appendChild(loading);
-    openModal({
-      title: authUser.isAdmin ? 'User Management' : 'My Account',
+    if (container) container.replaceChildren(shell);
+    else openModal({
+      title: adminOnly ? 'User Management' : 'Manage Account',
       bodyNode: shell,
       actions: [{ label: 'Close', onClick: closeModal }],
     });
@@ -7833,9 +7832,9 @@ function refreshLobbyJoinLinkUi() {
       return;
     }
 
-    const users = Array.isArray(result.users) ? result.users : [];
+    const users = (Array.isArray(result.users) ? result.users : []).filter(user => adminOnly ? user.id !== result.currentUserId : (!selfOnly || user.id === result.currentUserId));
     const currentUserId = String(result.currentUserId || authUser.id || '');
-    const adminView = !!result.isAdmin;
+    const adminView = !!result.isAdmin && !selfOnly;
     const emailDeliveryConfigured = !!result.emailDeliveryConfigured;
     const emailDeliveryMode = String(result.emailDeliveryMode || 'none');
     shell.innerHTML = '';
@@ -7843,7 +7842,7 @@ function refreshLobbyJoinLinkUi() {
     const intro = document.createElement('div');
     intro.className = 'userManagementIntro';
     intro.textContent = adminView
-      ? 'Manage your own player name, recovery email and password. Administrator accounts can also reset passwords or delete other registered player accounts.'
+      ? (adminOnly ? 'Manage registered player accounts, reset passwords, merge duplicates, or remove accounts. Your administrator account is managed separately under Manage Account.' : 'Manage registered player accounts and your own account.')
       : 'Only your account is shown. Change your player name or password, and link a verified recovery email for password resets before login. Player names may be shared; usernames are unique.';
     shell.appendChild(intro);
 
@@ -7906,7 +7905,7 @@ function refreshLobbyJoinLinkUi() {
         try {
           const response = await adminApi('merge-users', { firstUserId: first.value, secondUserId: second.value, keepUsername: kept });
           mergeStatus.className = 'userManagementStatus success'; mergeStatus.textContent = response.message || 'Accounts merged.';
-          setTimeout(() => { forceCloseModal(); openUserManagementScreen(); }, 500);
+          setTimeout(() => { if (container) openUserManagementScreen({ container, adminOnly }); else { forceCloseModal(); openUserManagementScreen(); } }, 500);
         } catch (error) { mergeStatus.className = 'userManagementStatus error'; mergeStatus.textContent = error.message || 'Account merge failed.'; mergeButton.disabled = false; }
       });
       mergeSection.append(mergeTitle, first, second, keep, mergeButton, mergeStatus);
@@ -8355,6 +8354,240 @@ function refreshLobbyJoinLinkUi() {
 
     if (search) search.addEventListener('input', renderUsers);
     renderUsers();
+  }
+
+
+  function adminElement(tag, className = '', content = '') {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (content) element.textContent = content;
+    return element;
+  }
+
+  async function renderAdminHistoryManagement(container) {
+    container.replaceChildren();
+    const intro = adminElement('p', 'smallNote', 'Manage completed game archives, including full replays. Deleting or importing history refreshes game statistics but does not silently change ranked ratings. Export a backup before editing.');
+    const toolbar = adminElement('div', 'adminActionBar');
+    const listing = adminElement('div', 'adminHistoryList');
+    const info = adminElement('div', 'adminInlineStatus', 'Loading game history…');
+    const selection = new Set();
+    let games = [];
+    let page = 0;
+    const pageSize = 75;
+    const search = adminElement('input', 'input');
+    search.type = 'search'; search.placeholder = 'Filter by player, room, winner or map';
+    const paging = adminElement('div', 'adminActionBar');
+    const file = document.createElement('input');
+    file.type = 'file'; file.accept = '.json,application/json'; file.className = 'hidden';
+    const makeButton = (label, handler, danger = false) => {
+      const button = adminElement('button', `btn${danger ? ' danger' : ''}`, label);
+      button.type = 'button'; button.addEventListener('click', handler);
+      toolbar.appendChild(button);
+      return button;
+    };
+    const filteredGames = () => {
+      const query = search.value.trim().toLowerCase();
+      return games.filter(game => !query || [game.roomCode, game.winnerName, game.mapMode,
+        ...(game.players || []).map(p => p.name), JSON.stringify(game.rules || {})].join(' ').toLowerCase().includes(query));
+    };
+    function renderGames() {
+      listing.replaceChildren();
+      paging.replaceChildren();
+      const filtered = filteredGames();
+      const maxPage = Math.max(0, Math.ceil(filtered.length / pageSize) - 1);
+      page = Math.min(page, maxPage);
+      info.textContent = `${games.length} archived games · ${filtered.length} shown by filter · ${selection.size} selected`;
+      const current = filtered.slice(page * pageSize, (page + 1) * pageSize);
+      if (!current.length) listing.appendChild(adminElement('p', 'hint', 'No matching game history.'));
+      for (const game of current) {
+        const label = adminElement('label', 'adminHistoryItem');
+        const input = document.createElement('input');
+        input.type = 'checkbox'; input.checked = selection.has(game.id);
+        input.addEventListener('change', () => {
+          if (input.checked) selection.add(game.id); else selection.delete(game.id);
+          info.textContent = `${games.length} archived games · ${filtered.length} shown by filter · ${selection.size} selected`;
+        });
+        const text = adminElement('span', '', `${new Date(Number(game.endedAt || Date.now())).toLocaleString()} · ${game.roomCode} · ${game.ranked ? 'Ranked' : game.casual ? 'Casual' : 'Unranked'} · ${game.winnerName || 'Unknown winner'} · ${(game.players || []).map(p => p.name).join(', ')}`);
+        label.append(input, text); listing.appendChild(label);
+      }
+      const previous = adminElement('button', 'btn', 'Previous');
+      previous.disabled = page <= 0; previous.addEventListener('click', () => { page--; renderGames(); });
+      const next = adminElement('button', 'btn', 'Next');
+      next.disabled = page >= maxPage; next.addEventListener('click', () => { page++; renderGames(); });
+      const label = adminElement('span', 'smallNote', `Page ${page + 1} of ${maxPage + 1}`);
+      paging.append(previous, label, next);
+    }
+    async function refresh() {
+      info.textContent = 'Loading game history…';
+      try {
+        const result = await adminApi('history-list');
+        games = result.games || [];
+        for (const id of selection) if (!games.some(game => game.id === id)) selection.delete(id);
+        renderGames();
+      } catch (error) { info.textContent = error.message; }
+    }
+    makeButton('Refresh', refresh);
+    makeButton('Select filtered', () => { filteredGames().forEach(game => selection.add(game.id)); renderGames(); });
+    makeButton('Clear selection', () => { selection.clear(); renderGames(); });
+    makeButton('Download Full History', async () => {
+      info.textContent = 'Preparing full replay archive…';
+      try {
+        const result = await adminApi('history-export');
+        saveBrowserJson(`hex-settlers-game-history-${new Date().toISOString().slice(0, 10)}.json`, result.archive);
+        info.textContent = `Downloaded ${result.archive.games.length} archived game(s), including their replays.`;
+      } catch (error) { info.textContent = error.message; }
+    });
+    makeButton('Upload History', () => file.click());
+    file.addEventListener('change', async () => {
+      const upload = file.files?.[0]; file.value = '';
+      if (!upload) return;
+      if (upload.size > 64 * 1024 * 1024) { info.textContent = 'History backup exceeds the 64 MB upload limit.'; return; }
+      try {
+        const archive = JSON.parse(await upload.text());
+        if (archive?.format !== 'hex-settlers-history-v1' || !Array.isArray(archive.games)) throw new Error('Choose a full history backup exported from Admin Management.');
+        if (!window.confirm(`Merge ${archive.games.length} game(s) into server history? Existing IDs will be skipped, not overwritten. This will create a server backup.`)) return;
+        info.textContent = 'Validating and importing history…';
+        const result = await adminApi('history-import', { archive });
+        info.textContent = result.message; await refresh();
+      } catch (error) { info.textContent = error.message || 'Upload failed.'; }
+    });
+    makeButton('Delete Selected', async () => {
+      const ids = [...selection];
+      if (!ids.length) { info.textContent = 'Select games to delete.'; return; }
+      const typed = window.prompt(`Delete ${ids.length} game(s)? Type DELETE SELECTED to confirm.`);
+      if (typed !== 'DELETE SELECTED' || !window.confirm('Last check: permanently remove these selected games from server history? A server backup will be created.')) return;
+      try {
+        const result = await adminApi('history-delete', { ids, confirm: typed, acknowledgePermanent: true });
+        selection.clear(); await refresh(); info.textContent = result.message;
+      } catch (error) { info.textContent = error.message; }
+    }, true);
+    const danger = adminElement('section', 'adminDangerPanel');
+    danger.appendChild(adminElement('h3', '', 'Full game-history reset'));
+    danger.appendChild(adminElement('p', 'smallNote', 'Deletes all completed game records and server replay data. All three confirmations, a typed phrase, and a final prompt are required. A server-side backup is written first. This cannot recreate games already pruned from history.'));
+    const checks = [
+      '1. I understand every archived game and replay will be removed from server history.',
+      '2. I understand player game statistics will be recalculated and ratings will remain unchanged.',
+      '3. I explicitly authorize a full reset of the game-history database.',
+    ].map(message => {
+      const label = adminElement('label', 'adminHistoryConfirm');
+      const input = document.createElement('input'); input.type = 'checkbox';
+      label.append(input, adminElement('span', '', message)); danger.appendChild(label);
+      return input;
+    });
+    const phrase = adminElement('input', 'input');
+    phrase.placeholder = 'Type DELETE ALL GAME HISTORY';
+    phrase.autocomplete = 'off';
+    const reset = adminElement('button', 'btn danger', 'Reset All Game History');
+    const updateReset = () => { reset.disabled = !checks.every(input => input.checked) || phrase.value !== 'DELETE ALL GAME HISTORY'; };
+    checks.forEach(input => input.addEventListener('change', updateReset));
+    phrase.addEventListener('input', updateReset); updateReset();
+    reset.addEventListener('click', async () => {
+      if (reset.disabled || !window.confirm('FINAL confirmation: delete ALL recorded games and replays from the server history?')) return;
+      reset.disabled = true;
+      try {
+        const challenge = await adminApi('history-reset-challenge');
+        const result = await adminApi('history-reset', { challenge: challenge.challenge, confirm: phrase.value, check1: checks[0].checked, check2: checks[1].checked, check3: checks[2].checked });
+        phrase.value = ''; checks.forEach(input => { input.checked = false; });
+        selection.clear(); updateReset(); await refresh(); info.textContent = result.message;
+      } catch (error) { info.textContent = error.message; updateReset(); }
+    });
+    danger.append(phrase, reset);
+    search.addEventListener('input', () => { page = 0; renderGames(); });
+    container.append(intro, toolbar, file, info, search, listing, paging, danger);
+    await refresh();
+  }
+
+  function renderAdminHealthMonitor(container) {
+    container.replaceChildren();
+    const intro = adminElement('p', 'smallNote', 'Live diagnostics reported by this Node game-server instance. CPU % is measured over the previous sample (100% = one logical CPU); host-wide usage is not available to this process. Refreshes every 5 seconds while this tab is open.');
+    const summary = adminElement('div', 'adminHealthGrid');
+    const details = adminElement('div', 'adminHealthDetails');
+    const status = adminElement('div', 'smallNote', 'Connecting to server diagnostics…');
+    const refreshButton = adminElement('button', 'btn', 'Refresh Diagnostics');
+    container.append(intro, refreshButton, status, summary, details);
+    const fmtBytes = number => `${(Number(number || 0) / 1048576).toFixed(1)} MB`;
+    let busy = false;
+    async function refresh() {
+      if (busy || !container.isConnected) return;
+      busy = true;
+      try {
+        const d = await adminApi('health');
+        if (!container.isConnected) return;
+        status.textContent = `Updated ${new Date(d.sampledAt).toLocaleTimeString()} · Build ${d.build} · Instance ${d.instanceId}`;
+        summary.replaceChildren(); details.replaceChildren();
+        const metrics = [
+          ['Server CPU', `${d.cpu.percentOneCore.toFixed(1)}% of one core`],
+          ['CPU capacity', `${d.cpu.percentTotalCapacity.toFixed(1)}% (${d.cpu.logicalCores} logical cores)`],
+          ['Process memory', fmtBytes(d.memory.rssBytes)],
+          ['JS heap', `${fmtBytes(d.memory.heapUsedBytes)} / ${fmtBytes(d.memory.heapTotalBytes)}`],
+          ['Event-loop p99', `${d.eventLoop.p99DelayMs} ms`],
+          ['Event-loop max', `${d.eventLoop.maxDelayMs} ms`],
+          ['Server uptime', `${Math.floor(d.uptimeSeconds / 3600)}h ${Math.floor(d.uptimeSeconds % 3600 / 60)}m`],
+          ['Open WebSockets', String(d.connections.webSocketClients)],
+          ['Online accounts', String(d.connections.authenticatedUsers)],
+          ['Ranked queue', `${d.connections.queuedPlayers} players / ${d.connections.rankedQueueGroups} groups`],
+          ['Rooms', `${d.rooms.total} total · ${d.rooms.waiting} waiting`],
+          ['Games', `${d.rooms.activeGames} active · ${d.rooms.pausedGames} paused`],
+          ['Room types', `${d.rooms.casual} casual · ${d.rooms.ranked} ranked`],
+          ['History', `${d.persistence.historyGames} / ${d.persistence.historyLimit}`],
+          ['Data directory', d.persistence.writable ? 'Writable' : 'NOT WRITABLE'],
+          ['Email', d.email.configured ? `Configured (${d.email.provider})` : 'Not configured'],
+        ];
+        for (const [name, value] of metrics) {
+          const card = adminElement('div', 'adminHealthMetric');
+          card.append(adminElement('div', 'labelTiny', name), adminElement('strong', '', value)); summary.appendChild(card);
+        }
+        details.appendChild(adminElement('h3', '', 'Persisted data & storage diagnostics'));
+        for (const file of d.persistence.files) {
+          details.appendChild(adminElement('div', 'adminHealthFile', `${file.name} · ${file.exists ? `${fmtBytes(file.bytes)} · saved ${new Date(file.updatedAt).toLocaleString()}` : 'Not created yet'}`));
+        }
+        details.appendChild(adminElement('p', 'smallNote', 'Event-loop latency is sampled since server start. Persisted files show last save times, not a transaction integrity check. Diagnostics are local to this server process.'));
+      } catch (error) { status.textContent = `Diagnostics unavailable: ${error.message}`; }
+      finally { busy = false; }
+    }
+    refreshButton.addEventListener('click', refresh);
+    void refresh();
+    const interval = setInterval(() => {
+      if (!container.isConnected || !container.closest('.adminDashboard')?.querySelector('.adminTabs .active[data-tab="health"]')) clearInterval(interval);
+      else void refresh();
+    }, 5000);
+  }
+
+  function openAdminManagementScreen() {
+    if (!authUser?.isAdmin) { setError('Administrator access required.'); return; }
+    const dashboard = adminElement('div', 'adminDashboard');
+    const tabs = adminElement('nav', 'adminTabs');
+    tabs.setAttribute('aria-label', 'Administrator management sections');
+    const content = adminElement('section', 'adminDashboardContent');
+    const options = [
+      ['server', 'Server Management'], ['ratings', 'Rating Management'],
+      ['users', 'User Management'], ['history', 'Manage Game History'],
+      ['health', 'Health Monitor'],
+    ];
+    const buttons = [];
+    const selectTab = key => {
+      buttons.forEach(button => {
+        const active = button.dataset.tab === key;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      content.replaceChildren();
+      if (key === 'server') void openServerManagementConsole(content);
+      if (key === 'ratings') void openRatingManagementScreen(content);
+      if (key === 'users') void openUserManagementScreen({ container: content, adminOnly: true });
+      if (key === 'history') void renderAdminHistoryManagement(content);
+      if (key === 'health') renderAdminHealthMonitor(content);
+    };
+    for (const [key, label] of options) {
+      const tab = adminElement('button', 'adminTab', label);
+      tab.type = 'button'; tab.dataset.tab = key;
+      tab.setAttribute('role', 'tab');
+      tab.addEventListener('click', () => selectTab(key));
+      buttons.push(tab); tabs.appendChild(tab);
+    }
+    dashboard.append(tabs, content);
+    openModal({ title: 'Admin Management', bodyNode: dashboard, actions: [{ label: 'Close', onClick: closeModal }] });
+    selectTab('server');
   }
 
   function removeAccountActionFromUrl(parameter) {
@@ -9101,14 +9334,15 @@ function refreshLobbyJoinLinkUi() {
     },
   });
 
-  function lobbyRulesSelectedContext() {
+  let casualRulesSelection = { mapMode: 'classic', scenarioKey: '' };
+  function lobbyRulesSelectedContext(selection = null) {
     const activeRules = (state && state.rules) ? state.rules : ((room && room.rules) ? room.rules : {});
-    const mapMode = String(ui.mapModeSelect?.value || uiMapModeFromRules(activeRules) || 'classic').toLowerCase();
+    const mapMode = String(selection?.mapMode || ui.mapModeSelect?.value || uiMapModeFromRules(activeRules) || 'classic').toLowerCase();
     const isSeafarers = mapMode === 'seafarers' || mapMode === 'seafarers56';
     const isPaired = mapMode === 'classic56' || mapMode === 'seafarers56';
-    const scenarioKey = mapMode === 'seafarers56'
+    const scenarioKey = selection?.scenarioKey || (mapMode === 'seafarers56'
       ? String(ui.mapScenario56Select?.value || activeRules.seafarersScenario || 'six_islands').toLowerCase()
-      : String(ui.mapScenarioSelect?.value || activeRules.seafarersScenario || 'four_islands').toLowerCase();
+      : String(ui.mapScenarioSelect?.value || activeRules.seafarersScenario || 'four_islands').toLowerCase());
     const scenario = isSeafarers ? (LOBBY_RULES_SCENARIOS[scenarioKey] || LOBBY_RULES_SCENARIOS.four_islands) : null;
 
     function selectedInt(control, fallback, min, max) {
@@ -9120,12 +9354,12 @@ function refreshLobbyJoinLinkUi() {
     const speed = String(ui.timerSpeedSelect?.value || 'normal').toLowerCase();
     const speedFactor = speed === 'fast' ? 0.5 : (speed === 'slow' ? 2 : 1);
     const speedLabel = speed === 'fast' ? 'Fast' : (speed === 'slow' ? 'Slow' : 'Normal');
-    const victoryTarget = selectedInt(ui.victoryPointsSelect, defaultVictoryPointsFor({
+    const victoryTarget = selectedInt(selection ? null : ui.victoryPointsSelect, defaultVictoryPointsFor({
       mapMode,
       seafarersScenario: scenarioKey,
       seafarersScenario56: scenarioKey,
     }), 3, 30);
-    const baseResources = selectedInt(ui.baseResourceCountSelect, defaultBaseResourcesFor({
+    const baseResources = selectedInt(selection ? null : ui.baseResourceCountSelect, defaultBaseResourcesFor({
       mapMode,
       seafarersScenario: scenarioKey,
       seafarersScenario56: scenarioKey,
@@ -9212,7 +9446,44 @@ function refreshLobbyJoinLinkUi() {
 
   function renderLobbyRulesPage() {
     if (!ui.rulesPageContent || !ui.rulesPageNav) return;
-    const guide = lobbyRulesSelectedContext();
+    const showCasualTabs = selectedPlayMode === 'casual' || !!room?.casual;
+    const selection = showCasualTabs ? casualRulesSelection : null;
+    const guide = lobbyRulesSelectedContext(selection);
+    const categories = [
+      ['classic', 'Classic 2–4'], ['classic56', 'Classic 5–6'],
+      ['seafarers', 'Seafarers 2–4'], ['seafarers56', 'Seafarers 5–6'],
+    ];
+    const scenarioOptions = {
+      seafarers: ['four_islands', 'through_the_desert', 'fog_island', 'heading_for_new_shores', 'cartographer_4_manual', 'cartographer_4_random'],
+      seafarers56: ['six_islands', 'through_the_desert_56', 'fog_island_56', 'cartographer_56_manual', 'cartographer_56_random'],
+    };
+    const buildRuleTabs = (element, list, selectedKey, clickHandler) => {
+      if (!element) return;
+      element.replaceChildren();
+      element.classList.remove('hidden');
+      for (const [key, label] of list) {
+        const btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'rulesTab' + (key === selectedKey ? ' active' : '');
+        btn.setAttribute('role', 'tab'); btn.setAttribute('aria-selected', key === selectedKey ? 'true' : 'false');
+        btn.textContent = label;
+        btn.addEventListener('click', () => { clickHandler(key); renderLobbyRulesPage(); });
+        element.appendChild(btn);
+      }
+    };
+    if (showCasualTabs) {
+      buildRuleTabs(ui.rulesPageCategoryTabs, categories, guide.mapMode, (key) => {
+        casualRulesSelection.mapMode = key;
+        casualRulesSelection.scenarioKey = scenarioOptions[key]?.[0] || '';
+      });
+      if (scenarioOptions[guide.mapMode]) {
+        buildRuleTabs(ui.rulesPageScenarioTabs,
+          scenarioOptions[guide.mapMode].map(key => [key, LOBBY_RULES_SCENARIOS[key].label]), guide.scenarioKey,
+          key => { casualRulesSelection.scenarioKey = key; });
+      } else ui.rulesPageScenarioTabs?.classList.add('hidden');
+    } else {
+      ui.rulesPageCategoryTabs?.classList.add('hidden');
+      ui.rulesPageScenarioTabs?.classList.add('hidden');
+    }
     ui.rulesPageTitle.textContent = `${guide.mapLabel} Rules`;
     ui.rulesPageSubtitle.textContent = `${guide.playerRange} players • First to ${guide.victoryTarget} victory points • ${guide.speedLabel} timers`;
     ui.rulesPageContent.innerHTML = '';
@@ -9247,7 +9518,7 @@ function refreshLobbyJoinLinkUi() {
       navList.appendChild(link);
     }
 
-    const overview = makeRulesGuideSection(ui.rulesPageContent, 'rules-overview', 'Current game selection', 'This handbook follows the options currently selected in Game Setup. Selected lobby values override scenario defaults.');
+    const overview = makeRulesGuideSection(ui.rulesPageContent, 'rules-overview', showCasualTabs ? 'Map & scenario overview' : 'Current game selection', showCasualTabs ? 'Browse the available maps and scenarios. These are their default rules; choose your preferred map and settings after creating a Casual lobby.' : 'This handbook follows the options currently selected in Game Setup. Selected lobby values override scenario defaults.');
     const stats = rulesGuideNode('div', 'rulesGuideStats');
     const statItems = [
       ['Map', guide.mapLabel],
@@ -10484,11 +10755,12 @@ function refreshLobbyJoinLinkUi() {
       ui.mapScenario56Select.value = allowed56.has(scen56) ? scen56 : 'six_islands';
       ui.mapScenario56Select.disabled = !isHost || (mmNow !== 'seafarers56');
     }
+    enforceCasualMapRestrictions();
 
     // Custom Map map and port painting UI (host-only)
     const scenNow = String(r.seafarersScenario || 'four_islands').toLowerCase();
     const showTestBuilder = ((mmNow === 'seafarers' || mmNow === 'seafarers56') && uiIsTestBuilderScenario(r)) || (['classic','classic56'].includes(mmNow) && r.customMap === true);
-    if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTestBuilder || gameStarted);
+    if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTestBuilder || gameStarted || selectedPlayMode === 'casual' || !!room?.casual);
     if (ui.testToolSelect) ui.testToolSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testBrushSelect) ui.testBrushSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testNumberSelect) ui.testNumberSelect.disabled = !isHost || !showTestBuilder || gameStarted;
@@ -10749,6 +11021,7 @@ function refreshLobbyJoinLinkUi() {
     selectedPlayMode = mode;
     try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {}
     updateAuthUi();
+    enforceCasualMapRestrictions();
   }
 
   function choosePlayMode(mode) {
@@ -10821,7 +11094,8 @@ function refreshLobbyJoinLinkUi() {
     if (target instanceof Node && (menu.contains(target) || orb?.contains(target))) return;
     setAccountMenuOpen(false);
   });
-  $('accountManageBtn')?.addEventListener('click', () => { stopRankedMatchmaking(); $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });
+  $('accountManageBtn')?.addEventListener('click', () => { stopRankedMatchmaking(); $('accountMenu')?.classList.add('hidden'); openUserManagementScreen({ selfOnly: true }); });
+  $('adminManagementBtn')?.addEventListener('click', () => { if (!authUser?.isAdmin) return; stopRankedMatchmaking(); setAccountMenuOpen(false); openAdminManagementScreen(); });
   $('friendsBtn')?.addEventListener('click', () => { setAccountMenuOpen(false); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
   $('friendsCloseBtn')?.addEventListener('click', () => $('friendsOverlay')?.classList.add('hidden'));
   $('friendRequestForm')?.addEventListener('submit', async (event) => {
@@ -11042,9 +11316,10 @@ function refreshLobbyJoinLinkUi() {
         const scenario = String(selectedTestScenario || '').toLowerCase().replace(/-/g, '_');
         ui.explorationPointsToggle.checked = scenario !== 'fog_island' && scenario !== 'fog_island_56';
       }
+      enforceCasualMapRestrictions();
       const showTest = ((mm === 'seafarers' || mm === 'seafarers56') && uiIsTestBuilderScenario({ seafarersScenario: selectedTestScenario })) || (['classic','classic56'].includes(mm) && !!ui.classicCustomMapToggle?.checked);
       ui.classicCustomMapRow?.classList.toggle('hidden', !['classic','classic56'].includes(mm));
-      if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTest);
+      if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTest || selectedPlayMode === 'casual' || !!room?.casual);
 
       // If the host hasn't manually set a win target yet, auto-fill the scenario default.
       if (ui.victoryPointsSelect && !vpTouched) {

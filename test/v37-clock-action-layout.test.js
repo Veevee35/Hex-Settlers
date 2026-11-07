@@ -32,6 +32,6 @@ test('mobile clock remains fixed-width and fixed-height with landscape accommoda
 });
 
 test('updated stylesheet is versioned to invalidate browser cache', () => {
-  assert.match(html, /styles\.css\?v=features-v37/);
-  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'features-v37'/);
+  assert.match(html, /styles\.css\?v=features-v38/);
+  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'features-v38'/);
 });
