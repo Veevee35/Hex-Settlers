@@ -1,6 +1,6 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'log-dev-resources-scale-v31';
+const CACHE_NAME = CACHE_PREFIX + 'recent-lobby-v32';
 const PRECACHE_URLS = [
   "/assets/sfx/dev_card.wav",
   "/assets/sfx/dice_roll.wav",

@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'log-dev-resources-scale-v31';
+  const ASSET_CACHE_SW_BUILD = 'recent-lobby-v32';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1109,6 +1109,60 @@
 
   const AUTH_TOKEN_KEY = 'hexsettlers_auth_token_v1';
   const LAST_ROOM_KEY = 'hexsettlers_last_room_v1';
+  const RECENT_ROOM_KEY = 'hexsettlers_recent_room_v32';
+  const RECENT_ROOM_WINDOW_MS = 5 * 60 * 1000;
+
+  // Only a server-confirmed, account-matched room within five minutes can be
+  // reopened automatically. The older last-room preference is manual-only.
+  function recentRoomCodeForUser(user = authUser, nowMs = Date.now()) {
+    if (!user || !user.id) return '';
+    try {
+      const saved = JSON.parse(localStorage.getItem(RECENT_ROOM_KEY) || 'null');
+      if (!saved || saved.userId !== String(user.id)) return '';
+      const code = String(saved.code || '').trim().toUpperCase();
+      const age = nowMs - Number(saved.lastSeenAt);
+      if (/^[A-Z0-9]{4,8}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) return code;
+      localStorage.removeItem(RECENT_ROOM_KEY);
+    } catch (_) {}
+    return '';
+  }
+
+  function noteRecentRoom(roomSnapshot = room) {
+    if (!authUser?.id || !roomSnapshot?.code || !roomConnectionReady) return;
+    if (state?.phase === 'game-over') return;
+    try {
+      localStorage.setItem(RECENT_ROOM_KEY, JSON.stringify({
+        userId: String(authUser.id), code: String(roomSnapshot.code).trim().toUpperCase(), lastSeenAt: Date.now(),
+      }));
+    } catch (_) {}
+  }
+
+  function clearRecentRoom() {
+    try { localStorage.removeItem(RECENT_ROOM_KEY); } catch (_) {}
+  }
+
+  function clearRoomQueryFromUrl() {
+    try {
+      const url = new URL(window.location.href);
+      if (!['room', 'code', 'spectator'].some(key => url.searchParams.has(key))) return;
+      for (const key of ['room', 'code', 'spectator']) url.searchParams.delete(key);
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch (_) {}
+  }
+
+  function prepareUncreatedLobby() {
+    // This function is only used when no room is bound. Discard any former
+    // game state so the game HUD can never cover the empty-lobby page.
+    if (room) return;
+    state = null;
+    pendingDirectJoinRoomCode = null;
+    pendingDirectJoinAsSpectator = false;
+    pendingManualRejoinCode = '';
+    if (ui.codeInput) ui.codeInput.value = '';
+    clearRoomQueryFromUrl();
+    renderLobby();
+    updateButtons();
+  }
   const AUTO_CREATE_ROOM_KEY = 'hexsettlers_auto_create_room_v1';
   const TAB_UI_SCALE_KEY = 'hexsettlers_tab_ui_scale_v1';
   const TAB_UI_SCALE_MIN = 0.8;
@@ -1170,6 +1224,8 @@
   let selectedPlayMode = (() => { try { return sessionStorage.getItem('hexsettlers_play_mode') || ''; } catch (_) { return ''; } })();
   let authToken = null;
   let pendingAutoRejoin = false;
+  let pendingRecentRoomRejoinCode = '';
+  let websocketAuthenticated = false;
   let pendingDirectJoinRoomCode = null;
   let pendingDirectJoinAsSpectator = false;
   let pendingRankedMatchmaking = false;
@@ -1209,7 +1265,14 @@
     if (authUser && ui.nameInput && (authUser.isAdmin || !String(ui.nameInput.value || '').trim())) {
       ui.nameInput.value = authUser.displayName || authUser.username || '';
     }
-    if (authUser) selectInvitedLobbyMode();
+    if (authUser) {
+      selectInvitedLobbyMode();
+      // A refresh in a recently active room bypasses the game-type portal.
+      if (!pendingDirectJoinRoomCode && typeof recentRoomCodeForUser === 'function' && recentRoomCodeForUser(authUser) && selectedPlayMode !== 'ranked') {
+        selectedPlayMode = 'unranked';
+        try { sessionStorage.setItem('hexsettlers_play_mode', 'unranked'); } catch (_) {}
+      }
+    }
     updateAuthUi();
   }
 
@@ -5647,6 +5710,7 @@ function syncPostgameToState() {
     websocketLastMessageAt = Date.now();
     websocketHeartbeatTimer = setInterval(() => {
       if (ws !== socket || !socket || socket.readyState !== WebSocket.OPEN) return;
+      if (websocketAuthenticated && roomConnectionReady) noteRecentRoom(room);
       try {
         socket.send(JSON.stringify({ type: 'client_ping', clientTime: Date.now() }));
       } catch (_) {
@@ -5720,6 +5784,7 @@ function syncPostgameToState() {
     roomConnectionReady = false;
     clearRoomRecoveryState();
     pendingReconnectRoomMessages = [];
+    if (!options.preserveLastRoom) clearRecentRoom();
     room = null;
     state = null;
     clearStructurePlacementEmphasis();
@@ -5731,7 +5796,8 @@ function syncPostgameToState() {
       if (preservedRoomCode) localStorage.setItem(LAST_ROOM_KEY, preservedRoomCode);
       else localStorage.removeItem(LAST_ROOM_KEY);
     } catch (_) {}
-    if (ui.codeInput) ui.codeInput.value = preservedRoomCode;
+    if (ui.codeInput) ui.codeInput.value = '';
+    clearRoomQueryFromUrl();
     if (ui.roomCode) ui.roomCode.textContent = '----';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = '';
     if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = true;
@@ -5759,6 +5825,8 @@ function syncPostgameToState() {
     try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
     try { sessionStorage.removeItem(AUTO_CREATE_ROOM_KEY); } catch (_) {}
     try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+    clearRecentRoom();
+    clearRoomQueryFromUrl();
     $('rankedReadyBtn')?.classList.remove('hidden');
     $('rankedCancelBtn')?.classList.add('hidden');
     const status = $('rankedStatus');
@@ -6410,6 +6478,7 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
       websocketReconnectDelayMs = 1200;
+      websocketAuthenticated = false;
       startWebsocketHeartbeat(socket);
       setConn(true, 'Connected');
       setError(null);
@@ -6551,6 +6620,21 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'error') {
         const e = msg.error || 'Error';
+        if (pendingRecentRoomRejoinCode) {
+          // The server rejected a recent-room recovery (closed/deleted room,
+          // expired membership, etc). Don't keep trying or leave an empty map.
+          pendingRecentRoomRejoinCode = '';
+          pendingAutoRejoin = false;
+          clearRecentRoom();
+          try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
+          if (!room) {
+            selectedPlayMode = 'unranked';
+            prepareUncreatedLobby();
+            updateAuthUi();
+            setError('That lobby is no longer available. Create or join a lobby.');
+            return;
+          }
+        }
         if (selectedPlayMode === 'ranked') {
           pendingRankedMatchmaking = false;
           const status = $('rankedStatus');
@@ -6625,6 +6709,7 @@ function refreshLobbyJoinLinkUi() {
 
 
       if (msg.type === 'auth_ok') {
+        websocketAuthenticated = !!msg.user || !!authUser;
         if (msg.user) {
           // Keep prior token if server didn't send one (e.g., display-name update)
           setAuthState(
@@ -6672,26 +6757,19 @@ function refreshLobbyJoinLinkUi() {
 
         if (pendingAutoRejoin) {
           pendingAutoRejoin = false;
-
-          // One-shot: after clicking "Main Menu" from a finished game, start a fresh lobby instead of rejoining.
-          let autoCreate = false;
-          try { autoCreate = sessionStorage.getItem(AUTO_CREATE_ROOM_KEY) === '1'; } catch (_) { autoCreate = false; }
-          if (autoCreate) {
-            try { sessionStorage.removeItem(AUTO_CREATE_ROOM_KEY); } catch (_) {}
-            try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
-            const displayName =
-              (ui.nameInput?.value || '').trim() ||
-              (authUser ? (authUser.displayName || authUser.username) : '') ||
-              'Host';
-            send({ type: 'create_room', displayName });
-            return;
-          }
-
-          let code = '';
-          try { code = (room && room.code) ? room.code : (localStorage.getItem(LAST_ROOM_KEY) || ''); } catch (_) { code = (room && room.code) ? room.code : ''; }
-          code = String(code || '').trim().toUpperCase();
+          // Preserve socket recovery for a room already held in memory, but
+          // never restore a stale localStorage code on a fresh page load.
+          const existingRoom = room?.code ? String(room.code).trim().toUpperCase() : '';
+          const recent = recentRoomCodeForUser(authUser);
+          const code = existingRoom || (selectedPlayMode === 'ranked' ? '' : recent);
           if (code) {
+            pendingRecentRoomRejoinCode = existingRoom ? '' : code;
+            selectedPlayMode = 'unranked';
+            try { sessionStorage.setItem('hexsettlers_play_mode', 'unranked'); } catch (_) {}
+            updateAuthUi();
             send({ type: 'rejoin_room', code, displayName: (ui.nameInput?.value || '').trim() });
+          } else if (selectedPlayMode === 'unranked' && !room) {
+            prepareUncreatedLobby();
           }
         }
         return;
@@ -6780,6 +6858,7 @@ function refreshLobbyJoinLinkUi() {
           try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
         }
         roomConnectionReady = true;
+        pendingRecentRoomRejoinCode = '';
         clearRoomRecoveryState();
         myPlayerId = msg.playerId;
         try { setLocalPanelLayoutOwnerKey(myPlayerId || null); } catch (_) {}
@@ -6793,6 +6872,7 @@ function refreshLobbyJoinLinkUi() {
         ui.roomCode.textContent = room.code;
         refreshLobbyJoinLinkUi();
         try { localStorage.setItem(LAST_ROOM_KEY, room.code); } catch (_) {}
+        noteRecentRoom(room);
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !isHost);
         setError(null);
@@ -6813,6 +6893,7 @@ function refreshLobbyJoinLinkUi() {
         ui.roomCode.textContent = room.code;
         refreshLobbyJoinLinkUi();
         try { localStorage.setItem(LAST_ROOM_KEY, room.code); } catch (_) {}
+        noteRecentRoom(room);
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !(myPlayerId && room.hostId === myPlayerId));
         renderLobby();
@@ -6953,6 +7034,8 @@ function refreshLobbyJoinLinkUi() {
         handleDiscoveryGoldPrompt();
         handleProductionGoldPrompt();
         refreshToolModals();
+        if (state?.phase === 'game-over') clearRecentRoom();
+        else noteRecentRoom(room);
         if (state && state.phase && state.phase !== 'lobby') ensureStructureSpritesReady();
 
         // Keep the draggable Game Log overlay in sync while it's open.
@@ -7042,6 +7125,7 @@ function refreshLobbyJoinLinkUi() {
     }
   }
 
+  try { sessionStorage.removeItem(AUTO_CREATE_ROOM_KEY); } catch (_) {}
   pendingDirectJoinRoomCode = parseDirectJoinCodeFromUrl();
   pendingDirectJoinAsSpectator = parseDirectJoinSpectatorFromUrl();
   selectInvitedLobbyMode();
@@ -9768,6 +9852,7 @@ function refreshLobbyJoinLinkUi() {
   function renderLobby() {
     const isRankedLobby = !!(room?.ranked && currentRoomPhase() === 'lobby');
     document.body.classList.toggle('ranked-lobby', isRankedLobby);
+    document.body.classList.toggle('uncreated-lobby', !room);
     document.body.classList.toggle('hasLobbyMapPreview', !!(room && !room.ranked && currentRoomPhase() === 'lobby' && state?.geom?.tiles?.length));
     if (isRankedLobby || !room) setMobileLobbyMapOpen(false);
     if (!isRankedLobby) stopRankedBallotClock();
@@ -9780,7 +9865,11 @@ function refreshLobbyJoinLinkUi() {
     if (!ui.playersList) return;
 
     ui.playersList.innerHTML = '';
-    if (!room) return;
+    if (!room) {
+      if (ui.roomBox) ui.roomBox.classList.add('hidden');
+      if (ui.setupCard) ui.setupCard.classList.add('hidden');
+      return;
+    }
 
     const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
     const amHost = !!(!room.ranked && myPlayerId && room.hostId === myPlayerId);
@@ -10261,6 +10350,9 @@ function refreshLobbyJoinLinkUi() {
     setError(null);
     try { await authApi('logout'); } catch (_) {}
     clearAuthLocal();
+    websocketAuthenticated = false;
+    clearRecentRoom();
+    clearRoomQueryFromUrl();
     // Optional: drop room state
     room = null;
     myPlayerId = null;
@@ -10374,6 +10466,17 @@ function refreshLobbyJoinLinkUi() {
   });
   function choosePlayMode(mode) {
     $('playModeNotice')?.classList.add('hidden');
+    if (mode === 'unranked' && !room) {
+      // Navigation is not a new room: URL remains clean until a code is
+      // explicitly supplied or a recent confirmed room is recovered.
+      prepareUncreatedLobby();
+      const code = recentRoomCodeForUser();
+      if (code && websocketAuthenticated && ws?.readyState === WebSocket.OPEN && authUser) {
+        pendingRecentRoomRejoinCode = code;
+        send({ type: 'rejoin_room', code, displayName: (ui.nameInput?.value || '').trim() });
+      }
+    }
+    if (mode === 'ranked') clearRecentRoom();
     selectedPlayMode = mode;
     try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {}
     updateAuthUi();

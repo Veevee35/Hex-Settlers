@@ -11004,7 +11004,9 @@ if (msg.type === 'create_room') {
           saveUsersDb();
         }
 
-        const jr = joinRoom(code, ws._userId, desiredName || null);
+        // A rejoin must restore an existing membership, never create a new
+        // seat just because a stale code happens to belong to another lobby.
+        const jr = rejoinRoom(code, ws._userId);
         if (!jr.ok) {
           sendJson(ws, { type: 'error', error: jr.error });
           return;

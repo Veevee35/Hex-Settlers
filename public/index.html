@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=log-dev-resources-scale-v31" />
+  <link rel="stylesheet" href="styles.css?v=recent-lobby-v32" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -118,9 +118,14 @@
   </div>
 
   <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">Join one four-player queue. After a match is found, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div></section>
-  <div id="app">
+  <div id="app" class="hidden">
     <main class="layout">
       <section class="panel">
+        <div class="uncreatedLobbyIntro" id="uncreatedLobbyIntro">
+          <div class="uncreatedLobbyEyebrow">UNRANKED PLAY</div>
+          <h1>Start a new adventure</h1>
+          <p>Create a lobby to invite friends, or enter a room code to join an existing game.</p>
+        </div>
         <div class="card" id="lobbyCard">
           <h2>Lobby</h2>
           <div class="legacyLobbyAuth hidden">
@@ -725,6 +730,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=log-dev-resources-scale-v31"></script>
+  <script src="app.js?v=recent-lobby-v32"></script>
 </body>
 </html>

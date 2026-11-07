@@ -1,0 +1,8 @@
+Hex Settlers v32 validation
+==========================
+node --check public/app.js: PASS
+node --check server.js: PASS
+node --test: 291 tests; 287 passed, 4 failed
+6 new recent-unranked-lobby-v32 tests: PASS
+
+All four remaining failures are caused by the unavailable Node.js 'ws' dependency used by server/integration/training tests. No live server test was performed in this environment.

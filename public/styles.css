@@ -4231,3 +4231,31 @@ body.in-game .pResGrid {
 }
 body.in-game .rightSidebarResStrip .resCell,
 body.in-game .pResGrid .resCell {min-width:42px;}
+
+/* v32 — A player who is not in a room must never see the empty canvas.
+   Use the uncreated lobby as a real, centered entry page instead. */
+.uncreatedLobbyIntro{display:none;}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout{
+  display:flex;align-items:flex-start;justify-content:center;overflow:hidden;
+  padding:clamp(12px,3vw,38px);
+}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout>.boardWrap,
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .mobileLobbyMapToggle{display:none!important;}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout>.panel{
+  width:min(100%,650px);max-width:650px;height:100%;min-height:0;max-height:none;
+  overflow-y:auto;overflow-x:hidden;padding:0 4px calc(20px + var(--safe-bottom));
+}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout>.panel>:not(#lobbyCard):not(#uncreatedLobbyIntro){display:none!important;}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro{
+  display:block;text-align:center;padding:30px 12px 8px;
+}
+.uncreatedLobbyEyebrow{font-size:11px;font-weight:800;letter-spacing:.17em;color:#d7ac55;}
+.uncreatedLobbyIntro h1{font-size:clamp(22px,3vw,34px);line-height:1.2;margin:10px 0;}
+.uncreatedLobbyIntro p{font-size:14px;line-height:1.5;color:var(--muted);margin:0 auto 14px;max-width:430px;}
+body.uncreated-lobby #lobbyCard{padding:clamp(15px,2vw,25px);}
+body.uncreated-lobby #lobbyCard>.divider:first-of-type{display:none;}
+@media(max-width:980px),(pointer:coarse){
+  body.uncreated-lobby:not(.in-game) .layout{padding:8px!important;}
+  body.uncreated-lobby:not(.in-game) .layout>.panel{padding:0 0 calc(16px + var(--safe-bottom))!important;}
+  body.uncreated-lobby:not(.in-game) #uncreatedLobbyIntro{padding:22px 8px 4px;}
+}
