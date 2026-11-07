@@ -2624,6 +2624,14 @@ function timerSegmentKey(game) {
     const sp = game.special;
     return `discovery-gold:${sp.forPlayerId || ''}:${Number(sp.id || 0)}`;
   }
+  // Cartographer drafts never leave this phase between tile placements.
+  // Give *each* choice its own full timer, including when the same player returns
+  // later in the draft. Otherwise one expired turn makes every later choice
+  // instantly time out and the server auto-places the rest of the board.
+  if (game.phase === 'cartographer-draft') {
+    const placement = Math.max(0, Math.floor(Number(game.cartographerDraft?.turnIndex || 0)));
+    return `cartographer-draft:${placement}:${game.currentPlayerId || ''}`;
+  }
   // Main-actions can occur twice in a paired turn (P1 then P2) without changing phase.
   // Include stage/current player so P2 always gets a fresh timer.
   if (game.phase === 'main-actions') {
@@ -8407,6 +8415,38 @@ function randomRankedScenarioOptions(count = 3) {
   return pool.slice(0, Math.max(1, Math.min(pool.length, Math.floor(Number(count) || 3))));
 }
 
+// Repair an unfinished ranked ballot saved by an older build. Cartographer
+// (manual tile drafting) is unranked-only; Scattered Tiles remains ranked.
+function refreshLegacyRankedBallot(room) {
+  const ballot = room?.ranked && room.rankedScenarioVote;
+  if (!ballot || ballot.selectedId || !Array.isArray(ballot.options)) return;
+  const allowedIds = new Set(RANKED_SCENARIOS.map((scenario) => scenario.id));
+  if (ballot.options.every((option) => allowedIds.has(option?.id))) return;
+  const options = ballot.options.filter((option) => allowedIds.has(option?.id));
+  const layoutGeoms = ballot.layoutGeoms || Object.create(null);
+  for (const oldId of Object.keys(layoutGeoms)) {
+    if (!allowedIds.has(oldId)) delete layoutGeoms[oldId];
+  }
+  const replacements = RANKED_SCENARIOS.filter((scenario) => !options.some((option) => option.id === scenario.id));
+  while (options.length < 3 && replacements.length) {
+    const [scenario] = replacements.splice(crypto.randomInt(replacements.length), 1);
+    const option = { ...scenario };
+    const geom = generatePreviewGeom(rankedRulesForScenario(option.id), { players: room.players });
+    layoutGeoms[option.id] = geom;
+    option.preview = (geom.tiles || []).map((tile) => ({
+      x: tile.cx, y: tile.cy,
+      type: tile.fog && !tile.revealed ? 'unexplored' : tile.type,
+      number: tile.fog && !tile.revealed ? null : tile.number,
+    }));
+    options.push(option);
+  }
+  ballot.options = options;
+  ballot.layoutGeoms = layoutGeoms;
+  for (const [playerId, scenarioId] of Object.entries(ballot.votes || {})) {
+    if (!allowedIds.has(scenarioId)) delete ballot.votes[playerId];
+  }
+}
+
 function enqueueRankedPlayer(ws, user, queuedAt = now()) {
   if (!ws || !user) return false;
   const rating = rankedRating(user?.rankedRating);
@@ -8577,7 +8617,7 @@ function loadActiveRooms() {
     const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
     for (const record of (Array.isArray(parsed && parsed.rooms) ? parsed.rooms : [])) {
       const room = restoreRoom(record, DEFAULT_RULES);
-      if (room) rooms.set(room.code, room);
+      if (room) { refreshLegacyRankedBallot(room); rooms.set(room.code, room); }
     }
   } catch (error) {
     console.error('[rooms] Failed to load active_rooms.json:', error && error.message ? error.message : error);
@@ -8600,6 +8640,7 @@ function restoreRoomFromPersistence(code) {
     if (!record) return null;
     const restored = restoreRoom(record, DEFAULT_RULES);
     if (!restored) return null;
+    refreshLegacyRankedBallot(restored);
     const existing = rooms.get(normalizedCode);
     if (existing) return existing;
     rooms.set(normalizedCode, restored);
@@ -12046,33 +12087,6 @@ function handleTimeout(room) {
       syncTimer(game);
       return true;
     }
-    return false;
-  }
-
-  // Setup auto placement
-  if (phase === 'cartographer-draft') {
-    const cd = game.cartographerDraft || null;
-    const inv = (cd && cd.inventoryByPlayer && cd.inventoryByPlayer[pid]) ? cd.inventoryByPlayer[pid] : null;
-    const pool = [];
-    if (inv) {
-      for (const k of ['desert','gold','hills','forest','pasture','field','mountains','sea']) {
-        const n = Math.max(0, Math.floor(Number(inv[k] || 0)));
-        for (let i = 0; i < n; i++) pool.push(k);
-      }
-    }
-    const tileType = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'sea';
-    const cands = [];
-    for (let i = 0; i < (game.geom.tiles || []).length; i++) {
-      const t = game.geom.tiles[i];
-      if (!t) continue;
-      if (t.type === 'unexplored' && !t.draftPlaced) cands.push(i);
-    }
-    shuffle(cands);
-    if (cands.length) {
-      const r = runAutoTimeoutAction(pid, () => applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType }));
-      if (r && r.ok) { delay(180, 320); return true; }
-    }
-    delay(180, 320);
     return false;
   }
 

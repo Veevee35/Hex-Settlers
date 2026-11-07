@@ -27,7 +27,6 @@ const RANKED_SCENARIOS = Object.freeze([
   Object.freeze({ id: 'through_the_desert', label: 'Through the Desert', mapMode: 'seafarers', seafarersScenario: 'through_the_desert' }),
   Object.freeze({ id: 'fog_island', label: 'Fog Island', mapMode: 'seafarers', seafarersScenario: 'fog_island' }),
   Object.freeze({ id: 'heading_for_new_shores', label: 'Heading for New Shores', mapMode: 'seafarers', seafarersScenario: 'heading_for_new_shores' }),
-  Object.freeze({ id: 'cartographer_4_manual', label: 'Cartographer', mapMode: 'seafarers', seafarersScenario: 'cartographer_4_manual' }),
   Object.freeze({ id: 'cartographer_4_random', label: 'Scattered Tiles', mapMode: 'seafarers', seafarersScenario: 'cartographer_4_random' }),
 ]);
 

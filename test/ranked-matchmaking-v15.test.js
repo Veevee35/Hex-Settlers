@@ -16,7 +16,7 @@ const { restoreRoom, serializeRoom } = require('../server/active-rooms');
 test('ranked scenarios each receive a complete locked ruleset', () => {
   assert.deepEqual(RANKED_SCENARIOS.map((scenario) => scenario.id), [
     'classic', 'four_islands', 'through_the_desert', 'fog_island',
-    'heading_for_new_shores', 'cartographer_4_manual', 'cartographer_4_random',
+    'heading_for_new_shores', 'cartographer_4_random',
   ]);
   for (const scenario of RANKED_SCENARIOS) {
     const rules = rankedRulesForScenario(scenario.id);
