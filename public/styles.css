@@ -4346,3 +4346,68 @@ body.in-game .historyReplayBar {
     padding-right:clamp(45px,15vw,73px);
   }
 }
+
+/* v37 — The clock has one stable footprint. Action/status messages wrap
+   within a reserved message area rather than resizing the clock panel. */
+body.in-game .countdownClock {
+  box-sizing:border-box;
+  display:flex;
+  flex-direction:column;
+  width:190px!important;
+  min-width:190px!important;
+  max-width:190px!important;
+  height:190px!important;
+  min-height:190px!important;
+  max-height:190px!important;
+  overflow:hidden;
+}
+body.in-game .countdownClock .clockTopRow,
+body.in-game .countdownClock .panelScaleContent {flex:0 0 auto;min-width:0;max-width:100%;}
+body.in-game .countdownClock .clockMeta {
+  white-space:normal;
+  overflow-wrap:anywhere;
+  font-size:10px;
+  line-height:1.2;
+}
+body.in-game .countdownClock .clockActionInfo {
+  box-sizing:border-box;
+  flex:1 1 auto;
+  min-height:0;
+  max-height:none!important;
+  width:100%;
+  overflow-x:hidden;
+  overflow-y:auto;
+  white-space:normal!important;
+  overflow-wrap:anywhere;
+  word-break:normal;
+  text-align:left;
+  scrollbar-width:thin;
+}
+body.in-game .countdownClock .clockActionInfo .turnInfo {
+  display:block;
+  width:100%;
+  min-width:0;
+  font-size:11px!important;
+  font-weight:800;
+  line-height:1.28;
+  white-space:normal!important;
+  overflow-wrap:anywhere;
+  word-break:normal;
+}
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px) {
+  body.in-game .countdownClock {
+    width:min(190px,calc(100vw - 12px))!important;
+    min-width:0!important;
+    max-width:min(190px,calc(100vw - 12px))!important;
+    height:176px!important;
+    min-height:176px!important;
+    max-height:176px!important;
+  }
+}
+@media (max-width:900px) and (max-height:550px) and (orientation:landscape) {
+  body.in-game .countdownClock {
+    height:150px!important;
+    min-height:150px!important;
+    max-height:150px!important;
+  }
+}
