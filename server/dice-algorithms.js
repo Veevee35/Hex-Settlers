@@ -23,7 +23,8 @@ const ALL_DICE_PAIRS = Object.freeze(Array.from({ length: 36 }, (_, index) =>
   Object.freeze([Math.floor(index / 6) + 1, (index % 6) + 1])));
 
 function normalizeDiceAlgorithm(value) {
-  const key = String(value || 'random').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const raw = String(value == null ? '' : value).trim();
+  const key = String(raw || 'probability_corrected').toLowerCase().replace(/[\s-]+/g, '_');
   if (key === 'balanced' || key === 'balanced_bag' || key === 'bag') return 'balanced';
   if (key === 'probability_corrected' || key === 'corrected' || key === 'smooth' || key === 'smoothed') {
     return 'probability_corrected';

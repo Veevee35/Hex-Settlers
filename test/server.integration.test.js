@@ -530,12 +530,18 @@ test('Test Builder supports custom port painting on both Seafarers board sizes',
   host.send({ type: 'auth_register', username: `builder_${suffix}`, password: 'builder ports', displayName: 'Builder' });
   await host.waitFor((message) => message.type === 'auth_ok');
   host.send({ type: 'create_room', displayName: 'Builder' });
-  await host.waitFor((message) => message.type === 'joined');
+  const joinedBuilderRoom = await host.waitFor((message) => message.type === 'joined');
+  assert.equal(joinedBuilderRoom.room.rules.diceAlgorithm, 'probability_corrected');
 
   async function selectBuilderScenario(scenario) {
     host.send({ type: 'set_rules', rules: { mapMode: 'seafarers', seafarersScenario: scenario } });
     return (await host.waitFor((message) => message.type === 'state' && message.state.previewKey === `seafarers:${scenario}`)).state;
   }
+
+  const fogFourPlayer = await selectBuilderScenario('fog_island');
+  assert.equal(fogFourPlayer.rules.explorationPointsEnabled, false);
+  const fogFiveSixPlayer = await selectBuilderScenario('fog_island_56');
+  assert.equal(fogFiveSixPlayer.rules.explorationPointsEnabled, false);
 
   function firstShorelineEdge(state) {
     return state.geom.edges.find((edge) => {

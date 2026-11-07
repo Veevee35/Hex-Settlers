@@ -27,6 +27,7 @@ test('ranked scenarios each receive a complete locked ruleset', () => {
     assert.equal(rules.microPhaseMs, 15_000);
     assert.equal(rules.friendlyRobber, false);
     assert.equal(rules.diceAlgorithm, 'probability_corrected');
+    assert.equal(rules.explorationPointsEnabled, scenario.id !== 'fog_island');
     assert.ok(rules.victoryPointsToWin >= 10 && rules.victoryPointsToWin <= 14);
   }
   assert.equal(rankedRulesForScenario('classic').victoryPointsToWin, 10);

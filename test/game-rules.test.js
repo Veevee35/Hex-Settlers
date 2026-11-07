@@ -5,6 +5,7 @@ const test = require('node:test');
 const {
   DEFAULT_RULES,
   bankMaxForRules,
+  defaultExplorationPointsForScenario,
   microActionDurationMs,
   normalizedMapModeRaw,
   seafarersAwardsNewIslandBonus,
@@ -23,11 +24,17 @@ test('default rules preserve the established game defaults', () => {
     seafarersScenario: 'four_islands',
     explorationPointsEnabled: true,
     friendlyRobber: false,
-    diceAlgorithm: 'random',
+    diceAlgorithm: 'probability_corrected',
     victoryPointsToWin: 10,
     devDeckMode: 25,
     randomMapAtStart: false,
   });
+});
+
+test('Fog Island variants default exploration victory points off', () => {
+  assert.equal(defaultExplorationPointsForScenario({ id: 'fog_island' }), false);
+  assert.equal(defaultExplorationPointsForScenario({ id: 'fog_island_56' }), false);
+  assert.equal(defaultExplorationPointsForScenario({ id: 'four_islands' }), true);
 });
 
 test('micro actions use the configured timer, with 15 seconds on Normal', () => {

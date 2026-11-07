@@ -13,6 +13,7 @@ function sequenceRng(values) {
 }
 
 test('dice algorithm names normalize safely and unknown values fall back to random', () => {
+  assert.equal(normalizeDiceAlgorithm(undefined), 'probability_corrected');
   assert.equal(normalizeDiceAlgorithm('Balanced Bag'), 'balanced');
   assert.equal(normalizeDiceAlgorithm('smooth'), 'probability_corrected');
   assert.equal(normalizeDiceAlgorithm('anti-streak'), 'streak_breaker');

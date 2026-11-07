@@ -9244,7 +9244,8 @@ function refreshLobbyJoinLinkUi() {
   });
 
   function normalizeDiceAlgorithmClient(value) {
-    const key = String(value || 'random').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const raw = String(value == null ? '' : value).trim();
+    const key = String(raw || 'probability_corrected').toLowerCase().replace(/[\s-]+/g, '_');
     if (key === 'balanced' || key === 'balanced_bag' || key === 'bag') return 'balanced';
     if (key === 'probability_corrected' || key === 'corrected' || key === 'smooth' || key === 'smoothed') return 'probability_corrected';
     if (key === 'streak_breaker' || key === 'streakbreaker' || key === 'anti_streak') return 'streak_breaker';
@@ -10751,6 +10752,10 @@ function refreshLobbyJoinLinkUi() {
       if (ui.mapScenario56Select) ui.mapScenario56Select.disabled = (mm !== 'seafarers56') || (room && room.hostId !== myPlayerId);
 
       const selectedTestScenario = (mm === 'seafarers56') ? ui.mapScenario56Select?.value : ui.mapScenarioSelect?.value;
+      if (!applyingSettingsTemplate && ui.explorationPointsToggle && isSeafarersSetup) {
+        const scenario = String(selectedTestScenario || '').toLowerCase().replace(/-/g, '_');
+        ui.explorationPointsToggle.checked = scenario !== 'fog_island' && scenario !== 'fog_island_56';
+      }
       const showTest = (mm === 'seafarers' || mm === 'seafarers56') && uiIsTestBuilderScenario({ seafarersScenario: selectedTestScenario });
       if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTest);
 
@@ -10780,6 +10785,9 @@ function refreshLobbyJoinLinkUi() {
         ui.sixIslandsNote.classList.add('hidden');
       }
       if (mm !== 'seafarers') return;
+      if (!applyingSettingsTemplate && ui.explorationPointsToggle) {
+        ui.explorationPointsToggle.checked = String(ui.mapScenarioSelect.value).toLowerCase().replace(/-/g, '_') !== 'fog_island';
+      }
       if (!vpTouched) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario: ui.mapScenarioSelect.value }));
       if (ui.baseResourceCountSelect && !baseResourceCountTouched) ui.baseResourceCountSelect.value = String(defaultBaseResourcesFor({ mapMode: mm, seafarersScenario: ui.mapScenarioSelect.value }));
     });
@@ -10794,6 +10802,9 @@ function refreshLobbyJoinLinkUi() {
         ui.testBuilderRow.classList.toggle('hidden', !showTest);
       }
       if (mm !== 'seafarers56') return;
+      if (!applyingSettingsTemplate && ui.explorationPointsToggle) {
+        ui.explorationPointsToggle.checked = String(ui.mapScenario56Select.value).toLowerCase().replace(/-/g, '_') !== 'fog_island_56';
+      }
       if (!vpTouched) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode: mm, seafarersScenario56: ui.mapScenario56Select.value }));
       if (ui.baseResourceCountSelect && !baseResourceCountTouched) ui.baseResourceCountSelect.value = String(defaultBaseResourcesFor({ mapMode: mm, seafarersScenario56: ui.mapScenario56Select.value }));
     });

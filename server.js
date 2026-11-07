@@ -11473,12 +11473,6 @@ if (msg.type === 'create_room') {
       next.diceAlgorithm = normalizeDiceAlgorithm(r.diceAlgorithm ?? next.diceAlgorithm);
       next.randomMapAtStart = r.randomMapAtStart === true;
 
-      if (typeof r.explorationPointsEnabled === 'boolean') {
-        next.explorationPointsEnabled = r.explorationPointsEnabled;
-      } else if (typeof next.explorationPointsEnabled !== 'boolean') {
-        next.explorationPointsEnabled = true;
-      }
-
       if (typeof r.friendlyRobber === 'boolean') {
         next.friendlyRobber = r.friendlyRobber;
       } else if (typeof next.friendlyRobber !== 'boolean') {
@@ -11519,6 +11513,14 @@ if (msg.type === 'create_room') {
           : (rawScen === 'six_islands' || rawScen === 'six-islands' || rawScen === 'sixislands' || rawScen === 'six')
             ? 'six_islands'
             : 'four_islands';
+
+      if (typeof r.explorationPointsEnabled === 'boolean') {
+        next.explorationPointsEnabled = r.explorationPointsEnabled;
+      } else if (r.seafarersScenario != null) {
+        next.explorationPointsEnabled = next.seafarersScenario !== 'fog_island' && next.seafarersScenario !== 'fog_island_56';
+      } else if (typeof next.explorationPointsEnabled !== 'boolean') {
+        next.explorationPointsEnabled = true;
+      }
 
       // Victory points to win (clamped) — scenario defaults:
       // - Classic: 10

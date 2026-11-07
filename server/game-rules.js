@@ -13,7 +13,7 @@ const DEFAULT_RULES = Object.freeze({
   seafarersScenario: 'four_islands',
   explorationPointsEnabled: true,
   friendlyRobber: false,
-  diceAlgorithm: 'random',
+  diceAlgorithm: 'probability_corrected',
   victoryPointsToWin: 10,
   devDeckMode: 25,
   randomMapAtStart: false,
@@ -39,6 +39,11 @@ function defaultVictoryPointsForScenario(scenario) {
   return 14;
 }
 
+function defaultExplorationPointsForScenario(scenario) {
+  const id = String(scenario?.id || scenario?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
+  return id !== 'fog_island' && id !== 'fog_island_56';
+}
+
 function rankedRulesForScenario(scenarioOrId) {
   const requestedId = typeof scenarioOrId === 'string' ? scenarioOrId : scenarioOrId?.id;
   const scenario = RANKED_SCENARIOS.find((candidate) => candidate.id === requestedId) || RANKED_SCENARIOS[0];
@@ -46,6 +51,7 @@ function rankedRulesForScenario(scenarioOrId) {
     ...DEFAULT_RULES,
     mapMode: scenario.mapMode,
     seafarersScenario: scenario.seafarersScenario || 'four_islands',
+    explorationPointsEnabled: defaultExplorationPointsForScenario(scenario),
     victoryPointsToWin: defaultVictoryPointsForScenario(scenario),
     // Ranked rules are server-owned and cannot be changed by a player.
     setupTurnMs: 60_000,
@@ -115,6 +121,7 @@ module.exports = {
   DEFAULT_RULES,
   RANKED_SCENARIOS,
   bankMaxForRules,
+  defaultExplorationPointsForScenario,
   defaultVictoryPointsForScenario,
   isClassic56MapModeRaw,
   isSeafarers56Scenario,
