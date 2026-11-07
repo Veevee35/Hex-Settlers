@@ -10036,11 +10036,11 @@ function refreshLobbyJoinLinkUi() {
       // AI difficulty (host-only, lobby only)
       if (ui.aiDifficultySelect) {
         ui.aiDifficultySelect.disabled = !canManageAI;
-        const rawDiff = String(room?.aiDifficulty || 'test').toLowerCase();
-        let diff = 'test';
-        if (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard' || rawDiff === 'catanatron' || rawDiff === 'expert' || rawDiff === 'neural_net' || rawDiff === 'neural') {
-          diff = (rawDiff === 'expert') ? 'catanatron' : ((rawDiff === 'neural') ? 'neural_net' : rawDiff);
-        }
+        const rawDiff = String(room?.aiDifficulty || 'easy').toLowerCase();
+        let diff = 'easy';
+        if (rawDiff === 'easy' || rawDiff === 'medium' || rawDiff === 'hard') diff = rawDiff;
+        else if (rawDiff === 'expert' || rawDiff === 'neural_net' || rawDiff === 'neural' || rawDiff === 'neural-net') diff = 'expert';
+        else if (rawDiff === 'catanatron') diff = 'hard';
         ui.aiDifficultySelect.value = diff;
       }
 
@@ -10705,7 +10705,7 @@ function refreshLobbyJoinLinkUi() {
 
   if (ui.aiDifficultySelect) ui.aiDifficultySelect.addEventListener('change', () => {
     if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
-    const difficulty = String(ui.aiDifficultySelect.value || 'test').toLowerCase();
+    const difficulty = String(ui.aiDifficultySelect.value || 'easy').toLowerCase();
     send({ type: 'set_ai_difficulty', difficulty });
   });
 

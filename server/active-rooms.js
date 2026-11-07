@@ -12,7 +12,7 @@ function serializeRoom(room) {
     players: Array.isArray(room.players) ? room.players : [], spectators: Array.isArray(room.spectators) ? room.spectators : [],
     game: room.game || null, rules: room.rules || {}, chat: Array.isArray(room.chat) ? room.chat : [],
     chatSeq: Math.max(1, Math.floor(Number(room.chatSeq || 1))), aiSeq: Math.max(1, Math.floor(Number(room.aiSeq || 1))),
-    aiDifficulty: String(room.aiDifficulty || 'test'), expertAiTuning: room.expertAiTuning || null,
+    aiDifficulty: String(room.aiDifficulty || 'easy'), expertAiTuning: room.expertAiTuning || null,
     sharedTexturePacks: room.sharedTexturePacks || {}, pendingLeaveRequests: room.pendingLeaveRequests || {},
   };
 }
@@ -36,7 +36,7 @@ function restoreRoom(record, defaultRules) {
     players, spectators, sockets: new Map(), game, preview: null,
     rules: { ...(defaultRules || {}), ...(record.rules || {}) }, chat: Array.isArray(record.chat) ? record.chat : [],
     chatSeq: Math.max(1, Math.floor(Number(record.chatSeq || 1))), aiSeq: Math.max(1, Math.floor(Number(record.aiSeq || 1))),
-    aiDifficulty: String(record.aiDifficulty || 'test'),
+    aiDifficulty: String(record.aiDifficulty || 'easy'),
     expertAiTuning: record.expertAiTuning && typeof record.expertAiTuning === 'object' ? record.expertAiTuning : null,
     sharedTexturePacks: record.sharedTexturePacks && typeof record.sharedTexturePacks === 'object' ? record.sharedTexturePacks : Object.create(null),
     pendingLeaveRequests: record.pendingLeaveRequests && typeof record.pendingLeaveRequests === 'object' ? record.pendingLeaveRequests : Object.create(null),

@@ -5630,7 +5630,7 @@ function newEmptyGame(room) {
       name: p.name,
       color: p.color,
       isAI: !!(p && p.isAI),
-      aiDifficulty: (p && p.isAI) ? String(p.aiDifficulty || room.aiDifficulty || 'test').toLowerCase() : null,
+      aiDifficulty: (p && p.isAI) ? String(p.aiDifficulty || room.aiDifficulty || 'easy').toLowerCase() : null,
       resources: { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 },
       vp: 0,
       newIslandVP: 0,
@@ -5675,7 +5675,7 @@ function newEmptyGame(room) {
 
     // Rules & timers
     rules: { ...(room.rules || DEFAULT_RULES) },
-    aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
+    aiDifficulty: String(room.aiDifficulty || 'easy').toLowerCase(),
     timer: null,
     thiefTimerResume: null,
 
@@ -8079,7 +8079,7 @@ function addAIPlayersToRoom(room, targetCount) {
       color: pickAvailableColor(room),
       joinedAt: now(),
       isAI: true,
-      aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
+      aiDifficulty: String(room.aiDifficulty || 'easy').toLowerCase(),
       texturePackId: 'default',
       texturePackName: 'Default',
     });
@@ -8688,7 +8688,7 @@ function createRoom(hostUserId, hostName) {
     chat: [],
     chatSeq: 1,
     aiSeq: 1,
-    aiDifficulty: 'test',
+    aiDifficulty: 'easy',
     expertAiTuning: null,
     sharedTexturePacks: Object.create(null),
     pendingLeaveRequests: Object.create(null),
@@ -8754,7 +8754,7 @@ function createRematchRoomFrom(prevRoom) {
     chat: [],
     chatSeq: 1,
     aiSeq: 1,
-    aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'test',
+    aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'easy',
     expertAiTuning: (prevRoom && prevRoom.expertAiTuning) ? { ...prevRoom.expertAiTuning } : null,
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
     pendingLeaveRequests: Object.create(null),
@@ -8985,7 +8985,7 @@ function roomSnapshot(room) {
     maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES),
     gamePhase: room.game ? room.game.phase : 'lobby',
     rules: room.ranked && !room.rankedScenarioVote?.selectedId ? null : (room.rules || { ...DEFAULT_RULES }),
-    aiDifficulty: String(room.aiDifficulty || 'test').toLowerCase(),
+    aiDifficulty: String(room.aiDifficulty || 'easy').toLowerCase(),
     chat: room.chat || [],
   };
 }
@@ -11592,10 +11592,10 @@ if (msg.type === 'create_room') {
         return;
       }
 
-      const raw = String(msg.difficulty || msg.mode || 'test').toLowerCase().trim();
-      const allowed = new Set(['test', 'easy', 'medium', 'hard', 'catanatron', 'expert', 'neural_net', 'neural-net', 'neural']);
-      let diff = allowed.has(raw) ? raw : 'test';
-      if (diff === 'expert') diff = 'catanatron';
+      const raw = String(msg.difficulty || msg.mode || 'easy').toLowerCase().trim();
+      const allowed = new Set(['easy', 'medium', 'hard', 'expert', 'neural_net', 'neural-net', 'neural']);
+      let diff = allowed.has(raw) ? raw : 'easy';
+      if (diff === 'expert') diff = 'neural_net';
       if (diff === 'neural-net' || diff === 'neural') diff = 'neural_net';
 
       room.aiDifficulty = diff;
@@ -12348,13 +12348,14 @@ function handleAI(room) {
 
   const getAIDifficulty = (pid) => {
     const p = playerById(game, pid);
-    const raw = String((p && p.aiDifficulty) || game.aiDifficulty || room.aiDifficulty || 'test').toLowerCase();
-    if (raw === 'catanatron' || raw === 'expert' || raw === 'expert_ai' || raw === 'expert ai') return 'catanatron';
+    const raw = String((p && p.aiDifficulty) || game.aiDifficulty || room.aiDifficulty || 'easy').toLowerCase();
+    if (raw === 'expert' || raw === 'expert_ai' || raw === 'expert ai') return 'neural_net';
+    if (raw === 'catanatron') return 'hard';
     if (raw === 'easy' || raw === 'medium' || raw === 'hard' || raw === 'test' || raw === 'neural_net') return raw;
     // accept legacy labels
-    if (raw.includes('catanatron')) return 'catanatron';
+    if (raw.includes('catanatron')) return 'hard';
     if (raw.includes('neural')) return 'neural_net';
-    return 'test';
+    return 'easy';
   };
 
   const aiBudgetFor = (diff) => (diff === 'catanatron' || diff === 'neural_net') ? 8 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
