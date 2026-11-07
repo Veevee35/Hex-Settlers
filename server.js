@@ -411,7 +411,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     rules: game.rules || null,
     players: Array.isArray(game.players) ? game.players : [],
     stats: game.stats || null,
-    ranked: !!game.ranked,
+    ranked: !!game.ranked, casual: !!game.casual,
     ratingChanges: game.ratingChanges || {},
     unrankedRatingChanges: game.unrankedRatingChanges || {},
     ratingPolicy: game.ranked ? (game.ratingPolicy || RATING_POLICY) : null,
@@ -428,7 +428,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     turns: Math.max(0, Math.floor(Number(game.turnNumber || 0))),
     winnerId: wid || (w ? w.id : ''),
     winnerName: w ? w.name : '',
-    ranked: !!game.ranked,
+    ranked: !!game.ranked, casual: !!game.casual,
     ratingChanges: deepClone(game.ratingChanges || {}),
     unrankedRatingChanges: deepClone(game.unrankedRatingChanges || {}),
     ratingPolicy: game.ranked ? deepClone(game.ratingPolicy || RATING_POLICY) : null,
@@ -485,7 +485,7 @@ function listGameHistory(limit = 200) {
     turns: g.turns,
     winnerId: g.winnerId,
     winnerName: g.winnerName,
-    ranked: g.ranked == null ? null : !!g.ranked,
+    ranked: g.ranked == null ? null : !!g.ranked, casual: !!g.casual,
     ratingChanges: g.ratingChanges || {},
     unrankedRatingChanges: g.unrankedRatingChanges || {},
     rules: g.rules || null,
@@ -563,7 +563,7 @@ function computeLeaderboardFromHistory() {
   const by = new Map(); // pid -> aggregate split by ranked/unranked/combined
 
   for (const g of games) {
-    if (!g || !Array.isArray(g.players)) continue;
+    if (!g || !!g.casual || !Array.isArray(g.players)) continue;
     const wid = String(g.winnerId || '');
     const snap = g.snapshot || null;
     const st = snap && snap.stats ? snap.stats : null;
@@ -648,7 +648,7 @@ function migrateUnrankedRatingsFromHistory() {
   // Score only accounts that are not already migrated. That prevents a newly
   // imported account from resetting scores earned by established accounts.
   const ids = pending.map(user => String(user.id));
-  const entries = (HISTORY_DB.games || []).filter(isValidHistoryEntry);
+  const entries = (HISTORY_DB.games || []).filter(entry => isValidHistoryEntry(entry) && !entry.casual);
   const result = replayUnrankedHistory(entries, ids);
   let historyChanged = false;
   for (const user of pending) {
@@ -3096,10 +3096,10 @@ function persistUserStatsFromGame(room, game, winnerId) {
     snapshot: { stats: game.stats, players: game.players },
   }, Object.fromEntries(rankedPlayers.map(p => [String(p.id), p.rating])), game.ratingPolicy || RATING_POLICY) : {};
   game.ratingChanges = ratingChanges;
-  const unrankedPlayers = (!room.ranked && game.ranked !== true) ? (game.players || []).filter(gp =>
+  const unrankedPlayers = (!room.ranked && !room.casual && game.ranked !== true) ? (game.players || []).filter(gp =>
     gp && !gp.isAI && !gp.ai && !!findUserById(gp.id)
   ) : [];
-  const unrankedRatingChanges = (!room.ranked && game.ranked !== true) ? calculateUnrankedChanges({
+  const unrankedRatingChanges = (!room.ranked && !room.casual && game.ranked !== true) ? calculateUnrankedChanges({
     ranked: false, winnerId: wid, players: game.players,
     snapshot: { phase: 'game-over', stats: game.stats, players: game.players,
       longestRoad: game.longestRoad, largestArmy: game.largestArmy },
@@ -5792,6 +5792,7 @@ function startGame(room) {
   }
   const game = newEmptyGame(room);
   game.ranked = !!room.ranked;
+  game.casual = !!room.casual;
   // Lock each ranked match to the rules active at the start of that match.
   game.ratingPolicy = game.ranked ? deepClone(RATING_POLICY) : null;
 
@@ -5865,11 +5866,11 @@ function startGame(room) {
     } else if ((mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) {
       // Classic 5–6 Player: larger landmass + 11 ports.
       game.geom = buildGeometryClassic56();
-      game.geom.tiles = generateBoardClassic56WithSea(game.geom);
-      game.geom.ports = generatePorts(game.geom, 11);
+      game.geom.tiles = customMapEnabled(game.rules) ? generateBoardSeafarersTestBuilder(game.geom) : generateBoardClassic56WithSea(game.geom);
+      game.geom.ports = customMapEnabled(game.rules) ? [] : generatePorts(game.geom, 11);
     } else {
-      game.geom.tiles = generateBoardClassicWithSea(game.geom);
-      game.geom.ports = generatePorts(game.geom, 9);
+      game.geom.tiles = customMapEnabled(game.rules) ? generateBoardSeafarersTestBuilder(game.geom) : generateBoardClassicWithSea(game.geom);
+      game.geom.ports = customMapEnabled(game.rules) ? [] : generatePorts(game.geom, 9);
     }
   }
 
@@ -8726,6 +8727,7 @@ function createRoom(hostUserId, hostName) {
     game: null,
     preview: null,
     rules: { ...DEFAULT_RULES },
+    casual: false,
     chat: [],
     chatSeq: 1,
     aiSeq: 1,
@@ -8797,6 +8799,7 @@ function createRematchRoomFrom(prevRoom) {
     aiSeq: 1,
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'easy',
     expertAiTuning: (prevRoom && prevRoom.expertAiTuning) ? { ...prevRoom.expertAiTuning } : null,
+    casual: !!(prevRoom && prevRoom.casual),
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
     pendingLeaveRequests: Object.create(null),
   };
@@ -8810,6 +8813,7 @@ function joinRoom(code, userId, name, options = {}) {
   const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
   ensureRoomRoleLists(room);
+  if (room.casual && String(userId || '') !== room.hostId) return { ok: false, error: 'Casual rooms are private, AI-only sessions.' };
 
   const pid = String(userId || '').trim();
   if (!pid) return { ok: false, error: 'Not logged in.' };
@@ -8859,6 +8863,7 @@ function rejoinRoom(code, playerId) {
   ensureRoomRoleLists(room);
   const pid = String(playerId || '').trim();
   if (!pid) return { ok: false, error: 'Missing player ID.' };
+  if (room.casual && pid !== room.hostId) return { ok: false, error: 'Casual rooms are private.' };
   const role = roomRole(room, pid);
   if (!role) return { ok: false, error: 'Player ID not found in this room.' };
   return { ok: true, room, playerId: pid, role };
@@ -8868,14 +8873,20 @@ function rejoinRoom(code, playerId) {
 
 
 
+function customMapEnabled(rules) {
+  return !!rules?.customMap && ['classic', 'classic56'].includes(String(rules?.mapMode || '').toLowerCase());
+}
+function editableCustomMapRules(rules) {
+  return customMapEnabled(rules) || (String(rules?.mapMode || '') === 'seafarers' && isTestBuilderScenarioKey(rules?.seafarersScenario));
+}
 function mapPreviewKey(rules, playerCount = null) {
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
       ? 'classic56'
       : 'classic';
-  if (mm === 'classic56') return 'classic56';
-  if (mm !== 'seafarers') return 'classic';
+  if (mm === 'classic56') return customMapEnabled(rules) ? 'classic56:custom' : 'classic56';
+  if (mm !== 'seafarers') return customMapEnabled(rules) ? 'classic:custom' : 'classic';
   const rawScen = String((rules && rules.seafarersScenario) || 'four_islands').toLowerCase();
   const scen = (rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'desert' || rawScen === 'throughdesert')
     ? 'through_the_desert'
@@ -8948,14 +8959,14 @@ function generatePreviewGeom(rules, room = null) {
   }
   if (mm === 'classic56') {
     const geom = buildGeometryClassic56();
-    geom.tiles = generateBoardClassic56WithSea(geom);
-    geom.ports = generatePorts(geom, 11);
+    geom.tiles = customMapEnabled(rules) ? generateBoardSeafarersTestBuilder(geom) : generateBoardClassic56WithSea(geom);
+    geom.ports = customMapEnabled(rules) ? [] : generatePorts(geom, 11);
     return geom;
   }
   // classic
   const geom = buildGeometry(3);
-  geom.tiles = generateBoardClassicWithSea(geom);
-  geom.ports = generatePorts(geom, 9);
+  geom.tiles = customMapEnabled(rules) ? generateBoardSeafarersTestBuilder(geom) : generateBoardClassicWithSea(geom);
+  geom.ports = customMapEnabled(rules) ? [] : generatePorts(geom, 9);
   return geom;
 }
 
@@ -9013,7 +9024,7 @@ function roomSnapshot(room) {
     // Ranked rooms keep an internal coordinator for persistence compatibility,
     // but matched players never receive host/admin ownership.
     hostId: room.ranked ? null : room.hostId,
-    ranked: !!room.ranked,
+    ranked: !!room.ranked, casual: !!room.casual,
     rankedScenarioVote: room.rankedScenarioVote ? {
       options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
       votes: room.rankedScenarioVote.votes || {},
@@ -10392,7 +10403,7 @@ async function handleAccountHttp(req, res, urlPath) {
     if (!target || !Array.isArray(viewer.friendIds) || !viewer.friendIds.includes(target.id)) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Only friends can be invited.' }); return;
     }
-    if (!invitedRoom || !senderInRoom || (invitedRoom.game && invitedRoom.game.phase !== 'lobby')) {
+    if (!invitedRoom || invitedRoom.casual || !senderInRoom || (invitedRoom.game && invitedRoom.game.phase !== 'lobby')) {
       sendHttpJson(req, res, 409, { ok: false, error: 'You must be in an open lobby to send an invitation.' }); return;
     }
     const targetSockets = userSockets.get(target.id);
@@ -10996,6 +11007,8 @@ if (msg.type === 'create_room') {
       }
 
       const room = createRoom(ws._userId, desiredName);
+      room.casual = msg.casual === true;
+      if (room.casual) addAIPlayersToRoom(room, 4);
       bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
       ensurePreview(room, true);
       // Do not acknowledge a newly created lobby until its membership/rules are
@@ -11028,6 +11041,7 @@ if (msg.type === 'create_room') {
         return;
       }
       const room = result.room;
+      if (room.casual && ws._userId !== room.hostId) { sendJson(ws, { type: 'error', error: 'Casual play is private.' }); return; }
 
       // Authentication may exist in multiple tabs, but one room seat has one
       // active transport. Replacing it is explicit and the retired client is
@@ -11427,6 +11441,7 @@ if (msg.type === 'create_room') {
       }
       if (!newRoom) {
         newRoom = createRematchRoomFrom(room);
+        if (newRoom.casual && pid !== newRoom.hostId) { sendJson(ws, { type: 'error', error: 'Only the casual host can rematch.' }); return; }
         // Copy AI opponents, but do not pre-join the other human players.
         newRoom.players = newRoom.players.filter((player) => player.id === pid || player.isAI);
         newRoom.spectators = [];
@@ -11555,6 +11570,9 @@ if (msg.type === 'create_room') {
             ? 'six_islands'
             : 'four_islands';
 
+      next.customMap = next.mapMode !== 'seafarers' && r.customMap === true;
+      if (editableCustomMapRules(next)) next.randomMapAtStart = false;
+
       if (typeof r.explorationPointsEnabled === 'boolean') {
         next.explorationPointsEnabled = r.explorationPointsEnabled;
       } else if (r.seafarersScenario != null) {
@@ -11578,6 +11596,7 @@ if (msg.type === 'create_room') {
 
       const rulesChanged = JSON.stringify(room.rules || DEFAULT_RULES) !== JSON.stringify(next);
       room.rules = next;
+      if (room.casual) addAIPlayersToRoom(room, maxPlayersForRules(next));
       if (rulesChanged) resetHumanRoomPlayerReadiness(room);
       const nextKey = mapPreviewKey(next, room?.players?.length || 0);
       const previewChanged = ensurePreview(room, (prevKey !== nextKey) || !room.preview);
@@ -11722,9 +11741,66 @@ if (msg.type === 'create_room') {
       return;
     }
 
+    // Portable map layouts contain only tile/port choices. No client-supplied geometry,
+    // users, game state, or arbitrary objects are ever trusted or deserialized.
+    if (msg.type === 'download_custom_map' || msg.type === 'upload_custom_map') {
+      if (pid !== room.hostId || (room.game && room.game.phase !== 'lobby') || !editableCustomMapRules(room.rules)) {
+        sendJson(ws, { type: 'error', error: 'Custom maps can only be saved or loaded by the lobby host before the game starts.' }); return;
+      }
+      ensurePreview(room, false);
+      const geom = room.preview?.geom;
+      if (!geom || !Array.isArray(geom.tiles)) { sendJson(ws, { type: 'error', error: 'No custom map is available.' }); return; }
+      const mapKind = String(room.rules?.mapMode || 'classic') === 'seafarers'
+        ? String(room.rules?.seafarersScenario || '') : String(room.rules?.mapMode || 'classic');
+      if (msg.type === 'download_custom_map') {
+        sendJson(ws, { type: 'custom_map_file', map: {
+          format: 'hex-settlers-custom-map', version: 1, mapKind,
+          tiles: geom.tiles.map(t => ({ q: t.q, r: t.r, type: t.type, number: t.number, robber: !!t.robber, pirate: !!t.pirate })),
+          ports: (geom.ports || []).map(port => ({ edgeId: port.edgeId, kind: port.kind })),
+        } });
+        return;
+      }
+      const file = msg.map;
+      const validTypes = new Set(['sea', 'desert', 'forest', 'hills', 'pasture', 'field', 'mountains', 'gold']);
+      const validPorts = new Set(['generic', 'brick', 'lumber', 'wool', 'grain', 'ore']);
+      if (!file || file.format !== 'hex-settlers-custom-map' || file.version !== 1 ||
+          file.mapKind !== mapKind || !Array.isArray(file.tiles) || file.tiles.length !== geom.tiles.length ||
+          !Array.isArray(file.ports) || file.ports.length > 30) {
+        sendJson(ws, { type: 'error', error: 'Invalid or incompatible custom map file. Select the matching map size and scenario first.' }); return;
+      }
+      const tiles = geom.tiles.map((tile, index) => {
+        const incoming = file.tiles[index];
+        if (!incoming || incoming.q !== tile.q || incoming.r !== tile.r || !validTypes.has(incoming.type)) return null;
+        const n = incoming.number == null ? null : Number(incoming.number);
+        if (n !== null && (!Number.isInteger(n) || n < 2 || n > 12 || n === 7)) return null;
+        if ((incoming.type === 'sea' || incoming.type === 'desert') && n !== null) return null;
+        return { ...tile, type: incoming.type, number: n, robber: incoming.robber === true, pirate: incoming.pirate === true };
+      });
+      if (tiles.some(tile => !tile) || tiles.filter(tile => tile.robber).length !== 1 ||
+          tiles.filter(tile => tile.pirate).length > 1 ||
+          tiles.some(tile => (tile.robber && tile.type === 'sea') || (tile.pirate && tile.type !== 'sea'))) {
+        sendJson(ws, { type: 'error', error: 'Invalid tile layout or robber/pirate positions.' }); return;
+      }
+      const trial = { ...geom, tiles, ports: [] };
+      let valid = true;
+      for (const port of file.ports) {
+        if (!port || !Number.isInteger(port.edgeId) || !validPorts.has(port.kind) || !editTestBuilderPort(trial, port.edgeId, port.kind).ok) {
+          valid = false; break;
+        }
+      }
+      if (!valid) { sendJson(ws, { type: 'error', error: 'Invalid or overlapping custom ports.' }); return; }
+      geom.tiles = trial.tiles;
+      geom.ports = trial.ports;
+      room.preview.at = now();
+      scheduleActiveRoomsSave();
+      broadcastPreviewState(room);
+      sendJson(ws, { type: 'custom_map_loaded', message: 'Custom map loaded into the lobby.' });
+      return;
+    }
+
     if (msg.type === 'edit_preview_tile') {
       if (pid !== room.hostId) {
-        sendJson(ws, { type: 'error', error: 'Only host can edit the test map.' });
+        sendJson(ws, { type: 'error', error: 'Only the lobby host can edit the custom map.' });
         return;
       }
       if (room.game && room.game.phase !== 'lobby') {
@@ -11734,8 +11810,8 @@ if (msg.type === 'create_room') {
       const rules = room.rules || DEFAULT_RULES;
       const mm = String(rules.mapMode || 'classic').toLowerCase();
       const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase();
-      if (mm !== 'seafarers' || !isTestBuilderScenarioKey(scen)) {
-        sendJson(ws, { type: 'error', error: 'Map editing is only available in Seafarers → Test Builder.' });
+      if (!editableCustomMapRules(rules)) {
+        sendJson(ws, { type: 'error', error: 'Select Custom Map to edit this map.' });
         return;
       }
       ensurePreview(room, false);
@@ -11806,7 +11882,7 @@ if (msg.type === 'create_room') {
 
     if (msg.type === 'edit_preview_port') {
       if (pid !== room.hostId) {
-        sendJson(ws, { type: 'error', error: 'Only host can edit the test map.' });
+        sendJson(ws, { type: 'error', error: 'Only the lobby host can edit the custom map.' });
         return;
       }
       if (room.game && room.game.phase !== 'lobby') {
@@ -11816,8 +11892,8 @@ if (msg.type === 'create_room') {
       const rules = room.rules || DEFAULT_RULES;
       const mm = String(rules.mapMode || 'classic').toLowerCase();
       const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase();
-      if (mm !== 'seafarers' || !isTestBuilderScenarioKey(scen)) {
-        sendJson(ws, { type: 'error', error: 'Port editing is only available in Seafarers Test Builder.' });
+      if (!editableCustomMapRules(rules)) {
+        sendJson(ws, { type: 'error', error: 'Select Custom Map to edit ports.' });
         return;
       }
       ensurePreview(room, false);
@@ -11851,7 +11927,10 @@ if (msg.type === 'create_room') {
           ? 'classic56'
           : 'classic';
 
-      const allowSolo = (mm === 'seafarers') && String((room.rules && room.rules.seafarersScenario) || '').toLowerCase() === 'test_builder';
+      const allowSolo = room.casual || editableCustomMapRules(room.rules);
+      if (room.casual && (room.players.some(p => !p.isAI && p.id !== room.hostId) || !room.players.some(p => !p.isAI && p.id === room.hostId))) {
+        sendJson(ws, { type: 'error', error: 'Casual play allows one human player only.' }); return;
+      }
 
       const scen = String((room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
       const isSix = (mm === 'seafarers' && isSeafarers56Scenario(scen));
@@ -11866,7 +11945,7 @@ if (msg.type === 'create_room') {
         return;
       }
       const unready = unreadyHumanRoomPlayers(room);
-      if (unready.length > 0) {
+      if (!room.casual && unready.length > 0) {
         const names = unready.map((player) => String(player.name || 'Player')).join(', ');
         sendJson(ws, { type: 'error', error: `All players must be ready before starting. Waiting for: ${names}.` });
         return;

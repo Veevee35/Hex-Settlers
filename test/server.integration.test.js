@@ -1288,3 +1288,83 @@ test('ordinary users can manage only themselves, verify recovery email, and rese
   assert.equal(stored.passwordReset, undefined);
   assert.equal(JSON.stringify(stored).includes(emailedPassword), false);
 });
+
+test('v34 casual rooms remain AI-only and Classic custom maps round-trip through exported layouts', { timeout: 30_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-v34-casual-'));
+  const server = await startServer(port, dataDir);
+  const host = await Peer.connect(port);
+  const visitor = await Peer.connect(port);
+  t.after(async () => {
+    host.close(); visitor.close(); await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const slug = Date.now().toString(36);
+  host.send({ type: 'auth_register', username: `v34host_${slug}`, password: 'v34 integration test', displayName: 'Host' });
+  await host.waitFor(m => m.type === 'auth_ok');
+  visitor.send({ type: 'auth_register', username: `v34guest_${slug}`, password: 'v34 integration test', displayName: 'Guest' });
+  await visitor.waitFor(m => m.type === 'auth_ok');
+
+  host.send({ type: 'create_room', casual: true });
+  const joined = await host.waitFor(m => m.type === 'joined');
+  assert.equal(joined.room.casual, true);
+  assert.equal(joined.room.players.length, 4);
+  assert.equal(joined.room.players.filter(p => !p.isAI).length, 1);
+  visitor.send({ type: 'join_room', code: joined.room.code, spectator: true });
+  assert.match((await visitor.waitFor(m => m.type === 'error')).error, /private|AI-only/i);
+
+  host.send({ type: 'set_rules', rules: { mapMode: 'classic', customMap: true, randomMapAtStart: false } });
+  await host.waitFor(m => m.type === 'room' && m.room.rules?.customMap === true);
+  const preview = await host.waitFor(m => m.type === 'state' && m.state.rules?.customMap === true && m.state.rules.mapMode === 'classic');
+  assert.equal(preview.state.geom.tiles.some(tile => tile.type === 'desert'), true);
+  host.send({ type: 'download_custom_map' });
+  const original = (await host.waitFor(m => m.type === 'custom_map_file')).map;
+  assert.equal(original.mapKind, 'classic');
+  assert.equal(original.format, 'hex-settlers-custom-map');
+  assert.equal(original.tiles.length, preview.state.geom.tiles.length);
+
+  const patchIndex = original.tiles.findIndex(t => t.type === 'sea');
+  assert.ok(patchIndex >= 0);
+  host.send({ type: 'edit_preview_tile', tileId: patchIndex, tileType: 'forest', number: 8 });
+  const changed = await host.waitFor(m => m.type === 'state' && m.state.geom?.tiles?.[patchIndex]?.type === 'forest');
+  assert.equal(changed.state.geom.tiles[patchIndex].number, 8);
+
+  host.send({ type: 'upload_custom_map', map: original });
+  await host.waitFor(m => m.type === 'custom_map_loaded');
+  const restored = await host.waitFor(m => m.type === 'state' && m.state.geom?.tiles?.[patchIndex]?.type === 'sea');
+  assert.equal(restored.state.geom.tiles[patchIndex].number, null);
+  host.send({ type: 'start_game' });
+  const started = await host.waitFor(m => m.type === 'state' && m.state.phase !== 'lobby', 8_000);
+  assert.equal(started.state.rules.customMap, true);
+  assert.equal(started.state.geom.tiles[patchIndex].type, 'sea');
+});
+
+test('v34 Classic 5–6 Custom Map supports six casual seats, export, and import validation', { timeout: 25_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-v34-classic56-'));
+  const server = await startServer(port, dataDir);
+  const peer = await Peer.connect(port);
+  t.after(async () => { peer.close(); await server.stop(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  peer.send({ type: 'auth_register', username: `v34six_${Date.now().toString(36)}`, password: 'v34 integration test', displayName: 'Host' });
+  await peer.waitFor(m => m.type === 'auth_ok');
+  peer.send({ type: 'create_room', casual: true });
+  await peer.waitFor(m => m.type === 'joined');
+  peer.send({ type: 'set_rules', rules: { mapMode: 'classic56', customMap: true } });
+  const r = await peer.waitFor(m => m.type === 'room' && m.room.rules?.mapMode === 'classic56');
+  assert.equal(r.room.casual, true);
+  assert.equal(r.room.players.length, 6);
+  const preview = await peer.waitFor(m => m.type === 'state' && m.state.rules?.customMap === true && m.state.rules.mapMode === 'classic56');
+  peer.send({ type: 'download_custom_map' });
+  const layout = (await peer.waitFor(m => m.type === 'custom_map_file')).map;
+  assert.equal(layout.mapKind, 'classic56');
+  assert.equal(layout.tiles.length, preview.state.geom.tiles.length);
+  assert.ok(layout.tiles.length > 19);
+  peer.send({ type: 'upload_custom_map', map: { ...layout, tiles: layout.tiles.slice(1) } });
+  assert.match((await peer.waitFor(m => m.type === 'error')).error, /invalid|incompatible/i);
+  peer.send({ type: 'upload_custom_map', map: layout });
+  await peer.waitFor(m => m.type === 'custom_map_loaded');
+  peer.send({ type: 'start_game' });
+  const started = await peer.waitFor(m => m.type === 'state' && m.state.phase !== 'lobby', 8_000);
+  assert.equal(started.state.rules.mapMode, 'classic56');
+  assert.equal(started.state.geom.tiles.length, layout.tiles.length);
+});

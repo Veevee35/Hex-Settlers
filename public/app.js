@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'seamless-flow-v33';
+  const ASSET_CACHE_SW_BUILD = 'features-v34';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -78,6 +78,8 @@
     diceAlgorithmSelect: $('diceAlgorithmSelect'),
     baseResourceCountSelect: $('baseResourceCountSelect'),
     mapModeSelect: $('mapModeSelect'),
+    classicCustomMapToggle: $('classicCustomMapToggle'),
+    classicCustomMapRow: $('classicCustomMapRow'),
     classic56Note: $('classic56Note'),
     sixIslandsNote: $('sixIslandsNote'),
     scenarioRow: $('scenarioRow'),
@@ -92,6 +94,9 @@
     testNumberSelect: $('testNumberSelect'),
     testPortSelect: $('testPortSelect'),
     testResetBtn: $('testResetBtn'),
+    customMapDownloadBtn: $('customMapDownloadBtn'),
+    customMapUploadBtn: $('customMapUploadBtn'),
+    customMapUploadInput: $('customMapUploadInput'),
     victoryPointsSelect: $('victoryPointsSelect'),
     devDeckModeSelect: $('devDeckModeSelect'),
     randomMapAtStartToggle: $('randomMapAtStartToggle'),
@@ -1353,7 +1358,16 @@
     landing?.classList.toggle('hidden', loggedIn);
     modeScreen?.classList.toggle('hidden', !loggedIn || !!selectedPlayMode);
     rankedScreen?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'ranked');
-    appRoot?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'unranked');
+    appRoot?.classList.toggle('hidden', !loggedIn || !['unranked', 'casual'].includes(selectedPlayMode));
+    if (typeof document !== 'undefined') document.body?.classList.toggle('casual-mode', selectedPlayMode === 'casual' || !!room?.casual);
+    if ($('uncreatedLobbyIntro')) {
+      const eyebrow = $('uncreatedLobbyIntro').querySelector('.uncreatedLobbyEyebrow');
+      if (eyebrow) eyebrow.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'CASUAL · VS AI' : 'UNRANKED PLAY';
+      const title = $('uncreatedLobbyIntro').querySelector('h1');
+      if (title) title.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Play against the AI' : 'Start a new adventure';
+      const lead = $('uncreatedLobbyIntro').querySelector('p');
+      if (lead) lead.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Create a private AI-only lobby with every map and game setting available.' : 'Create a lobby to invite friends, or enter a room code to join an existing game.';
+    }
     $('accountOrb')?.classList.toggle('hidden', !loggedIn);
     if (loggedIn) {
       const label = authUser.displayName || authUser.username || '?';
@@ -1930,6 +1944,8 @@ let historyState = {
   loadingGames: false,
   loadingBoard: false,
   openMode: 'summary',
+  friendsOnly: false, friendIds: new Set(),
+  selectedIds: new Set(), savedReplays: [], exporting: null,
 };
 
 let historyReplay = {
@@ -3379,6 +3395,8 @@ function openHistoryOverlay(tab) {
   historyState.loadingBoard = true;
   setHistoryVisible(true);
   requestHistoryData();
+  refreshHistoryFriends();
+  refreshSavedReplays();
 }
 
 function closeHistoryOverlay() {
@@ -3398,6 +3416,124 @@ function requestHistoryData() {
   } catch(_) {}
 }
 
+// Friends are resolved from the authenticated account; this never relies on display names.
+async function refreshHistoryFriends() {
+  try {
+    const result = await accountApi('friends');
+    historyState.friendIds = new Set((result.friends || []).map(friend => String(friend.id)));
+  } catch (error) {
+    historyState.friendIds = new Set();
+    if (historyState.friendsOnly) toast('Friends could not be loaded: ' + (error.message || error));
+  }
+  if (historyState.active) renderHistory();
+}
+
+function openReplayLibrary() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') { reject(new Error('This browser does not support saved replay storage.')); return; }
+    const request = indexedDB.open('hexsettlers-offline-replays', 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('replays')) request.result.createObjectStore('replays', { keyPath: 'id' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Replay storage could not open.'));
+  });
+}
+async function replayLibraryOp(kind, value) {
+  const db = await openReplayLibrary();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('replays', kind === 'getAll' ? 'readonly' : 'readwrite');
+      const request = kind === 'getAll' ? tx.objectStore('replays').getAll()
+        : kind === 'put' ? tx.objectStore('replays').put(value)
+        : tx.objectStore('replays').delete(value);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('Could not access saved replays.'));
+      tx.onabort = () => reject(tx.error || new Error('Replay storage transaction failed.'));
+    });
+  } finally { db.close(); }
+}
+function replayEntryIsUsable(game) {
+  return !!(game && typeof game.id === 'string' && game.id.length < 128 &&
+    game.replay && game.replay.initial && Array.isArray(game.replay.steps) && game.replay.steps.length < 100000 &&
+    Array.isArray(game.players) && game.players.length <= 8 && game.snapshot && typeof game.snapshot === 'object');
+}
+async function refreshSavedReplays() {
+  try {
+    historyState.savedReplays = (await replayLibraryOp('getAll')).filter(g => replayEntryIsUsable(g.game));
+    historyState.savedReplays.sort((a,b) => Number(b.savedAt || 0) - Number(a.savedAt || 0));
+  } catch(error) { historyState.savedReplays = []; }
+  if (historyState.active) renderHistory();
+}
+function renderSavedReplayList() {
+  const saved = historyState.savedReplays.filter(item => !historyState.friendsOnly ||
+    (item.game.players || []).some(p => historyState.friendIds.has(String(p.id))));
+  if (!saved.length) return;
+  const heading = document.createElement('div'); heading.className = 'historySavedSection';
+  heading.textContent = `Saved replays on this device (${saved.length})`;
+  ui.historyBody.appendChild(heading);
+  for (const item of saved) {
+    const game = item.game;
+    const card = document.createElement('div'); card.className = 'historyCard';
+    const label = document.createElement('label'); label.className = 'historyGameSelect';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    checkbox.checked = historyState.selectedIds.has(item.id);
+    checkbox.setAttribute('aria-label', 'Select saved replay for download');
+    checkbox.addEventListener('change', () => { if(checkbox.checked) historyState.selectedIds.add(item.id); else historyState.selectedIds.delete(item.id); });
+    label.appendChild(checkbox);
+    const meta = document.createElement('div'); meta.className = 'historyMeta';
+    const title = document.createElement('div'); title.className = 'historyLine1';
+    title.textContent = (game.winnerName || 'Completed game') + ' · ' + (game.players || []).map(p => p.name).join(', ');
+    const info = document.createElement('div'); info.className = 'historyLine2';
+    info.textContent = `${fmtDateTime(game.endedAt)} · Offline replay · ${(game.replay.steps || []).length} steps`;
+    meta.append(title,info);
+    const actions = document.createElement('div'); actions.className = 'historyActions';
+    for (const [name,callback] of [
+      ['Replay', () => startHistoryReplay(game)],
+      ['View Summary', () => openPostgameSnapshot(cloneReplayValue(game.snapshot), game, {tab:'summary'})],
+      ['Remove', async () => { await replayLibraryOp('delete', item.id); historyState.selectedIds.delete(item.id); refreshSavedReplays(); }],
+    ]) {
+      const button = document.createElement('button'); button.className = 'btn'; button.type = 'button';
+      button.textContent = name; button.addEventListener('click', callback); actions.appendChild(button);
+    }
+    card.append(label,meta,actions); ui.historyBody.appendChild(card);
+  }
+}
+async function importReplayFile(file) {
+  if (!file) return;
+  if (file.size > 80 * 1024 * 1024) throw new Error('Replay file exceeds 80 MB.');
+  const pack = JSON.parse(await file.text());
+  if (pack?.format !== 'hex-settlers-replay-pack' || pack.version !== 1 ||
+    !Array.isArray(pack.games) || !pack.games.length || pack.games.length > 300) {
+    throw new Error('This is not a supported Hex Settlers replay export.');
+  }
+  for (const game of pack.games) if (!replayEntryIsUsable(game)) throw new Error('Replay file is incomplete or invalid.');
+  for (const game of pack.games) await replayLibraryOp('put', { id: 'saved:' + game.id, game, savedAt: Date.now() });
+  await refreshSavedReplays();
+  return pack.games.length;
+}
+function downloadChosenReplays() {
+  const local = historyState.savedReplays.filter(item => historyState.selectedIds.has(item.id)).map(item => item.game);
+  const selectedServer = historyState.games.filter(item => historyState.selectedIds.has(item.id)).map(item => item.id);
+  if (!local.length && !selectedServer.length) { toast('Select one or more games from Game History to download.'); return; }
+  historyState.exporting = { queue: selectedServer, games: local };
+  requestNextReplayExport();
+}
+function requestNextReplayExport() {
+  const task = historyState.exporting; if (!task) return;
+  if (task.queue.length) {
+    const id = task.queue.shift();
+    historyState.openMode = 'download';
+    send({ type: 'get_game_history_entry', id });
+    return;
+  }
+  historyState.exporting = null;
+  const filename = `hex-settlers-replays-${new Date().toISOString().slice(0,10)}.json`;
+  saveBrowserJson(filename, { format: 'hex-settlers-replay-pack', version: 1, exportedAt: new Date().toISOString(), games: task.games });
+  historyState.openMode = 'summary';
+  toast(`Downloaded ${task.games.length} replay${task.games.length === 1 ? '' : 's'}.`);
+}
+
 function renderHistory() {
   if (!ui.historyBody) return;
 
@@ -3414,6 +3550,10 @@ function renderHistory() {
   }
 
   ui.historyBody.innerHTML = '';
+  const filterBox = $('historyFriendsOnly');
+  if (filterBox) filterBox.checked = historyState.friendsOnly;
+  $('historyDownloadSelectedBtn')?.classList.toggle('hidden', historyState.tab !== 'games');
+  $('historyUploadReplayBtn')?.classList.toggle('hidden', historyState.tab !== 'games');
 
   if (!authUser) {
     const d = document.createElement('div');
@@ -3431,7 +3571,7 @@ function renderGamesHistoryTab() {
   const wrap = document.createElement('div');
   wrap.className = 'historyList';
 
-  const games = Array.isArray(historyState.games) ? historyState.games : [];
+  const games = (Array.isArray(historyState.games) ? historyState.games : []).filter(g => !historyState.friendsOnly || (g.players || []).some(p => historyState.friendIds.has(String(p.id))));
   if (historyState.loadingGames) {
     const h = document.createElement('div');
     h.className = 'hint';
@@ -3447,6 +3587,12 @@ function renderGamesHistoryTab() {
       const card = document.createElement('div');
       card.className = 'historyCard';
 
+      const select = document.createElement('label');
+      select.className = 'historyGameSelect';
+      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = historyState.selectedIds.has(g.id);
+      checkbox.setAttribute('aria-label', 'Select game for replay download');
+      checkbox.addEventListener('change', () => { if (checkbox.checked) historyState.selectedIds.add(g.id); else historyState.selectedIds.delete(g.id); });
+      select.appendChild(checkbox);
       const meta = document.createElement('div');
       meta.className = 'historyMeta';
 
@@ -3458,7 +3604,7 @@ function renderGamesHistoryTab() {
 
       const line2 = document.createElement('div');
       line2.className = 'historyLine2';
-      line2.textContent = `${fmtDateTime(g.endedAt)}  •  ${g.ranked == null ? 'Unranked · Legacy game' : g.ranked ? 'Ranked' : 'Unranked'}  •  Turns: ${Number(g.turns || 0)}  •  ${mapLabelFromRules(g.rules)}`;
+      line2.textContent = `${fmtDateTime(g.endedAt)}  •  ${g.ranked == null ? 'Unranked · Legacy game' : g.ranked ? 'Ranked' : (g.casual ? 'Casual · vs AI' : 'Unranked')}  •  Turns: ${Number(g.turns || 0)}  •  ${mapLabelFromRules(g.rules)}`;
 
       meta.appendChild(line1);
       meta.appendChild(line2);
@@ -3488,6 +3634,7 @@ function renderGamesHistoryTab() {
       actions.appendChild(replayBtn);
       actions.appendChild(viewBtn);
 
+      card.appendChild(select);
       card.appendChild(meta);
       card.appendChild(actions);
       wrap.appendChild(card);
@@ -3495,6 +3642,7 @@ function renderGamesHistoryTab() {
   }
 
   ui.historyBody.appendChild(wrap);
+  renderSavedReplayList();
 }
 
 function sortLeaderboardRows(rows) {
@@ -3534,7 +3682,7 @@ function setLeaderboardMode(mode) {
 }
 
 function renderLeaderboardTab() {
-  const rowsRaw = Array.isArray(historyState.leaderboard) ? historyState.leaderboard : [];
+  const rowsRaw = (Array.isArray(historyState.leaderboard) ? historyState.leaderboard : []).filter(r => !historyState.friendsOnly || historyState.friendIds.has(String(r.id)));
   const mode = ['ranked', 'unranked', 'combined'].includes(historyState.leaderboardMode) ? historyState.leaderboardMode : 'combined';
   const subTabs = document.createElement('div');
   subTabs.className = 'leaderboardSubTabs';
@@ -5530,7 +5678,7 @@ function syncPostgameToState() {
   let roomRecoveryTimer = null;
   let pendingReconnectRoomMessages = [];
   const RECONNECT_SAFE_ROOM_MESSAGE_TYPES = new Set([
-    'chat', 'clear_ai', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
+    'chat', 'clear_ai', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
     'get_state', 'get_texture_pack', 'kick_player', 'leave_room', 'pause_game', 'request_leave_game',
     'ranked_scenario_vote', 'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_player_color', 'set_rules',
     'set_ready', 'set_spectator_mode', 'set_spectator_view', 'set_texture_pack', 'start_game', 'texture_pack_publish',
@@ -6668,6 +6816,12 @@ function refreshLobbyJoinLinkUi() {
       }
 
 
+      if (msg.type === 'custom_map_file') {
+        const label = String(msg.map?.mapKind || 'custom').replace(/[^a-z0-9_-]/gi, '-');
+        saveBrowserJson(`hex-settlers-${label}-map.json`, msg.map); return;
+      }
+      if (msg.type === 'custom_map_loaded') { toast(msg.message || 'Custom map loaded.'); return; }
+
       if (msg.type === 'game_history_list') {
         historyState.games = Array.isArray(msg.games) ? msg.games : [];
         historyState.loadingGames = false;
@@ -6688,6 +6842,11 @@ function refreshLobbyJoinLinkUi() {
           if (snap.stats && !snap.stats.startedAt && g.startedAt) snap.stats.startedAt = g.startedAt;
         }
         const openMode = historyState.openMode || 'summary';
+        if (openMode === 'download') {
+          if (replayEntryIsUsable(g) && historyState.exporting) historyState.exporting.games.push(g);
+          requestNextReplayExport();
+          return;
+        }
         if (openMode === 'replay') startHistoryReplay(g);
         else openPostgameSnapshot(snap, g, { tab: 'summary' });
         historyState.openMode = 'summary';
@@ -6853,7 +7012,10 @@ function refreshLobbyJoinLinkUi() {
         if (ui.pgRematchBtn) { ui.pgRematchBtn.disabled = false; ui.pgRematchBtn.textContent = 'Rematch'; }
         // Room membership always displays the lobby, even after a saved
         // ranked preference or a reconnect before the user chose a mode.
-        if (selectedPlayMode !== 'unranked') {
+        if (msg.room?.casual) {
+          selectedPlayMode = 'casual';
+          try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+        } else if (selectedPlayMode !== 'unranked') {
           selectedPlayMode = 'unranked';
           try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
         }
@@ -8837,7 +8999,7 @@ function refreshLobbyJoinLinkUi() {
       ],
     },
     test_builder: {
-      label: 'Test Builder',
+      label: 'Custom Map',
       summary: 'A solo-capable sandbox for painting a custom Seafarers board before starting.',
       setup: [
         'The host paints tile types and optional numbers, or selects port types and places them on shoreline edges. Sea and desert tiles ignore number selections.',
@@ -8851,7 +9013,7 @@ function refreshLobbyJoinLinkUi() {
       ],
     },
     test_builder_56: {
-      label: 'Test Builder',
+      label: 'Custom Map',
       summary: 'A large-frame sandbox for designing a custom 5–6-player Seafarers board before starting.',
       setup: [
         'The host paints tile types and optional numbers, or selects port types and places them on shoreline edges. Sea and desert tiles ignore number selections.',
@@ -9293,7 +9455,7 @@ function refreshLobbyJoinLinkUi() {
             : (scenRaw === 'cartographer_4_random' || scenRaw === 'cartographer-4-random' || scenRaw === 'cartographer_random' || scenRaw === 'random_cartographer' || scenRaw === 'cartographer_4' || scenRaw === 'cartographer-4' || scenRaw === 'cartographer4' || scenRaw === 'cartographer' || scenRaw === 'cartographer_56_random' || scenRaw === 'cartographer-56-random' || scenRaw === 'cartographer56_random' || scenRaw === 'scattered_tiles_56' || scenRaw === 'scattered_tiles56' || scenRaw === 'scattered_56')
               ? 'Scattered Tiles'
               : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder' || scenRaw === 'test_builder_56' || scenRaw === 'test-builder-56')
-                ? 'Test Builder'
+                ? 'Custom Map'
                 : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
                     ? 'Six Islands'
                     : 'Four Islands')
@@ -10065,7 +10227,7 @@ function refreshLobbyJoinLinkUi() {
           : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
             ? 'classic56'
             : 'classic';
-        const allowSolo = (mm === 'seafarers') && String(room?.rules?.seafarersScenario || '').toLowerCase() === 'test_builder';
+        const allowSolo = !!room?.casual || !!room?.rules?.customMap || (mm === 'seafarers' && uiIsTestBuilderScenario(room?.rules));
         const scen = String(room?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
         const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56'));
         const minPlayers = (mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2));
@@ -10211,6 +10373,12 @@ function refreshLobbyJoinLinkUi() {
     if (ui.mapModeSelect) {
       ui.mapModeSelect.value = uiMapModeFromRules(r);
       ui.mapModeSelect.disabled = !isHost;
+      if (ui.classicCustomMapToggle) {
+        const isClassic = ['classic','classic56'].includes(ui.mapModeSelect.value);
+        ui.classicCustomMapRow?.classList.toggle('hidden', !isClassic);
+        ui.classicCustomMapToggle.checked = isClassic && r.customMap === true;
+        ui.classicCustomMapToggle.disabled = !isHost;
+      }
     }
     if (ui.devDeckModeSelect) {
       const ddRaw = String(r.devDeckMode ?? 25);
@@ -10219,7 +10387,7 @@ function refreshLobbyJoinLinkUi() {
     }
     if (ui.randomMapAtStartToggle) {
       ui.randomMapAtStartToggle.checked = r.randomMapAtStart === true;
-      ui.randomMapAtStartToggle.disabled = !isHost;
+      ui.randomMapAtStartToggle.disabled = !isHost || !!r.customMap || ((r.mapMode === 'seafarers') && uiIsTestBuilderScenario(r));
     }
     // Seafarers scenario selector
     const mmNow = uiMapModeFromRules(r);
@@ -10245,15 +10413,16 @@ function refreshLobbyJoinLinkUi() {
       ui.mapScenario56Select.disabled = !isHost || (mmNow !== 'seafarers56');
     }
 
-    // Test Builder map and port painting UI (host-only)
+    // Custom Map map and port painting UI (host-only)
     const scenNow = String(r.seafarersScenario || 'four_islands').toLowerCase();
-    const showTestBuilder = (mmNow === 'seafarers' || mmNow === 'seafarers56') && uiIsTestBuilderScenario(r);
+    const showTestBuilder = ((mmNow === 'seafarers' || mmNow === 'seafarers56') && uiIsTestBuilderScenario(r)) || (['classic','classic56'].includes(mmNow) && r.customMap === true);
     if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTestBuilder || gameStarted);
     if (ui.testToolSelect) ui.testToolSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testBrushSelect) ui.testBrushSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testNumberSelect) ui.testNumberSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testPortSelect) ui.testPortSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testResetBtn) ui.testResetBtn.disabled = !isHost || !showTestBuilder || gameStarted;
+    for (const button of [ui.customMapDownloadBtn,ui.customMapUploadBtn]) if(button) button.disabled = !isHost || !showTestBuilder || gameStarted;
     syncTestBuilderToolModeUi();
 
     // Victory points to win
@@ -10301,7 +10470,7 @@ function refreshLobbyJoinLinkUi() {
           : (scen === 'heading_for_new_shores' ? 'Heading for New Shores'
             : (scen === 'cartographer_4_manual' || scen === 'cartographer_56_manual' ? 'Cartographer'
             : (scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_random' ? 'Scattered Tiles'
-              : (scen === 'test_builder' || scen === 'test_builder_56' ? 'Test Builder'
+              : (scen === 'test_builder' || scen === 'test_builder_56' ? 'Custom Map'
                 : (scen === 'six_islands' ? 'Six Islands' : 'Four Islands'))))));
       const is56 = (mmL === 'classic56' || mmL === 'classic_5_6' || mmL === 'classic-5-6' || mmL === 'classic5_6' || mmL === 'classic5-6');
       const mapLabel = (mmL === 'seafarers56') ? `seafarers 5–6 (${scenLabel.toLowerCase()}, paired turns)`
@@ -10318,16 +10487,16 @@ function refreshLobbyJoinLinkUi() {
       ui.rulesPreview.textContent = `Map: ${mapLabel} • Win: ${vpWin} VP • Dev deck: ${ddCards} cards • Dice: ${diceLabel} • Discard limit: ${r.discardLimit ?? 7}${friendlyRobberLabel}${explorationLabel} • Setup turn: ${s1}s • Turn: ${s2}s • Micro: ${s3}s`;
     }
 
-    const allowSolo = (mmNow === 'seafarers' && scenNow === 'test_builder');
+    const allowSolo = !!room?.casual || !!r.customMap || (mmNow === 'seafarers' && uiIsTestBuilderScenario(r));
     const mmLow = String(mmNow || 'classic').toLowerCase();
     const isClassic56 = (mmLow === 'classic56' || mmLow === 'classic_5_6' || mmLow === 'classic-5-6' || mmLow === 'classic5_6' || mmLow === 'classic5-6');
     const isSix = uiIsSixIslands(r);
     const minPlayers = isClassic56 ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2));
     const gameIsInLobby = !state || state.phase === 'lobby';
     const meInLobby = (room.players || []).find((player) => player && player.id === myPlayerId) || null;
-    const allPlayersReady = (room.players || []).length > 0 && (room.players || []).every((player) => !!(player && (player.isAI || player.ready === true)));
+    const allPlayersReady = !!room.casual || ((room.players || []).length > 0 && (room.players || []).every((player) => !!(player && (player.isAI || player.ready === true))));
     if (ui.readyBtn) {
-      const showReady = !!(gameIsInLobby && meInLobby && !meInLobby.isAI && !room.ranked);
+      const showReady = !!(gameIsInLobby && meInLobby && !meInLobby.isAI && !room.ranked && !room.casual);
       const amReady = !!(meInLobby && meInLobby.ready === true);
       ui.readyBtn.classList.toggle('hidden', !showReady);
       ui.readyBtn.classList.toggle('primary', amReady);
@@ -10481,6 +10650,7 @@ function refreshLobbyJoinLinkUi() {
   });
   function choosePlayMode(mode) {
     $('playModeNotice')?.classList.add('hidden');
+    if (mode === 'casual' && !room) prepareUncreatedLobby();
     if (mode === 'unranked' && !room) {
       // Navigation is not a new room: URL remains clean until a code is
       // explicitly supplied or a recent confirmed room is recovered.
@@ -10498,6 +10668,7 @@ function refreshLobbyJoinLinkUi() {
   }
   $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
   $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('unranked'));
+  $('casualModeBtn')?.addEventListener('click', () => choosePlayMode('casual'));
   function startRankedMatchmaking() {
     const status = $('rankedStatus');
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -10610,7 +10781,7 @@ function refreshLobbyJoinLinkUi() {
         profile.querySelector('.friendPresence').classList.toggle('online', !!friend.online);
         profile.addEventListener('click', () => void openPlayerProfileById(friend.id));
         row.appendChild(profile);
-        if (canInvite) {
+        if (canInvite && !room.casual) {
           const invite = document.createElement('button');
           invite.type = 'button';
           invite.className = 'btn friendInviteBtn';
@@ -10675,7 +10846,7 @@ function refreshLobbyJoinLinkUi() {
     resetViewportForRoomChange();
     render();
     const displayName = (ui.nameInput?.value || '').trim() || authUser.displayName || 'Host';
-    send({ type: 'create_room', displayName });
+    send({ type: 'create_room', displayName, casual: selectedPlayMode === 'casual' });
   });
 
   ui.joinBtn.addEventListener('click', () => {
@@ -10756,7 +10927,8 @@ function refreshLobbyJoinLinkUi() {
         const scenario = String(selectedTestScenario || '').toLowerCase().replace(/-/g, '_');
         ui.explorationPointsToggle.checked = scenario !== 'fog_island' && scenario !== 'fog_island_56';
       }
-      const showTest = (mm === 'seafarers' || mm === 'seafarers56') && uiIsTestBuilderScenario({ seafarersScenario: selectedTestScenario });
+      const showTest = ((mm === 'seafarers' || mm === 'seafarers56') && uiIsTestBuilderScenario({ seafarersScenario: selectedTestScenario })) || (['classic','classic56'].includes(mm) && !!ui.classicCustomMapToggle?.checked);
+      ui.classicCustomMapRow?.classList.toggle('hidden', !['classic','classic56'].includes(mm));
       if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTest);
 
       // If the host hasn't manually set a win target yet, auto-fill the scenario default.
@@ -10827,7 +10999,7 @@ function refreshLobbyJoinLinkUi() {
     ['discardLimitInput', 'Discard limit'], ['friendlyRobberToggle', 'Friendly Robber'],
     ['timerSpeedSelect', 'Timer speed'], ['diceAlgorithmSelect', 'Dice algorithm'],
     ['baseResourceCountSelect', 'Bank resources per type'], ['mapModeSelect', 'Map type'],
-    ['mapScenarioSelect', 'Seafarers scenario'], ['mapScenario56Select', '5–6-player scenario'],
+    ['mapScenarioSelect', 'Seafarers scenario'], ['mapScenario56Select', '5–6-player scenario'], ['classicCustomMapToggle','Custom Map'],
     ['explorationPointsToggle', 'Exploration victory points'],
     ['victoryPointsSelect', 'Victory points to win'], ['devDeckModeSelect', 'Development deck'],
     ['randomMapAtStartToggle', 'Surprise map at start'],
@@ -10855,7 +11027,7 @@ function refreshLobbyJoinLinkUi() {
       discardLimit: Number.isFinite(discardLimit) ? discardLimit : 7,
       setupTurnMs: Math.round(60000 * factor), playTurnMs: Math.round(30000 * factor),
       microPhaseMs: Math.round(15000 * factor), diceAlgorithm: normalizeDiceAlgorithmClient(ui.diceAlgorithmSelect?.value),
-      mapMode, seafarersScenario, victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
+      mapMode, customMap: ['classic','classic56'].includes(mapMode) && !!ui.classicCustomMapToggle?.checked, seafarersScenario, victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
       devDeckMode: [13,25,38].includes(devDeckMode) ? devDeckMode : undefined,
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
       friendlyRobber: ui.friendlyRobberToggle ? !!ui.friendlyRobberToggle.checked : false,
@@ -11002,10 +11174,69 @@ function refreshLobbyJoinLinkUi() {
     });
   }
 
-  if (ui.testResetBtn) {
+    ui.classicCustomMapToggle?.addEventListener('change', () => {
+      ui.testBuilderRow?.classList.toggle('hidden', !ui.classicCustomMapToggle.checked);
+      if (ui.classicCustomMapToggle.checked && ui.randomMapAtStartToggle) ui.randomMapAtStartToggle.checked = false;
+      commitLobbySettings();
+    });
+    if (ui.testResetBtn) {
     ui.testResetBtn.addEventListener('click', () => {
       if (!room || room.hostId !== myPlayerId) return;
       send({ type: 'generate_map' });
+    });
+  }
+
+  // Portable custom maps. Uploads are validated by the server before use.
+  function saveBrowserJson(filename, documentValue) {
+    const blob = new Blob([JSON.stringify(documentValue)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url; link.download = filename;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+  ui.customMapDownloadBtn?.addEventListener('click', () => send({ type: 'download_custom_map' }));
+  ui.customMapUploadBtn?.addEventListener('click', () => ui.customMapUploadInput?.click());
+  ui.customMapUploadInput?.addEventListener('change', async () => {
+    const file = ui.customMapUploadInput.files?.[0]; ui.customMapUploadInput.value = '';
+    if (!file) return;
+    if (file.size > 512_000) { setError('Custom maps must be smaller than 500 KB.'); return; }
+    try { send({ type: 'upload_custom_map', map: JSON.parse(await file.text()) }); }
+    catch (error) { setError('Invalid custom map JSON: ' + error.message); }
+  });
+  // The splitter changes how much horizontal space the settings panel gets.
+  const lobbySplitter = $('lobbyPanelSplitter');
+  let lobbySplitWidth = (() => { try { return Number(localStorage.getItem('hexsettlers_lobby_panel_width_v34')) || 360; } catch (_) { return 360; } })();
+  function setLobbyPanelWidth(next, persist=false) {
+    const max = Math.max(280, Math.min(900, window.innerWidth - 300));
+    lobbySplitWidth = Math.max(280, Math.min(max, Number(next) || 360));
+    document.documentElement.style.setProperty('--lobby-sidebar-width', lobbySplitWidth + 'px');
+    lobbySplitter?.setAttribute('aria-valuenow', String(Math.round(lobbySplitWidth)));
+    if (persist) { try { localStorage.setItem('hexsettlers_lobby_panel_width_v34', String(lobbySplitWidth)); } catch (_) {} }
+    try { resizeCanvas(); } catch (_) {}
+  }
+  setLobbyPanelWidth(lobbySplitWidth);
+  if (lobbySplitter) {
+    let pointerId = null;
+    lobbySplitter.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
+      pointerId = ev.pointerId; lobbySplitter.setPointerCapture(ev.pointerId);
+      lobbySplitter.classList.add('dragging'); ev.preventDefault();
+    });
+    lobbySplitter.addEventListener('pointermove', ev => {
+      if (pointerId !== ev.pointerId) return;
+      const layout = lobbySplitter.closest('.layout');
+      const left = layout?.getBoundingClientRect().left || 0;
+      setLobbyPanelWidth(ev.clientX - left - 7);
+    });
+    const stop = ev => { if (pointerId !== null && (ev.pointerId === pointerId || ev.type === 'lostpointercapture')) {
+      pointerId = null; lobbySplitter.classList.remove('dragging'); setLobbyPanelWidth(lobbySplitWidth, true);
+    } };
+    lobbySplitter.addEventListener('pointerup', stop);
+    lobbySplitter.addEventListener('pointercancel', stop);
+    lobbySplitter.addEventListener('lostpointercapture', stop);
+    lobbySplitter.addEventListener('keydown', ev => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(ev.key)) return;
+      ev.preventDefault(); setLobbyPanelWidth(ev.key === 'Home' ? 280 : ev.key === 'End' ? 900 : lobbySplitWidth + (ev.key === 'ArrowLeft' ? -24 : 24), true);
     });
   }
 
@@ -11808,6 +12039,20 @@ function refreshLobbyJoinLinkUi() {
 
 
 // History / Leaderboard overlay controls
+$('historyFriendsOnly')?.addEventListener('change', event => {
+  historyState.friendsOnly = !!event.target.checked;
+  renderHistory();
+});
+$('historyDownloadSelectedBtn')?.addEventListener('click', downloadChosenReplays);
+$('historyUploadReplayBtn')?.addEventListener('click', () => $('historyUploadReplayInput')?.click());
+$('logReplayExportBtn')?.addEventListener('click', () => openHistoryOverlay('games'));
+$('logReplayImportBtn')?.addEventListener('click', () => $('historyUploadReplayInput')?.click());
+$('historyUploadReplayInput')?.addEventListener('change', async event => {
+  const file = event.target.files?.[0]; event.target.value = '';
+  if (!file) return;
+  try { const count = await importReplayFile(file); toast(`Saved ${count} replay${count === 1 ? '' : 's'} on this device.`); openHistoryOverlay('games'); }
+  catch (error) { toast(error.message || 'Unable to import replay.'); }
+});
 if (ui.historyBtn) ui.historyBtn.addEventListener('click', () => openHistoryOverlay('games'));
 if (ui.leaderboardBtn) ui.leaderboardBtn.addEventListener('click', () => openHistoryOverlay('players'));
 
@@ -14414,12 +14659,12 @@ function handleProductionGoldPrompt() {
 
     if (!screenCache) return;
 
-    // Test Builder tile and port painting in lobby (host only)
+    // Custom Map tile and port painting in lobby (host only)
     if (state && state.phase === 'lobby' && room && room.hostId === myPlayerId) {
       const rr = room.rules || state.rules || {};
       const mm = String(rr.mapMode || 'classic').toLowerCase();
       const scen = String(rr.seafarersScenario || 'four_islands').toLowerCase();
-      if (mm === 'seafarers' && uiIsTestBuilderScenario(rr)) {
+      if ((mm === 'seafarers' && uiIsTestBuilderScenario(rr)) || (['classic','classic56'].includes(mm) && rr.customMap === true)) {
         const tool = String(ui.testToolSelect?.value || 'tile');
         if (tool === 'port') {
           const edgeId = pickEdge(x, y);

@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=seamless-flow-v33" />
+  <link rel="stylesheet" href="styles.css?v=features-v34" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -51,6 +51,7 @@
       <div class="modeChoices">
         <button id="rankedModeBtn" class="modeChoice"><strong>Ranked Play</strong><span>Match automatically with similarly ranked players.</span></button>
         <button id="unrankedModeBtn" class="modeChoice"><strong>Unranked Play</strong><span>Create a private lobby or join friends with a room code.</span></button>
+        <button id="casualModeBtn" class="modeChoice"><strong>Casual Play · vs AI</strong><span>All maps and settings, one human player, no shareable lobby or ratings.</span></button>
       </div>
     </div>
     <nav class="portalLegalLinks" aria-label="Legal information">
@@ -336,6 +337,10 @@
             <option value="seafarers">Seafarers</option>
             <option value="seafarers56">Seafarers 5–6 Player Scenarios</option>
           </select>
+          <label id="classicCustomMapRow" class="checkRow" style="margin-top:10px;align-items:center;gap:8px">
+            <input id="classicCustomMapToggle" type="checkbox" />
+            <span>Custom Map — paint tiles and ports on either Classic board</span>
+          </label>
           <div id="classic56Note" class="smallNote hidden">Classic 5–6 uses paired turns (Player 1 rolls + acts, then Player 2 acts). Player 2 may only trade with the bank. Requires 5–6 players and uses 11 ports.</div>
           <div id="sixIslandsNote" class="smallNote hidden">Seafarers 5–6 scenarios use paired turns like the classic 5–6 rules (Player 1 rolls + acts, then Player 2 acts). Player 2 may only trade with the bank. Requires 5–6 players and uses 11 ports.</div>
 
@@ -348,7 +353,7 @@
               <option value="heading_for_new_shores">Heading for New Shores</option>
               <option value="cartographer_4_manual">Cartographer</option>
               <option value="cartographer_4_random">Scattered Tiles</option>
-              <option value="test_builder">Test Builder (Solo)</option>
+              <option value="test_builder">Custom Map (Solo)</option>
             </select>
           </div>
 
@@ -360,7 +365,7 @@
               <option value="fog_island_56">Fog Island</option>
               <option value="cartographer_56_manual">Cartographer</option>
               <option value="cartographer_56_random">Scattered Tiles</option>
-              <option value="test_builder_56">Test Builder</option>
+              <option value="test_builder_56">Custom Map</option>
             </select>
           </div>
 
@@ -374,7 +379,7 @@
           </div>
 
           <div id="testBuilderRow" class="hidden">
-            <label class="label">Test builder</label>
+            <label class="label">Custom Map Editor</label>
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               <select id="testToolSelect" class="input" style="width:145px;">
                 <option value="tile" selected>Paint tiles</option>
@@ -413,6 +418,9 @@
                 <option value="remove">Remove port</option>
               </select>
               <button id="testResetBtn" class="btn" type="button">Reset blank</button>
+              <button id="customMapDownloadBtn" class="btn" type="button">Download Map</button>
+              <button id="customMapUploadBtn" class="btn" type="button">Upload Map</button>
+              <input id="customMapUploadInput" class="hidden" type="file" accept=".json,application/json" />
             </div>
             <div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
           </div>
@@ -551,6 +559,7 @@
         <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
         <span>Map</span>
       </button>
+      <div id="lobbyPanelSplitter" class="lobbyPanelSplitter" role="separator" tabindex="0" aria-label="Resize lobby settings and map preview" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="900" aria-valuenow="360" title="Drag to resize lobby settings; use arrow keys to adjust"></div>
       <section class="boardWrap">
         <button id="mobileLobbyMapClose" class="mobileLobbyMapClose" type="button" aria-label="Close lobby map">✕ Close Map</button>
         <canvas id="board" width="1200" height="900"></canvas>
@@ -619,6 +628,7 @@
 	        <div class="card logOverlay hidden" id="logCard">
 	          <div class="cardTitleRow">
 	            <h2>Game Log</h2>
+            <div class="logReplayTools"><button id="logReplayExportBtn" class="btn" type="button">Download selected</button><button id="logReplayImportBtn" class="btn" type="button">Upload Game Replay</button></div>
 	            <button id="logHideBtn" class="btn hidden">Hide</button>
 	          </div>
 	          <div id="logList" class="logList"></div>
@@ -715,6 +725,14 @@
         <button class="hTab" data-tab="players">Player Stats</button>
       </div>
 
+      <div class="historyToolbar">
+        <label class="checkRow"><input type="checkbox" id="historyFriendsOnly" /> Friends only</label>
+        <div class="historyReplayTools">
+          <button type="button" id="historyDownloadSelectedBtn" class="btn">Download selected</button>
+          <button type="button" id="historyUploadReplayBtn" class="btn">Upload Game Replay</button>
+          <input id="historyUploadReplayInput" type="file" accept=".json,application/json" class="hidden" />
+        </div>
+      </div>
       <div id="historyBody" class="historyBody"></div>
     </div>
   </div>
@@ -728,6 +746,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=seamless-flow-v33"></script>
+  <script src="app.js?v=features-v34"></script>
 </body>
 </html>

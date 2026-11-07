@@ -17,6 +17,8 @@ test('protocol accepts current gameplay, ranked matchmaking, Test Builder, exper
   assert.ok(CLIENT_MESSAGE_TYPES.includes('set_expert_ai_tuning'));
   assert.ok(CLIENT_MESSAGE_TYPES.includes('set_spectator_view'));
   assert.ok(CLIENT_MESSAGE_TYPES.includes('set_ready'));
+  assert.ok(CLIENT_MESSAGE_TYPES.includes('download_custom_map'));
+  assert.ok(CLIENT_MESSAGE_TYPES.includes('upload_custom_map'));
   assert.ok(CLIENT_MESSAGE_TYPES.includes('ranked_queue_join'));
   assert.equal(CLIENT_MESSAGE_TYPES.includes('trade_timer_pause'), false);
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: 'trade_timer_pause', active: true })), { ok: false, error: 'Unknown message type.' });

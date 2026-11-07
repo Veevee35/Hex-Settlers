@@ -49,7 +49,7 @@ test('resource icons no longer stop growing at the width of the grid column', ()
 });
 
 test('client JS, CSS, and service worker share fresh v31 cache key', () => {
-  const key = 'seamless-flow-v33';
+  const key = 'features-v34';
   assert.ok(html.includes(`styles.css?v=${key}`));
   assert.ok(html.includes(`app.js?v=${key}`));
   assert.ok(app.includes(`ASSET_CACHE_SW_BUILD = '${key}'`));
