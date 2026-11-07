@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'hud-drag-v26';
+  const ASSET_CACHE_SW_BUILD = 'clock-surface-v27';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1743,12 +1743,10 @@
       topRow.className = 'clockTopRow';
       ui.countdownClock.insertBefore(topRow, ui.countdownClock.firstChild || null);
     }
-    let grip = topRow.querySelector('.dragGrip');
-    if (!grip) {
-      grip = document.createElement('div');
-      grip.className = 'dragGrip clockDragGrip';
-      grip.textContent = '⋮⋮';
-      topRow.insertBefore(grip, topRow.firstChild || null);
+    // The entire clock surface is the drag handle. Never reserve space for
+    // a small grip icon: it interferes with mobile touch and wastes height.
+    for (const oldGrip of topRow.querySelectorAll('.clockDragGrip, .dragGrip')) {
+      oldGrip.remove();
     }
     let scaleHost = topRow.querySelector(':scope > .panelScaleHost');
     if (!scaleHost) {
@@ -1772,7 +1770,7 @@
       if (metaEl) wrap.appendChild(metaEl);
       ui.countdownClock.appendChild(wrap);
     }
-    return grip;
+    return ui.countdownClock;
   }
 
   function ensureInGamePanelScaleControls() {
@@ -4960,7 +4958,9 @@ function syncPostgameToState() {
     makeDraggablePanel(ui.logCard, handle, 'hexsettlers_log_pos_v2');
   } catch (_) {}
 
-  // Allow the top-right timer/pause HUD to be moved freely (drag handle lives inside the timer box).
+  // Drag the timer by touching anywhere on its non-interactive surface.
+  // The clock is the complete drag handle; the existing bounds keep it
+  // between the tools bar and the Roll Dice / End Turn controls.
   try {
     const rh = document.querySelector('.rightHud');
     ensureTimerBoxControls();

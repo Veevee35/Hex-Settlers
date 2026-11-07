@@ -26,8 +26,12 @@ test('desktop toolbars stop at sidebar and collapsed pause overlay fills empty s
   assert.match(css, /body\.in-game\.gamePanelsCollapsed \.pausedOverlay \{right:0!important;\}/);
 });
 
-test('timer drag grip and important inline positioning restore touch/pointer movement', () => {
-  assert.match(css, /body\.in-game \.rightHud \.clockDragGrip\s*\{[\s\S]*?display:flex!important/);
+test('timer surface drags without a separate grip and preserves bounded movement', () => {
+  assert.match(js, /makeDraggablePanel\(rh, clockHandle, 'hexsettlers_rightHud_pos_v2'\)/);
+  assert.match(js, /const clockHandle = ui\.countdownClock/);
+  assert.doesNotMatch(js, /grip\.className = 'dragGrip clockDragGrip'/);
+  assert.doesNotMatch(css, /\.rightHud \.clockDragGrip/);
+  assert.match(css, /body\.in-game \.countdownClock \.clockTopRow \{display:none!important;\}/);
   assert.match(js, /panelEl\.style\.setProperty\('top', top \+ 'px', 'important'\)/);
   assert.match(js, /panelEl\.style\.setProperty\('right', 'auto', 'important'\)/);
 });

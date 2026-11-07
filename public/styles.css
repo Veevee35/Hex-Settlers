@@ -857,7 +857,6 @@ body.in-game .hudRollDock{display:none;}
 .clockTopRow .toolScaleControl{padding:2px 4px; gap:3px;}
 .clockTopRow .tabScaleBtn{width:22px; height:22px; border-radius:7px;}
 .clockTopRow .tabScaleLabel{min-width:48px; font-size:11px;}
-.clockDragGrip{width:20px; height:20px; border-radius:999px; font-size:10px; opacity:.95;}
 .countdownClock .panelScaleContent{text-align:right;}
 .countdownClock .panelScaleContent .clockTime,
 .clockTime{
@@ -3441,7 +3440,6 @@ body.in-game .clockActionInfo{
 body.in-game .clockActionInfo .turnInfo{font-weight:850;font-size:clamp(11px,1vw,15px);line-height:1.3;}
 body.in-game .clockActionInfo .timerInfo{display:none!important;}
 body.in-game .rightHud{top:59px!important;}
-body.in-game .rightHud .clockDragGrip{display:none;}
 body.in-game #logHideBtn{display:none!important;}
 body.gamePanelsCollapsed.in-game .boardWrap{padding-right:0!important;}
 body.gamePanelsCollapsed.in-game .rightSidebar{display:none!important;}
@@ -3638,14 +3636,7 @@ body.in-game .boardWrap {background:#5f6f7c;}
 body.in-game.gamePanelsCollapsed .pausedOverlay {right:0!important;}
 body.in-game.gamePanelsCollapsed .yourRollBanner,
 body.in-game.gamePanelsCollapsed .extraTurnCenterBanner {left:50%!important;}
-/* Clock remains movable. Its grip is functional on desktop and mobile; the
-   dragging logic stores position and uses inline important top/right values. */
-body.in-game .rightHud .clockDragGrip {
-  display:flex!important;align-items:center;justify-content:center;
-  touch-action:none;user-select:none;cursor:grab;
-  background:rgba(83,116,138,.28);border:1px solid #486579;
-}
-body.in-game .rightHud .clockDragGrip:active {cursor:grabbing;}
+/* The timer itself is draggable, without a separate grab icon. */
 .mobilePinnedResources{display:none;}
 /* Phones/touch tablets: real flex rows for the controls and resource strip.
    They take up space, so the Android navigation area cannot cover buttons. */
@@ -3773,4 +3764,16 @@ body.in-game .countdownClock button {cursor:pointer;touch-action:manipulation;}
   body.in-game .countdownClock .clockMeta {font-size:9px;line-height:1.1;}
   body.in-game .clockActionInfo {margin-top:2px!important;padding-top:2px!important;max-height:30px!important;}
   body.in-game .clockActionInfo .turnInfo {font-size:10px;line-height:1.1;}
+}
+
+/* v27 — Mobile timer: no dead header row, no corner-only drag affordance.
+   On desktop the row continues to hold its scale controls; on mobile scale
+   controls are unnecessary and the clock time starts at the panel's top. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px) {
+  body.in-game .countdownClock .clockTopRow {display:none!important;}
+  body.in-game .countdownClock .panelScaleContent {margin-top:0!important;padding-top:0!important;}
+  body.in-game .countdownClock {cursor:grab;touch-action:none!important;}
+  body.in-game .countdownClock .clockTime,
+  body.in-game .countdownClock .clockMeta,
+  body.in-game .countdownClock .clockActionInfo {touch-action:none!important;}
 }

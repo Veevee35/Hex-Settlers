@@ -54,7 +54,7 @@ test('mobile action grid and condensed resource strip are present', () => {
 });
 
 test('current release advances all frontend cache versions', () => {
-  assert.match(html, /styles\.css\?v=hud-drag-v26/);
-  assert.match(html, /app\.js\?v=hud-drag-v26/);
-  assert.match(sw, /hud-drag-v26/);
+  assert.match(html, /styles\.css\?v=clock-surface-v27/);
+  assert.match(html, /app\.js\?v=clock-surface-v27/);
+  assert.match(sw, /clock-surface-v27/);
 });
