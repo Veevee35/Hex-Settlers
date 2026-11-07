@@ -36,8 +36,8 @@ test('bottom bar scaling also updates standalone roll and end turn buttons', () 
 });
 
 test('v31 has consistent cache bust keys for all deployed entry points', () => {
-  assert.match(html, /styles\.css\?v=recent-lobby-v32/);
-  assert.match(html, /app\.js\?v=recent-lobby-v32/);
-  assert.match(app, /ASSET_CACHE_SW_BUILD = 'recent-lobby-v32'/);
-  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'recent-lobby-v32'/);
+  assert.match(html, /styles\.css\?v=seamless-flow-v33/);
+  assert.match(html, /app\.js\?v=seamless-flow-v33/);
+  assert.match(app, /ASSET_CACHE_SW_BUILD = 'seamless-flow-v33'/);
+  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'seamless-flow-v33'/);
 });

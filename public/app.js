@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'recent-lobby-v32';
+  const ASSET_CACHE_SW_BUILD = 'seamless-flow-v33';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -9851,6 +9851,12 @@ function refreshLobbyJoinLinkUi() {
 
   function renderLobby() {
     const isRankedLobby = !!(room?.ranked && currentRoomPhase() === 'lobby');
+    // The card is hidden while a match is in progress. Always restore it
+    // before taking the no-room early return; otherwise leaving a completed
+    // game shows only the "Start a new adventure" heading until a refresh
+    // rebuilds the original HTML classes.
+    const gameStarted = !!(room && state && state.phase && state.phase !== 'lobby');
+    if (ui.lobbyCard) ui.lobbyCard.classList.toggle('hidden', gameStarted);
     document.body.classList.toggle('ranked-lobby', isRankedLobby);
     document.body.classList.toggle('uncreated-lobby', !room);
     document.body.classList.toggle('hasLobbyMapPreview', !!(room && !room.ranked && currentRoomPhase() === 'lobby' && state?.geom?.tiles?.length));
@@ -10160,12 +10166,12 @@ function refreshLobbyJoinLinkUi() {
     } catch (_) {}
 
     // Setup visibility & controls
-    const gameStarted = !!(state && state.phase && state.phase !== 'lobby');
-    if (ui.lobbyCard) ui.lobbyCard.classList.toggle('hidden', gameStarted);
+    const gameStartedForControls = !!(state && state.phase && state.phase !== 'lobby');
+    if (ui.lobbyCard) ui.lobbyCard.classList.toggle('hidden', gameStartedForControls);
     if (ui.setupCard) ui.setupCard.classList.toggle('hidden', gameStarted || !!room.ranked);
 
     const r = room.rules || { discardLimit: 7, setupTurnMs: 60000, playTurnMs: 30000, microPhaseMs: 15000 };
-    const isHost = !!(myPlayerId && room.hostId === myPlayerId) && !gameStarted;
+    const isHost = !!(myPlayerId && room.hostId === myPlayerId) && !gameStartedForControls;
 
     if (ui.discardLimitInput) {
       ui.discardLimitInput.value = r.discardLimit ?? 7;
