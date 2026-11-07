@@ -9881,6 +9881,14 @@ function refreshLobbyJoinLinkUi() {
     const amHost = !!(!room.ranked && myPlayerId && room.hostId === myPlayerId);
     const activePackIdNow = activeTexturePackId();
 
+    function aiDifficultyDisplayName(value) {
+      const difficulty = String(value || 'easy').trim().toLowerCase().replace(/-/g, '_');
+      if (difficulty === 'neural_net' || difficulty === 'neural' || difficulty === 'expert') return 'Expert';
+      if (difficulty === 'hard') return 'Hard';
+      if (difficulty === 'medium') return 'Medium';
+      return 'Easy';
+    }
+
     function appendMemberRow(p, roleLabel) {
       if (!p) return;
       const row = document.createElement('div');
@@ -9901,7 +9909,7 @@ function refreshLobbyJoinLinkUi() {
       badge.style.background = p.color;
       const name = document.createElement('div');
       let label = p.name;
-      if (p.isAI) label += ' (AI)';
+      if (p.isAI) label += ` (AI · ${aiDifficultyDisplayName(p.aiDifficulty || room.aiDifficulty)})`;
       if (roleLabel === 'spectator') label += ' (spectator)';
       if (!room.ranked && p.id === room.hostId) label += ' (host)';
       if (p.id === myPlayerId) label += ' (you)';

@@ -24,6 +24,10 @@ test('AI difficulty selector exposes only easy, medium, hard, and expert', () =>
 
 test('Expert is accepted by the server as the neural learning AI', () => {
   const server = fs.readFileSync(path.join(projectRoot, 'server.js'), 'utf8');
+  const client = fs.readFileSync(path.join(projectRoot, 'public', 'app.js'), 'utf8');
   assert.match(server, /if \(diff === 'expert'\) diff = 'neural_net';/);
   assert.doesNotMatch(server, /if \(diff === 'expert'\) diff = 'catanatron';/);
+  assert.match(server, /aiDifficulty: \(p && p\.isAI\) \? String\(p\.aiDifficulty \|\| room\.aiDifficulty \|\| 'easy'\)/);
+  assert.match(client, /label \+= ` \(AI · \$\{aiDifficultyDisplayName\(p\.aiDifficulty \|\| room\.aiDifficulty\)\}\)`/);
+  assert.match(client, /difficulty === 'neural_net'[\s\S]*?return 'Expert'/);
 });

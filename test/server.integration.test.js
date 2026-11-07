@@ -220,8 +220,17 @@ test('unranked End Game with AI opponents waits five seconds and allows the prop
   const auth = await peer.waitFor(message => message.type === 'auth_ok');
   peer.send({ type: 'create_room' });
   await peer.waitFor(message => message.type === 'joined');
+  peer.send({ type: 'fill_ai', targetCount: 2 });
+  const initialAiRoom = await peer.waitFor(message => message.type === 'room' && message.room.players.length === 2);
+  assert.equal(initialAiRoom.room.players.find(player => player.isAI)?.aiDifficulty, 'easy');
+
+  peer.send({ type: 'set_ai_difficulty', difficulty: 'expert' });
+  const changedAiRoom = await peer.waitFor(message => message.type === 'room' && message.room.aiDifficulty === 'neural_net');
+  assert.ok(changedAiRoom.room.players.filter(player => player.isAI).every(player => player.aiDifficulty === 'neural_net'));
+
   peer.send({ type: 'fill_ai', targetCount: 4 });
-  await peer.waitFor(message => message.type === 'room' && message.room.players.length === 4);
+  const futureAiRoom = await peer.waitFor(message => message.type === 'room' && message.room.players.length === 4);
+  assert.ok(futureAiRoom.room.players.filter(player => player.isAI).every(player => player.aiDifficulty === 'neural_net'));
   peer.send({ type: 'set_ready', ready: true });
   await peer.waitFor(message => message.type === 'room' && message.room.players.find(p => p.id === auth.user.id)?.ready === true);
   peer.send({ type: 'start_game' });
