@@ -35,9 +35,9 @@ test('bottom bar scaling also updates standalone roll and end turn buttons', () 
   assert.match(css, /#rollDockBtn,[\s\S]*?#endDockBtn[\s\S]*?--turn-button-scale/);
 });
 
-test('v30 has consistent cache bust keys for all deployed entry points', () => {
-  assert.match(html, /styles\.css\?v=mobile-lobby-friends-v30/);
-  assert.match(html, /app\.js\?v=mobile-lobby-friends-v30/);
-  assert.match(app, /ASSET_CACHE_SW_BUILD = 'mobile-lobby-friends-v30'/);
-  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'mobile-lobby-friends-v30'/);
+test('v31 has consistent cache bust keys for all deployed entry points', () => {
+  assert.match(html, /styles\.css\?v=log-dev-resources-scale-v31/);
+  assert.match(html, /app\.js\?v=log-dev-resources-scale-v31/);
+  assert.match(app, /ASSET_CACHE_SW_BUILD = 'log-dev-resources-scale-v31'/);
+  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'log-dev-resources-scale-v31'/);
 });

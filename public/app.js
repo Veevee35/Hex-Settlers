@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'mobile-lobby-friends-v30';
+  const ASSET_CACHE_SW_BUILD = 'log-dev-resources-scale-v31';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1112,11 +1112,11 @@
   const AUTO_CREATE_ROOM_KEY = 'hexsettlers_auto_create_room_v1';
   const TAB_UI_SCALE_KEY = 'hexsettlers_tab_ui_scale_v1';
   const TAB_UI_SCALE_MIN = 0.8;
-  const TAB_UI_SCALE_MAX = 2.0;
+  const TAB_UI_SCALE_MAX = 3.0;
   const TAB_UI_SCALE_STEP = 0.1;
   const TOOL_UI_SCALE_PREFIX = 'hexsettlers_tool_ui_scale_v1_';
   const TOOL_UI_SCALE_MIN = 0.8;
-  const TOOL_UI_SCALE_MAX = 2.0;
+  const TOOL_UI_SCALE_MAX = 3.0;
   const TOOL_UI_SCALE_STEP = 0.1;
 
   // Accessibility: colorblind-friendly token markers
@@ -4208,6 +4208,149 @@ function syncPostgameToState() {
   }
   selectGamePanelTab('resources');
 
+  // v31: adjustable desktop Game Log / Development Cards height split.
+  // Keep the dev header and cost note anchored while the card list clips/scrolls
+  // inside the available remainder. Store a fraction, not pixels, for resizes.
+  const LOG_DEV_SPLIT_KEY = 'hexsettlers_log_dev_split_v31';
+  const LOG_DEV_DEFAULT_SHARE = 0.52;
+  let logDevSplitShare = LOG_DEV_DEFAULT_SHARE;
+  try {
+    const saved = Number(localStorage.getItem(LOG_DEV_SPLIT_KEY));
+    if (Number.isFinite(saved) && saved >= 0.05 && saved <= 0.95) logDevSplitShare = saved;
+  } catch (_) {}
+  let logDevSplitter = null;
+  let logDevResizeObserver = null;
+  let logDevSplitFrame = 0;
+
+  function isDesktopLogDevSplitActive() {
+    return !!(rightSidebarDock.isDocked && !isMobileGameSplit() &&
+      !document.body.classList.contains('gamePanelsCollapsed') &&
+      ui.rightSidebarInner && ui.logCard && ui.devCard && logDevSplitter);
+  }
+
+  function logDevAvailableHeight() {
+    const inner = ui.rightSidebarInner;
+    if (!inner) return 0;
+    const style = window.getComputedStyle(inner);
+    const size = (value) => Number.parseFloat(value) || 0;
+    const children = [...inner.children].filter(child => window.getComputedStyle(child).display !== 'none');
+    const gaps = Math.max(0, children.length - 1) * size(style.rowGap || style.gap);
+    const fixed = children.reduce((sum, child) => {
+      return sum + ((child === ui.logCard || child === ui.devCard) ? 0 : child.getBoundingClientRect().height);
+    }, 0);
+    return Math.max(0, inner.clientHeight - size(style.paddingTop) - size(style.paddingBottom) - gaps - fixed);
+  }
+
+  function applyLogDevSplit() {
+    logDevSplitFrame = 0;
+    if (!ui.logCard || !ui.devCard) return;
+    if (!isDesktopLogDevSplitActive()) {
+      ui.logCard.style.removeProperty('flex');
+      ui.devCard.style.removeProperty('flex');
+      return;
+    }
+    const available = logDevAvailableHeight();
+    if (available < 30) return;
+    // The maximum divider position still leaves the dev header, cost note,
+    // and the tops of the cards available below the log.
+    const minLog = Math.min(110, available * 0.4);
+    const devHeading = ui.devCard.querySelector('.devHeaderRow');
+    const devCost = ui.devCard.querySelector('.panelScaleContent > .smallNote');
+    const devTopHeight = (devHeading?.getBoundingClientRect().height || 0) +
+      (devCost?.getBoundingClientRect().height || 0);
+    // At larger text scales, keep the cost visible and reveal the top of the
+    // first card instead of allowing the draggable log to cover the entire hand.
+    const minDev = Math.min(Math.max(118, devTopHeight + 34), available * 0.55);
+    const logHeight = Math.max(minLog, Math.min(available - minDev, available * logDevSplitShare));
+    ui.logCard.style.flex = `0 0 ${Math.round(logHeight)}px`;
+    ui.devCard.style.flex = '1 1 0px';
+    const actualShare = logHeight / available;
+    logDevSplitter.setAttribute('aria-valuenow', String(Math.round(actualShare * 100)));
+    logDevSplitter.setAttribute('aria-valuetext', `Game Log ${Math.round(actualShare * 100)}%, Development Cards ${Math.round((1 - actualShare) * 100)}%`);
+  }
+
+  function scheduleLogDevSplit() {
+    if (logDevSplitFrame) return;
+    logDevSplitFrame = requestAnimationFrame(applyLogDevSplit);
+  }
+
+  function setLogDevSplitShare(next, { persist = false } = {}) {
+    if (!Number.isFinite(next)) return;
+    logDevSplitShare = Math.max(0.05, Math.min(0.95, next));
+    if (persist) {
+      try { localStorage.setItem(LOG_DEV_SPLIT_KEY, String(logDevSplitShare)); } catch (_) {}
+    }
+    scheduleLogDevSplit();
+  }
+
+  function ensureLogDevSplitter() {
+    if (!ui.rightSidebarInner || !ui.devCard || !ui.logCard) return;
+    if (!logDevSplitter) {
+      const separator = document.createElement('div');
+      separator.id = 'sidebarLogDevSplitter';
+      separator.className = 'sidebarLogDevSplitter';
+      separator.tabIndex = 0;
+      separator.setAttribute('role', 'separator');
+      separator.setAttribute('aria-label', 'Resize Game Log and Development Cards');
+      separator.setAttribute('aria-orientation', 'horizontal');
+      separator.setAttribute('aria-controls', 'logCard devCard');
+      separator.setAttribute('aria-valuemin', '5');
+      separator.setAttribute('aria-valuemax', '95');
+      separator.title = 'Drag to resize Game Log and Development Cards. Use arrow keys for fine adjustments.';
+      let activePointer = null;
+      let initialY = 0;
+      let initialShare = 0;
+      let availableOnStart = 0;
+      separator.addEventListener('pointerdown', (event) => {
+        if (!isDesktopLogDevSplitActive() || (event.button !== undefined && event.button !== 0)) return;
+        activePointer = event.pointerId;
+        initialY = event.clientY;
+        initialShare = logDevSplitShare;
+        availableOnStart = logDevAvailableHeight();
+        separator.classList.add('dragging');
+        separator.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+      });
+      separator.addEventListener('pointermove', event => {
+        if (activePointer !== event.pointerId || !availableOnStart) return;
+        setLogDevSplitShare(initialShare + (event.clientY - initialY) / availableOnStart);
+      });
+      const finish = event => {
+        if (activePointer === null || (event.pointerId !== undefined && activePointer !== event.pointerId)) return;
+        const pointerId = activePointer;
+        activePointer = null;
+        separator.classList.remove('dragging');
+        try { if (separator.hasPointerCapture?.(pointerId)) separator.releasePointerCapture(pointerId); } catch (_) {}
+        setLogDevSplitShare(logDevSplitShare, { persist: true });
+      };
+      separator.addEventListener('pointerup', finish);
+      separator.addEventListener('pointercancel', finish);
+      separator.addEventListener('keydown', event => {
+        if (!isDesktopLogDevSplitActive()) return;
+        let next;
+        if (event.key === 'ArrowDown') next = logDevSplitShare + (event.shiftKey ? 0.1 : 0.02);
+        else if (event.key === 'ArrowUp') next = logDevSplitShare - (event.shiftKey ? 0.1 : 0.02);
+        else if (event.key === 'Home') next = 0.05;
+        else if (event.key === 'End') next = 0.95;
+        else return;
+        event.preventDefault();
+        setLogDevSplitShare(next, { persist: true });
+      });
+      logDevSplitter = separator;
+    }
+    if (logDevSplitter.parentNode !== ui.rightSidebarInner || logDevSplitter.nextSibling !== ui.devCard) {
+      ui.rightSidebarInner.insertBefore(logDevSplitter, ui.devCard);
+    }
+    if (!logDevResizeObserver && typeof ResizeObserver === 'function') {
+      logDevResizeObserver = new ResizeObserver(scheduleLogDevSplit);
+      logDevResizeObserver.observe(ui.rightSidebarInner);
+      if (ui.resourcesCard) logDevResizeObserver.observe(ui.resourcesCard);
+      if (ui.rightSidebarResourcesDock) logDevResizeObserver.observe(ui.rightSidebarResourcesDock);
+    }
+    scheduleLogDevSplit();
+  }
+  window.addEventListener('resize', scheduleLogDevSplit);
+
   function syncRightSidebarDock(inGame) {
     const boardWrap = document.querySelector('section.boardWrap');
     if (!boardWrap || !ui.rightSidebar || !ui.rightSidebarInner) return;
@@ -4276,10 +4419,14 @@ function syncPostgameToState() {
           else ui.rightSidebarInner.appendChild(ui.devCard);
         }
       }
+      ensureLogDevSplitter();
+      scheduleLogDevSplit();
       syncFloatingResourcesPanel(true);
       return;
     }
 
+    if (logDevSplitter) logDevSplitter.remove();
+    scheduleLogDevSplit();
     syncFloatingResourcesPanel(false);
     ui.rightSidebar.classList.add('hidden');
     if (ui.rightSidebarResourcesDock && ui.rightSidebarResourcesDock.parentNode !== ui.rightSidebarInner) ui.rightSidebarInner.appendChild(ui.rightSidebarResourcesDock);

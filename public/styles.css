@@ -4089,3 +4089,145 @@ body.in-game #endDockBtn{margin-left:auto;}
    lower game controls without changing the interactive map coordinates. */
 body.in-game .boardWrap{isolation:isolate;}
 body.in-game #board{contain:paint;}
+
+
+/* v31 — Mobile Resources should occupy the full width of the selected tab.
+   Previously #resourcesCard was forced into a flex row, leaving a redundant
+   heading next to a narrow column of player summaries. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px) {
+  body.in-game .rightSidebar[data-active-panel="resources"] #resourcesCard {
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    padding:0!important;
+  }
+  body.in-game .rightSidebar #resourcesCard .resourcesHeaderRow,
+  body.in-game .rightSidebar #resourcesCard > h2 {display:none!important;}
+  body.in-game .rightSidebar #resourcesCard .panelScaleContent {
+    display:block!important;
+    box-sizing:border-box;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    margin:0!important;
+    padding:0!important;
+  }
+  body.in-game .rightSidebar #resourcesCard .resourcesBox,
+  body.in-game .rightSidebar #resourcesCard .resSummaryRow {
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0;
+    box-sizing:border-box;
+  }
+}
+
+/* v31 — Desktop Game Log / Dev Cards horizontal drag handle. The Dev card
+   list is top-anchored directly beneath its cost text: as the log grows the
+   list gets clipped at the bottom, never pushed away from its cost note. */
+.sidebarLogDevSplitter {display:none;}
+@media (min-width:901px) and (pointer:fine), (min-width:1181px) {
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebarInner {
+    overflow:hidden;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebarInner > #logCard {
+    flex:0 0 auto;
+    min-height:0;
+    overflow:hidden;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebarInner > #logCard .logList {
+    flex:1 1 auto;
+    min-height:0;
+    max-height:none;
+    overflow-y:auto;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebarInner > #devCard {
+    flex:1 1 0;
+    min-height:0;
+    overflow:hidden;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebar #devCard .devHeaderRow {
+    flex:0 0 auto;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebar #devCard .panelScaleContent {
+    display:flex;
+    flex:1 1 auto;
+    flex-direction:column;
+    min-height:0;
+    overflow:hidden;
+    align-items:stretch;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebar #devCard .panelScaleContent > .smallNote {
+    flex:0 0 auto;
+    margin:0 0 5px;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebar #devCard .panelScaleContent > .devHand {
+    display:flex;
+    flex:1 1 auto;
+    flex-direction:column;
+    justify-content:flex-start;
+    min-height:0;
+    max-height:none;
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior:contain;
+    margin-top:0;
+    padding-bottom:4px;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .rightSidebar #devCard .devRow {
+    flex:0 0 auto;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .sidebarLogDevSplitter {
+    display:grid;
+    flex:0 0 16px;
+    height:16px;
+    width:100%;
+    min-width:0;
+    place-items:center;
+    position:relative;
+    cursor:ns-resize;
+    touch-action:none;
+    user-select:none;
+    border-radius:9px;
+    background:rgba(27,49,65,.7);
+    border:1px solid rgba(112,153,179,.34);
+    box-sizing:border-box;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .sidebarLogDevSplitter::after {
+    content:'';
+    width:68px;
+    max-width:40%;
+    height:5px;
+    border-radius:999px;
+    background:#83a8bb;
+    box-shadow:0 0 0 1px rgba(3,12,20,.55);
+  }
+  body.in-game:not(.gamePanelsCollapsed) .sidebarLogDevSplitter:hover,
+  body.in-game:not(.gamePanelsCollapsed) .sidebarLogDevSplitter.dragging,
+  body.in-game:not(.gamePanelsCollapsed) .sidebarLogDevSplitter:focus-visible {
+    border-color:#e5b94c;
+    background:#2a475c;
+    outline:2px solid rgba(229,185,76,.38);
+  }
+}
+
+/* Resource images scale together with their numeric badges. Do not clamp
+   their physical size to the width of a grid cell after the panel zooms. At
+   300%, each resource row may scroll horizontally instead of hiding art. */
+body.in-game .resCell .resIcon,
+body.in-game .rightSidebarResStrip .resIcon,
+body.in-game .resourcesOverlay .resIcon {
+  max-width:none;
+  max-height:none;
+  flex-shrink:0;
+}
+body.in-game .rightSidebarResStrip,
+body.in-game .pResGrid {
+  grid-template-columns:repeat(5,minmax(42px,1fr));
+  min-width:0;
+  overflow-x:auto;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(137,177,203,.55) transparent;
+}
+body.in-game .rightSidebarResStrip .resCell,
+body.in-game .pResGrid .resCell {min-width:42px;}
