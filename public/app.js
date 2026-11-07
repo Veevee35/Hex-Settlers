@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'features-v34';
+  const ASSET_CACHE_SW_BUILD = 'features-v35';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -2008,10 +2008,21 @@ function historyReplayPerspectiveAvailable(player) {
   return !!(player && !player.departed && (state?.turnOrder || []).includes(player.id));
 }
 
+function positionHistoryReplayBar() {
+  if (!ui.historyReplayBar || !historyReplay.active) return;
+  const board = ui.historyReplayBar.closest('.boardWrap');
+  const hud = document.querySelector('.hudTopLeft');
+  if (!board) return;
+  const boardRect = board.getBoundingClientRect();
+  const hudRect = hud && !hud.classList.contains('hidden') ? hud.getBoundingClientRect() : null;
+  const clearHud = hudRect && hudRect.height > 0 ? hudRect.bottom - boardRect.top + 12 : 72;
+  board.style.setProperty('--replay-controls-top', `${Math.max(62, Math.ceil(clearHud))}px`);
+}
 function refreshHistoryReplayBar() {
   if (!ui.historyReplayBar) return;
   ui.historyReplayBar.classList.toggle('hidden', !historyReplay.active);
   if (!historyReplay.active) return;
+  requestAnimationFrame(positionHistoryReplayBar);
   const steps = Array.isArray(historyReplay.entry?.replay?.steps) ? historyReplay.entry.replay.steps : [];
   const frameCount = steps.length + 1;
   if (ui.historyReplayStep) ui.historyReplayStep.textContent = `Step ${historyReplay.index + 1}/${frameCount}`;
@@ -5439,6 +5450,18 @@ function syncPostgameToState() {
     }
   } catch (_) {}
   resizeCanvas();
+  // A sidebar/lobby splitter can change the canvas box without resizing the
+  // browser window. Render() synchronizes its backing store and paints once.
+  if (typeof ResizeObserver === 'function') {
+    const boardSizeObserver = new ResizeObserver(() => {
+      if (ui.canvas.getBoundingClientRect().width > 0) render();
+      if (historyReplay.active) requestAnimationFrame(positionHistoryReplayBar);
+    });
+    const boardContainer = ui.canvas.closest('.boardWrap');
+    if (boardContainer) boardSizeObserver.observe(boardContainer);
+    const topHud = document.querySelector('.hudTopLeft');
+    if (topHud) boardSizeObserver.observe(topHud);
+  }
 
   // Allow the Resources panel to be moved freely.
   try {
@@ -10438,6 +10461,7 @@ function refreshLobbyJoinLinkUi() {
       vpTouched = (Number(ui.victoryPointsSelect.value) !== defVp);
     }
     if (ui.saveRulesBtn) ui.saveRulesBtn.disabled = !isHost;
+    if ($('loadRulesBtn')) $('loadRulesBtn').disabled = !isHost;
 
     // Lobby map preview controls
     if (ui.regenMapBtn) {
@@ -11164,8 +11188,43 @@ function refreshLobbyJoinLinkUi() {
     ] });
     name.focus();
   }
+  function openLoadRulesTemplateDialog() {
+    if (!room || room.hostId !== myPlayerId || room.ranked || state?.phase !== 'lobby') return;
+    const body = document.createElement('div');
+    const intro = document.createElement('p');
+    intro.className = 'smallNote';
+    intro.textContent = 'Choose a saved game settings template to apply to this lobby.';
+    body.appendChild(intro);
+    const list = document.createElement('div');
+    list.className = 'settingsTemplateSaved';
+    body.appendChild(list);
+    const renderList = () => {
+      list.replaceChildren();
+      const entries = getSavedRuleTemplates();
+      if (!entries.length) {
+        const empty = document.createElement('p');
+        empty.className = 'smallNote';
+        empty.textContent = 'No saved templates in this browser yet. Use Save Settings Template to create one.';
+        list.appendChild(empty);
+        return;
+      }
+      for (const template of entries.slice().reverse()) {
+        const item = document.createElement('div'); item.className = 'settingsTemplateSavedRow';
+        const title = document.createElement('span'); title.textContent = template.name;
+        const apply = document.createElement('button'); apply.type = 'button'; apply.className = 'btn primary'; apply.textContent = 'Load';
+        apply.addEventListener('click', () => { applyRulesTemplate(template); closeModal(); });
+        const del = document.createElement('button'); del.type = 'button'; del.className = 'btn subtle'; del.textContent = 'Delete';
+        del.addEventListener('click', () => { storeSavedRuleTemplates(getSavedRuleTemplates().filter(entry => entry !== template && !(entry.name === template.name && entry.savedAt === template.savedAt))); renderList(); });
+        item.append(title, apply, del);
+        list.appendChild(item);
+      }
+    };
+    renderList();
+    openModal({ title: 'Load Game Template', bodyNode: body, actions: [{ label: 'Close', onClick: closeModal }] });
+  }
   ui.settingsAutosaveStatus = $('settingsAutosaveStatus');
   ui.saveRulesBtn?.addEventListener('click', openRulesTemplateDialog);
+  $('loadRulesBtn')?.addEventListener('click', openLoadRulesTemplateDialog);
 
   if (ui.regenMapBtn) {
     ui.regenMapBtn.addEventListener('click', () => {
@@ -11212,7 +11271,9 @@ function refreshLobbyJoinLinkUi() {
     document.documentElement.style.setProperty('--lobby-sidebar-width', lobbySplitWidth + 'px');
     lobbySplitter?.setAttribute('aria-valuenow', String(Math.round(lobbySplitWidth)));
     if (persist) { try { localStorage.setItem('hexsettlers_lobby_panel_width_v34', String(lobbySplitWidth)); } catch (_) {} }
-    try { resizeCanvas(); } catch (_) {}
+    // resizeCanvas() clears canvas pixels; call render() instead, which resizes
+    // and repaints atomically in its scheduled animation frame.
+    if (ui.canvas.getBoundingClientRect().width > 0) render();
   }
   setLobbyPanelWidth(lobbySplitWidth);
   if (lobbySplitter) {

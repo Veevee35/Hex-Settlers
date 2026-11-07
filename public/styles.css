@@ -4280,3 +4280,56 @@ body.casual-mode #joinBtn,body.casual-mode #codeInput,body.casual-mode #rejoinLa
  .historyToolbar{padding:7px 12px}
  .historyReplayTools .btn{font-size:11px;padding:8px}
 }
+
+
+/* v35: Desktop game types are side-by-side. On phones, compact the portal
+   with the Hex Settlers emblem tucked into its top-left corner. */
+@media (min-width: 761px) {
+  .modePortalCard {width:min(1140px,calc(100vw - 58px));}
+  .modeChoices {grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;}
+  .modeChoice {height:100%;min-width:0;}
+  .modeChoice strong {font-size:clamp(18px,1.55vw,23px);}
+}
+@media (max-width: 760px) {
+  #playModeScreen.portalScreen {align-items:start;padding:8px 10px calc(58px + var(--safe-bottom));}
+  #playModeScreen .modePortalCard {width:100%;max-width:500px;padding:12px 14px 16px;margin:0 auto;}
+  #playModeScreen .modeLogo {position:absolute;left:12px;top:11px;width:78px;max-width:none;height:auto;margin:0;}
+  #playModeScreen .portalEyebrow {margin:9px 0 5px 88px;text-align:left;font-size:10px;letter-spacing:.12em;}
+  #playModeScreen .modePortalCard h1 {margin:0 0 12px 88px;text-align:left;font-size:clamp(19px,5.6vw,25px);line-height:1.15;min-height:48px;}
+  #playModeScreen .modeChoices {grid-template-columns:1fr;gap:10px;margin-top:6px;}
+  #playModeScreen .modeChoice {padding:13px 17px;border-radius:14px;min-height:91px;}
+  #playModeScreen .modeChoice strong {font-size:19px;line-height:1.2;margin:0 0 4px;}
+  #playModeScreen .modeChoice span {font-size:12px;line-height:1.35;}
+  #playModeScreen .portalLegalLinks {bottom:max(8px,var(--safe-bottom));}
+  #playModeScreen .gameTypeSupport {bottom:calc(7px + var(--safe-bottom));}
+}
+@media (max-width: 350px) {
+  #playModeScreen .modeLogo {width:64px;}
+  #playModeScreen .portalEyebrow, #playModeScreen .modePortalCard h1 {margin-left:72px;}
+  #playModeScreen .modeChoice {padding:10px 12px;min-height:84px;}
+}
+/* The pre-lobby entry page has no game board to resize. */
+body.uncreated-lobby:not(.in-game) .lobbyPanelSplitter {display:none!important;}
+body.casual-mode:not(.in-game) #roomCodeLabel,
+body.casual-mode:not(.in-game) .lobbyJoinDivider {display:none!important;}
+/* Keep the two named template actions adjacent, and wrap on smaller widths. */
+#saveRulesBtn, #loadRulesBtn {flex:1 1 calc(50% - 6px);min-width:0;padding:9px 6px;font-size:12px;white-space:normal;}
+.settingsTemplateActions {flex-wrap:wrap;align-items:center;}
+.settingsTemplateActions #settingsAutosaveStatus {flex:1 1 100%;margin-top:0;}
+/* The replay toolbar must clear the top game HUD, regardless of HUD scaling. */
+body.in-game .historyReplayBar {
+  top:var(--replay-controls-top,94px);
+  z-index:42;
+  max-height:calc(100% - var(--replay-controls-top,94px) - 10px);
+  overflow-y:auto;
+}
+@media (max-width:760px) {
+  body.in-game .historyReplayBar {
+    width:calc(100% - 18px);
+    padding:7px;
+    gap:5px;
+    top:var(--replay-controls-top,70px);
+  }
+  body.in-game .historyReplayBar .btn {padding:7px 8px;font-size:11px;}
+  body.in-game .historyReplayStatus {flex-basis:110px;}
+}

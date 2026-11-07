@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=features-v34" />
+  <link rel="stylesheet" href="styles.css?v=features-v35" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -167,9 +167,9 @@
             <button id="lobbyRulesBtn" class="btn" type="button">Rules</button>
           </div>
 
-          <div class="divider ranked-unavailable"></div>
+          <div class="divider ranked-unavailable lobbyJoinDivider"></div>
 
-          <label class="label ranked-unavailable">Room code</label>
+          <label id="roomCodeLabel" class="label ranked-unavailable">Room code</label>
           <input id="codeInput" class="input code ranked-unavailable" maxlength="8" placeholder="ABCD" />
 
           <div class="row ranked-unavailable">
@@ -476,8 +476,9 @@
           </div>
           <div id="mapGenNote" class="smallNote"></div>
 
-          <div class="row">
+          <div class="row settingsTemplateActions">
             <button id="saveRulesBtn" class="btn primary" type="button">Save Settings Template</button>
+            <button id="loadRulesBtn" class="btn" type="button">Load Game Template</button>
             <span id="settingsAutosaveStatus" class="smallNote" aria-live="polite">Changes save automatically.</span>
           </div>
 
@@ -746,6 +747,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=features-v34"></script>
+  <script src="app.js?v=features-v35"></script>
 </body>
 </html>
