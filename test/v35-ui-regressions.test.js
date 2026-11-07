@@ -43,10 +43,10 @@ test('replay toolbar is placed below the measured HUD, not under it', () => {
   assert.match(app, /requestAnimationFrame\(positionHistoryReplayBar\)/);
 });
 
-test('CSS, JS and service worker share the v35 asset revision', () => {
+test('CSS, JS and service worker share the current asset revision', () => {
   const sw = readFileSync(join(root, 'public/sw.js'),'utf8');
-  assert.ok(html.includes('styles.css?v=features-v35'));
-  assert.ok(html.includes('app.js?v=features-v35'));
-  assert.ok(sw.includes('features-v35'));
-  assert.ok(app.includes("ASSET_CACHE_SW_BUILD = 'features-v35'"));
+  assert.ok(html.includes('styles.css?v=features-v36'));
+  assert.ok(html.includes('app.js?v=features-v36'));
+  assert.ok(sw.includes('features-v36'));
+  assert.ok(app.includes("ASSET_CACHE_SW_BUILD = 'features-v36'"));
 });

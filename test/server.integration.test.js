@@ -107,7 +107,7 @@ class Peer {
       waiter.timer = setTimeout(() => {
         const index = this.waiters.indexOf(waiter);
         if (index >= 0) this.waiters.splice(index, 1);
-        reject(new Error(`Timed out waiting for WebSocket message. Queued: ${JSON.stringify(this.messages)}`));
+        reject(new Error(`Timed out waiting for WebSocket message. Queued: ${JSON.stringify(this.messages.map(m => ({ type:m.type, error:m.error, switchMode:m.switchMode, code:m.code })))}`));
       }, timeoutMs);
       this.waiters.push(waiter);
     });
@@ -1367,4 +1367,69 @@ test('v34 Classic 5–6 Custom Map supports six casual seats, export, and import
   const started = await peer.waitFor(m => m.type === 'state' && m.state.phase !== 'lobby', 8_000);
   assert.equal(started.state.rules.mapMode, 'classic56');
   assert.equal(started.state.geom.tiles.length, layout.tiles.length);
+});
+
+test('switching out of a solo Casual or Unranked lobby deletes the abandoned room', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-switch-solo-'));
+  const app = await startServer(port, dataDir);
+  const peer = await Peer.connect(port);
+  t.after(async () => { peer.close(); await app.stop(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  peer.send({ type: 'auth_register', username: `v36_solo_${Date.now().toString(36)}`, password: 'switch mode test', displayName: 'Solo' });
+  await peer.waitFor(m => m.type === 'auth_ok');
+  peer.send({ type: 'create_room', casual: true });
+  const casual = await peer.waitFor(m => m.type === 'joined');
+  assert.equal(casual.room.casual, true);
+  assert.ok(casual.room.players.some(p => p.isAI));
+  peer.send({ type: 'leave_room', switchMode: 'unranked' });
+  assert.equal((await peer.waitFor(m => (m.type === 'left_room' || m.type === 'error'))).switchMode, 'unranked');
+  peer.send({ type: 'rejoin_room', code: casual.room.code });
+  assert.match((await peer.waitFor(m => m.type === 'error')).error, /not found/i);
+
+  peer.send({ type: 'create_room' });
+  const unranked = await peer.waitFor(m => m.type === 'joined');
+  assert.equal(unranked.room.casual, false);
+  peer.send({ type: 'leave_room', switchMode: 'ranked' });
+  assert.equal((await peer.waitFor(m => (m.type === 'left_room' || m.type === 'error'))).switchMode, 'ranked');
+  peer.send({ type: 'rejoin_room', code: unranked.room.code });
+  assert.match((await peer.waitFor(m => m.type === 'error')).error, /not found/i);
+  peer.send({ type: 'ranked_queue_join' });
+  assert.equal((await peer.waitFor(m => m.type === 'ranked_queue_status' && m.queued === true)).queued, true);
+  peer.send({ type: 'ranked_queue_leave' });
+  assert.equal((await peer.waitFor(m => m.type === 'ranked_queue_status' && m.queued === false)).queued, false);
+});
+
+test('switching away from shared Unranked elects the longest-present remaining human', { timeout: 25_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-settlers-switch-host-'));
+  const app = await startServer(port, dataDir);
+  const peers = [];
+  t.after(async () => { for (const peer of peers) peer.close(); await app.stop(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  const users = [];
+  const slug = Date.now().toString(36);
+  for (let i = 0; i < 3; i++) {
+    const peer = await Peer.connect(port);
+    peers.push(peer);
+    peer.send({ type: 'auth_register', username: `v36_host_${slug}_${i}`, password: 'mode switch test', displayName: `Player ${i}` });
+    users.push((await peer.waitFor(m => m.type === 'auth_ok')).user);
+  }
+  peers[0].send({ type: 'create_room' });
+  const created = await peers[0].waitFor(m => m.type === 'joined');
+  const code = created.room.code;
+  peers[1].send({ type: 'join_room', code });
+  await peers[1].waitFor(m => m.type === 'joined');
+  peers[2].send({ type: 'join_room', code });
+  await peers[2].waitFor(m => m.type === 'joined');
+  peers[0].send({ type: 'leave_room', switchMode: 'casual' });
+  assert.equal((await peers[0].waitFor(m => (m.type === 'left_room' || m.type === 'error'))).switchMode, 'casual');
+  const successor = await peers[1].waitFor(m => m.type === 'room' && m.room.hostId === users[1].id);
+  assert.equal(successor.room.players.length, 2);
+  peers[1].send({ type: 'leave_room', switchMode: 'ranked' });
+  await peers[1].waitFor(m => (m.type === 'left_room' || m.type === 'error'));
+  const last = await peers[2].waitFor(m => m.type === 'room' && m.room.hostId === users[2].id);
+  assert.equal(last.room.players.length, 1);
+  peers[2].send({ type: 'leave_room', switchMode: 'casual' });
+  await peers[2].waitFor(m => (m.type === 'left_room' || m.type === 'error'));
+  peers[0].send({ type: 'rejoin_room', code });
+  assert.match((await peers[0].waitFor(m => m.type === 'error')).error, /not found/i);
 });

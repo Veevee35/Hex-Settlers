@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'features-v35';
+  const ASSET_CACHE_SW_BUILD = 'features-v36';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1399,6 +1399,7 @@
         serverManagementBtn.className = 'accountMenuItem';
         serverManagementBtn.textContent = 'Server Management';
         serverManagementBtn.addEventListener('click', () => {
+          stopRankedMatchmaking();
           $('accountMenu')?.classList.add('hidden');
           void openServerManagementConsole();
         });
@@ -1415,6 +1416,7 @@
         ratingManagementBtn.className = 'accountMenuItem';
         ratingManagementBtn.textContent = 'Rating Management';
         ratingManagementBtn.addEventListener('click', () => {
+          stopRankedMatchmaking();
           $('accountMenu')?.classList.add('hidden');
           void openRatingManagementScreen();
         });
@@ -1961,6 +1963,8 @@ let historyReplayScrubIndex = null;
 const HISTORY_REPLAY_ALLOWED_MESSAGES = new Set([
   'get_state', 'get_game_history', 'get_game_history_entry',
   'get_player_leaderboard', 'get_texture_pack',
+  // Leaving a ranked queue must still work while viewing a saved replay.
+  'ranked_queue_leave', 'leave_room',
 ]);
 
 function cloneReplayValue(value) {
@@ -5717,6 +5721,8 @@ function syncPostgameToState() {
   let state = null;
   let returnToUnrankedAfterLeave = false;
   let returnToModeSelectionAfterLeave = false;
+  let pendingPlayModeSwitch = null;
+  let rankedQueueActive = false;
 
   const STRUCTURE_PLACEMENT_EMPHASIS_MS = 2_000;
   const STRUCTURE_PLACEMENT_SCALE = 1.5;
@@ -5990,6 +5996,9 @@ function syncPostgameToState() {
   // stranded looking at a blank board or auto-rejoining a deleted room.
   function returnToGameTypeSelection(reason = '') {
     pendingRankedMatchmaking = false;
+    if (rankedQueueActive && ws?.readyState === WebSocket.OPEN) send({ type: 'ranked_queue_leave' });
+    rankedQueueActive = false;
+    pendingPlayModeSwitch = null;
     returnToUnrankedAfterLeave = false;
     returnToModeSelectionAfterLeave = false;
     selectedPlayMode = '';
@@ -6791,6 +6800,12 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'error') {
         const e = msg.error || 'Error';
+        if (pendingPlayModeSwitch) {
+          pendingPlayModeSwitch = null;
+          selectedPlayMode = room?.casual ? 'casual' : room?.ranked ? 'ranked' : 'unranked';
+          try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+          updateAuthUi();
+        }
         if (pendingRecentRoomRejoinCode) {
           // The server rejected a recent-room recovery (closed/deleted room,
           // expired membership, etc). Don't keep trying or leave an empty map.
@@ -6998,6 +7013,12 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'ranked_queue_status') {
         pendingRankedMatchmaking = false;
+        if (selectedPlayMode !== 'ranked') {
+          // A queued status can be in flight when Change Game Type cancels.
+          if (msg.queued) send({ type: 'ranked_queue_leave' });
+          return;
+        }
+        rankedQueueActive = !!msg.queued;
         const status = $('rankedStatus');
         if (status) status.textContent = msg.queued ? `Searching near rating ${msg.rating || 1000} (±${msg.ratingRange || 100}) · ${msg.waiting || 1}/${msg.needed || 4} players ready` : 'Matchmaking cancelled.';
         $('rankedReadyBtn')?.classList.toggle('hidden', !!msg.queued);
@@ -7005,6 +7026,17 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
       if (msg.type === 'ranked_match_found') {
+        rankedQueueActive = false;
+        pendingRankedMatchmaking = false;
+        // A match takes priority over Friends, Player Stats, and Game Log.
+        // Close whichever tool the player was viewing before showing the
+        // server-owned four-player ranked lobby and map ballot.
+        if (historyReplay.active) { stopHistoryReplay(); }
+        closeHistoryOverlay();
+        $('friendsOverlay')?.classList.add('hidden');
+        $('accountMenu')?.classList.add('hidden');
+        try { setLogPanelVisible(false); } catch (_) {}
+        try { forceCloseModal(); } catch (_) {}
         selectedPlayMode = 'unranked';
         try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
         updateAuthUi();
@@ -7032,6 +7064,14 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'joined') {
+        if (msg.room?.ranked) {
+          rankedQueueActive = false;
+          pendingRankedMatchmaking = false;
+          if (historyReplay.active) stopHistoryReplay();
+          closeHistoryOverlay();
+          $('friendsOverlay')?.classList.add('hidden');
+          $('accountMenu')?.classList.add('hidden');
+        }
         if (ui.pgRematchBtn) { ui.pgRematchBtn.disabled = false; ui.pgRematchBtn.textContent = 'Rematch'; }
         // Room membership always displays the lobby, even after a saved
         // ranked preference or a reconnect before the user chose a mode.
@@ -7088,6 +7128,15 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'left_room') {
+        const switchedTo = pendingPlayModeSwitch && msg.switchMode === pendingPlayModeSwitch ? pendingPlayModeSwitch : null;
+        pendingPlayModeSwitch = null;
+        if (switchedTo) {
+          returnToUnrankedAfterLeave = false;
+          returnToModeSelectionAfterLeave = false;
+          handleLocalRoomExit('');
+          activatePlayMode(switchedTo, { skipRecentRoom: true });
+          return;
+        }
         const returnToModeSelection = returnToModeSelectionAfterLeave || returnToUnrankedAfterLeave || !!msg.rankedMenu || !!msg.kicked;
         const returnToRankedReady = !!msg.rankedReady;
         returnToUnrankedAfterLeave = false;
@@ -10555,6 +10604,7 @@ function refreshLobbyJoinLinkUi() {
   });
 
   if (ui.logoutBtn) ui.logoutBtn.addEventListener('click', async () => {
+    stopRankedMatchmaking();
     setError(null);
     try { await authApi('logout'); } catch (_) {}
     clearAuthLocal();
@@ -10672,14 +10722,24 @@ function refreshLobbyJoinLinkUi() {
       event.target.reset();
     } catch (error) { if (message) message.textContent = error.message || 'Registration failed.'; }
   });
-  function choosePlayMode(mode) {
+  function stopRankedMatchmaking() {
+    pendingRankedMatchmaking = false;
+    if (rankedQueueActive && ws?.readyState === WebSocket.OPEN) send({ type: 'ranked_queue_leave' });
+    rankedQueueActive = false;
+    $('rankedReadyBtn')?.classList.remove('hidden');
+    $('rankedCancelBtn')?.classList.add('hidden');
+    const status = $('rankedStatus');
+    if (status) status.textContent = 'Ready to start matchmaking.';
+  }
+
+  function activatePlayMode(mode, { skipRecentRoom = false } = {}) {
     $('playModeNotice')?.classList.add('hidden');
     if (mode === 'casual' && !room) prepareUncreatedLobby();
     if (mode === 'unranked' && !room) {
-      // Navigation is not a new room: URL remains clean until a code is
-      // explicitly supplied or a recent confirmed room is recovered.
+      // A fresh switch starts with a clean lobby; only normal navigation can
+      // recover a recently occupied room that the player has NOT left.
       prepareUncreatedLobby();
-      const code = recentRoomCodeForUser();
+      const code = skipRecentRoom ? '' : recentRoomCodeForUser();
       if (code && websocketAuthenticated && ws?.readyState === WebSocket.OPEN && authUser) {
         pendingRecentRoomRejoinCode = code;
         send({ type: 'rejoin_room', code, displayName: (ui.nameInput?.value || '').trim() });
@@ -10690,10 +10750,32 @@ function refreshLobbyJoinLinkUi() {
     try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {}
     updateAuthUi();
   }
+
+  function choosePlayMode(mode) {
+    if (!['ranked', 'unranked', 'casual'].includes(mode) || pendingPlayModeSwitch) return;
+    if (room && (room.casual ? 'casual' : room.ranked ? 'ranked' : 'unranked') !== mode) {
+      if (!roomConnectionReady || ws?.readyState !== WebSocket.OPEN) {
+        setError('Reconnect to your current lobby before changing game types.');
+        return;
+      }
+      // Wait for the server to remove our membership and elect the oldest
+      // remaining human host BEFORE revealing a different lobby or queue.
+      pendingPlayModeSwitch = mode;
+      send({ type: 'leave_room', switchMode: mode });
+      return;
+    }
+    activatePlayMode(mode);
+  }
+  window.addEventListener('pagehide', () => {
+    if (rankedQueueActive && ws?.readyState === WebSocket.OPEN) send({ type: 'ranked_queue_leave' });
+    rankedQueueActive = false;
+    pendingRankedMatchmaking = false;
+  });
   $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
   $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('unranked'));
   $('casualModeBtn')?.addEventListener('click', () => choosePlayMode('casual'));
   function startRankedMatchmaking() {
+    rankedQueueActive = true;
     const status = $('rankedStatus');
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       pendingRankedMatchmaking = true;
@@ -10709,11 +10791,20 @@ function refreshLobbyJoinLinkUi() {
     send({ type: 'ranked_queue_join' });
   }
   $('rankedReadyBtn')?.addEventListener('click', startRankedMatchmaking);
-  $('rankedCancelBtn')?.addEventListener('click', () => {
-    pendingRankedMatchmaking = false;
-    send({ type: 'ranked_queue_leave' });
+  $('rankedCancelBtn')?.addEventListener('click', stopRankedMatchmaking);
+  $('changeModeBtn')?.addEventListener('click', () => {
+    const phase = room?.gamePhase || state?.phase || 'lobby';
+    if (room && (room.ranked ? phase !== 'game-over' : phase !== 'lobby' && phase !== 'game-over')) {
+      setAccountMenuOpen(false);
+      setError('Finish or leave the active game before changing game types.');
+      return;
+    }
+    stopRankedMatchmaking();
+    selectedPlayMode = '';
+    try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
+    setAccountMenuOpen(false);
+    updateAuthUi();
   });
-  $('changeModeBtn')?.addEventListener('click', () => { selectedPlayMode = ''; try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {} $('accountMenu')?.classList.add('hidden'); updateAuthUi(); });
   function setAccountMenuOpen(open) {
     const menu = $('accountMenu');
     const orb = $('accountOrb');
@@ -10730,7 +10821,7 @@ function refreshLobbyJoinLinkUi() {
     if (target instanceof Node && (menu.contains(target) || orb?.contains(target))) return;
     setAccountMenuOpen(false);
   });
-  $('accountManageBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });
+  $('accountManageBtn')?.addEventListener('click', () => { stopRankedMatchmaking(); $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });
   $('friendsBtn')?.addEventListener('click', () => { setAccountMenuOpen(false); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
   $('friendsCloseBtn')?.addEventListener('click', () => $('friendsOverlay')?.classList.add('hidden'));
   $('friendRequestForm')?.addEventListener('submit', async (event) => {

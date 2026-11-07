@@ -21,7 +21,7 @@ test('Development Cards header reserves a bounded grid column for scale controls
 });
 
 test('cache keys agree for CSS, JS and service worker', () => {
-  assert.match(html, /styles\.css\?v=features-v35/);
-  assert.match(html, /app\.js\?v=features-v35/);
-  assert.match(sw, /features-v35/);
+  assert.match(html, /styles\.css\?v=features-v36/);
+  assert.match(html, /app\.js\?v=features-v36/);
+  assert.match(sw, /features-v36/);
 });

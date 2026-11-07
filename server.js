@@ -11189,7 +11189,15 @@ if (msg.type === 'create_room') {
         return;
       }
       const gameOver = !!(room.game && room.game.phase === 'game-over');
-      if (!room.ranked && pid === room.hostId && !gameOver) {
+      // A game-type change explicitly gives up the current lobby seat. Unlike
+      // an ordinary Leave Room request, this also lets the unranked host leave
+      // during setup without trapping them or destroying their friends' lobby.
+      const switchMode = ['ranked', 'unranked', 'casual'].includes(msg.switchMode) ? msg.switchMode : null;
+      if (switchMode && (room.ranked || (room.game && room.game.phase !== 'lobby' && !gameOver))) {
+        sendJson(ws, { type: 'error', error: 'You cannot change game types during an active match.' });
+        return;
+      }
+      if (!room.ranked && pid === room.hostId && !gameOver && !switchMode) {
         sendJson(ws, { type: 'error', error: 'The host cannot leave this room.' });
         return;
       }
@@ -11200,20 +11208,38 @@ if (msg.type === 'create_room') {
       const leavingHost = pid === room.hostId;
       removeRoomMember(room, pid);
       if (leavingHost) {
-        const nextHost = room.players.find((player) => player && !player.isAI) || room.players[0] || null;
+        // joinedAt is stable across reconnects and preserves who has occupied
+        // this lobby longest, regardless of their socket connection state.
+        const nextHost = room.players.filter((player) => player && !player.isAI)
+          .sort((a, b) => Number(a.joinedAt || 0) - Number(b.joinedAt || 0))[0] || null;
         if (nextHost) room.hostId = nextHost.id;
       }
       if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
       ws._roomCode = null;
       ws._playerId = null;
-      sendJson(ws, { type: 'left_room', code, reason: 'You left the room.', rankedMenu: !!room.ranked });
-      if (!room.players.length) rooms.delete(code);
+      // A solo AI-only lobby must be actually removed from persistence, not
+      // left running with bots when its one human switches game types.
+      const remainingHumans = room.players.filter((player) => player && !player.isAI);
+      if (switchMode && !remainingHumans.length) {
+        for (const memberSocket of room.sockets.values()) {
+          memberSocket._roomCode = null;
+          memberSocket._playerId = null;
+          sendJson(memberSocket, { type: 'room_closed_by_admin', code, reason: 'The lobby was closed after the last human left.' });
+        }
+        room.sockets.clear();
+        rooms.delete(code);
+      } else if (!room.players.length) rooms.delete(code);
       else {
         if ((!room.game || room.game.phase === 'lobby') && !room.ranked) ensurePreview(room, true);
         broadcastRoom(room);
         if (!room.game || room.game.phase === 'lobby') broadcastPreviewState(room);
       }
-      scheduleActiveRoomsSave();
+      // A switched lobby may be restored from disk on demand. Persist its
+      // deletion / host change before acknowledging the transition, or an
+      // immediate rejoin can resurrect the old host and room from disk.
+      if (switchMode) await scheduleActiveRoomsSave({ throwOnError: true });
+      else scheduleActiveRoomsSave();
+      sendJson(ws, { type: 'left_room', code, reason: 'You left the room.', rankedMenu: !!room.ranked, switchMode });
       return;
     }
 
