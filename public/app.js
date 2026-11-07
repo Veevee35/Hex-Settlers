@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'clock-surface-v27';
+  const ASSET_CACHE_SW_BUILD = 'orb-dev-scale-v28';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -4518,12 +4518,22 @@ function syncPostgameToState() {
   // Measure the action bar instead of guessing its height. When the player
   // scales the bar, standalone turn buttons remain immediately above it.
   let lastTurnBarHeight = -1;
+  let lastTopBarHeight = -1;
   function syncTurnBarHeight() {
-    if (!document.body.classList.contains('in-game') || !ui.turnCard) return;
-    const height = Math.ceil(ui.turnCard.getBoundingClientRect().height);
+    if (!document.body.classList.contains('in-game')) return;
+    const boardWrap = document.querySelector('section.boardWrap');
+    // The profile orb is positioned inside the HUD rather than at a fixed
+    // viewport coordinate. Keep its diameter below the measured HUD height;
+    // desktop toolbar scaling and short mobile layouts can change that height.
+    const topHeight = Math.ceil(ui.toolsCard?.getBoundingClientRect().height || 0);
+    if (topHeight > 0 && topHeight !== lastTopBarHeight) {
+      lastTopBarHeight = topHeight;
+      boardWrap?.style.setProperty('--hud-top-bar-height', `${topHeight}px`);
+    }
+    const height = Math.ceil(ui.turnCard ? ui.turnCard.getBoundingClientRect().height : 0);
     if (height > 0 && height !== lastTurnBarHeight) {
       lastTurnBarHeight = height;
-      document.querySelector('section.boardWrap')?.style.setProperty('--hud-bottom-bar-height', `${height}px`);
+      boardWrap?.style.setProperty('--hud-bottom-bar-height', `${height}px`);
     }
     boundDraggedClockToBoard();
   }

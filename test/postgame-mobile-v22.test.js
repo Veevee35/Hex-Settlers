@@ -35,7 +35,8 @@ test('postgame markup preserves main menu, rematch, hide and all result tabs', (
     assert.ok(html.includes(`id="${id}"`), `missing ${id}`);
   }
   // The responsive v22 layout is retained; asset cache tags must advance with each release.
-  assert.match(html, /styles\.css\?v=clock-surface-v27/);
-  assert.match(html, /app\.js\?v=clock-surface-v27/);
-  assert.match(sw, /clock-surface-v27/);
+  const assetVersion = html.match(/styles\.css\?v=([a-z0-9-]+)/)?.[1];
+  assert.ok(assetVersion, 'CSS has an asset version');
+  assert.ok(html.includes(`app.js?v=${assetVersion}`), 'JS shares CSS asset version');
+  assert.ok(sw.includes(assetVersion), 'service worker shares asset version');
 });

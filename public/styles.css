@@ -3777,3 +3777,65 @@ body.in-game .countdownClock button {cursor:pointer;touch-action:manipulation;}
   body.in-game .countdownClock .clockMeta,
   body.in-game .countdownClock .clockActionInfo {touch-action:none!important;}
 }
+
+/* v28 — Keep the profile orb entirely inside its own top HUD. Its diameter
+   follows the measured bar height, not a fixed pixel size or button scale. */
+body.in-game .hudTopLeft {
+  --hud-orb-size:clamp(25px,calc(var(--hud-top-bar-height,43px) - 8px),52px);
+  padding-right:calc(var(--hud-orb-size) + 17px)!important;
+}
+body.in-game .hudTopLeft .inGameOrb {
+  position:absolute!important;
+  left:auto!important;right:7px!important;
+  top:50%!important;bottom:auto!important;
+  width:var(--hud-orb-size)!important;
+  height:var(--hud-orb-size)!important;
+  min-width:0!important;min-height:0!important;
+  max-width:100%!important;max-height:100%!important;
+  padding:0!important;margin:0!important;
+  transform:translateY(-50%)!important;
+  font-size:calc(var(--hud-orb-size) * .43)!important;
+  line-height:1!important;
+  display:grid!important;place-items:center;
+  box-sizing:border-box;
+}
+/* Development-card controls must wrap *within* the resizable right panel.
+   The deck count gets a second row; the scaler owns the right-hand column. */
+body.in-game .rightSidebar #devCard .devHeaderRow {
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) max-content;
+  grid-template-rows:auto auto;
+  align-items:center;
+  column-gap:6px;row-gap:2px;
+  width:100%;min-width:0;max-width:100%;
+  box-sizing:border-box;
+}
+body.in-game .rightSidebar #devCard .devHeaderRow > h2 {
+  grid-column:1;grid-row:1;
+  min-width:0;max-width:100%;
+  overflow-wrap:break-word;
+  font-size:clamp(11px,1vw,14px);
+  line-height:1.15;
+}
+body.in-game .rightSidebar #devCard .devHeaderRight {
+  grid-column:1;grid-row:2;
+  justify-self:start;align-self:start;
+  margin-left:0;min-width:0;max-width:100%;
+  flex-wrap:wrap;
+}
+body.in-game .rightSidebar #devCard .devHeaderRow > .panelScaleHost {
+  grid-column:2;grid-row:1 / span 2;
+  justify-self:end;align-self:center;
+  margin:0!important;min-width:0;max-width:100%;
+  flex:0 0 auto;
+}
+body.in-game .rightSidebar #devCard .panelScaleHost .toolScaleControl {
+  box-sizing:border-box;min-width:0;
+  gap:3px;padding:2px 3px;
+}
+body.in-game .rightSidebar #devCard .panelScaleHost .tabScaleBtn {
+  flex:0 0 22px;width:22px;height:22px;
+}
+body.in-game .rightSidebar #devCard .panelScaleHost .tabScaleLabel {
+  min-width:38px;font-size:10px;
+}
