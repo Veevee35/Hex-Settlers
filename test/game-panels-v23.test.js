@@ -53,8 +53,8 @@ test('mobile action grid and condensed resource strip are present', () => {
   assert.match(js, /mobileBuildMenuToggle/);
 });
 
-test('v23 release advances all frontend cache versions', () => {
-  assert.match(html, /styles\.css\?v=game-panels-v23/);
-  assert.match(html, /app\.js\?v=game-panels-v23/);
-  assert.match(sw, /game-panels-v23/);
+test('current release advances all frontend cache versions', () => {
+  assert.match(html, /styles\.css\?v=game-panels-v24/);
+  assert.match(html, /app\.js\?v=game-panels-v24/);
+  assert.match(sw, /game-panels-v24/);
 });

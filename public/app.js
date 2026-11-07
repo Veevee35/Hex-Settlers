@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'game-panels-v23';
+  const ASSET_CACHE_SW_BUILD = 'game-panels-v24';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -290,6 +290,7 @@
   const mobileLandscape = () => window.innerWidth > window.innerHeight && window.innerHeight < 550;
   let lastMobileLandscape = mobileLandscape();
   const MOBILE_SPLITTER_PX = 28;
+  const mobilePinnedResources = $('mobilePinnedResources');
   const mobileGameSplitter = $('mobileGameSplitter');
   const gameBoardWrap = document.querySelector('section.boardWrap');
   const isMobileGameSplit = () => window.matchMedia('(max-width:900px), (pointer:coarse) and (max-width:1180px)').matches;
@@ -4146,8 +4147,11 @@ function syncPostgameToState() {
 
       const anchor = ui.rightSidebarResourcesDock || null;
       if (anchor) {
-        if (isMobileGameSplit()) {
-          if (anchor.parentNode !== ui.rightSidebar) ui.rightSidebar.insertBefore(anchor, ui.rightSidebarInner);
+        // On touch layouts the resources are an independent, permanently
+        // visible strip between the action controls and the resize handle.
+        // Game Panels only collapses the tabbed details below this strip.
+        if (isMobileGameSplit() && mobilePinnedResources) {
+          if (anchor.parentNode !== mobilePinnedResources) mobilePinnedResources.appendChild(anchor);
         } else if (anchor.parentNode !== ui.rightSidebarInner) {
           ui.rightSidebarInner.appendChild(anchor);
         }
@@ -4499,6 +4503,10 @@ function syncPostgameToState() {
       panelEl.style.top = top + 'px';
       panelEl.style.right = 'auto';
       panelEl.style.bottom = 'auto';
+      if (panelEl.classList && panelEl.classList.contains('rightHud')) {
+        panelEl.style.setProperty('top', top + 'px', 'important');
+        panelEl.style.setProperty('right', 'auto', 'important');
+      }
       if (panelEl === ui.turnCard) syncTurnHudIndicatorPlacement();
       return true;
     } catch (_) {
@@ -4573,6 +4581,10 @@ function syncPostgameToState() {
       panelEl.style.top = r.top + 'px';
       panelEl.style.right = 'auto';
       panelEl.style.bottom = 'auto';
+      if (panelEl.classList && panelEl.classList.contains('rightHud')) {
+        panelEl.style.setProperty('top', r.top + 'px', 'important');
+        panelEl.style.setProperty('right', 'auto', 'important');
+      }
       if (panelEl === ui.turnCard) syncTurnHudIndicatorPlacement();
       startLeft = r.left;
       startTop = r.top;
@@ -4593,6 +4605,10 @@ function syncPostgameToState() {
       const top = clamp(startTop + dy, 6, maxTop);
       panelEl.style.left = left + 'px';
       panelEl.style.top = top + 'px';
+      if (panelEl.classList && panelEl.classList.contains('rightHud')) {
+        panelEl.style.setProperty('top', top + 'px', 'important');
+        panelEl.style.setProperty('right', 'auto', 'important');
+      }
       if (panelEl === ui.turnCard) syncTurnHudIndicatorPlacement();
       try { if (panelEl && panelEl.dataset) panelEl.dataset.popupDragged = '1'; } catch (_) {}
       if (storageKey) {

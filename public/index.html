@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=game-panels-v23" />
+  <link rel="stylesheet" href="styles.css?v=game-panels-v24" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -556,6 +556,8 @@
           </div>
         </div>
 
+        <!-- Mobile: compact resources stay visible even when Game Panels is hidden. -->
+        <div id="mobilePinnedResources" class="mobilePinnedResources" aria-label="Bank and player resources"></div>
         <div id="mobileGameSplitter" class="mobileGameSplitter" role="separator" aria-label="Resize map and game panels" aria-orientation="horizontal" aria-controls="board rightSidebar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="40" tabindex="0" title="Drag up or down to resize the map and game panels; use arrow keys for small adjustments"></div>
         <div id="rightSidebar" class="rightSidebar hidden">
           <div class="mobilePanelTitle"><strong>Game Panels</strong><button id="mobilePanelsClose" class="mobileControlBtn" type="button" aria-label="Close game panels">✕ Close</button></div>
@@ -704,6 +706,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=game-panels-v23"></script>
+  <script src="app.js?v=game-panels-v24"></script>
 </body>
 </html>

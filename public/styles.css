@@ -3623,3 +3623,97 @@ body.gamePanelsCollapsed.in-game .inGameOrb{right:8px!important;}
   }
   body.in-game .hudBottomLeft{bottom:calc(var(--mobile-sidebar-height) + var(--mobile-divider-height) + var(--safe-bottom))!important;}
 }
+
+
+/* v24 — Desktop HUD stops precisely at the game-panels boundary. */
+@media (min-width:901px) and (pointer:fine), (min-width:1181px) {
+  body.in-game:not(.gamePanelsCollapsed) .hudTopLeft,
+  body.in-game:not(.gamePanelsCollapsed) .hudBottomLeft {
+    right:var(--right-sidebar-width,520px)!important;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .hudTopLeft .inGameOrb {
+    right:7px!important;
+  }
+  body.in-game:not(.gamePanelsCollapsed) .accountMenu {
+    right:calc(var(--right-sidebar-width,520px) + 8px)!important;
+  }
+  body.in-game.gamePanelsCollapsed .hudTopLeft,
+  body.in-game.gamePanelsCollapsed .hudBottomLeft {right:0!important;}
+  body.in-game.gamePanelsCollapsed .accountMenu {right:8px!important;}
+}
+/* The canvas and its surrounding board always have the same background.
+   In particular the PAUSED dimmer must extend into space vacated by panels. */
+body.in-game .boardWrap {background:#5f6f7c;}
+body.in-game.gamePanelsCollapsed .pausedOverlay {right:0!important;}
+body.in-game.gamePanelsCollapsed .yourRollBanner,
+body.in-game.gamePanelsCollapsed .extraTurnCenterBanner {left:50%!important;}
+/* Clock remains movable. Its grip is functional on desktop and mobile; the
+   dragging logic stores position and uses inline important top/right values. */
+body.in-game .rightHud .clockDragGrip {
+  display:flex!important;align-items:center;justify-content:center;
+  touch-action:none;user-select:none;cursor:grab;
+  background:rgba(83,116,138,.28);border:1px solid #486579;
+}
+body.in-game .rightHud .clockDragGrip:active {cursor:grabbing;}
+.mobilePinnedResources{display:none;}
+/* Phones/touch tablets: real flex rows for the controls and resource strip.
+   They take up space, so the Android navigation area cannot cover buttons. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px) {
+  body.in-game .boardWrap {
+    --mobile-resource-height:auto;
+    display:flex!important;flex-direction:column!important;
+    background:#5f6f7c;
+  }
+  body.in-game #board {order:0;flex:1 1 0!important;min-height:0!important;}
+  body.in-game .rollDock {
+    order:1;position:relative!important;flex:0 0 auto!important;
+    left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+    width:100%!important;min-height:42px;
+    padding:2px 0 3px!important;margin:0!important;
+    background:#12202c;
+  }
+  body.in-game .hudBottomLeft {
+    order:2;position:relative!important;flex:0 0 auto!important;
+    left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+    width:100%!important;max-width:100%!important;
+    padding:5px 7px calc(5px + var(--safe-bottom))!important;
+    margin:0!important;
+    box-sizing:border-box;
+  }
+  body.in-game .mobilePinnedResources {
+    order:3;display:block;flex:0 0 auto;min-height:0;max-height:min(26dvh,164px);
+    overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;
+    width:100%;background:#10202d;
+    border-top:1px solid #3c596f;border-bottom:1px solid #3c596f;
+  }
+  body.in-game .mobilePinnedResources .rightSidebarResourceDock {
+    display:block!important;border:0!important;margin:0!important;padding:6px 9px!important;
+    max-height:none!important;overflow:visible!important;
+  }
+  body.in-game .mobileGameSplitter{order:4;}
+  body.in-game .rightSidebar{order:5;}
+  body.gamePanelsCollapsed.in-game .mobilePinnedResources {display:block!important;}
+  body.gamePanelsCollapsed.in-game .mobileGameSplitter,
+  body.gamePanelsCollapsed.in-game .rightSidebar {display:none!important;}
+  /* The board stays interactive when lower tabs are collapsed; resources
+     never follow them out of the layout. */
+  body.gamePanelsCollapsed.in-game #board {flex:1 1 0!important;}
+  body.in-game .rightSidebarInner {padding-bottom:12px!important;}
+  body.in-game .hudBottomLeft .hudBtns {grid-template-rows:repeat(2,minmax(38px,auto))!important;}
+  body.in-game .rightHud {z-index:38;}
+}
+@media (max-height:550px) and (max-width:900px) {
+  body.in-game .hudBottomLeft .hudBtns {grid-template-rows:repeat(2,34px)!important;}
+  body.in-game .rollDock {min-height:38px;}
+}
+/* With bars no longer over the desktop sidebar, allow its cards to use
+   its full height instead of reserving the old 54px/59px HUD gutters. */
+@media (min-width:901px) and (pointer:fine), (min-width:1181px) {
+  body.in-game .rightSidebarInner {padding-top:10px!important;padding-bottom:10px!important;}
+}
+/* Android Chrome's dynamic viewport can be shorter than the legacy 100vh
+   minimum. Never let that minimum push the bottom action row under system UI. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px) {
+  html:has(body.in-game), body.in-game {height:100dvh!important;min-height:0!important;}
+  body.in-game #app {height:100dvh!important;min-height:0!important;max-height:100dvh!important;}
+}

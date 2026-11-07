@@ -1,8 +1,13 @@
-Hex Settlers — mobile split layout v21
+Hex Settlers v24 / Game Panels layout correction
 
-Automated tests: 258 passed, 0 failed (node --test).
-JavaScript syntax: passed (node --check public/app.js).
-Chromium smoke tests: 390x844 portrait touch, 844x390 landscape touch,
-1024x768 touch tablet, 1280x800 desktop. Verified vertical splitter,
-mouse/touch pointer resizing, keyboard resizing, sidebar independent
-scrolling and desktop right sidebar retention.
+PASS: node --check public/app.js
+PASS: node --check public/sw.js
+PASS: 235 dependency-independent Node tests, 0 failures.
+PASS: Chromium mobile/desktop layout checks at 390x844, 360x640, 844x390, 1024x768, 1366x768.
+PASS: Desktop top/bottom bars stop at sidebar edge; expand when hidden.
+PASS: Desktop timer drag moves and saves position.
+PASS: Hidden sidebar pause overlay covers the vacated background.
+PASS: Mobile resource strip remains visible when Game Panels is hidden.
+PASS: Mobile action bar stays inside the viewport.
+
+NOT RUN: Full live-server suite (source ZIP lacks ws dependency; install with npm ci).
