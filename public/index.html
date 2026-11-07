@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=release-v1.0.1" />
+  <link rel="stylesheet" href="styles.css?v=release-v1.0.0" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -35,7 +35,7 @@
         </a>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.1</div>
+    <div class="appVersion" aria-label="Game version">V1.0.0</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -55,7 +55,7 @@
         <button id="casualModeBtn" class="modeChoice"><strong>Casual Play · vs AI</strong><span>All maps and settings, one human player, no shareable lobby or ratings.</span></button>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.1</div>
+    <div class="appVersion" aria-label="Game version">V1.0.0</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -337,12 +337,14 @@
           <select id="mapModeSelect" class="input">
             <option value="classic" selected>Classic</option>
             <option value="classic56">Classic 5–6 Player</option>
+            <option value="classic78">Classic 7–8 Player — Custom Map</option>
             <option value="seafarers">Seafarers</option>
             <option value="seafarers56">Seafarers 5–6 Player Scenarios</option>
+            <option value="seafarers78">Seafarers 7–8 Player — Custom Map</option>
           </select>
           <label id="classicCustomMapRow" class="checkRow" style="margin-top:10px;align-items:center;gap:8px">
             <input id="classicCustomMapToggle" type="checkbox" />
-            <span>Custom Map — paint tiles and ports on either Classic board</span>
+            <span>Custom Map — paint tiles and ports on Classic boards</span>
           </label>
           <div id="classic56Note" class="smallNote hidden">Classic 5–6 uses paired turns (Player 1 rolls + acts, then Player 2 acts). Player 2 may only trade with the bank. Requires 5–6 players and uses 11 ports.</div>
           <div id="sixIslandsNote" class="smallNote hidden">Seafarers 5–6 scenarios use paired turns like the classic 5–6 rules (Player 1 rolls + acts, then Player 2 acts). Player 2 may only trade with the bank. Requires 5–6 players and uses 11 ports.</div>
@@ -360,6 +362,7 @@
             </select>
           </div>
 
+          <div id="scenario78Note" class="smallNote hidden">7–8-player experimental map builder: custom maps only. Add or remove hexes freely to create your own board shape, then download the finished map to preserve it. Available in Unranked only.</div>
           <div id="scenario56Row" class="hidden">
             <label class="label">Seafarers 5–6 scenario</label>
             <select id="mapScenario56Select" class="input">
@@ -386,6 +389,8 @@
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               <select id="testToolSelect" class="input" style="width:145px;">
                 <option value="tile" selected>Paint tiles</option>
+                <option value="add">Add tile (7–8)</option>
+                <option value="remove">Remove tile (7–8)</option>
                 <option value="port">Place ports</option>
               </select>
               <select id="testBrushSelect" class="input" style="flex:1; min-width:180px;">
@@ -421,11 +426,17 @@
                 <option value="remove">Remove port</option>
               </select>
               <button id="testResetBtn" class="btn" type="button">Reset blank</button>
+              <div id="custom78Coords" class="row hidden" style="gap:5px; flex-wrap:wrap; align-items:center;">
+                <label for="custom78Q">Q</label><input id="custom78Q" class="input" type="number" step="1" value="1" style="width:75px" />
+                <label for="custom78R">R</label><input id="custom78R" class="input" type="number" step="1" value="0" style="width:75px" />
+                <button id="custom78AddBtn" class="btn" type="button">Add at Q / R</button>
+                <button id="custom78RemoveBtn" class="btn" type="button">Remove at Q / R</button>
+              </div>
               <button id="customMapDownloadBtn" class="btn" type="button">Download Map</button>
               <button id="customMapUploadBtn" class="btn" type="button">Upload Map</button>
               <input id="customMapUploadInput" class="hidden" type="file" accept=".json,application/json" />
             </div>
-            <div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
+            <div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. On 7–8 custom maps, select Add/Remove Tile and click a hex position, or enter Q/R coordinates; pan and zoom for more room. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
           </div>
 
           <label class="label">Victory points to win</label>
@@ -752,6 +763,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=release-v1.0.1"></script>
+  <script src="app.js?v=release-v1.0.0"></script>
 </body>
 </html>

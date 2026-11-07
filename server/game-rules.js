@@ -2,6 +2,7 @@
 
 const BANK_MAX_DEFAULT = 19;
 const BANK_MAX_56 = 24;
+const BANK_MAX_78 = 30;
 
 const DEFAULT_RULES = Object.freeze({
   discardLimit: 7,
@@ -96,7 +97,7 @@ function seafarersDesertsSeparateLandMasses(rules) {
   const scenario = String(rules?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
   return scenario === 'cartographer_4_manual' || scenario === 'cartographer_4_random' || scenario === 'cartographer_4' ||
     scenario === 'cartographer_56_manual' || scenario === 'cartographer_56_random' || scenario === 'cartographer_56' ||
-    scenario === 'test_builder' || scenario === 'test_builder_56';
+    scenario === 'test_builder' || scenario === 'test_builder_56' || scenario === 'test_builder_78';
 }
 
 function microActionDurationMs(rules) {
@@ -109,6 +110,7 @@ function bankMaxForRules(rules) {
   const custom = Math.floor(Number(rules && (rules.baseResourcesPerType ?? rules.baseResourceCount)));
   if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
   const mapMode = normalizedMapModeRaw(rules && rules.mapMode);
+  if (mapMode === 'classic78' || (mapMode === 'seafarers' && rules?.seafarersScenario === 'test_builder_78')) return BANK_MAX_78;
   if (mapMode === 'classic56') return BANK_MAX_56;
   if (mapMode === 'seafarers' && isSeafarers56Scenario(rules && rules.seafarersScenario)) return BANK_MAX_56;
   return BANK_MAX_DEFAULT;
@@ -117,6 +119,7 @@ function bankMaxForRules(rules) {
 module.exports = {
   BANK_MAX_DEFAULT,
   BANK_MAX_56,
+  BANK_MAX_78,
   DEFAULT_RULES,
   RANKED_SCENARIOS,
   bankMaxForRules,

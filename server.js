@@ -1789,9 +1789,14 @@ function isSeafarers56Scenario(s) {
   return scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56' || scen === 'test_builder_56';
 }
 
+function is78CustomRules(rules) {
+  return !!rules && (String(rules.mapMode || '') === 'classic78' ||
+    (String(rules.mapMode || '') === 'seafarers' && String(rules.seafarersScenario || '') === 'test_builder_78'));
+}
+
 function isTestBuilderScenarioKey(s) {
   const scen = String(s || '').toLowerCase().replace(/-/g,'_');
-  return scen === 'test_builder' || scen === 'test_builder_56';
+  return scen === 'test_builder' || scen === 'test_builder_56' || scen === 'test_builder_78';
 }
 
 function isCartographer4ScenarioKey(s) {
@@ -2625,7 +2630,7 @@ function isPairedTurnPlayerTwoStage(game) {
   const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
     ? 'classic56'
     : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
-  const pairedMode = (mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(game?.rules?.seafarersScenario));
+  const pairedMode = (mm === 'classic56') || is78CustomRules(game?.rules) || (mm === 'seafarers' && isSeafarers56Scenario(game?.rules?.seafarersScenario));
   if (!pairedMode) return false;
   return !!(game.paired && game.paired.enabled && String(game.paired.stage || '') === 'p2');
 }
@@ -5212,6 +5217,45 @@ function finishCartographer4ManualDraft(room, game) {
   pushLog(game, 'Cartographer draft complete. Numbers, robber, pirate, and ports were randomized.', 'system');
 }
 
+// 7–8 map editor geometry is defined by the creator's axial tile coordinates,
+// not by a preset frame. Storage remains finite to protect the game server.
+const CUSTOM_78_MAX_TILES = 1024;
+const CUSTOM_78_MAX_COORD = 100000;
+function validCustom78Coord(q, r) {
+  return Number.isInteger(q) && Number.isInteger(r) &&
+    Math.abs(q) <= CUSTOM_78_MAX_COORD && Math.abs(r) <= CUSTOM_78_MAX_COORD;
+}
+function custom78PortEdgeKey(geom, edge) {
+  const a = geom.nodes[edge.a], b = geom.nodes[edge.b];
+  const key = p => `${Math.round(p.x * 100000)},${Math.round(p.y * 100000)}`;
+  return [key(a), key(b)].sort().join('|');
+}
+function buildCustom78Geometry(coords, oldGeom = null) {
+  const geom = buildGeometryFromAxials(coords);
+  const originals = new Map((oldGeom?.tiles || []).map(t => [axialKey(t.q, t.r), t]));
+  geom.tiles = geom.tiles.map(tile => {
+    const prev = originals.get(axialKey(tile.q, tile.r));
+    return { ...tile, type: prev?.type || 'sea', number: prev?.number ?? null,
+      robber: !!prev?.robber, pirate: !!prev?.pirate };
+  });
+  const oldPorts = new Map((oldGeom?.ports || []).map(port => {
+    const edge = oldGeom.edges[port.edgeId];
+    return edge ? [custom78PortEdgeKey(oldGeom, edge), port.kind] : ['', null];
+  }));
+  geom.ports = [];
+  for (const edge of geom.edges) {
+    const kind = oldPorts.get(custom78PortEdgeKey(geom, edge));
+    if (kind) editTestBuilderPort(geom, edge.id, kind);
+  }
+  return geom;
+}
+function initialCustom78Geometry() {
+  const geom = buildCustom78Geometry([{q: 0, r: 0}]);
+  geom.tiles[0].type = 'desert';
+  geom.tiles[0].robber = true;
+  return geom;
+}
+
 function generateBoardSeafarersTestBuilder(geom) {
   // Blank editable map: all sea with a center desert + robber and one sea tile with the pirate.
   const allTiles = seafarersBaseAllSea(geom);
@@ -5613,11 +5657,14 @@ function tradeRatioFor(game, playerId, giveKind) {
 function newEmptyGame(room) {
   const raw = (room && room.rules && room.rules.mapMode) ? String(room.rules.mapMode).toLowerCase() : 'classic';
   const mapMode = (raw === 'seafarers') ? 'seafarers'
+    : (raw === 'classic78') ? 'classic78'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
       ? 'classic56'
       : 'classic';
   let geom = null;
-  if (mapMode === 'classic56') {
+  if (is78CustomRules(room.rules)) {
+    geom = initialCustom78Geometry();
+  } else if (mapMode === 'classic56') {
     geom = buildGeometryClassic56();
   } else if (mapMode === 'seafarers') {
     const scen = String((room && room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
@@ -5852,6 +5899,10 @@ function startGame(room) {
     }
   } catch (_) { usedPreview = false; }
 
+  if (!usedPreview && is78CustomRules(game.rules)) {
+    game.geom = initialCustom78Geometry();
+    usedPreview = true;
+  }
   if (!usedPreview) {
     const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
     const mm = (rawMM === 'seafarers') ? 'seafarers'
@@ -6020,7 +6071,7 @@ function advanceSetup(game) {
           ? 'classic56'
           : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
         const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-        const pairedOn = (mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(scen));
+        const pairedOn = (mm === 'classic56') || is78CustomRules(game.rules) || (mm === 'seafarers' && isSeafarers56Scenario(scen));
         if (pairedOn) {
           game.paired = { enabled: true, stage: 'p1', p1Id: game.currentPlayerId, p2Id: (order && order.length >= 5) ? order[(0 + 3) % order.length] : null, p1Idx: 0, offset: 3 };
         } else {
@@ -7621,7 +7672,7 @@ if (kind === 'pirate_steal') {
       const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
         ? 'classic56'
         : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
-      if (((mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) && game.paired && game.paired.stage === 'p2') {
+      if (((mm === 'classic56') || is78CustomRules(game.rules) || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) && game.paired && game.paired.stage === 'p2') {
         return { ok: false, error: 'Player 2 cannot trade with other players.' };
       }
     }
@@ -8044,6 +8095,7 @@ function pickAvailableColor(room) {
 }
 
 function maxPlayersForRules(rules) {
+  if (is78CustomRules(rules)) return 8;
   const raw = (rules && rules.mapMode) ? String(rules.mapMode).toLowerCase() : 'classic';
   const mm = (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
     ? 'classic56'
@@ -8169,7 +8221,7 @@ function gameUsesPairedTurns(game) {
   const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
     ? 'classic56'
     : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
-  return (mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')));
+  return (mm === 'classic56') || is78CustomRules(game?.rules) || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')));
 }
 
 function recomputeLargestArmy(game) {
@@ -8888,12 +8940,13 @@ function rejoinRoom(code, playerId) {
 
 
 function customMapEnabled(rules) {
-  return !!rules?.customMap && ['classic', 'classic56'].includes(String(rules?.mapMode || '').toLowerCase());
+  return (!!rules?.customMap || String(rules?.mapMode || '') === 'classic78') && ['classic', 'classic56', 'classic78'].includes(String(rules?.mapMode || '').toLowerCase());
 }
 function editableCustomMapRules(rules) {
   return customMapEnabled(rules) || (String(rules?.mapMode || '') === 'seafarers' && isTestBuilderScenarioKey(rules?.seafarersScenario));
 }
 function mapPreviewKey(rules, playerCount = null) {
+  if (is78CustomRules(rules)) return String(rules.mapMode) === 'classic78' ? 'classic78:custom' : 'seafarers:test_builder_78';
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
@@ -8937,6 +8990,7 @@ function mapPreviewKey(rules, playerCount = null) {
 }
 
 function generatePreviewGeom(rules, room = null) {
+  if (is78CustomRules(rules)) return initialCustom78Geometry();
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
@@ -11718,6 +11772,7 @@ if (msg.type === 'create_room') {
 
       const mm = String(r.mapMode ?? next.mapMode ?? 'classic').toLowerCase();
       next.mapMode = (mm === 'seafarers') ? 'seafarers'
+        : (mm === 'classic78') ? 'classic78'
         : (mm === 'classic56' || mm === 'classic_5_6' || mm === 'classic-5-6' || mm === 'classic5_6' || mm === 'classic5-6')
           ? 'classic56'
           : 'classic';
@@ -11733,6 +11788,7 @@ if (msg.type === 'create_room') {
             ? 'heading_for_new_shores'
           : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
             ? 'test_builder'
+          : (rawScen === 'test_builder_78') ? 'test_builder_78'
           : (rawScen === 'test_builder_56' || rawScen === 'test-builder-56' || rawScen === 'test56' || rawScen === 'builder56')
             ? 'test_builder_56'
           : (rawScen === 'cartographer_4_manual' || rawScen === 'cartographer-4-manual' || rawScen === 'cartographer_manual' || rawScen === 'manual_cartographer')
@@ -11753,11 +11809,11 @@ if (msg.type === 'create_room') {
 
       // Casual play deliberately excludes all custom-board editors, including
       // uploads and crafted settings messages. Enforce on the server, not only UI.
-      if (room.casual && (r.customMap === true || next.seafarersScenario === 'test_builder' || next.seafarersScenario === 'test_builder_56')) {
+      if (room.casual && (r.customMap === true || next.mapMode === 'classic78' || next.seafarersScenario === 'test_builder_78' || next.seafarersScenario === 'test_builder' || next.seafarersScenario === 'test_builder_56')) {
         sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
         return;
       }
-      next.customMap = next.mapMode !== 'seafarers' && r.customMap === true;
+      next.customMap = next.mapMode !== 'seafarers' && (next.mapMode === 'classic78' || r.customMap === true);
       if (editableCustomMapRules(next)) next.randomMapAtStart = false;
 
       if (typeof r.explorationPointsEnabled === 'boolean') {
@@ -11924,13 +11980,14 @@ if (msg.type === 'create_room') {
         return;
       }
       ensurePreview(room, true);
+      scheduleActiveRoomsSave();
       broadcastPreviewState(room);
       return;
     }
 
     // Older saved rooms may predate the Casual custom-map restriction.
     // Block map-editor messages there as well as new settings changes.
-    if (room.casual && ['download_custom_map', 'upload_custom_map', 'edit_preview_tile', 'edit_preview_port'].includes(msg.type)) {
+    if (room.casual && ['download_custom_map', 'upload_custom_map', 'edit_preview_tile', 'edit_preview_port', 'edit_preview_grid'].includes(msg.type)) {
       sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
       return;
     }
@@ -11948,7 +12005,7 @@ if (msg.type === 'create_room') {
         ? String(room.rules?.seafarersScenario || '') : String(room.rules?.mapMode || 'classic');
       if (msg.type === 'download_custom_map') {
         sendJson(ws, { type: 'custom_map_file', map: {
-          format: 'hex-settlers-custom-map', version: 1, mapKind,
+          format: 'hex-settlers-custom-map', version: is78CustomRules(room.rules) ? 2 : 1, mapKind,
           tiles: geom.tiles.map(t => ({ q: t.q, r: t.r, type: t.type, number: t.number, robber: !!t.robber, pirate: !!t.pirate })),
           ports: (geom.ports || []).map(port => ({ edgeId: port.edgeId, kind: port.kind })),
         } });
@@ -11957,6 +12014,40 @@ if (msg.type === 'create_room') {
       const file = msg.map;
       const validTypes = new Set(['sea', 'desert', 'forest', 'hills', 'pasture', 'field', 'mountains', 'gold']);
       const validPorts = new Set(['generic', 'brick', 'lumber', 'wool', 'grain', 'ore']);
+      if (is78CustomRules(room.rules)) {
+        const coords = Array.isArray(file?.tiles) ? file.tiles.map(t => ({q:t?.q, r:t?.r})) : [];
+        if (!file || file.format !== 'hex-settlers-custom-map' || file.version !== 2 ||
+            file.mapKind !== mapKind || coords.length < 1 || coords.length > CUSTOM_78_MAX_TILES ||
+            coords.some(c => !validCustom78Coord(c.q,c.r)) ||
+            new Set(coords.map(c => axialKey(c.q,c.r))).size !== coords.length ||
+            !Array.isArray(file.ports) || file.ports.length > 1000) {
+          sendJson(ws, {type:'error', error:'Invalid 7–8 custom map format, geometry, or map type.'}); return;
+        }
+        const trial = buildCustom78Geometry(coords);
+        trial.tiles = trial.tiles.map((tile,i) => {
+          const input = file.tiles[i];
+          const num = input.number == null ? null : Number(input.number);
+          if (!validTypes.has(input.type) || (num !== null && (!Number.isInteger(num) || num < 2 || num > 12 || num === 7)) ||
+              (['sea','desert'].includes(input.type) && num !== null)) return null;
+          return {...tile,type:input.type, number:num, robber:input.robber === true, pirate:input.pirate === true};
+        });
+        if (trial.tiles.some(t => !t) || trial.tiles.filter(t => t.robber).length > 1 ||
+            trial.tiles.filter(t => t.pirate).length > 1 ||
+            trial.tiles.some(t => (t.robber && t.type === 'sea') || (t.pirate && t.type !== 'sea'))) {
+          sendJson(ws,{type:'error',error:'Invalid custom tile, number, robber, or pirate.'}); return;
+        }
+        for (const port of file.ports) {
+          if (!port || !Number.isInteger(port.edgeId) || !validPorts.has(port.kind) || !editTestBuilderPort(trial,port.edgeId,port.kind).ok) {
+            sendJson(ws,{type:'error',error:'Invalid or overlapping custom ports.'}); return;
+          }
+        }
+        room.preview.geom = trial;
+        room.preview.at = now();
+        scheduleActiveRoomsSave();
+        broadcastPreviewState(room);
+        sendJson(ws,{type:'custom_map_loaded',message:'7–8 custom map shape and ports loaded.'});
+        return;
+      }
       if (!file || file.format !== 'hex-settlers-custom-map' || file.version !== 1 ||
           file.mapKind !== mapKind || !Array.isArray(file.tiles) || file.tiles.length !== geom.tiles.length ||
           !Array.isArray(file.ports) || file.ports.length > 30) {
@@ -11989,6 +12080,33 @@ if (msg.type === 'create_room') {
       scheduleActiveRoomsSave();
       broadcastPreviewState(room);
       sendJson(ws, { type: 'custom_map_loaded', message: 'Custom map loaded into the lobby.' });
+      return;
+    }
+
+    if (msg.type === 'edit_preview_grid') {
+      if (pid !== room.hostId || (room.game && room.game.phase !== 'lobby') || room.casual || !is78CustomRules(room.rules)) {
+        sendJson(ws,{type:'error',error:'Only an unranked 7–8 custom-map lobby host can change the tile grid.'}); return;
+      }
+      const q = Number(msg.q), r = Number(msg.r), operation = String(msg.operation || '');
+      if (!validCustom78Coord(q,r) || !['add','remove'].includes(operation)) {
+        sendJson(ws,{type:'error',error:'Invalid hex coordinates or operation.'}); return;
+      }
+      ensurePreview(room,false);
+      const previous = room.preview.geom;
+      const axials = previous.tiles.map(t=>({q:t.q,r:t.r}));
+      const at = axials.findIndex(t=>t.q===q && t.r===r);
+      if (operation === 'add') {
+        if (at !== -1) { sendJson(ws,{type:'error',error:'A tile already exists at that coordinate.'}); return; }
+        if (axials.length >= CUSTOM_78_MAX_TILES) { sendJson(ws,{type:'error',error:'The editor safety limit is 1024 tiles.'}); return; }
+        axials.push({q,r});
+      } else {
+        if (at === -1 || axials.length < 2) { sendJson(ws,{type:'error',error:'Cannot remove this tile; keep at least one hex.'}); return; }
+        axials.splice(at,1);
+      }
+      room.preview.geom = buildCustom78Geometry(axials, previous);
+      room.preview.at = now();
+      scheduleActiveRoomsSave();
+      broadcastPreviewState(room);
       return;
     }
 
@@ -12070,6 +12188,7 @@ if (msg.type === 'create_room') {
       normalizeTestBuilderPorts(geom);
 
       room.preview.at = now();
+      scheduleActiveRoomsSave();
       broadcastPreviewState(room);
       return;
     }
@@ -12098,6 +12217,7 @@ if (msg.type === 'create_room') {
         return;
       }
       room.preview.at = now();
+      scheduleActiveRoomsSave();
       broadcastPreviewState(room);
       return;
     }
@@ -12121,7 +12241,7 @@ if (msg.type === 'create_room') {
           ? 'classic56'
           : 'classic';
 
-      if (room.casual && editableCustomMapRules(room.rules)) {
+      if (room.casual && (editableCustomMapRules(room.rules) || is78CustomRules(room.rules))) {
         sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
         return;
       }
@@ -12132,11 +12252,12 @@ if (msg.type === 'create_room') {
 
       const scen = String((room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
       const isSix = (mm === 'seafarers' && isSeafarers56Scenario(scen));
+      const isEight = is78CustomRules(room.rules);
 
-      const minPlayers = (mm === 'classic56') ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2));
-      const maxPlayers = (mm === 'classic56') ? 6 : (isSix ? 6 : 4);
+      const minPlayers = isEight ? 7 : ((mm === 'classic56') ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2)));
+      const maxPlayers = isEight ? 8 : ((mm === 'classic56') ? 6 : (isSix ? 6 : 4));
       if (room.players.length < minPlayers || room.players.length > maxPlayers) {
-        const msgErr = (mm === 'classic56')
+        const msgErr = isEight ? 'Custom 7–8 maps require 7 or 8 players (AI can fill empty seats).' : (mm === 'classic56')
           ? 'Classic 5–6 requires 5 or 6 players.'
           : (isSix ? 'Seafarers 5–6 scenarios require 5 or 6 players.' : (allowSolo ? 'Need at least 1 player.' : 'Need at least 2 players.' ));
         sendJson(ws, { type: 'error', error: msgErr });

@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.1';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.0';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -87,6 +87,10 @@
     scenarioRow: $('scenarioRow'),
     mapScenarioSelect: $('mapScenarioSelect'),
     scenario56Row: $('scenario56Row'),
+    scenario78Note: $('scenario78Note'),
+    custom78Coords: $('custom78Coords'),
+    custom78Q: $('custom78Q'), custom78R: $('custom78R'),
+    custom78AddBtn: $('custom78AddBtn'), custom78RemoveBtn: $('custom78RemoveBtn'),
     mapScenario56Select: $('mapScenario56Select'),
     explorationPointsRow: $('explorationPointsRow'),
     explorationPointsToggle: $('explorationPointsToggle'),
@@ -1353,6 +1357,11 @@
 
   function enforceCasualMapRestrictions() {
     const casual = selectedPlayMode === 'casual' || !!room?.casual;
+    for (const option of ui.mapModeSelect?.options || []) {
+      if (!['classic78','seafarers78'].includes(option.value)) continue;
+      option.hidden = casual; option.disabled = casual;
+    }
+    if (casual && ['classic78','seafarers78'].includes(ui.mapModeSelect?.value)) ui.mapModeSelect.value = 'classic';
     for (const select of [ui.mapScenarioSelect, ui.mapScenario56Select]) {
       for (const option of select?.options || []) {
         if (!option.value.startsWith('test_builder')) continue;
@@ -1364,7 +1373,7 @@
       }
     }
     if (casual && ui.classicCustomMapToggle) ui.classicCustomMapToggle.checked = false;
-    if (ui.classicCustomMapRow) ui.classicCustomMapRow.classList.toggle('hidden', casual || !['classic','classic56'].includes(ui.mapModeSelect?.value));
+    if (ui.classicCustomMapRow) ui.classicCustomMapRow.classList.toggle('hidden', casual || !['classic','classic56','classic78'].includes(ui.mapModeSelect?.value));
     if (casual) ui.testBuilderRow?.classList.add('hidden');
   }
 
@@ -3887,11 +3896,15 @@ function syncPostgameToState() {
   postgameState.lastPhase = phase;
 }
 
+  function isCustom78Map(rules) {
+    return String(rules?.mapMode || '') === 'classic78' || String(rules?.mapMode || '') === 'seafarers78' ||
+      (String(rules?.mapMode || '') === 'seafarers' && String(rules?.seafarersScenario || '') === 'test_builder_78');
+  }
   function defaultVictoryPointsFor(rules) {
     const mmRaw = String(rules?.mapMode || 'classic').toLowerCase();
     // UI can use a synthetic mapMode 'seafarers56' to represent 5–6 player Seafarers scenarios.
-    const mm = (mmRaw === 'seafarers56') ? 'seafarers' : mmRaw;
-    const scen = (mmRaw === 'seafarers56')
+    const mm = (mmRaw === 'seafarers56' || mmRaw === 'seafarers78') ? 'seafarers' : mmRaw;
+    const scen = (mmRaw === 'seafarers78') ? 'test_builder_78' : (mmRaw === 'seafarers56')
       ? String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'six_islands').toLowerCase()
       : String(rules?.seafarersScenario || 'four_islands').toLowerCase();
     if (mm !== 'seafarers') return 10;
@@ -3907,6 +3920,7 @@ function syncPostgameToState() {
   function defaultBaseResourcesFor(rules) {
     const mmRaw = String(rules?.mapMode || 'classic').toLowerCase();
     const mm = mmRaw;
+    if (mm === 'classic78' || mm === 'seafarers78' || isCustom78Map(rules)) return 30;
     if (mm === 'classic56' || mm === 'seafarers56') return 24;
     const scen = String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
     if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56')) return 24;
@@ -3916,6 +3930,7 @@ function syncPostgameToState() {
   function uiMapModeFromRules(rules) {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
+    if (mm === 'seafarers' && scen === 'test_builder_78') return 'seafarers78';
     if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56')) return 'seafarers56';
     return rules?.mapMode || 'classic';
   }
@@ -3929,13 +3944,17 @@ function syncPostgameToState() {
 
   function uiIsTestBuilderScenario(rulesOrSelection) {
     const scenario = String(rulesOrSelection?.seafarersScenario || rulesOrSelection?.seafarersScenario56 || '').toLowerCase().replace(/-/g, '_');
-    return scenario === 'test_builder' || scenario === 'test_builder_56';
+    return scenario === 'test_builder' || scenario === 'test_builder_56' || scenario === 'test_builder_78';
   }
 
   function syncTestBuilderToolModeUi() {
     const portMode = String(ui.testToolSelect?.value || 'tile') === 'port';
-    ui.testBrushSelect?.classList.toggle('hidden', portMode);
-    ui.testNumberSelect?.classList.toggle('hidden', portMode);
+    const custom78 = ['classic78','seafarers78'].includes(ui.mapModeSelect?.value || uiMapModeFromRules(room?.rules || {}));
+    const shapeTool = ['add','remove'].includes(String(ui.testToolSelect?.value || 'tile'));
+    ui.custom78Coords?.classList.toggle('hidden', !custom78);
+    for (const opt of ui.testToolSelect?.options || []) if (['add','remove'].includes(opt.value)) opt.disabled = !custom78;
+    ui.testBrushSelect?.classList.toggle('hidden', portMode || shapeTool);
+    ui.testNumberSelect?.classList.toggle('hidden', portMode || shapeTool);
     ui.testPortSelect?.classList.toggle('hidden', !portMode);
   }
 
@@ -5696,7 +5715,7 @@ function syncPostgameToState() {
   let roomRecoveryTimer = null;
   let pendingReconnectRoomMessages = [];
   const RECONNECT_SAFE_ROOM_MESSAGE_TYPES = new Set([
-    'chat', 'clear_ai', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
+    'chat', 'clear_ai', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'edit_preview_grid', 'fill_ai', 'generate_map',
     'get_state', 'get_texture_pack', 'kick_player', 'leave_room', 'pause_game', 'request_leave_game',
     'ranked_scenario_vote', 'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_player_color', 'set_rules',
     'set_ready', 'set_spectator_mode', 'set_spectator_view', 'set_texture_pack', 'start_game', 'texture_pack_publish',
@@ -9794,7 +9813,7 @@ function refreshLobbyJoinLinkUi() {
 
     const mmRaw = String(rules.mapMode || 'classic').toLowerCase();
     const is56 = (mmRaw === 'classic56' || mmRaw === 'classic_5_6' || mmRaw === 'classic-5-6' || mmRaw === 'classic5_6' || mmRaw === 'classic5-6');
-    const mapMode = (mmRaw === 'seafarers') ? 'Seafarers' : (is56 ? 'Classic 5–6' : 'Classic');
+    const mapMode = (mmRaw === 'seafarers') ? 'Seafarers' : (mmRaw === 'classic78' ? 'Classic 7–8 Custom' : (is56 ? 'Classic 5–6' : 'Classic'));
     const scenRaw = String(rules.seafarersScenario || '').toLowerCase();
     const scenario = (mmRaw === 'seafarers')
       ? (scenRaw === 'through_the_desert' || scenRaw === 'through-the-desert' || scenRaw === 'desert' || scenRaw === 'throughdesert' || scenRaw === 'through_the_desert_56')
@@ -9812,7 +9831,7 @@ function refreshLobbyJoinLinkUi() {
                 : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
                     ? 'Six Islands'
                     : 'Four Islands')
-      : (is56 ? 'Paired players' : '—');
+      : (is56 ? 'Paired players' : (mmRaw === 'classic78' ? 'Custom Map' : '—'));
 
     const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
     const configuredResourceMax = Math.floor(Number(rules.baseResourcesPerType ?? rules.baseResourceCount));
@@ -9856,7 +9875,7 @@ function refreshLobbyJoinLinkUi() {
     table.appendChild(tbody);
     content.appendChild(table);
 
-    if (is56) {
+    if (is56 || isCustom78Map(rules)) {
       const note = document.createElement('div');
       note.className = 'smallNote';
       note.style.marginTop = '10px';
@@ -10583,8 +10602,8 @@ function refreshLobbyJoinLinkUi() {
         const allowSolo = !!room?.casual || !!room?.rules?.customMap || (mm === 'seafarers' && uiIsTestBuilderScenario(room?.rules));
         const scen = String(room?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
         const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56'));
-        const minPlayers = (mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2));
-        const maxPlayers = (mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4);
+        const minPlayers = isCustom78Map(room?.rules) ? 7 : ((mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2)));
+        const maxPlayers = isCustom78Map(room?.rules) ? 8 : ((mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4));
         const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;
         const current = (room.players || []).length;
         const start = Math.max(humans, 1);
@@ -10727,10 +10746,10 @@ function refreshLobbyJoinLinkUi() {
       ui.mapModeSelect.value = uiMapModeFromRules(r);
       ui.mapModeSelect.disabled = !isHost;
       if (ui.classicCustomMapToggle) {
-        const isClassic = ['classic','classic56'].includes(ui.mapModeSelect.value);
+        const isClassic = ['classic','classic56','classic78'].includes(ui.mapModeSelect.value);
         ui.classicCustomMapRow?.classList.toggle('hidden', !isClassic);
-        ui.classicCustomMapToggle.checked = isClassic && r.customMap === true;
-        ui.classicCustomMapToggle.disabled = !isHost;
+        ui.classicCustomMapToggle.checked = isClassic && (r.customMap === true || ui.mapModeSelect.value === 'classic78');
+        ui.classicCustomMapToggle.disabled = !isHost || ui.mapModeSelect.value === 'classic78';
       }
     }
     if (ui.devDeckModeSelect) {
@@ -10748,7 +10767,8 @@ function refreshLobbyJoinLinkUi() {
     if (ui.scenario56Row) ui.scenario56Row.classList.toggle('hidden', mmNow !== 'seafarers56');
     if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mmNow !== 'classic56');
     if (ui.sixIslandsNote) ui.sixIslandsNote.classList.toggle('hidden', mmNow !== 'seafarers56');
-    const isSeafarersSetup = mmNow === 'seafarers' || mmNow === 'seafarers56';
+    ui.scenario78Note?.classList.toggle('hidden', !['classic78','seafarers78'].includes(mmNow));
+    const isSeafarersSetup = mmNow === 'seafarers' || mmNow === 'seafarers56' || mmNow === 'seafarers78';
     if (ui.explorationPointsRow) ui.explorationPointsRow.classList.toggle('hidden', !isSeafarersSetup);
     if (ui.explorationPointsToggle) {
       ui.explorationPointsToggle.checked = r.explorationPointsEnabled !== false;
@@ -10769,7 +10789,7 @@ function refreshLobbyJoinLinkUi() {
 
     // Custom Map map and port painting UI (host-only)
     const scenNow = String(r.seafarersScenario || 'four_islands').toLowerCase();
-    const showTestBuilder = ((mmNow === 'seafarers' || mmNow === 'seafarers56') && uiIsTestBuilderScenario(r)) || (['classic','classic56'].includes(mmNow) && r.customMap === true);
+    const showTestBuilder = isCustom78Map(r) || ((mmNow === 'seafarers' || mmNow === 'seafarers56') && uiIsTestBuilderScenario(r)) || (['classic','classic56'].includes(mmNow) && r.customMap === true);
     if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTestBuilder || gameStarted || selectedPlayMode === 'casual' || !!room?.casual);
     if (ui.testToolSelect) ui.testToolSelect.disabled = !isHost || !showTestBuilder || gameStarted;
     if (ui.testBrushSelect) ui.testBrushSelect.disabled = !isHost || !showTestBuilder || gameStarted;
@@ -11315,7 +11335,9 @@ function refreshLobbyJoinLinkUi() {
       if (ui.sixIslandsNote) {
         ui.sixIslandsNote.classList.toggle('hidden', mm !== 'seafarers56');
       }
-      const isSeafarersSetup = mm === 'seafarers' || mm === 'seafarers56';
+      ui.scenario78Note?.classList.toggle('hidden', !['classic78','seafarers78'].includes(mm));
+      if (mm === 'classic78' && ui.classicCustomMapToggle) ui.classicCustomMapToggle.checked = true;
+      const isSeafarersSetup = mm === 'seafarers' || mm === 'seafarers56' || mm === 'seafarers78';
       if (ui.explorationPointsRow) ui.explorationPointsRow.classList.toggle('hidden', !isSeafarersSetup);
       if (ui.explorationPointsToggle) ui.explorationPointsToggle.disabled = !isSeafarersSetup || (room && room.hostId !== myPlayerId);
       if (ui.mapScenarioSelect) ui.mapScenarioSelect.disabled = (mm !== 'seafarers') || (room && room.hostId !== myPlayerId);
@@ -11327,8 +11349,10 @@ function refreshLobbyJoinLinkUi() {
         ui.explorationPointsToggle.checked = scenario !== 'fog_island' && scenario !== 'fog_island_56';
       }
       enforceCasualMapRestrictions();
-      const showTest = ((mm === 'seafarers' || mm === 'seafarers56') && uiIsTestBuilderScenario({ seafarersScenario: selectedTestScenario })) || (['classic','classic56'].includes(mm) && !!ui.classicCustomMapToggle?.checked);
-      ui.classicCustomMapRow?.classList.toggle('hidden', !['classic','classic56'].includes(mm));
+      const showTest = ['classic78','seafarers78'].includes(mm) || ((mm === 'seafarers' || mm === 'seafarers56') && uiIsTestBuilderScenario({ seafarersScenario: selectedTestScenario })) || (['classic','classic56'].includes(mm) && !!ui.classicCustomMapToggle?.checked);
+      ui.classicCustomMapRow?.classList.toggle('hidden', !['classic','classic56','classic78'].includes(mm));
+      if (ui.classicCustomMapToggle) ui.classicCustomMapToggle.disabled = mm === 'classic78' || (room && room.hostId !== myPlayerId);
+      syncTestBuilderToolModeUi();
       if (ui.testBuilderRow) ui.testBuilderRow.classList.toggle('hidden', !showTest || selectedPlayMode === 'casual' || !!room?.casual);
 
       // If the host hasn't manually set a win target yet, auto-fill the scenario default.
@@ -11420,14 +11444,14 @@ function refreshLobbyJoinLinkUi() {
     const preset = ui.timerSpeedSelect?.value || 'normal';
     const factor = preset === 'fast' ? .5 : preset === 'slow' ? 2 : 1;
     const modeUi = ui.mapModeSelect?.value || 'classic';
-    const mapMode = modeUi === 'seafarers56' ? 'seafarers' : modeUi;
-    const seafarersScenario = modeUi === 'seafarers56' ? ui.mapScenario56Select?.value
+    const mapMode = ['seafarers56','seafarers78'].includes(modeUi) ? 'seafarers' : modeUi;
+    const seafarersScenario = modeUi === 'seafarers78' ? 'test_builder_78' : modeUi === 'seafarers56' ? ui.mapScenario56Select?.value
       : modeUi === 'seafarers' ? ui.mapScenarioSelect?.value : (room?.rules?.seafarersScenario || 'four_islands');
     return {
       discardLimit: Number.isFinite(discardLimit) ? discardLimit : 7,
       setupTurnMs: Math.round(60000 * factor), playTurnMs: Math.round(30000 * factor),
       microPhaseMs: Math.round(15000 * factor), diceAlgorithm: normalizeDiceAlgorithmClient(ui.diceAlgorithmSelect?.value),
-      mapMode, customMap: ['classic','classic56'].includes(mapMode) && !!ui.classicCustomMapToggle?.checked, seafarersScenario, victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
+      mapMode, customMap: ['classic','classic56','classic78'].includes(mapMode) && (modeUi === 'classic78' || !!ui.classicCustomMapToggle?.checked), seafarersScenario, victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
       devDeckMode: [13,25,38].includes(devDeckMode) ? devDeckMode : undefined,
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
       friendlyRobber: ui.friendlyRobberToggle ? !!ui.friendlyRobberToggle.checked : false,
@@ -11628,6 +11652,13 @@ function refreshLobbyJoinLinkUi() {
     const link = document.createElement('a'); link.href = url; link.download = filename;
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+  for (const [button, operation] of [[ui.custom78AddBtn,'add'],[ui.custom78RemoveBtn,'remove']]) {
+    button?.addEventListener('click', () => {
+      const q = Number(ui.custom78Q?.value), r = Number(ui.custom78R?.value);
+      if (!Number.isInteger(q) || !Number.isInteger(r)) { setError('Enter integer hex coordinates.'); return; }
+      send({type:'edit_preview_grid',operation,q,r});
+    });
   }
   ui.customMapDownloadBtn?.addEventListener('click', () => send({ type: 'download_custom_map' }));
   ui.customMapUploadBtn?.addEventListener('click', () => ui.customMapUploadInput?.click());
@@ -15101,9 +15132,20 @@ function handleProductionGoldPrompt() {
       const rr = room.rules || state.rules || {};
       const mm = String(rr.mapMode || 'classic').toLowerCase();
       const scen = String(rr.seafarersScenario || 'four_islands').toLowerCase();
-      if ((mm === 'seafarers' && uiIsTestBuilderScenario(rr)) || (['classic','classic56'].includes(mm) && rr.customMap === true)) {
+      if ((mm === 'seafarers' && uiIsTestBuilderScenario(rr)) || (['classic','classic56','classic78'].includes(mm) && rr.customMap === true)) {
         const tool = String(ui.testToolSelect?.value || 'tile');
-        if (tool === 'port') {
+        if (['add','remove'].includes(tool) && isCustom78Map(rr)) {
+          const world = screenToWorld({x,y});
+          const qr = (2 / 3) * world.y;
+          const qq = (Math.sqrt(3) / 3) * world.x - qr / 2;
+          let cubeX = qq, cubeZ = qr, cubeY = -cubeX-cubeZ;
+          let rx = Math.round(cubeX), ry = Math.round(cubeY), rz = Math.round(cubeZ);
+          const dx=Math.abs(rx-cubeX),dy=Math.abs(ry-cubeY),dz=Math.abs(rz-cubeZ);
+          if (dx > dy && dx > dz) rx=-ry-rz; else if (dy > dz) ry=-rx-rz; else rz=-rx-ry;
+          if (ui.custom78Q) ui.custom78Q.value=String(rx);
+          if (ui.custom78R) ui.custom78R.value=String(rz);
+          send({type:'edit_preview_grid',operation:tool,q:rx,r:rz});
+        } else if (tool === 'port') {
           const edgeId = pickEdge(x, y);
           if (edgeId != null) {
             const portKind = String(ui.testPortSelect?.value || 'generic');
@@ -15431,7 +15473,7 @@ function handleProductionGoldPrompt() {
     const mm = String(rules.mapMode || '').toLowerCase();
     if (mm !== 'seafarers') return false;
     const scen = String(rules.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
-    if (scen === 'test_builder' || scen === 'test_builder_56' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56') return false;
+    if (scen === 'test_builder' || scen === 'test_builder_56' || scen === 'test_builder_78' || scen === 'cartographer_4_manual' || scen === 'cartographer_4_random' || scen === 'cartographer_4' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56') return false;
     if (String(t.type || '').toLowerCase() !== 'sea') return false;
     const nbs = (state.geom.tileNeighbors && Array.isArray(state.geom.tileNeighbors[t.id])) ? state.geom.tileNeighbors[t.id] : null;
     if (!nbs) return false;
