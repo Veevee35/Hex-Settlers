@@ -50,11 +50,11 @@ test('mobile action grid and condensed resource strip are present', () => {
   assert.match(css, /\.rightSidebarResourceDock\s*\{[\s\S]*?order:0/);
   assert.match(css, /\.rightSidebarResStrip\{flex:1 1 195px/);
   assert.match(css, /\.toolScaleControl\{display:none!important;\}/);
-  assert.match(js, /mobileBuildMenuToggle/);
+  assert.doesNotMatch(js, /mobileBuildMenuToggle/);
 });
 
 test('current release advances all frontend cache versions', () => {
-  assert.match(html, /styles\.css\?v=unranked-rating-v25/);
-  assert.match(html, /app\.js\?v=unranked-rating-v25/);
-  assert.match(sw, /unranked-rating-v25/);
+  assert.match(html, /styles\.css\?v=hud-drag-v26/);
+  assert.match(html, /app\.js\?v=hud-drag-v26/);
+  assert.match(sw, /hud-drag-v26/);
 });

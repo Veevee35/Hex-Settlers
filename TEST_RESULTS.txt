@@ -1,16 +1,10 @@
-Hex Settlers v25 / Global Unranked Rating
+Hex Settlers v26 — HUD Scaling & Clock
 
-PASS: node --check server.js
-PASS: node --check server/unranked-rating.js
-PASS: node --check server/user-management.js
-PASS: node --check public/app.js
-PASS: tsc -p tsconfig.bootstrap.json
-PASS: 246 dependency-independent automated tests, 0 failures (exclude suites requiring ws)
-PASS: v25 signed-score, AI participation, negative outcomes, legacy archive migration, ranked isolation, one-time update tests
-PASS: Chromium mobile (390px) and desktop (1200px) profile layout checks
-
-Note: A broader attempt ran 258 automated tests; 255 passed and 3 tests could not run because 'ws'
-was absent from the uploaded ZIP. Full backend integration tests require npm ci.
-
-Do not overwrite existing persistent users.json and game_history.json during deployment.
-Historic score migration is applied once to retained unranked history on the backend.
+node --check public/app.js: PASS
+node --check server.js: PASS
+tsc -p tsconfig.bootstrap.json --noEmit: PASS
+Dependency-independent node tests: 244 PASS, 0 FAIL
+Full suite: 260 PASS; 4 BLOCKED by missing ws dependency in user-provided archive.
+Chromium layout: PASS at 6 viewport/device configurations.
+Simulated in-game checks: bar scale clearance, top tools/orb separation, clock drag limits, removal of mobile Build menu.
+See HUD_SCALING_AND_CLOCK_V26_RELEASE_NOTES.md for details.

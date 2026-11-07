@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'unranked-rating-v25';
+  const ASSET_CACHE_SW_BUILD = 'hud-drag-v26';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -306,10 +306,16 @@
     if (!gameBoardWrap || !mobileGameSplitter || !isMobileGameSplit()) return;
     const height = gameBoardWrap.getBoundingClientRect().height;
     if (height < 1) return;
-    const minBoard = Math.min(290, Math.max(145, Math.round(height * .34)));
-    const minPanel = Math.min(150, Math.max(90, Math.round(height * .2)));
-    const maxPanel = Math.max(minPanel, height - minBoard - MOBILE_SPLITTER_PX);
     const landscape = mobileLandscape();
+    const clockHeight = document.querySelector('.rightHud')?.getBoundingClientRect().height || 100;
+    const topBarHeight = ui.toolsCard?.getBoundingClientRect().bottom || 47;
+    const minBoard = landscape
+      ? Math.max(155, Math.ceil(clockHeight + topBarHeight + 12))
+      : Math.min(290, Math.max(145, Math.round(height * .34)));
+    const minPanel = landscape ? 46 : Math.min(150, Math.max(90, Math.round(height * .2)));
+    const fixedRows = landscape ? [ui.rollDock, ui.turnCard, mobilePinnedResources, mobileGameSplitter]
+      .reduce((total, node) => total + (node?.getBoundingClientRect().height || 0), 0) : MOBILE_SPLITTER_PX;
+    const maxPanel = Math.max(minPanel, height - minBoard - fixedRows);
     const orientationChanged = lastMobileLandscape !== landscape;
     if (orientationChanged) { mobileSplitRatio = savedMobileSplitRatio(); lastMobileLandscape = landscape; }
     const requested = orientationChanged ? mobileSplitRatio : (Number.isFinite(Number(value)) ? Number(value) : mobileSplitRatio);
@@ -4119,7 +4125,7 @@ function syncPostgameToState() {
       mobilePanelsToggle.setAttribute('aria-expanded', String(gamePanelsExpanded));
     }
     if (state && state.phase !== 'lobby') {
-      requestAnimationFrame(() => { resizeCanvas(); render(); });
+      requestAnimationFrame(() => { resizeCanvas(); render(); syncTurnBarHeight(); });
     }
   }
   selectGamePanelTab('resources');
@@ -4252,36 +4258,9 @@ function syncPostgameToState() {
       ui.accountOrb.classList.add('inGameOrb');
       row.appendChild(ui.accountOrb);
     }
-    const buildMenuToggle = document.createElement('button');
-    buildMenuToggle.id = 'mobileBuildMenuToggle';
-    buildMenuToggle.className = 'btn btnTiny';
-    buildMenuToggle.textContent = 'Build ▾';
-    buildMenuToggle.type = 'button';
-    buildMenuToggle.setAttribute('aria-expanded','false');
-    btns.appendChild(buildMenuToggle);
-    const buildMenu = document.createElement('div');
-    buildMenu.className = 'mobileBuildMenu hidden';
-    const buildChoices = [ui.buildRoadBtn,ui.buildShipBtn,ui.moveShipBtn,ui.buildSettlementBtn,ui.buildCityBtn];
-    buildChoices.filter(Boolean).forEach(source => {
-      const proxy = document.createElement('button');
-      proxy.type = 'button'; proxy.className = 'btn'; proxy.textContent = source.textContent;
-      proxy.dataset.buildProxyFor = source.id;
-      proxy.addEventListener('click', () => { if (!source.disabled && !source.classList.contains('hidden')) source.click(); buildMenu.classList.add('hidden'); buildMenuToggle.setAttribute('aria-expanded','false'); });
-      buildMenu.appendChild(proxy);
-      const observer = new MutationObserver(() => {
-        proxy.disabled = source.disabled;
-        proxy.classList.toggle('hidden', source.classList.contains('hidden'));
-        proxy.textContent = source.textContent;
-      });
-      observer.observe(source, { attributes: true, attributeFilter: ['disabled','class'], childList: true });
-      proxy.disabled = source.disabled;
-    });
-    buildMenuToggle.addEventListener('click', () => {
-      const willOpen = buildMenu.classList.contains('hidden');
-      buildMenu.classList.toggle('hidden', !willOpen);
-      buildMenuToggle.setAttribute('aria-expanded', String(willOpen));
-    });
-    card.append(row, buildMenu);
+    // Placement is handled directly on board nodes/edges. The legacy mobile
+    // Build dropdown duplicated those controls and served no useful purpose.
+    card.appendChild(row);
     ensureInGamePanelScaleControls();
   }
 
@@ -4410,6 +4389,7 @@ function syncPostgameToState() {
         ui.rollDock.classList.add('hudRollDock');
         boardWrap.appendChild(ui.rollDock);
       }
+      requestAnimationFrame(syncTurnBarHeight);
     }
 
     if (!inGame && hudDock.isDocked) {
@@ -4475,6 +4455,92 @@ function syncPostgameToState() {
     return `${String(baseKey)}::${getLocalPanelLayoutOwnerKey()}`;
   }
 
+  // Compute the current playable rectangle, not the full browser viewport.
+  // The clock must stay below the tools bar and above Roll Dice / End Turn.
+  function draggablePanelBounds(panelEl, width, height) {
+    const pad = 6;
+    if (panelEl?.classList?.contains('rightHud') && document.body.classList.contains('in-game')) {
+      const boardWrap = document.querySelector('section.boardWrap');
+      const board = document.getElementById('board');
+      const tools = ui.toolsCard;
+      const dock = ui.rollDock;
+      if (boardWrap) {
+        const area = boardWrap.getBoundingClientRect();
+        const boardRect = board?.getBoundingClientRect();
+        const topBar = tools?.getBoundingClientRect();
+        const dockRect = dock && !dock.classList.contains('hidden') ? dock.getBoundingClientRect() : null;
+        const turnBar = ui.turnCard?.getBoundingClientRect();
+        const sidebar = ui.rightSidebar?.getBoundingClientRect();
+        const leftEdge = Math.max(pad, area.left + pad);
+        const topEdge = Math.max(pad, area.top + pad, topBar ? topBar.bottom + pad : 0);
+        let rightEdge = Math.min(window.innerWidth - pad, area.right - pad);
+        const mobile = isMobileGameSplit();
+        if (!mobile && sidebar && !document.body.classList.contains('gamePanelsCollapsed')) {
+          rightEdge = Math.min(rightEdge, sidebar.left - pad);
+        }
+        // On mobile the dock is a real row after the canvas. On desktop the
+        // dock floats above the action bar. Both define the bottom boundary.
+        const bottomCandidates = [window.innerHeight - pad, area.bottom - pad];
+        if (boardRect) bottomCandidates.push(boardRect.bottom - pad);
+        if (dockRect) bottomCandidates.push(dockRect.top - pad);
+        else if (turnBar && !mobile) bottomCandidates.push(turnBar.top - pad);
+        const bottomEdge = Math.min(...bottomCandidates);
+        return {
+          minLeft: leftEdge,
+          maxLeft: Math.max(leftEdge, rightEdge - width),
+          minTop: topEdge,
+          maxTop: Math.max(topEdge, bottomEdge - height),
+        };
+      }
+    }
+    return {
+      minLeft: pad, maxLeft: Math.max(pad, window.innerWidth - width - pad),
+      minTop: pad, maxTop: Math.max(pad, window.innerHeight - height - pad),
+    };
+  }
+
+  function boundDraggedClockToBoard() {
+    const el = document.querySelector('.rightHud');
+    if (!el || !document.body.classList.contains('in-game')) return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const limits = draggablePanelBounds(el, rect.width, rect.height);
+    const left = Math.max(limits.minLeft, Math.min(rect.left, limits.maxLeft));
+    const top = Math.max(limits.minTop, Math.min(rect.top, limits.maxTop));
+    // Don't convert the default anchored clock into a fixed/dragged clock
+    // unless its initial position is outside the playable area.
+    if (Math.abs(rect.left - left) < 1 && Math.abs(rect.top - top) < 1 && el.dataset.popupDragged !== '1') return;
+    el.style.setProperty('position', 'fixed', 'important');
+    el.style.setProperty('left', `${left}px`, 'important');
+    el.style.setProperty('top', `${top}px`, 'important');
+    el.style.setProperty('right', 'auto', 'important');
+    el.style.setProperty('bottom', 'auto', 'important');
+  }
+
+  // Measure the action bar instead of guessing its height. When the player
+  // scales the bar, standalone turn buttons remain immediately above it.
+  let lastTurnBarHeight = -1;
+  function syncTurnBarHeight() {
+    if (!document.body.classList.contains('in-game') || !ui.turnCard) return;
+    const height = Math.ceil(ui.turnCard.getBoundingClientRect().height);
+    if (height > 0 && height !== lastTurnBarHeight) {
+      lastTurnBarHeight = height;
+      document.querySelector('section.boardWrap')?.style.setProperty('--hud-bottom-bar-height', `${height}px`);
+    }
+    boundDraggedClockToBoard();
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    const hudResize = new ResizeObserver(() => {
+      if (!document.body.classList.contains('in-game')) return;
+      requestAnimationFrame(syncTurnBarHeight);
+    });
+    if (ui.turnCard) hudResize.observe(ui.turnCard);
+    if (ui.toolsCard) hudResize.observe(ui.toolsCard);
+    if (ui.rollDock) hudResize.observe(ui.rollDock);
+    const boardCanvas = document.getElementById('board');
+    if (boardCanvas) hudResize.observe(boardCanvas);
+  }
+
   function applySavedPanelPosition(panelEl, storageKey) {
     if (!panelEl || !storageKey) return false;
     let raw = null;
@@ -4501,8 +4567,9 @@ function syncPostgameToState() {
         const r = panelEl.getBoundingClientRect ? panelEl.getBoundingClientRect() : null;
         const w = Math.max(0, Math.round((r && Number.isFinite(r.width)) ? r.width : (panelEl.offsetWidth || 0)));
         const h = Math.max(0, Math.round((r && Number.isFinite(r.height)) ? r.height : (panelEl.offsetHeight || 0)));
-        if (w > 0) left = Math.max(pad, Math.min(left, Math.max(pad, window.innerWidth - w - pad)));
-        if (h > 0) top = Math.max(pad, Math.min(top, Math.max(pad, window.innerHeight - h - pad)));
+        const limits = draggablePanelBounds(panelEl, w, h);
+        if (w > 0) left = Math.max(limits.minLeft, Math.min(left, limits.maxLeft));
+        if (h > 0) top = Math.max(limits.minTop, Math.min(top, limits.maxTop));
       } catch (_) {}
       panelEl.style.position = 'fixed';
       panelEl.style.left = left + 'px';
@@ -4510,6 +4577,10 @@ function syncPostgameToState() {
       panelEl.style.right = 'auto';
       panelEl.style.bottom = 'auto';
       if (panelEl.classList && panelEl.classList.contains('rightHud')) {
+        panelEl.style.setProperty('position', 'fixed', 'important');
+        panelEl.style.setProperty('left', left + 'px', 'important');
+        panelEl.style.setProperty('position', 'fixed', 'important');
+        panelEl.style.setProperty('left', left + 'px', 'important');
         panelEl.style.setProperty('top', top + 'px', 'important');
         panelEl.style.setProperty('right', 'auto', 'important');
       }
@@ -4588,6 +4659,9 @@ function syncPostgameToState() {
       panelEl.style.right = 'auto';
       panelEl.style.bottom = 'auto';
       if (panelEl.classList && panelEl.classList.contains('rightHud')) {
+        panelEl.style.setProperty('position', 'fixed', 'important');
+        panelEl.style.setProperty('left', r.left + 'px', 'important');
+        panelEl.style.setProperty('left', r.left + 'px', 'important');
         panelEl.style.setProperty('top', r.top + 'px', 'important');
         panelEl.style.setProperty('right', 'auto', 'important');
       }
@@ -4605,13 +4679,13 @@ function syncPostgameToState() {
       const dx = ev.clientX - startX;
       const dy = ev.clientY - startY;
       const r = panelEl.getBoundingClientRect();
-      const maxLeft = window.innerWidth - r.width - 6;
-      const maxTop = window.innerHeight - r.height - 6;
-      const left = clamp(startLeft + dx, 6, maxLeft);
-      const top = clamp(startTop + dy, 6, maxTop);
+      const limits = draggablePanelBounds(panelEl, r.width, r.height);
+      const left = clamp(startLeft + dx, limits.minLeft, limits.maxLeft);
+      const top = clamp(startTop + dy, limits.minTop, limits.maxTop);
       panelEl.style.left = left + 'px';
       panelEl.style.top = top + 'px';
       if (panelEl.classList && panelEl.classList.contains('rightHud')) {
+        panelEl.style.setProperty('left', left + 'px', 'important');
         panelEl.style.setProperty('top', top + 'px', 'important');
         panelEl.style.setProperty('right', 'auto', 'important');
       }
@@ -4866,7 +4940,7 @@ function syncPostgameToState() {
   });
   try {
     if (window.visualViewport) {
-      const onVvResize = () => { if (document.body.classList.contains('in-game')) setMobileSplitRatio(mobileSplitRatio); resizeCanvas(); render(); };
+      const onVvResize = () => { if (document.body.classList.contains('in-game')) setMobileSplitRatio(mobileSplitRatio); resizeCanvas(); render(); requestAnimationFrame(syncTurnBarHeight); };
       window.visualViewport.addEventListener('resize', onVvResize);
       window.visualViewport.addEventListener('scroll', onVvResize);
     }
@@ -4889,9 +4963,10 @@ function syncPostgameToState() {
   // Allow the top-right timer/pause HUD to be moved freely (drag handle lives inside the timer box).
   try {
     const rh = document.querySelector('.rightHud');
-    const grip = ensureTimerBoxControls();
-    if (rh && grip && !rh.dataset.dragReady) {
-      makeDraggablePanel(rh, grip, 'hexsettlers_rightHud_pos_v2');
+    ensureTimerBoxControls();
+    const clockHandle = ui.countdownClock;
+    if (rh && clockHandle && !rh.dataset.dragReady) {
+      makeDraggablePanel(rh, clockHandle, 'hexsettlers_rightHud_pos_v2');
       rh.dataset.dragReady = '1';
     }
   } catch (_) {}
