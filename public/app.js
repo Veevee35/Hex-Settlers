@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'features-v38';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.0';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -7804,7 +7804,7 @@ function refreshLobbyJoinLinkUi() {
     await render();
   }
 
-  async function openUserManagementScreen({ container = null, selfOnly = false, adminOnly = false } = {}) {
+  async function openUserManagementScreen({ container = null, selfOnly = false, adminOnly = false, mergeOnly = false } = {}) {
     if (!authUser) {
       setError('Log in first.');
       return;
@@ -7818,7 +7818,7 @@ function refreshLobbyJoinLinkUi() {
     shell.appendChild(loading);
     if (container) container.replaceChildren(shell);
     else openModal({
-      title: adminOnly ? 'User Management' : 'Manage Account',
+      title: adminOnly ? (mergeOnly ? 'Merge Accounts' : 'User Account Management') : 'Manage Account',
       bodyNode: shell,
       actions: [{ label: 'Close', onClick: closeModal }],
     });
@@ -7842,7 +7842,7 @@ function refreshLobbyJoinLinkUi() {
     const intro = document.createElement('div');
     intro.className = 'userManagementIntro';
     intro.textContent = adminView
-      ? (adminOnly ? 'Manage registered player accounts, reset passwords, merge duplicates, or remove accounts. Your administrator account is managed separately under Manage Account.' : 'Manage registered player accounts and your own account.')
+      ? (mergeOnly ? 'Combine duplicate player accounts while retaining the chosen login username. This action cannot be undone.' : 'Manage registered player accounts, reset passwords, or remove accounts. Your administrator account is managed separately under Manage Account.')
       : 'Only your account is shown. Change your player name or password, and link a verified recovery email for password resets before login. Player names may be shared; usernames are unique.';
     shell.appendChild(intro);
 
@@ -7868,7 +7868,7 @@ function refreshLobbyJoinLinkUi() {
       shell.appendChild(note);
     }
 
-    if (adminView) {
+    if (adminView && mergeOnly) {
       const mergeSection = document.createElement('div');
       mergeSection.className = 'userManagementSection';
       const mergeTitle = document.createElement('div');
@@ -7905,11 +7905,19 @@ function refreshLobbyJoinLinkUi() {
         try {
           const response = await adminApi('merge-users', { firstUserId: first.value, secondUserId: second.value, keepUsername: kept });
           mergeStatus.className = 'userManagementStatus success'; mergeStatus.textContent = response.message || 'Accounts merged.';
-          setTimeout(() => { if (container) openUserManagementScreen({ container, adminOnly }); else { forceCloseModal(); openUserManagementScreen(); } }, 500);
+          setTimeout(() => {
+            if (container) {
+              // A late response must not overwrite a different admin tab.
+              if (container.closest('.adminDashboard')?.querySelector('.adminTabs .active')?.dataset.tab === (mergeOnly ? 'merge' : 'users')) {
+                void openUserManagementScreen({ container, adminOnly, mergeOnly });
+              }
+            } else { forceCloseModal(); void openUserManagementScreen({ adminOnly, mergeOnly }); }
+          }, 500);
         } catch (error) { mergeStatus.className = 'userManagementStatus error'; mergeStatus.textContent = error.message || 'Account merge failed.'; mergeButton.disabled = false; }
       });
       mergeSection.append(mergeTitle, first, second, keep, mergeButton, mergeStatus);
       shell.appendChild(mergeSection);
+      return; // Account merging is its own tab; do not render normal user management here.
     }
 
     let search = null;
@@ -8561,7 +8569,8 @@ function refreshLobbyJoinLinkUi() {
     const content = adminElement('section', 'adminDashboardContent');
     const options = [
       ['server', 'Server Management'], ['ratings', 'Rating Management'],
-      ['users', 'User Management'], ['history', 'Manage Game History'],
+      ['users', 'User Account Management'], ['merge', 'Merge Accounts'],
+      ['history', 'Manage Game History'],
       ['health', 'Health Monitor'],
     ];
     const buttons = [];
@@ -8575,6 +8584,7 @@ function refreshLobbyJoinLinkUi() {
       if (key === 'server') void openServerManagementConsole(content);
       if (key === 'ratings') void openRatingManagementScreen(content);
       if (key === 'users') void openUserManagementScreen({ container: content, adminOnly: true });
+      if (key === 'merge') void openUserManagementScreen({ container: content, adminOnly: true, mergeOnly: true });
       if (key === 'history') void renderAdminHistoryManagement(content);
       if (key === 'health') renderAdminHealthMonitor(content);
     };

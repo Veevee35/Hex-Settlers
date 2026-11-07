@@ -4440,3 +4440,26 @@ body.in-game .countdownClock .clockActionInfo .turnInfo {
 .adminHealthMetric strong{display:block;margin-top:8px;font-size:14px;line-height:1.4;overflow-wrap:anywhere;}
 .adminHealthFile{font-family:var(--mono);font-size:11px;line-height:1.55;margin:7px 0;padding:8px;border-bottom:1px solid rgba(255,255,255,.07);overflow-wrap:anywhere;}
 @media (max-width:900px){.rulesCategoryTabs,.rulesScenarioTabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin;padding:9px 12px;}.modalBox:has(.adminDashboard){width:100%;max-width:100%;max-height:95dvh;}.modalBox:has(.adminDashboard) .modalBody{max-height:calc(95dvh - 125px);}.adminTab{padding:8px;font-size:11px;}.adminHealthGrid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+
+/* v39: App version is visible on both entry screens and stays centered
+   independently of the legal links and the support button. */
+#authLanding .appVersion, #playModeScreen .appVersion {
+  position:fixed;
+  left:50%;
+  bottom:max(19px,env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  z-index:5;
+  color:#91a9ba;
+  font:700 12px var(--sans);
+  letter-spacing:.08em;
+  pointer-events:none;
+  white-space:nowrap;
+  text-shadow:0 1px 4px #071019;
+}
+@media(max-width:560px) {
+  #authLanding .appVersion, #playModeScreen .appVersion {
+    bottom:calc(47px + env(safe-area-inset-bottom));
+    font-size:11px;
+  }
+}

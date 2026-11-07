@@ -124,3 +124,26 @@ npm run electron:dist -- --linux AppImage
 Use `--win nsis` or `--mac dmg` on those platforms. Pushing a `v*` tag triggers the release workflow for Linux, Windows, and macOS.
 
 See [README_RAILWAY.md](README_RAILWAY.md) for deployment and [README_TYPESCRIPT_MIGRATION.md](README_TYPESCRIPT_MIGRATION.md) for the migration boundary.
+
+## Build versioning (v39 and later)
+
+The two public entry screens display `V1.0.0` initially. The tracked
+`build-version.json` file is the single source of truth. A GitHub Actions
+workflow (`.github/workflows/version-on-push.yml`) increments the patch number
+on each push to `main` or `master`, from `.0` through `.99`, then advances the
+minor number and resets the patch. To start a new major release, manually edit
+**only** the `major` number in `build-version.json`; on the next push the minor
+and patch are automatically reset to `0`.
+
+For local use:
+
+```sh
+node scripts/bump-version.cjs --sync   # render version without incrementing
+node scripts/bump-version.cjs --bump   # increment and stamp HTML/CSS/JS/service worker
+```
+
+**GitHub setup:** Actions must have `contents: write` permissions and the
+versioning bot must be allowed to push to the deployment branch. If using
+Cloudflare's GitHub integration, verify it builds the follow-up bot commit.
+Without that deployment, the public site may still show the earlier version.
+See `V39_RELEASE_NOTES.md` for details.
