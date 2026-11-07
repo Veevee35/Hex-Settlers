@@ -3839,3 +3839,253 @@ body.in-game .rightSidebar #devCard .panelScaleHost .tabScaleBtn {
 body.in-game .rightSidebar #devCard .panelScaleHost .tabScaleLabel {
   min-width:38px;font-size:10px;
 }
+
+
+/* v29 — Resource counts overlay larger art in high-contrast, round badges.
+   Applies to both the desktop Resources panel and the mobile pinned strip. */
+body.in-game .resCell {
+  position:relative;
+  display:grid;
+  place-items:center;
+  justify-content:center;
+  width:100%;
+  min-width:0;
+  min-height:36px;
+  padding:3px 0;
+  isolation:isolate;
+}
+body.in-game .resCell .resIcon,
+body.in-game .rightSidebarResStrip .resIcon,
+body.in-game .resourcesOverlay .resIcon {
+  display:block;
+  grid-area:1 / 1;
+  width:clamp(38px, 3.6vw, 48px);
+  height:clamp(38px, 3.6vw, 48px);
+  min-width:0;
+  max-width:100%;
+  object-fit:contain;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.65));
+}
+body.in-game .resCell .resVal,
+body.in-game .rightSidebarResStrip .resVal,
+body.in-game .resourcesOverlay .resVal {
+  grid-area:1 / 1;
+  position:relative;
+  z-index:2;
+  display:grid;
+  place-items:center;
+  width:max-content;
+  min-width:21px;
+  min-height:21px;
+  padding:1px 3px;
+  box-sizing:border-box;
+  margin:0;
+  border-radius:999px;
+  border:1px solid rgba(218,237,255,.85);
+  background:rgba(6,15,25,.92);
+  color:#fff;
+  font-family:var(--mono);
+  font-size:clamp(11px, 1vw, 14px);
+  font-weight:900;
+  font-variant-numeric:tabular-nums;
+  line-height:1;
+  text-align:center;
+  text-shadow:0 1px 2px #000;
+  box-shadow:0 1px 5px rgba(0,0,0,.85);
+  pointer-events:none;
+}
+body.in-game .rightSidebarResStrip {gap:4px; min-width:0;}
+/* Compact mobile strips retain five icons per line without unreadable counts. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px) {
+  body.in-game .rightSidebarResStrip .resIcon {width:clamp(38px, 10vw, 44px);height:clamp(38px, 10vw, 44px);}
+  body.in-game .rightSidebarResStrip .resVal {font-size:clamp(11px, 2.7vw, 13px);min-width:20px;min-height:20px;}
+  body.in-game .rightSidebarResourcesBody {gap:5px!important;}
+  body.in-game .rightSidebarResourceDock .resCell{min-height:31px;padding:1px 0;}
+}
+
+/* Desktop: hiding the right panels releases a draggable Resources window.
+   It contains the existing, live player summaries and bank/hand resources. */
+.floatingResourcesPanel {display:none;}
+@media (min-width:901px) and (pointer:fine), (min-width:1181px) {
+  body.in-game.gamePanelsCollapsed .floatingResourcesPanel:not(.hidden) {
+    position:absolute;
+    display:flex;
+    flex-direction:column;
+    top:clamp(172px, 25vh, 275px);
+    right:12px;
+    width:clamp(295px, 27vw, 420px);
+    max-width:calc(100vw - 24px);
+    max-height:min(62dvh, 550px);
+    min-height:0;
+    box-sizing:border-box;
+    z-index:37;
+    overflow:hidden;
+    border:1px solid #486b82;
+    border-radius:15px;
+    background:rgba(10,20,31,.96);
+    box-shadow:0 15px 42px rgba(0,0,0,.55);
+  }
+  .floatingResourcesHeader {
+    flex:0 0 auto;
+    padding:9px 13px;
+    font-weight:900;
+    font-size:14px;
+    color:#f2f7fb;
+    border-bottom:1px solid #39556a;
+    background:#182c3e;
+    cursor:grab;
+    user-select:none;
+    touch-action:none;
+  }
+  .floatingResourcesHeader:active {cursor:grabbing;}
+  .floatingResourcesContent {
+    display:flex;flex-direction:column;
+    min-height:0;
+    overflow-y:auto;overflow-x:hidden;
+    padding:10px;
+    gap:12px;
+    overscroll-behavior:contain;
+    scrollbar-width:thin;
+  }
+  .floatingResourcesPanel #resourcesCard {
+    position:relative!important;
+    inset:auto!important;
+    display:block;
+    flex:none;
+    padding:0!important;
+    margin:0;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0;
+    border:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    overflow:visible;
+  }
+  .floatingResourcesPanel #resourcesCard .resourcesHeaderRow {display:none;}
+  .floatingResourcesPanel #resourcesCard > h2{display:none;}
+  .floatingResourcesPanel #resourcesCard .resourcesBox{display:flex;flex-direction:column;gap:6px;}
+  .floatingResourcesPanel .rightSidebarResourceDock {
+    flex:none;
+    width:100%;
+    max-width:100%;
+    padding:9px 0 0;
+    overflow:visible;
+  }
+  .floatingResourcesPanel .rightSidebarResourcesBody {zoom:1!important;gap:7px;}
+  .floatingResourcesPanel .rightSidebarResStrip {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;}
+  .floatingResourcesPanel .rightSidebarBankRow,
+  .floatingResourcesPanel .rightSidebarPlayerRow {display:flex;flex-direction:column;gap:6px;align-items:stretch;}
+  .floatingResourcesPanel .rightSidebarMeta {font-size:10px;gap:4px 8px;}
+  .floatingResourcesPanel .rightSidebarMetaStrong {font-size:11px;}
+  .floatingResourcesPanel .rightSidebarPieceStrip,
+  .floatingResourcesPanel .rightSidebarNote {display:none;}
+}
+
+/* The bottom action-bar scale also sizes the freestanding dice/turn buttons. */
+@media (min-width:901px) and (pointer:fine), (min-width:1181px) {
+  body.in-game .rollDock #rollDockBtn,
+  body.in-game .rollDock #endDockBtn {
+    min-width:calc(112px * var(--turn-button-scale, 1))!important;
+    min-height:calc(46px * var(--turn-button-scale, 1))!important;
+    padding:calc(10px * var(--turn-button-scale, 1)) calc(14px * var(--turn-button-scale, 1))!important;
+    font-size:calc(clamp(12px, 1.2vw, 17px) * var(--turn-button-scale, 1))!important;
+    border-radius:calc(13px * var(--turn-button-scale, 1))!important;
+    line-height:1.1;
+    transition:font-size .12s ease,min-height .12s ease;
+  }
+}
+
+
+/* v30 — Friends: username requests and contextual in-lobby invitations. */
+.friendsCard{display:flex;flex-direction:column;gap:12px;max-height:min(90dvh,700px);overflow:hidden;}
+.friendRequestForm{display:flex;flex-direction:column;gap:7px;flex:none;}
+.friendRequestForm .label{margin:0;}
+.friendRequestFormRow{display:flex;align-items:center;gap:8px;min-width:0;}
+.friendRequestFormRow .input{flex:1 1 auto;min-width:0;}
+.friendRequestFormRow .btn{flex:0 0 auto;min-height:42px;}
+.friendRequestStatus{font-size:12px;font-weight:750;color:#b9e6c6;}
+.friendsCard .friendsList{flex:1 1 auto;min-height:0;max-height:none;overscroll-behavior:contain;}
+.friendRowWithActions{display:flex;align-items:center;gap:8px;min-width:0;}
+.friendRowWithActions .friendProfileButton{width:auto;display:flex;align-items:center;justify-content:space-between;gap:10px;flex:1 1 auto;min-width:0;border:0;background:none;color:inherit;cursor:pointer;padding:2px;text-align:left;}
+.friendRowWithActions .friendProfileButton span:first-child{display:flex;flex-direction:column;min-width:0;gap:3px;}
+.friendRowWithActions .friendProfileButton strong,.friendRowWithActions .friendProfileButton small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.friendRowWithActions .friendInviteBtn{flex:0 0 auto;padding:9px 10px;font-size:12px;white-space:nowrap;}
+.lobbyInviteToast{max-width:min(365px,calc(100vw - 24px));}
+.lobbyInviteActions{display:flex;gap:8px;margin-top:10px;}
+.lobbyInviteActions .btn{flex:1;min-width:0;}
+
+/* v30 — The mobile unranked lobby is a scrollable full-height panel, not a
+   half-height panel above a dead canvas. The map is an optional bottom drawer. */
+.mobileLobbyMapToggle,.mobileLobbyMapClose{display:none;}
+@media (max-width:980px), (pointer:coarse) {
+  html,body,#app{height:100dvh;min-height:0;max-height:100dvh;}
+  body:not(.in-game) .layout{display:block;height:100%;min-height:0;padding:8px;overflow:hidden;}
+  body:not(.in-game) .layout>.panel{display:flex;height:100%;max-height:none;min-height:0;padding-right:0;padding-bottom:calc(10px + var(--safe-bottom));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;}
+  body:not(.in-game) .layout>.panel>#lobbyCard{flex:0 0 auto;}
+  body:not(.in-game) .layout>.boardWrap{display:none!important;}
+  body.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby) .mobileLobbyMapToggle{
+    display:flex;position:fixed;z-index:58;right:calc(14px + var(--safe-right));bottom:calc(16px + var(--safe-bottom));
+    align-items:center;justify-content:center;gap:6px;padding:12px 15px;min-height:50px;
+    border:1px solid #d4a434;border-radius:999px;background:#142a3c;color:#f2e5b9;
+    font-size:13px;font-weight:850;box-shadow:0 7px 28px rgba(0,0,0,.65);touch-action:manipulation;
+  }
+  body.mobileLobbyMapOpen:not(.in-game):not(.ranked-lobby) .layout>.boardWrap{
+    display:flex!important;position:fixed;z-index:59;left:calc(6px + var(--safe-left));right:calc(6px + var(--safe-right));
+    bottom:calc(8px + var(--safe-bottom));top:auto;width:auto;height:min(56dvh,490px);min-height:220px;
+    border:1px solid #51728b;border-radius:17px;overflow:hidden;
+    background:#5f6f7c;box-shadow:0 -16px 50px rgba(0,0,0,.7);
+  }
+  body.mobileLobbyMapOpen:not(.in-game) .mobileLobbyMapClose{
+    display:block;position:absolute;z-index:5;right:10px;top:10px;min-height:42px;
+    padding:8px 13px;border:1px solid #6b8fac;border-radius:11px;
+    color:#fff;background:rgba(9,20,33,.95);font-weight:800;touch-action:manipulation;
+  }
+  body.mobileLobbyMapOpen:not(.in-game) .mobileLobbyMapToggle{display:none;}
+  body.mobileLobbyMapOpen:not(.in-game) .layout>.boardWrap #board{display:block;flex:1 1 auto;min-height:0;max-width:100%;}
+  .friendsCard{width:min(460px,calc(100vw - 16px));padding:22px 14px;}
+  .friendRowWithActions{flex-wrap:wrap;}
+  .friendRowWithActions .friendProfileButton{min-width:min(100%,160px);}
+}
+
+/* The ranked ballot is an actual 420x280 canvas. Its CSS aspect ratio must
+   match that intrinsic size, even in short/tall phones and narrow vote cards. */
+body.ranked-lobby .rankedScenarioMapPreview{
+  display:block;width:100%;height:auto!important;aspect-ratio:3 / 2!important;
+  max-height:none!important;min-height:0!important;object-fit:contain;
+}
+body.ranked-lobby .rankedScenarioOption{min-width:0;overflow:hidden;}
+body.ranked-lobby .rankedScenarioOptions{align-items:start;}
+body.ranked-lobby .rankedScenarioOptionInfo{min-width:0;}
+body.ranked-lobby .layout>.boardWrap{display:none!important;}
+
+/* Turn indicators share the Roll Dice row; none float over the dice button. */
+body.in-game .rollDockInner{justify-content:flex-start;}
+body.in-game .rollDockTurnBadges{display:flex;flex:0 1 auto;align-items:center;justify-content:flex-start;min-width:0;gap:8px;pointer-events:none;}
+body.in-game .rollDockTurnBadges .extraTurnBanner,
+body.in-game .rollDockTurnBadges .placementTurnBanner{
+  display:inline-flex;position:static!important;inset:auto!important;transform:none!important;
+  align-items:center;gap:5px;max-width:100%;min-width:0;
+  line-height:1.05;font-size:clamp(11px,2.5vw,16px);letter-spacing:.15px;
+  white-space:nowrap;overflow:visible;pointer-events:none;
+}
+body.in-game .rollDockTurnBadges .hidden{display:none!important;}
+body.in-game .rollDockTurnBadges .extraTurnIcon{font-size:clamp(18px,4vw,26px);}
+body.in-game #endDockBtn{margin-left:auto;}
+/* Prevent the old forced second grid row from leaving blank space when
+   Back/Pause/Play are hidden, especially for ranked matches. */
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px){
+  body.in-game .hudBottomLeft .hudBtns:not(:has(#backTurnBtn:not(.hidden),#pauseBtn:not(.hidden),#playBtn:not(.hidden))){
+    grid-template-rows:minmax(38px,auto)!important;
+  }
+  body.in-game .hudBottomLeft .hudBtns:not(:has(#backTurnBtn:not(.hidden),#pauseBtn:not(.hidden),#playBtn:not(.hidden))) :is(#buyDevBtn,#bankTradeBtn,#playerTradeBtn){grid-row:1!important;}
+  body.in-game .rollDockInner{gap:8px;padding:0 7px;}
+  body.in-game .rollDockTurnBadges .placementTurnBanner,body.in-game .rollDockTurnBadges .extraTurnBanner{font-size:clamp(10px,2.7vw,14px);}
+  body.in-game #rollDockBtn,body.in-game #endDockBtn{min-width:clamp(87px,24vw,112px)!important;padding:7px 9px!important;}
+  body.in-game .hudBottomLeft{padding-bottom:calc(5px + var(--safe-bottom))!important;}
+  body.in-game .rightSidebarInner{padding-bottom:calc(12px + var(--safe-bottom))!important;}
+}
+/* A clipped, contained canvas layer eliminates overscroll artifacts at the
+   lower game controls without changing the interactive map coordinates. */
+body.in-game .boardWrap{isolation:isolate;}
+body.in-game #board{contain:paint;}

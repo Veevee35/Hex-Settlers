@@ -108,20 +108,14 @@ test('Room IDs includes a spectator link that joins directly as a spectator', ()
   assert.match(serverJs, /const joinAsSpectator = !!room\.ranked[\s\S]*?\|\| !!\(options && options\.spectator\)/);
 });
 
-test('paired extra action turns show a larger red indicator that flips below a top-docked action bar', () => {
-  assert.match(indexHtml, /id="extraTurnBanner"[^>]*>[\s\S]*?class="extraTurnIcon"[^>]*>↻<\/span>[\s\S]*?<span>Extra Turn<\/span>/);
-  assert.match(styles, /\.extraTurnBanner,\s*\.placementTurnBanner\{[\s\S]*?color:#ff2638[\s\S]*?font-weight:950/);
-  assert.match(styles, /\.hudBar \.extraTurnBanner,\s*\.hudBar \.placementTurnBanner\{[\s\S]*?bottom:calc\(100% \+ 7px\)/);
-  assert.match(styles, /\.extraTurnIcon\{[\s\S]*?font-size:31px/);
-  assert.match(styles, /\.hudBar\.turnIndicatorBelow \.extraTurnBanner\{[\s\S]*?top:calc\(100% \+ 8px\)[\s\S]*?bottom:auto/);
-  assert.match(appJs, /function syncTurnHudIndicatorPlacement\(\)/);
-  assert.match(appJs, /card\.classList\.toggle\('turnIndicatorBelow', rect\.top < bannerHeight \+ 16\)/);
+test('placement and extra-turn badges are alongside Roll Dice in the dock, never over the button', () => {
+  assert.match(appJs, /let badges = dockRow\.querySelector\('\.rollDockTurnBadges'\)/);
+  assert.match(appJs, /ui\.rollDockBtn\.insertAdjacentElement\('afterend', badges\)/);
+  assert.match(appJs, /badges\.appendChild\(ui\.placementTurnBanner\)/);
+  assert.match(appJs, /badges\.appendChild\(ui\.extraTurnBanner\)/);
+  assert.match(appJs, /showCenteredExtraTurn = false/);
+  assert.match(styles, /\.rollDockTurnBadges \.extraTurnBanner,[\s\S]*?position:static!important/);
   assert.match(appJs, /ui\.extraTurnBanner\.classList\.toggle\('hidden', !showExtraTurn\)/);
-  assert.match(indexHtml, /id="extraTurnCenterBanner"[^>]*>[^<]*<span[^>]*>↻<\/span> EXTRA TURN<\/div>/);
-  assert.match(styles, /\.extraTurnCenterBanner\{[\s\S]*?left:50%[\s\S]*?top:50%[\s\S]*?font-size:clamp/);
-  assert.match(appJs, /function acknowledgeCenteredExtraTurn[\s\S]*?extraTurnAnnouncementAcknowledged = true[\s\S]*?document\.addEventListener\('pointerdown'/);
-  assert.match(appJs, /showCenteredExtraTurn[\s\S]*?!extraTurnAnnouncementAcknowledged[\s\S]*?ui\.extraTurnCenterBanner\.classList\.toggle/);
-  assert.match(appJs, /myTurn &&[\s\S]*?String\(state\.paired\.stage \|\| ''\) === 'p2'[\s\S]*?state\.phase === 'main-actions'/);
 });
 
 test('live Dice Stats offers player and probability display choices', () => {
@@ -141,7 +135,7 @@ test('the in-game Rules tab displays the maximum cards for each individual resou
   assert.match(appJs, /addRow\('Max Individual Resource', `\$\{maxIndividualResource\} cards per resource type`\)/);
 });
 
-test('setup placement turns show a red Your Turn banner above the action bar', () => {
+test('setup placement turns show a red Your Turn banner near Roll Dice', () => {
   assert.match(indexHtml, /id="placementTurnBanner"[^>]*>Your Turn<\/div>/);
   assert.match(styles, /\.placementTurnBanner\{?[\s\S]*?color:#ff2638/);
   assert.match(appJs, /'setup1-settlement', 'setup1-road'/);

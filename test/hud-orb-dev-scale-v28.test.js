@@ -20,8 +20,8 @@ test('Development Cards header reserves a bounded grid column for scale controls
   assert.match(css, /#devCard \.devHeaderRight\s*\{[\s\S]*?grid-row:2/);
 });
 
-test('v28 cache keys agree for CSS, JS and service worker', () => {
-  assert.match(html, /styles\.css\?v=orb-dev-scale-v28/);
-  assert.match(html, /app\.js\?v=orb-dev-scale-v28/);
-  assert.match(sw, /orb-dev-scale-v28/);
+test('cache keys agree for CSS, JS and service worker', () => {
+  assert.match(html, /styles\.css\?v=mobile-lobby-friends-v30/);
+  assert.match(html, /app\.js\?v=mobile-lobby-friends-v30/);
+  assert.match(sw, /mobile-lobby-friends-v30/);
 });

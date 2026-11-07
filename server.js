@@ -10301,6 +10301,24 @@ async function handleAccountHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/account/friend-request') {
+    const submittedUsername = typeof body.username === 'string' ? body.username.trim() : '';
+    if (submittedUsername) {
+      // Never reveal whether a username exists, is already a friend, or has a pending request.
+      const targetByName = findUserByUsername(submittedUsername);
+      if (targetByName && targetByName.id !== viewer.id) {
+        viewer.friendIds = Array.isArray(viewer.friendIds) ? viewer.friendIds : [];
+        targetByName.friendRequestIds = Array.isArray(targetByName.friendRequestIds) ? targetByName.friendRequestIds : [];
+        if (!viewer.friendIds.includes(targetByName.id) && !targetByName.friendRequestIds.includes(viewer.id)) {
+          targetByName.friendRequestIds.push(viewer.id);
+          await saveUsersDb();
+          for (const socket of (userSockets.get(targetByName.id) || [])) {
+            sendJson(socket, { type: 'friend_request', from: { id: viewer.id, username: viewer.username, displayName: viewer.displayName || viewer.username } });
+          }
+        }
+      }
+      sendHttpJson(req, res, 200, { ok: true, message: 'Request sent.' });
+      return;
+    }
     const target = findUserById(body.userId);
     if (!target || target.id === viewer.id) { sendHttpJson(req, res, 400, { ok: false, error: 'That player cannot receive a friend request.' }); return; }
     viewer.friendIds = Array.isArray(viewer.friendIds) ? viewer.friendIds : [];
@@ -10310,6 +10328,33 @@ async function handleAccountHttp(req, res, urlPath) {
     await saveUsersDb();
     for (const socket of (userSockets.get(target.id) || [])) sendJson(socket, { type: 'friend_request', from: { id: viewer.id, username: viewer.username, displayName: viewer.displayName || viewer.username } });
     sendHttpJson(req, res, 200, { ok: true, message: `Friend request sent to ${target.displayName || target.username}.` });
+    return;
+  }
+
+  if (urlPath === '/api/account/invite-to-lobby') {
+    const target = findUserById(body.userId);
+    const code = normalizeRoomCode(body.roomCode);
+    const invitedRoom = code ? roomByCodeWithPersistence(code) : null;
+    const senderInRoom = invitedRoom && (
+      (invitedRoom.players || []).some(p => p && p.id === viewer.id) ||
+      (invitedRoom.spectators || []).some(p => p && p.id === viewer.id)
+    );
+    if (!target || !Array.isArray(viewer.friendIds) || !viewer.friendIds.includes(target.id)) {
+      sendHttpJson(req, res, 403, { ok: false, error: 'Only friends can be invited.' }); return;
+    }
+    if (!invitedRoom || !senderInRoom || (invitedRoom.game && invitedRoom.game.phase !== 'lobby')) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'You must be in an open lobby to send an invitation.' }); return;
+    }
+    const targetSockets = userSockets.get(target.id);
+    if (!targetSockets || !Array.from(targetSockets).some(socket => socket.readyState === WebSocket.OPEN)) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'That friend is not online.' }); return;
+    }
+    const invite = {
+      type: 'lobby_invite', roomCode: invitedRoom.code, spectator: !!invitedRoom.ranked,
+      from: { id: viewer.id, username: viewer.username, displayName: viewer.displayName || viewer.username },
+    };
+    for (const socket of targetSockets) if (socket.readyState === WebSocket.OPEN) sendJson(socket, invite);
+    sendHttpJson(req, res, 200, { ok: true, message: 'Lobby invitation sent.' });
     return;
   }
 

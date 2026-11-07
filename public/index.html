@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=orb-dev-scale-v28" />
+  <link rel="stylesheet" href="styles.css?v=mobile-lobby-friends-v30" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -101,7 +101,21 @@
     </form>
   </div>
 
-  <div id="friendsOverlay" class="portalOverlay hidden"><div class="portalCard registerCard"><button id="friendsCloseBtn" class="overlayClose">×</button><h2>Friends</h2><div id="friendsList" class="friendsList"></div></div></div>
+  <div id="friendsOverlay" class="portalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="friendsTitle">
+    <div class="portalCard registerCard friendsCard">
+      <button id="friendsCloseBtn" class="overlayClose" type="button" aria-label="Close friends">×</button>
+      <h2 id="friendsTitle">Friends</h2>
+      <form id="friendRequestForm" class="friendRequestForm" autocomplete="off">
+        <label class="label" for="friendUsernameInput">Send a friend request</label>
+        <div class="friendRequestFormRow">
+          <input id="friendUsernameInput" class="input" type="text" maxlength="24" placeholder="Username" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+          <button id="friendRequestSendBtn" class="btn primary" type="submit">Send</button>
+        </div>
+        <div id="friendRequestStatus" class="friendRequestStatus hidden" role="status" aria-live="polite"></div>
+      </form>
+      <div id="friendsList" class="friendsList"></div>
+    </div>
+  </div>
 
   <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">Join one four-player queue. After a match is found, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div></section>
   <div id="app">
@@ -530,7 +544,12 @@
         </div>
       </section>
 
+      <button id="mobileLobbyMapToggle" class="mobileLobbyMapToggle" type="button" aria-label="Show lobby map" aria-controls="board" aria-expanded="false" title="Show lobby map">
+        <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
+        <span>Map</span>
+      </button>
       <section class="boardWrap">
+        <button id="mobileLobbyMapClose" class="mobileLobbyMapClose" type="button" aria-label="Close lobby map">✕ Close Map</button>
         <canvas id="board" width="1200" height="900"></canvas>
         <div id="mobileGameControls" class="mobileGameControls" aria-label="Mobile game controls">
           <button id="mobileActionsToggle" class="mobileControlBtn" type="button" aria-expanded="false">☰ Actions</button>
@@ -706,6 +725,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=orb-dev-scale-v28"></script>
+  <script src="app.js?v=mobile-lobby-friends-v30"></script>
 </body>
 </html>

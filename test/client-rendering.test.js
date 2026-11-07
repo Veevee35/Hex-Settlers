@@ -17,7 +17,9 @@ test('bursts of board updates paint once per frame, use the latest state, and re
   const context = vm.createContext({
     boardRenderFrame: null, boardRenderRect: null, state: { revision: 0 },
     view: { scale: 75, ox: 10, oy: -20 },
-    ui: { canvas: { getBoundingClientRect() { reads++; return { width: 900, height: 600 }; } } },
+    ui: { canvas: { width: 900, height: 600, getBoundingClientRect() { reads++; return { width: 900, height: 600 }; } } },
+    window: { devicePixelRatio: 1 },
+    ctx: { setTransform() {} },
     requestAnimationFrame(callback) { frames.push(callback); return frames.length; },
     drawBoard() {
       drawn.push(context.state.revision);
@@ -45,7 +47,9 @@ test('a failed draw releases frame and layout caches so later updates can recove
   let frame;
   const context = vm.createContext({
     boardRenderFrame: null, boardRenderRect: null,
-    ui: { canvas: { getBoundingClientRect: () => ({ width: 390, height: 540 }) } },
+    ui: { canvas: { width: 390, height: 540, getBoundingClientRect: () => ({ width: 390, height: 540 }) } },
+    window: { devicePixelRatio: 1 },
+    ctx: { setTransform() {} },
     requestAnimationFrame(callback) { frame = callback; return 1; },
     drawBoard() { throw new Error('draw failed'); },
   });

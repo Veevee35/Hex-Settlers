@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'orb-dev-scale-v28';
+  const ASSET_CACHE_SW_BUILD = 'mobile-lobby-friends-v30';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1555,6 +1555,13 @@
       const txt = `${Math.round(next * 100)}%`;
       label.textContent = txt;
       label.title = `Tab size ${txt}`;
+    }
+
+    // Standalone dice/end-turn actions are visually part of this bar: changing
+    // its scale must change those buttons too (not just the bar behind them).
+    if (String(scaleId || '') === 'turn_bar') {
+      try { document.getElementById('rollDock')?.style.setProperty('--turn-button-scale', String(next)); } catch (_) {}
+      try { if (typeof syncTurnBarHeight === 'function') requestAnimationFrame(syncTurnBarHeight); } catch (_) {}
     }
 
     // Keep right sidebar resources synced to the Dev panel scale when docked.
@@ -4111,6 +4118,78 @@ function syncPostgameToState() {
     selectGamePanelTab(names[(names.indexOf(activeMobilePanelTab) + (event.key === 'ArrowRight' ? 1 : 2)) % 3]);
     panelTabs.querySelector(`[data-panel="${activeMobilePanelTab}"]`)?.focus();
   });
+  // The same live Resources card and bank/hand dock move into a draggable
+  // floating panel when desktop Game Panels are collapsed. Never clone stats:
+  // resource updates and spectator selection continue to operate normally.
+  let floatingResourcesPanel = null;
+  let floatingResourcesDragReady = false;
+  function ensureFloatingResourcesPanel() {
+    if (floatingResourcesPanel) return floatingResourcesPanel;
+    const boardWrap = document.querySelector('section.boardWrap');
+    if (!boardWrap) return null;
+    const panel = document.createElement('section');
+    panel.id = 'floatingResourcesPanel';
+    panel.className = 'floatingResourcesPanel hidden';
+    panel.setAttribute('aria-label', 'Floating game resources');
+    const header = document.createElement('div');
+    header.className = 'floatingResourcesHeader';
+    header.textContent = 'Resources';
+    header.title = 'Drag to move resources';
+    panel.appendChild(header);
+    const contents = document.createElement('div');
+    contents.id = 'floatingResourcesContent';
+    contents.className = 'floatingResourcesContent';
+    panel.appendChild(contents);
+    boardWrap.appendChild(panel);
+    floatingResourcesPanel = panel;
+    return panel;
+  }
+  function syncFloatingResourcesPanel(inGame = !!(state && state.phase !== 'lobby')) {
+    const panel = floatingResourcesPanel || (inGame && !isMobileGameSplit() && !gamePanelsExpanded
+      ? ensureFloatingResourcesPanel() : null);
+    if (!panel) return;
+    const show = !!(inGame && !isMobileGameSplit() && !gamePanelsExpanded);
+    const content = panel.querySelector('.floatingResourcesContent');
+    if (show && content) {
+      panel.classList.remove('hidden');
+      if (ui.resourcesCard && ui.resourcesCard.parentNode !== content) content.appendChild(ui.resourcesCard);
+      if (ui.rightSidebarResourcesDock && ui.rightSidebarResourcesDock.parentNode !== content) content.appendChild(ui.rightSidebarResourcesDock);
+      if (!floatingResourcesDragReady) {
+        const header = panel.querySelector('.floatingResourcesHeader');
+        // The drag handler is installed once. It also saves the position for
+        // the current user, just like the countdown clock.
+        makeDraggablePanel(panel, header, 'hexsettlers_floating_resources_pos_v1');
+        floatingResourcesDragReady = true;
+      }
+      requestAnimationFrame(boundFloatingResourcesToBoard);
+    } else {
+      panel.classList.add('hidden');
+      if (ui.rightSidebarInner) {
+        if (ui.resourcesCard && ui.resourcesCard.parentNode === content) {
+          ui.rightSidebarInner.insertBefore(ui.resourcesCard, ui.rightSidebarInner.firstChild);
+        }
+        if (ui.rightSidebarResourcesDock && ui.rightSidebarResourcesDock.parentNode === content) {
+          if (inGame && isMobileGameSplit() && mobilePinnedResources) mobilePinnedResources.appendChild(ui.rightSidebarResourcesDock);
+          else ui.rightSidebarInner.appendChild(ui.rightSidebarResourcesDock);
+        }
+      }
+    }
+  }
+  function boundFloatingResourcesToBoard() {
+    const panel = floatingResourcesPanel;
+    if (!panel || panel.classList.contains('hidden')) return;
+    const r = panel.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const b = draggablePanelBounds(panel, r.width, r.height);
+    const x = Math.min(b.maxLeft, Math.max(b.minLeft, r.left));
+    const y = Math.min(b.maxTop, Math.max(b.minTop, r.top));
+    if (Math.abs(x-r.left) < 1 && Math.abs(y-r.top) < 1) return;
+    panel.style.position = 'fixed';
+    panel.style.left = `${x}px`;
+    panel.style.top = `${y}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
   function setGamePanelsExpanded(next) {
     gamePanelsExpanded = !!next;
     document.body.classList.toggle('gamePanelsCollapsed', !gamePanelsExpanded);
@@ -4122,6 +4201,7 @@ function syncPostgameToState() {
       mobilePanelsToggle.textContent = gamePanelsExpanded ? 'Hide Game Panels' : 'Show Game Panels';
       mobilePanelsToggle.setAttribute('aria-expanded', String(gamePanelsExpanded));
     }
+    syncFloatingResourcesPanel();
     if (state && state.phase !== 'lobby') {
       requestAnimationFrame(() => { resizeCanvas(); render(); syncTurnBarHeight(); });
     }
@@ -4162,16 +4242,19 @@ function syncPostgameToState() {
         // Game Panels only collapses the tabbed details below this strip.
         if (isMobileGameSplit() && mobilePinnedResources) {
           if (anchor.parentNode !== mobilePinnedResources) mobilePinnedResources.appendChild(anchor);
-        } else if (anchor.parentNode !== ui.rightSidebarInner) {
+        } else if (anchor.parentNode !== ui.rightSidebarInner &&
+                   !(floatingResourcesPanel && anchor.parentNode === floatingResourcesPanel.querySelector('.floatingResourcesContent'))) {
           ui.rightSidebarInner.appendChild(anchor);
         }
       }
       selectGamePanelTab(activeMobilePanelTab);
       if (ui.resourcesCard) {
         ui.resourcesCard.dataset.dragDisabled = '1';
-        clearDockedPanelPosition(ui.resourcesCard);
-        if (ui.resourcesCard.parentNode !== ui.rightSidebarInner) {
-          ui.rightSidebarInner.insertBefore(ui.resourcesCard, ui.rightSidebarInner.firstChild);
+        if (!floatingResourcesPanel || ui.resourcesCard.parentNode !== floatingResourcesPanel.querySelector('.floatingResourcesContent')) {
+          clearDockedPanelPosition(ui.resourcesCard);
+          if (ui.resourcesCard.parentNode !== ui.rightSidebarInner) {
+            ui.rightSidebarInner.insertBefore(ui.resourcesCard, ui.rightSidebarInner.firstChild);
+          }
         }
       }
       if (ui.logCard) {
@@ -4193,9 +4276,11 @@ function syncPostgameToState() {
           else ui.rightSidebarInner.appendChild(ui.devCard);
         }
       }
+      syncFloatingResourcesPanel(true);
       return;
     }
 
+    syncFloatingResourcesPanel(false);
     ui.rightSidebar.classList.add('hidden');
     if (ui.rightSidebarResourcesDock && ui.rightSidebarResourcesDock.parentNode !== ui.rightSidebarInner) ui.rightSidebarInner.appendChild(ui.rightSidebarResourcesDock);
     if (!rightSidebarDock.isDocked) return;
@@ -4269,6 +4354,7 @@ function syncPostgameToState() {
     const card = ui.turnCard;
     card.innerHTML = '';
 
+    // Turn badges attach to the roll dock, not the action bar or its buttons.
     if (ui.extraTurnBanner) card.appendChild(ui.extraTurnBanner);
     if (ui.placementTurnBanner) card.appendChild(ui.placementTurnBanner);
 
@@ -4337,6 +4423,17 @@ function syncPostgameToState() {
   if (mobilePanelsToggle) mobilePanelsToggle.textContent = 'Hide Game Panels';
   $('mobilePanelsClose')?.addEventListener('click', () => setMobilePanelsOpen(false));
   $('mobileFitBoard')?.addEventListener('click', () => { view.autoFit = true; resizeCanvas(); render(); });
+  function setMobileLobbyMapOpen(open) {
+    const next = !!open && !document.body.classList.contains('in-game') && !document.body.classList.contains('ranked-lobby');
+    document.body.classList.toggle('mobileLobbyMapOpen', next);
+    $('mobileLobbyMapToggle')?.setAttribute('aria-expanded', String(next));
+    if (next) requestAnimationFrame(() => { view.autoFit = true; resizeCanvas(); render(); });
+  }
+  $('mobileLobbyMapToggle')?.addEventListener('click', () => setMobileLobbyMapOpen(!document.body.classList.contains('mobileLobbyMapOpen')));
+  $('mobileLobbyMapClose')?.addEventListener('click', () => setMobileLobbyMapOpen(false));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && document.body.classList.contains('mobileLobbyMapOpen')) setMobileLobbyMapOpen(false);
+  });
 
   function dockHudToBoard(inGame) {
     const panel = document.querySelector('section.panel');
@@ -4386,6 +4483,17 @@ function syncPostgameToState() {
       if (ui.rollDock) {
         ui.rollDock.classList.add('hudRollDock');
         boardWrap.appendChild(ui.rollDock);
+        const dockRow = ui.rollDock.querySelector('.rollDockInner');
+        if (dockRow && ui.rollDockBtn) {
+          let badges = dockRow.querySelector('.rollDockTurnBadges');
+          if (!badges) {
+            badges = document.createElement('div');
+            badges.className = 'rollDockTurnBadges';
+            ui.rollDockBtn.insertAdjacentElement('afterend', badges);
+          }
+          if (ui.placementTurnBanner) badges.appendChild(ui.placementTurnBanner);
+          if (ui.extraTurnBanner) badges.appendChild(ui.extraTurnBanner);
+        }
       }
       requestAnimationFrame(syncTurnBarHeight);
     }
@@ -4409,6 +4517,8 @@ function syncPostgameToState() {
 
       restoreOriginal(ui.toolsCard, hudDock.originals?.tools);
       if (ui.accountOrb) { ui.accountOrb.classList.remove('inGameOrb'); restoreOriginal(ui.accountOrb, hudDock.originals?.orb); }
+      if (ui.extraTurnBanner) ui.turnCard?.appendChild(ui.extraTurnBanner);
+      if (ui.placementTurnBanner) ui.turnCard?.appendChild(ui.placementTurnBanner);
       restoreOriginal(ui.turnCard, hudDock.originals?.turn);
       restoreOriginal(ui.devCard, hudDock.originals?.dev);
       restoreOriginal(ui.rollDock, hudDock.originals?.dock);
@@ -4457,6 +4567,22 @@ function syncPostgameToState() {
   // The clock must stay below the tools bar and above Roll Dice / End Turn.
   function draggablePanelBounds(panelEl, width, height) {
     const pad = 6;
+    if (panelEl?.classList?.contains('floatingResourcesPanel') && document.body.classList.contains('in-game')) {
+      const area = document.querySelector('section.boardWrap')?.getBoundingClientRect();
+      if (area) {
+        const toolsBottom = ui.toolsCard?.getBoundingClientRect().bottom || area.top;
+        const bottomTop = ui.rollDock?.getBoundingClientRect().top || area.bottom;
+        const turnTop = ui.turnCard?.getBoundingClientRect().top || area.bottom;
+        const minLeft = Math.max(pad, area.left + pad);
+        const minTop = Math.max(pad, area.top + pad, toolsBottom + pad);
+        return {
+          minLeft,
+          maxLeft: Math.max(minLeft, Math.min(window.innerWidth-pad, area.right-pad) - width),
+          minTop,
+          maxTop: Math.max(minTop, Math.min(area.bottom-pad, bottomTop-pad, turnTop-pad) - height),
+        };
+      }
+    }
     if (panelEl?.classList?.contains('rightHud') && document.body.classList.contains('in-game')) {
       const boardWrap = document.querySelector('section.boardWrap');
       const board = document.getElementById('board');
@@ -4536,6 +4662,7 @@ function syncPostgameToState() {
       boardWrap?.style.setProperty('--hud-bottom-bar-height', `${height}px`);
     }
     boundDraggedClockToBoard();
+    boundFloatingResourcesToBoard();
   }
   if (typeof ResizeObserver !== 'undefined') {
     const hudResize = new ResizeObserver(() => {
@@ -6420,6 +6547,33 @@ function refreshLobbyJoinLinkUi() {
             send({ type: 'rejoin_room', code, displayName: (ui.nameInput?.value || '').trim() });
           }
         }
+        return;
+      }
+
+      if (msg.type === 'lobby_invite') {
+        const code = String(msg.roomCode || '').trim().toUpperCase();
+        if (!/^[A-Z0-9]{4,8}$/.test(code)) return;
+        const notice = document.createElement('div');
+        notice.className = 'friendRequestToast lobbyInviteToast';
+        const message = document.createElement('div');
+        const from = msg.from || {};
+        message.textContent = `${from.displayName || from.username || 'A friend'} invited you to ${msg.spectator ? 'watch a ranked match' : 'their lobby'}.`;
+        const controls = document.createElement('div');
+        controls.className = 'lobbyInviteActions';
+        const join = document.createElement('button');
+        join.className = 'btn primary';
+        join.textContent = msg.spectator ? 'Watch' : 'Join Lobby';
+        join.addEventListener('click', () => {
+          window.location.assign(buildDirectJoinUrl(code, { spectator: !!msg.spectator }));
+        });
+        const dismiss = document.createElement('button');
+        dismiss.className = 'btn';
+        dismiss.textContent = 'Dismiss';
+        dismiss.addEventListener('click', () => notice.remove());
+        controls.append(join, dismiss);
+        notice.append(message, controls);
+        document.body.appendChild(notice);
+        setTimeout(() => notice.remove(), 30000);
         return;
       }
 
@@ -9467,6 +9621,8 @@ function refreshLobbyJoinLinkUi() {
   function renderLobby() {
     const isRankedLobby = !!(room?.ranked && currentRoomPhase() === 'lobby');
     document.body.classList.toggle('ranked-lobby', isRankedLobby);
+    document.body.classList.toggle('hasLobbyMapPreview', !!(room && !room.ranked && currentRoomPhase() === 'lobby' && state?.geom?.tiles?.length));
+    if (isRankedLobby || !room) setMobileLobbyMapOpen(false);
     if (!isRankedLobby) stopRankedBallotClock();
     const shareLabel = document.getElementById('roomShareLabel');
     if (shareLabel) shareLabel.textContent = isRankedLobby ? 'Spectator link · Invite viewers before the match begins' : 'Direct join link';
@@ -10117,6 +10273,27 @@ function refreshLobbyJoinLinkUi() {
   $('accountManageBtn')?.addEventListener('click', () => { $('accountMenu')?.classList.add('hidden'); openUserManagementScreen(); });
   $('friendsBtn')?.addEventListener('click', () => { setAccountMenuOpen(false); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
   $('friendsCloseBtn')?.addEventListener('click', () => $('friendsOverlay')?.classList.add('hidden'));
+  $('friendRequestForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const field = $('friendUsernameInput');
+    const username = String(field?.value || '').trim().replace(/^@/, '');
+    if (!username) return;
+    const sendButton = $('friendRequestSendBtn');
+    if (sendButton) sendButton.disabled = true;
+    try {
+      await accountApi('friend-request', { username });
+      if (field) field.value = '';
+      const status = $('friendRequestStatus');
+      if (status) { status.textContent = 'Request sent.'; status.classList.remove('hidden'); }
+    } catch (_) {
+      // Do not disclose a recipient's existence or account state to the sender.
+      const status = $('friendRequestStatus');
+      if (status) { status.textContent = 'Could not send request. Try again.'; status.classList.remove('hidden'); }
+    } finally {
+      if (sendButton) sendButton.disabled = false;
+    }
+  });
+  $('friendUsernameInput')?.addEventListener('input', () => $('friendRequestStatus')?.classList.add('hidden'));
   $('accountPlayerStatsBtn')?.addEventListener('click', () => {
     setAccountMenuOpen(false);
     openHistoryOverlay('players');
@@ -10154,19 +10331,43 @@ function refreshLobbyJoinLinkUi() {
         }
         list.appendChild(row);
       }
+      const canInvite = !!(roomConnectionReady && room?.code && myPlayerId && currentRoomPhase() === 'lobby');
       for (const friend of (result.friends || [])) {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'friendRow friendRowProfile';
-        row.innerHTML = `<span><strong></strong><small></small></span><span class="friendPresence"></span>`;
-        row.querySelector('strong').textContent = friend.displayName;
-        row.querySelector('small').textContent = `@${friend.username}`;
-        row.querySelector('.friendPresence').textContent = friend.online ? 'Online' : 'Offline';
-        row.querySelector('.friendPresence').classList.toggle('online', !!friend.online);
-        row.addEventListener('click', () => void openPlayerProfileById(friend.id));
+        const row = document.createElement('div');
+        row.className = 'friendRow friendRowWithActions';
+        const profile = document.createElement('button');
+        profile.type = 'button';
+        profile.className = 'friendRowProfile friendProfileButton';
+        profile.innerHTML = `<span><strong></strong><small></small></span><span class="friendPresence"></span>`;
+        profile.querySelector('strong').textContent = friend.displayName;
+        profile.querySelector('small').textContent = `@${friend.username}`;
+        profile.querySelector('.friendPresence').textContent = friend.online ? 'Online' : 'Offline';
+        profile.querySelector('.friendPresence').classList.toggle('online', !!friend.online);
+        profile.addEventListener('click', () => void openPlayerProfileById(friend.id));
+        row.appendChild(profile);
+        if (canInvite) {
+          const invite = document.createElement('button');
+          invite.type = 'button';
+          invite.className = 'btn friendInviteBtn';
+          invite.textContent = room.ranked ? 'Invite to Watch' : 'Invite to Lobby';
+          invite.disabled = !friend.online;
+          invite.title = friend.online ? 'Invite this friend to your current lobby' : 'Friend is offline';
+          invite.addEventListener('click', async () => {
+            if (!roomConnectionReady || !room?.code || currentRoomPhase() !== 'lobby') return;
+            invite.disabled = true;
+            try {
+              await accountApi('invite-to-lobby', { userId: friend.id, roomCode: room.code });
+              invite.textContent = 'Invite Sent';
+            } catch (error) {
+              toast(error.message || 'Could not send invite.');
+              invite.disabled = !friend.online;
+            }
+          });
+          row.appendChild(invite);
+        }
         list.appendChild(row);
       }
-      if (!(result.friends || []).length && !(result.requests || []).length) list.textContent = 'No friends yet. Right-click a player in a lobby to send a request.';
+      if (!(result.friends || []).length && !(result.requests || []).length) list.textContent = 'No friends yet. Add someone by username above.';
       const badge = $('friendBadge');
       if (badge) {
         badge.textContent = String((result.requests || []).length);
@@ -11609,11 +11810,11 @@ function ensureTimerUiInterval() {
     }
     const extraTurnMainActions = pairedExtraTurnActive && state.phase === 'main-actions';
     if (ui.extraTurnBanner) {
-      const showExtraTurn = !!(extraTurnMainActions && extraTurnAnnouncementAcknowledged);
+      const showExtraTurn = !!(extraTurnMainActions && !state.paused);
       ui.extraTurnBanner.classList.toggle('hidden', !showExtraTurn);
     }
     if (ui.extraTurnCenterBanner) {
-      const showCenteredExtraTurn = !!(extraTurnMainActions && !extraTurnAnnouncementAcknowledged && !state.paused);
+      const showCenteredExtraTurn = false; // The extra-turn badge now lives beside Roll Dice.
       ui.extraTurnCenterBanner.classList.toggle('hidden', !showCenteredExtraTurn);
     }
     if (ui.placementTurnBanner) {
@@ -11633,6 +11834,7 @@ function ensureTimerUiInterval() {
 
     // Global page state + HUD docking.
     try { document.body.classList.toggle('in-game', inGame); } catch (_) {}
+    if (inGame) setMobileLobbyMapOpen(false);
     dockHudToBoard(inGame);
     if (!inGame) { setMobilePanelsOpen(false); setMobileActionsOpen(false); }
     syncRightSidebarDock(inGame);
@@ -11856,8 +12058,15 @@ if (ui.moveShipBtn) {
       const val = document.createElement('span');
       val.className = 'resVal';
       val.textContent = String(v ?? 0);
-      cell.appendChild(val);
+      // Place a high-contrast count badge over the resource art, rather than
+      // shrinking the art to make room for a number beside it.
+      cell.setAttribute('role', 'img');
+      cell.setAttribute('aria-label', `${k}: ${v ?? 0}`);
+      cell.title = `${k}: ${v ?? 0}`;
+      val.setAttribute('aria-hidden', 'true');
+      img.setAttribute('aria-hidden', 'true');
       cell.appendChild(img);
+      cell.appendChild(val);
       return cell;
     }
 
@@ -14347,6 +14556,16 @@ function handleProductionGoldPrompt() {
     boardRenderFrame = requestAnimationFrame(() => {
       boardRenderFrame = null;
       boardRenderRect = ui.canvas.getBoundingClientRect();
+      // Chrome/mobile flex rows may resize without a window resize event.
+      // Match the canvas backing store to its actual CSS bounds before each draw.
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const pixelsWide = Math.max(1, Math.round(boardRenderRect.width * dpr));
+      const pixelsHigh = Math.max(1, Math.round(boardRenderRect.height * dpr));
+      if (ui.canvas.width !== pixelsWide || ui.canvas.height !== pixelsHigh) {
+        ui.canvas.width = pixelsWide;
+        ui.canvas.height = pixelsHigh;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       try { drawBoard(); } finally { boardRenderRect = null; }
     });
   }
@@ -14358,6 +14577,10 @@ function handleProductionGoldPrompt() {
     const h = boardRenderRect.height;
     fitBoardToViewport(w, h);
     ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.clip();
 
     if (!state || !state.geom || !state.geom.tiles) {
       // soft title
@@ -14370,6 +14593,7 @@ function handleProductionGoldPrompt() {
       ctx.fillText('Create or join a lobby to begin.', 18, 34);
       ctx.restore();
       screenCache = null;
+      ctx.restore();
       return;
     }
 
@@ -14387,6 +14611,13 @@ function handleProductionGoldPrompt() {
       const hideOuterSeaBorderTile = shouldHideOuterSeaBorderTileClient(t);
       if (!hideOuterSeaBorderTile) screenCache.tiles.push({ id: t.id, poly });
       if (hideOuterSeaBorderTile) continue;
+      // Skip the drawing work for fully off-screen terrain to avoid mobile GPU
+      // artifacts when a zoomed map is dragged beneath the fixed control rows.
+      const minDrawX = Math.min(...poly.map(p => p.x));
+      const maxDrawX = Math.max(...poly.map(p => p.x));
+      const minDrawY = Math.min(...poly.map(p => p.y));
+      const maxDrawY = Math.max(...poly.map(p => p.y));
+      if (maxDrawX < 0 || minDrawX > w || maxDrawY < 0 || minDrawY > h) continue;
 
       // Clip to hex then draw image
       ctx.save();
@@ -14934,6 +15165,7 @@ function handleProductionGoldPrompt() {
     }
 
     updateShipMoveCancelPopupPosition();
+    ctx.restore();
   }
 
   function drawThiefMarkersOverlayPass(activePlayerThiefMove, thiefHighlightPhase, thiefPulse) {
