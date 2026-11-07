@@ -1,13 +1,16 @@
-Hex Settlers v24 / Game Panels layout correction
+Hex Settlers v25 / Global Unranked Rating
 
+PASS: node --check server.js
+PASS: node --check server/unranked-rating.js
+PASS: node --check server/user-management.js
 PASS: node --check public/app.js
-PASS: node --check public/sw.js
-PASS: 235 dependency-independent Node tests, 0 failures.
-PASS: Chromium mobile/desktop layout checks at 390x844, 360x640, 844x390, 1024x768, 1366x768.
-PASS: Desktop top/bottom bars stop at sidebar edge; expand when hidden.
-PASS: Desktop timer drag moves and saves position.
-PASS: Hidden sidebar pause overlay covers the vacated background.
-PASS: Mobile resource strip remains visible when Game Panels is hidden.
-PASS: Mobile action bar stays inside the viewport.
+PASS: tsc -p tsconfig.bootstrap.json
+PASS: 246 dependency-independent automated tests, 0 failures (exclude suites requiring ws)
+PASS: v25 signed-score, AI participation, negative outcomes, legacy archive migration, ranked isolation, one-time update tests
+PASS: Chromium mobile (390px) and desktop (1200px) profile layout checks
 
-NOT RUN: Full live-server suite (source ZIP lacks ws dependency; install with npm ci).
+Note: A broader attempt ran 258 automated tests; 255 passed and 3 tests could not run because 'ws'
+was absent from the uploaded ZIP. Full backend integration tests require npm ci.
+
+Do not overwrite existing persistent users.json and game_history.json during deployment.
+Historic score migration is applied once to retained unranked history on the backend.

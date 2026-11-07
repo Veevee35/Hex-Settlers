@@ -39,6 +39,7 @@ function safeManagedUser(user, { includeEmail = false } = {}) {
     isAdmin: isAdminUser(user),
     stats: user.stats || { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 },
     rankedRating: Number.isFinite(Number(user.rankedRating)) && user.rankedRating != null ? Math.max(0, Math.round(Number(user.rankedRating))) : 1000,
+    unrankedRating: Number.isFinite(Number(user.unrankedRating)) && user.unrankedRating != null ? Math.round(Number(user.unrankedRating)) : 0,
     createdAt: Number(user.createdAt || 0),
     lastLoginAt: Number(user.lastLoginAt || 0),
     passwordResetAt: Number(user.passwordResetAt || 0),

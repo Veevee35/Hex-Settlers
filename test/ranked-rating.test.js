@@ -9,6 +9,7 @@ const source = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const client = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const { rankedRating, calculateRankedChanges } = require('../server/ranked-rating');
 const { computePolicyRatingChanges, DEFAULT_RATING_POLICY } = require('../server/rating-policy');
+const { calculateUnrankedChanges } = require('../server/unranked-rating');
 const { serializeRoom, restoreRoom } = require('../server/active-rooms');
 
 function extractFunction(startName, endName) {
@@ -79,7 +80,8 @@ test('initial migration resets every legacy account once, then never overwrites 
 test('only authoritative ranked games update ratings, and results apply only once', () => {
   const ctx = vm.createContext({
     findUserById: (id) => ctx.users[id] || null,
-    rankedRating, calculateRankedChanges, computePolicyRatingChanges, RATING_POLICY: DEFAULT_RATING_POLICY,
+    rankedRating, calculateRankedChanges, computePolicyRatingChanges, calculateUnrankedChanges, RATING_POLICY: DEFAULT_RATING_POLICY,
+    UNRANKED_RATING_VERSION: 1,
     now: () => 123456,
     saveUsersDb: () => { ctx.saves++; },
     sendJson: () => {},
@@ -144,10 +146,10 @@ test('game history includes the ranked flag and per-user rating changes in its s
 });
 
 test('Player Stats uses ranked rating instead of resource change columns, and summaries show rating changes', () => {
-  assert.match(client, /\{ key: 'rankedRating', label: 'Rating' \}/);
+  assert.match(client, /\{ key: 'rankedRating', label: 'Ranked Rating' \}/);
   assert.doesNotMatch(client, /\{ key: 'resGained', label: 'Res\+' \}/);
   assert.doesNotMatch(client, /\{ key: 'resLost', label: 'Res-' \}/);
   assert.match(client, /ratingText: ratingLabel/);
-  assert.match(client, /Unranked · Rating change: 0/);
+  assert.match(client, /Unranked rating:/);
   assert.match(source, /const rating = rankedRating\(user\?\.rankedRating\)/);
 });

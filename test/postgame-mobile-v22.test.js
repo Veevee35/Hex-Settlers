@@ -35,7 +35,7 @@ test('postgame markup preserves main menu, rematch, hide and all result tabs', (
     assert.ok(html.includes(`id="${id}"`), `missing ${id}`);
   }
   // The responsive v22 layout is retained; asset cache tags must advance with each release.
-  assert.match(html, /styles\.css\?v=game-panels-v24/);
-  assert.match(html, /app\.js\?v=game-panels-v24/);
-  assert.match(sw, /game-panels-v24/);
+  assert.match(html, /styles\.css\?v=unranked-rating-v25/);
+  assert.match(html, /app\.js\?v=unranked-rating-v25/);
+  assert.match(sw, /unranked-rating-v25/);
 });

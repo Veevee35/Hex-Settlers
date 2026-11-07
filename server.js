@@ -95,6 +95,7 @@ const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/tes
 const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = require('./server/land-masses');
 const { INITIAL_RANKED_RATING, rankedRating, calculateRankedChanges } = require('./server/ranked-rating');
 const { METRICS, DEFAULT_RATING_POLICY, validatedRatingPolicy, computePolicyRatingChanges, replayRankedHistory } = require('./server/rating-policy');
+const { UNRANKED_RATING_VERSION, unrankedRating, calculateUnrankedChanges, replayUnrankedHistory } = require('./server/unranked-rating');
 const {
   applyResourceDelta: applyResourceStatsDelta,
   applyResourceOpportunityLoss,
@@ -412,6 +413,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     stats: game.stats || null,
     ranked: !!game.ranked,
     ratingChanges: game.ratingChanges || {},
+    unrankedRatingChanges: game.unrankedRatingChanges || {},
     ratingPolicy: game.ranked ? (game.ratingPolicy || RATING_POLICY) : null,
     longestRoad: game.longestRoad || null,
     largestArmy: game.largestArmy || null,
@@ -428,6 +430,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     winnerName: w ? w.name : '',
     ranked: !!game.ranked,
     ratingChanges: deepClone(game.ratingChanges || {}),
+    unrankedRatingChanges: deepClone(game.unrankedRatingChanges || {}),
     ratingPolicy: game.ranked ? deepClone(game.ratingPolicy || RATING_POLICY) : null,
     rules: deepClone(game.rules || null),
     players,
@@ -484,6 +487,7 @@ function listGameHistory(limit = 200) {
     winnerName: g.winnerName,
     ranked: g.ranked == null ? null : !!g.ranked,
     ratingChanges: g.ratingChanges || {},
+    unrankedRatingChanges: g.unrankedRatingChanges || {},
     rules: g.rules || null,
     players: g.players || [],
     replaySteps: Math.max(0, Number(g.replayStepCount ?? (g.replay && Array.isArray(g.replay.steps) ? g.replay.steps.length : 0))),
@@ -621,6 +625,7 @@ function computeLeaderboardFromHistory() {
       ranked,
       unranked,
       rankedRating: rankedRating(findUserById(rec.id)?.rankedRating),
+      unrankedRating: unrankedRating(findUserById(rec.id)?.unrankedRating),
     });
   }
 
@@ -634,6 +639,31 @@ function computeLeaderboardFromHistory() {
   });
 
   return rows;
+}
+
+function migrateUnrankedRatingsFromHistory() {
+  const users = (USERS_DB && USERS_DB.users) || [];
+  const pending = users.filter(user => user && user.id && Number(user.unrankedRatingVersion || 0) < UNRANKED_RATING_VERSION);
+  if (!pending.length) return;
+  // Score only accounts that are not already migrated. That prevents a newly
+  // imported account from resetting scores earned by established accounts.
+  const ids = pending.map(user => String(user.id));
+  const entries = (HISTORY_DB.games || []).filter(isValidHistoryEntry);
+  const result = replayUnrankedHistory(entries, ids);
+  let historyChanged = false;
+  for (const user of pending) {
+    user.unrankedRating = unrankedRating(result.ratings[user.id]);
+    user.unrankedRatingVersion = UNRANKED_RATING_VERSION;
+  }
+  for (const entry of entries) {
+    const changes = result.changesByGame[entry.id];
+    if (!changes || !Object.keys(changes).length) continue;
+    entry.unrankedRatingChanges = { ...(entry.unrankedRatingChanges || {}), ...changes };
+    if (entry.snapshot) entry.snapshot.unrankedRatingChanges = { ...(entry.snapshot.unrankedRatingChanges || {}), ...changes };
+    historyChanged = true;
+  }
+  saveUsersDb();
+  if (historyChanged) saveHistoryDb();
 }
 
 // Rebuild per-user aggregate stats from *valid* game history.
@@ -780,6 +810,7 @@ function safeUserPublic(u) {
     isAdmin: managed.isAdmin,
     stats: managed.stats,
     rankedRating: rankedRating(u.rankedRating),
+    unrankedRating: unrankedRating(u.unrankedRating),
     createdAt: managed.createdAt,
     lastLoginAt: managed.lastLoginAt,
     hasEmail: managed.hasEmail,
@@ -859,6 +890,8 @@ async function createUser({ username, password, displayName, role = 'user', syst
     tokens: [],
     stats: { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 },
     rankedRating: INITIAL_RANKED_RATING,
+    unrankedRating: 0,
+    unrankedRatingVersion: UNRANKED_RATING_VERSION,
     createdAt: now(),
     lastLoginAt: 0,
   };
@@ -1086,6 +1119,10 @@ async function ensureBuiltInAdminAccount() {
 loadUsersDb();
 
 loadHistoryDb();
+
+// One-time historical migration: count pre-split/legacy unranked games and
+// never reset an already earned signed unranked rating on later restarts.
+migrateUnrankedRatingsFromHistory();
 
 loadNeuralAiModel();
 
@@ -3051,6 +3088,16 @@ function persistUserStatsFromGame(room, game, winnerId) {
     snapshot: { stats: game.stats, players: game.players },
   }, Object.fromEntries(rankedPlayers.map(p => [String(p.id), p.rating])), game.ratingPolicy || RATING_POLICY) : {};
   game.ratingChanges = ratingChanges;
+  const unrankedPlayers = (!room.ranked && game.ranked !== true) ? (game.players || []).filter(gp =>
+    gp && !gp.isAI && !gp.ai && !!findUserById(gp.id)
+  ) : [];
+  const unrankedRatingChanges = (!room.ranked && game.ranked !== true) ? calculateUnrankedChanges({
+    ranked: false, winnerId: wid, players: game.players,
+    snapshot: { phase: 'game-over', stats: game.stats, players: game.players,
+      longestRoad: game.longestRoad, largestArmy: game.largestArmy },
+  }, Object.fromEntries(unrankedPlayers.map(gp => [String(gp.id), findUserById(gp.id).unrankedRating])),
+  unrankedPlayers.map(gp => String(gp.id))) : {};
+  game.unrankedRatingChanges = unrankedRatingChanges;
 
   for (const gp of (game.players || [])) {
     const u = findUserById(gp && gp.id);
@@ -3063,6 +3110,10 @@ function persistUserStatsFromGame(room, game, winnerId) {
     u.stats.lastGameAt = endedAt;
     if (Object.prototype.hasOwnProperty.call(ratingChanges, String(gp.id))) {
       u.rankedRating = ratingChanges[String(gp.id)].after;
+    }
+    if (Object.prototype.hasOwnProperty.call(unrankedRatingChanges, String(gp.id))) {
+      u.unrankedRating = unrankedRatingChanges[String(gp.id)].after;
+      u.unrankedRatingVersion = UNRANKED_RATING_VERSION;
     }
     changed = true;
   }
@@ -10146,6 +10197,8 @@ async function handleAdminHttp(req, res, urlPath) {
     primary.stats = primary.stats && typeof primary.stats === 'object' ? primary.stats : {};
     for (const key of statKeys) primary.stats[key] = Math.max(0, Number(primary.stats[key] || 0)) + Math.max(0, Number(secondary.stats?.[key] || 0));
     primary.stats.lastGameAt = Math.max(Number(primary.stats.lastGameAt || 0), Number(secondary.stats?.lastGameAt || 0));
+    primary.unrankedRating = unrankedRating(primary.unrankedRating) + unrankedRating(secondary.unrankedRating);
+    primary.unrankedRatingVersion = UNRANKED_RATING_VERSION;
     const primaryEmailTime = Number(primary.emailVerifiedAt || primary.updatedAt || primary.createdAt || 0);
     const secondaryEmailTime = Number(secondary.emailVerifiedAt || secondary.updatedAt || secondary.createdAt || 0);
     if (secondary.email && secondaryEmailTime > primaryEmailTime) {
@@ -10234,6 +10287,7 @@ async function handleAccountHttp(req, res, urlPath) {
         displayName: target.displayName || target.username,
         createdAt: Number(target.createdAt || 0),
         rankedRating: rankedRating(target.rankedRating),
+        unrankedRating: unrankedRating(target.unrankedRating),
         stats: {
           gamesPlayed: Math.max(0, Math.floor(Number(stats.gamesPlayed || 0))),
           wins: Math.max(0, Math.floor(Number(stats.wins || 0))),

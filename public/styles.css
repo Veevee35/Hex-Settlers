@@ -3717,3 +3717,9 @@ body.in-game .rightHud .clockDragGrip:active {cursor:grabbing;}
   html:has(body.in-game), body.in-game {height:100dvh!important;min-height:0!important;}
   body.in-game #app {height:100dvh!important;min-height:0!important;max-height:100dvh!important;}
 }
+
+/* v25: side-by-side ranked and cumulative unranked ratings */
+.playerProfileRatings{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}
+.playerProfileRatings .playerProfileRating{min-width:90px;justify-items:center;gap:3px}
+.playerProfileRatings .playerProfileRating:last-child{color:#85d2c1}
+@media(max-width:650px){.playerProfileHero{grid-template-columns:auto 1fr}.playerProfileRatings{grid-column:1/-1;justify-content:space-around;width:100%;gap:12px}.playerProfileRatings .playerProfileRating{grid-column:auto}}

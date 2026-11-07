@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'game-panels-v24';
+  const ASSET_CACHE_SW_BUILD = 'unranked-rating-v25';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -2365,14 +2365,17 @@ function renderPostgameTab(tab) {
       ) : 0;
       const ratingResult = st?.ratingChanges?.[p.id] || null;
       const ratingDelta = Number(ratingResult?.delta || 0);
-      const ratingLabel = st?.ranked == null ? 'Unranked · Legacy game (no rating change)' : st.ranked ? (ratingResult ? `Rating: ${ratingResult.after} (${ratingDelta > 0 ? '+' : ''}${ratingDelta})` : 'Ranked · No rating change') : 'Unranked · Rating change: 0';
+      const unrankedResult = st?.unrankedRatingChanges?.[p.id] || null;
+      const unrankedDelta = Number(unrankedResult?.delta || 0);
+      const ratingLabel = st?.ranked ? (ratingResult ? `Ranked rating: ${ratingResult.after} (${ratingDelta > 0 ? '+' : ''}${ratingDelta})` : 'Ranked · No rating change')
+        : unrankedResult ? `Unranked rating: ${unrankedResult.after} (${unrankedDelta > 0 ? '+' : ''}${unrankedDelta})` : 'Unranked · Rating unavailable for this older result';
       return makePlayerOverviewCard(p, {
         headline: `${shownVP} VP`,
         headlineLabel: p.id === winnerId ? 'Final score · Winner' : 'Final score',
         ribbon: p.id === winnerId ? '★ Winner' : '',
         winner: p.id === winnerId,
         ratingText: ratingLabel,
-        ratingTone: st?.ranked && ratingResult ? (ratingDelta > 0 ? 'positive' : ratingDelta < 0 ? 'negative' : '') : '',
+        ratingTone: st?.ranked && ratingResult ? (ratingDelta > 0 ? 'positive' : ratingDelta < 0 ? 'negative' : '') : unrankedResult ? (unrankedDelta > 0 ? 'positive' : unrankedDelta < 0 ? 'negative' : '') : '',
         metrics: [
           { piece: 'settlement', color: p.color, label: 'Settlement VP', value: settlementVP },
           { piece: 'city', color: p.color, label: 'City VP', value: cityVP },
@@ -2387,7 +2390,7 @@ function renderPostgameTab(tab) {
     });
     appendOverviewGrid(section, cards);
     ui.pgTabBody.appendChild(section);
-    addNote(st?.ranked == null ? 'Legacy unranked game · ranked ratings were not recorded.' : st.ranked ? 'Ranked match · rating changes are reflected in each player’s final result.' : 'Unranked match · no ranked ratings were changed.');
+    addNote(st?.ranked ? 'Ranked match · ranked rating changes are reflected in each player’s final result.' : 'Unranked match · cumulative Unranked Rating changes are shown when available; ranked ratings are unchanged.');
 
     const highlights = document.createElement('div');
     highlights.className = 'pgMatchHighlights';
@@ -3451,7 +3454,7 @@ function setLeaderboardSort(key) {
 
 function setLeaderboardMode(mode) {
   historyState.leaderboardMode = ['ranked', 'unranked', 'combined'].includes(mode) ? mode : 'combined';
-  historyState.sortKey = historyState.leaderboardMode === 'unranked' ? 'gamesPlayed' : 'rankedRating';
+  historyState.sortKey = historyState.leaderboardMode === 'unranked' ? 'unrankedRating' : 'rankedRating';
   historyState.sortDir = 'desc';
   renderHistory();
 }
@@ -3484,6 +3487,7 @@ function renderLeaderboardTab() {
     ...row,
     ...(row && row[mode] && typeof row[mode] === 'object' ? row[mode] : {}),
     rankedRating: row?.rankedRating,
+    unrankedRating: row?.unrankedRating,
   }));
 
   if (historyState.loadingBoard) {
@@ -3529,7 +3533,8 @@ function renderLeaderboardTab() {
     { key: 'devBought', label: 'Dev+' },
     { key: 'devPlayed', label: 'Dev▶' },
   ];
-  if (mode !== 'unranked') columns.push({ key: 'rankedRating', label: 'Rating' });
+  if (mode !== 'unranked') columns.push({ key: 'rankedRating', label: 'Ranked Rating' });
+  if (mode !== 'ranked') columns.push({ key: 'unrankedRating', label: 'Unranked Rating' });
 
   for (const c of columns) {
     const th = document.createElement('th');
@@ -3556,7 +3561,7 @@ function renderLeaderboardTab() {
     dot.style.background = r.color || '#777';
     const nm = document.createElement('div');
     nm.className = 'standNameText';
-    nm.textContent = `${mode === 'unranked' ? '' : `${rank}. `}${r.name || r.username || r.id || '—'}`;
+    nm.textContent = `${rank}. ${r.name || r.username || r.id || '—'}`;
     nameWrap.appendChild(dot);
     nameWrap.appendChild(nm);
     tdName.appendChild(nameWrap);
@@ -3582,6 +3587,7 @@ function renderLeaderboardTab() {
     add(r.devBought);
     add(r.devPlayed);
     if (mode !== 'unranked') add(Number.isFinite(Number(r.rankedRating)) ? Math.round(Number(r.rankedRating)) : 1000);
+    if (mode !== 'ranked') add(Number.isFinite(Number(r.unrankedRating)) ? Math.round(Number(r.unrankedRating)) : 0);
 
     tbody.appendChild(tr);
     rank += 1;
@@ -6233,6 +6239,7 @@ function refreshLobbyJoinLinkUi() {
           if (!snap.winnerId && g.winnerId) snap.winnerId = g.winnerId;
           snap.ranked = (snap.ranked == null && g.ranked == null) ? null : !!(snap.ranked || g.ranked);
           if (!snap.ratingChanges) snap.ratingChanges = g.ratingChanges || {};
+          if (!snap.unrankedRatingChanges) snap.unrankedRatingChanges = g.unrankedRatingChanges || {};
           if (!snap.winnerName && g.winnerName) snap.winnerName = g.winnerName;
           if (snap.stats && !snap.stats.endedAt && g.endedAt) snap.stats.endedAt = g.endedAt;
           if (snap.stats && !snap.stats.startedAt && g.startedAt) snap.stats.startedAt = g.startedAt;
@@ -6815,6 +6822,7 @@ function refreshLobbyJoinLinkUi() {
     const winRate = games ? Math.round((wins / games) * 100) : 0;
     const averageVP = games ? (totalVP / games).toFixed(1) : '0.0';
     const rating = Number.isFinite(Number(profile.rankedRating)) && profile.rankedRating != null ? Math.round(Number(profile.rankedRating)) : 1000;
+    const unranked = Number.isFinite(Number(profile.unrankedRating)) && profile.unrankedRating != null ? Math.round(Number(profile.unrankedRating)) : 0;
     const body = document.createElement('div');
     body.className = 'playerProfileCard';
     const hero = document.createElement('div');
@@ -6830,10 +6838,19 @@ function refreshLobbyJoinLinkUi() {
     username.className = 'playerProfileUsername';
     username.textContent = profile.username ? `@${profile.username}` : 'Hex Settlers player';
     identity.append(displayName, username);
-    const ratingBadge = document.createElement('div');
-    ratingBadge.className = 'playerProfileRating';
-    ratingBadge.innerHTML = `<span>RANKED RATING</span><strong>${rating}</strong>`;
-    hero.append(avatar, identity, ratingBadge);
+    const ratingGroup = document.createElement('div');
+    ratingGroup.className = 'playerProfileRatings';
+    for (const [label, value] of [['RANKED RATING', rating], ['UNRANKED RATING', unranked]]) {
+      const ratingBadge = document.createElement('div');
+      ratingBadge.className = 'playerProfileRating';
+      const labelElement = document.createElement('span');
+      labelElement.textContent = label;
+      const valueElement = document.createElement('strong');
+      valueElement.textContent = String(value);
+      ratingBadge.append(labelElement, valueElement);
+      ratingGroup.appendChild(ratingBadge);
+    }
+    hero.append(avatar, identity, ratingGroup);
     body.appendChild(hero);
     const grid = document.createElement('div');
     grid.className = 'playerProfileStats';

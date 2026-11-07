@@ -70,9 +70,10 @@ test('ranked Back and End Game controls are disabled but available in unranked',
   assert.match(clientSource, /!room\?\.ranked/);
 });
 
-test('Player Stats exposes Ranked, Unranked, and Combined and hides rating on Unranked', () => {
+test('Player Stats exposes Ranked, Unranked, and Combined with independent ratings', () => {
   for (const label of ['Ranked Play', 'Unranked Play', 'Combined']) assert.ok(clientSource.includes(label));
-  assert.match(clientSource, /if \(mode !== 'unranked'\) columns\.push\(\{ key: 'rankedRating', label: 'Rating' \}\)/);
+  assert.match(clientSource, /if \(mode !== 'unranked'\) columns\.push\(\{ key: 'rankedRating', label: 'Ranked Rating' \}\)/);
+  assert.match(clientSource, /\{ key: 'unrankedRating', label: 'Unranked Rating' \}/);
   assert.match(serverSource, /combined: emptyLeaderboardAggregate\(\)/);
   assert.match(serverSource, /if \(g\.ranked === true\).*rec\.ranked/);
   assert.match(serverSource, /if \(g\.ranked !== true\).*rec\.unranked/);
