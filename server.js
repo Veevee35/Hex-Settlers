@@ -141,7 +141,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'features-v45';
+const SERVER_BUILD_ID = 'features-v46';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -1838,18 +1838,17 @@ function is78Rules(rules) {
     (String(rules.mapMode || '') === 'seafarers' && SCENARIOS_78.has(String(rules.seafarersScenario || ''))));
 }
 function isCartographer78Manual(s) { return s === 'cartographer_78' || s === 'cartographer_78_7' || s === 'cartographer_78_8'; }
-// A single Cartographer / Scattered Tiles choice picks the appropriate tile pool
-// from the selected Game Setup player count, falling back to occupied seats
-// in old lobbies. Preserve explicit old scenario keys in saved rooms/replays.
+// A single Cartographer / Scattered Tiles choice chooses the tile inventory from
+// *occupied lobby seats* for previews, regardless of the configured seat limit.
+// Replays/games already in progress retain their frozen scenario. Older saved
+// lobby scenario keys are normalized to the current occupancy on refresh.
 function resolve78ScenarioForPlayers(scenario, playerCount) {
   const s = String(scenario || '');
   const count = Math.floor(Number(playerCount || 0));
   if (s === 'cartographer_78' || s === 'cartographer_78_7' || s === 'cartographer_78_8') {
-    if (s === 'cartographer_78_8' && count < 7) return s; // old persisted preview compatibility
     return count === 8 ? 'cartographer_78_8' : 'cartographer_78_7';
   }
   if (s === 'scattered_tiles_78' || s === 'scattered_tiles_78_7' || s === 'scattered_tiles_78_8') {
-    if (s === 'scattered_tiles_78_8' && count < 7) return s;
     return count === 8 ? 'scattered_tiles_78_8' : 'scattered_tiles_78_7';
   }
   return s;
@@ -5909,7 +5908,7 @@ function newEmptyGame(room) {
   let geom = null;
   if (is78Rules(room.rules)) {
     geom = is78CustomRules(room.rules) ? (mapMode==='classic78' ? custom78StartingGeometry('classic_custom') : initialCustom78Geometry()) :
-      (mapMode==='classic78' ? generate78Scenario('classic') : generate78Scenario(resolve78ScenarioForPlayers(room.rules.seafarersScenario, selectedPlayerCountForRules(room.rules) ?? room.players.length)));
+      (mapMode==='classic78' ? generate78Scenario('classic') : generate78Scenario(resolve78ScenarioForPlayers(room.rules.seafarersScenario, room.players.length)));
   } else if (mapMode === 'classic56') {
     geom = buildGeometryClassic56();
   } else if (mapMode === 'seafarers') {
@@ -9221,8 +9220,11 @@ function editableCustomMapRules(rules) {
   return customMapEnabled(rules) || (String(rules?.mapMode || '') === 'seafarers' && isTestBuilderScenarioKey(rules?.seafarersScenario));
 }
 function mapPreviewKey(rules, playerCount = null) {
-  playerCount = selectedPlayerCountForRules(rules) ?? playerCount;
+  // For unified 7/8-player scenarios the board, unlike lobby capacity, follows
+  // the number of human + AI seats currently occupied. Show the seven-player
+  // variant up to seven occupants; swap to eight only at eight occupants.
   if (is78Rules(rules)) return String(rules.mapMode) === 'classic78' ? (rules.customMap ? 'classic78:custom' : 'classic78:classic') : `seafarers:${resolve78ScenarioForPlayers(rules.seafarersScenario, playerCount)}`;
+  playerCount = selectedPlayerCountForRules(rules) ?? playerCount;
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
@@ -9269,7 +9271,7 @@ function generatePreviewGeom(rules, room = null) {
   if (is78Rules(rules)) {
     if (is78CustomRules(rules)) return String(rules.mapMode)==='classic78'? custom78StartingGeometry('classic_custom') : initialCustom78Geometry();
     if (String(rules.mapMode)==='classic78') return generate78Scenario('classic');
-    return generate78Scenario(resolve78ScenarioForPlayers(rules.seafarersScenario, selectedPlayerCountForRules(rules) ?? (room?.players?.length || 0)));
+    return generate78Scenario(resolve78ScenarioForPlayers(rules.seafarersScenario, room?.players?.length || 0));
   }
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'

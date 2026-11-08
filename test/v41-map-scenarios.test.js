@@ -24,9 +24,18 @@ test('7–8 scenario layouts, counts, fog, redraws, upload, editor, and drafts',
  };
  const cases=[['classic78',null,69,40,0,9],['seafarers','eight_islands_78',79,40,0,11],['seafarers','through_the_desert_78',97,50,0,11],['seafarers','fog_island_78',79,30,23,11],['seafarers','scattered_tiles_78_7',97,42,0,9],['seafarers','scattered_tiles_78_8',97,48,0,11],['seafarers','cartographer_78_7',97,0,0,0],['seafarers','cartographer_78_8',97,0,0,0]];
  for(const [mm,sc,len,discs,fogs,ports] of cases){
-  send({type:'set_rules',rules:{mapMode:mm,seafarersScenario:sc||'four_islands',customMap:false}});
+  // Permanent seven/eight-player variants now follow occupied lobby seats,
+  // not the configured maximum. Fill the appropriate number of seats before
+  // checking the exact inventory of each legacy explicit scenario key.
+  const targetSeats = sc?.endsWith('_8') ? 8 : sc?.endsWith('_7') ? 7 : null;
+  send({type:'set_rules',rules:{mapMode:mm,seafarersScenario:sc||'four_islands',customMap:false,
+    ...(targetSeats ? {playerCount:targetSeats} : {})}});
   const key=mm==='classic78'?'classic78:classic':`seafarers:${sc}`;
   await wait(m=>m.type==='room'&&m.room?.rules?.mapMode===mm&&(!sc||m.room?.rules?.seafarersScenario===sc));
+  if (targetSeats) {
+    send({type:'fill_ai',targetCount:targetSeats});
+    await wait(m=>m.type==='room'&&m.room.players.length===targetSeats);
+  }
   const st=(await wait(m=>m.type==='state'&&m.state?.previewKey===key)).state;
   const tiles=st.geom.tiles;
   assert.equal(tiles.length,len,sc||mm);assert.equal(tiles.filter(t=>t.number!=null).length,discs,sc);

@@ -17,7 +17,7 @@ async function freePort() {
   return port;
 }
 
-test('v44 player-count target drives 7/8 variants before AI joins, caps seats and preserves exact game size', {timeout:50000}, async t => {
+test('v46 player-count selection caps seats while 7/8 preview variants follow occupied seats', {timeout:50000}, async t => {
   const port = await freePort();
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-v44-'));
   let logs = '';
@@ -76,10 +76,27 @@ test('v44 player-count target drives 7/8 variants before AI joins, caps seats an
   const eight=(await host.wait(m=>m.type==='room' && m.room.rules?.playerCount===8)).room;
   assert.equal(eight.players.length,1);
   assert.equal(eight.maxPlayers,8);
-  const eightPreview=(await host.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:scattered_tiles_78_8')).state;
-  assert.equal(eightPreview.geom.tiles.filter(x=>Number.isInteger(x.number)).length,48);
+  const initialSevenPreview=(await host.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:scattered_tiles_78_7')).state;
+  assert.equal(initialSevenPreview.geom.tiles.filter(x=>Number.isInteger(x.number)).length,42);
+  host.send({type:'fill_ai',targetCount:7});
+  await host.wait(m=>m.type==='room' && m.room.players.length===7);
+  // The seventh occupied seat must still use the seven-player inventory,
+  // even though Game Setup allows up to eight players.
+  const sevenSeatPreview=(await host.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:scattered_tiles_78_7')).state;
+  assert.equal(sevenSeatPreview.geom.tiles.filter(x=>Number.isInteger(x.number)).length,42);
   host.send({type:'fill_ai',targetCount:8});
   await host.wait(m=>m.type==='room' && m.room.players.length===8);
+  const eightSeatPreview=(await host.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:scattered_tiles_78_8')).state;
+  assert.equal(eightSeatPreview.geom.tiles.filter(x=>Number.isInteger(x.number)).length,48);
+  // Removing the eighth AI must restore the seven-player board without
+  // changing the 8-player target in Game Setup.
+  host.send({type:'fill_ai',targetCount:7});
+  await host.wait(m=>m.type==='room' && m.room.players.length===7 && m.room.rules?.playerCount===8);
+  const backToSeven=(await host.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:scattered_tiles_78_7')).state;
+  assert.equal(backToSeven.geom.tiles.filter(x=>Number.isInteger(x.number)).length,42);
+  host.send({type:'fill_ai',targetCount:8});
+  await host.wait(m=>m.type==='room' && m.room.players.length===8);
+  await host.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:scattered_tiles_78_8');
 
   host.send({type:'set_rules',rules:{mapMode:'seafarers',seafarersScenario:'scattered_tiles_78',playerCount:7}});
   const reduced=(await host.wait(m=>m.type==='room' && m.room.rules?.playerCount===7)).room;
@@ -99,15 +116,17 @@ test('v44 player-count target drives 7/8 variants before AI joins, caps seats an
   const next=await newHost();
   next.send({type:'set_rules',rules:{mapMode:'seafarers',seafarersScenario:'cartographer_78',playerCount:8}});
   assert.equal((await next.wait(m=>m.type==='room' && m.room.rules?.playerCount===8)).room.maxPlayers,8);
-  await next.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:cartographer_78_8');
+  await next.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:cartographer_78_7');
   next.send({type:'fill_ai',targetCount:7});
   await next.wait(m=>m.type==='room' && m.room.players.length===7);
+  await next.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:cartographer_78_7');
   next.send({type:'set_ready',ready:true});
   await next.wait(m=>m.type==='room' && m.room.players.every(p=>p.ready));
   next.send({type:'start_game'});
   assert.match((await next.wait(m=>m.type==='error')).error,/set to 8 players/i);
   next.send({type:'fill_ai',targetCount:8});
   await next.wait(m=>m.type==='room' && m.room.players.length===8);
+  await next.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:cartographer_78_8');
   next.send({type:'start_game'});
   const cart=(await next.wait(m=>m.type==='state' && m.state.phase==='cartographer-draft')).state;
   assert.equal(cart.players.length,8);
