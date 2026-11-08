@@ -83,7 +83,7 @@ export function requestHasAllowedOrigin(request) {
   }
 }
 
-export function buildUpstreamRequest(request, upstreamOrigin) {
+export function buildUpstreamRequest(request, upstreamOrigin, upstreamSecret = '') {
   const incomingUrl = new URL(request.url);
   const targetUrl = new URL(`${incomingUrl.pathname}${incomingUrl.search}`, upstreamOrigin);
   const upstreamRequest = new Request(targetUrl, request);
@@ -116,6 +116,9 @@ export function buildUpstreamRequest(request, upstreamOrigin) {
   upstreamRequest.headers.delete('X-Forwarded-For');
   upstreamRequest.headers.delete('X-Forwarded-Host');
   upstreamRequest.headers.delete('X-Forwarded-Proto');
+  // Strip any spoofed client header; inject only the Worker secret.
+  upstreamRequest.headers.delete('X-Hex-Upstream-Secret');
+  if (upstreamSecret) upstreamRequest.headers.set('X-Hex-Upstream-Secret', upstreamSecret);
 
   return upstreamRequest;
 }
@@ -134,11 +137,32 @@ async function proxyDynamicRequest(request, env) {
   }
 
   try {
-    return await fetch(buildUpstreamRequest(request, upstreamOrigin));
+    return await fetch(buildUpstreamRequest(request, upstreamOrigin, String(env.UPSTREAM_SHARED_SECRET || '')));
   } catch (error) {
     console.error('[cloudflare] Upstream request failed:', error);
     return jsonError(502, 'The game server is temporarily unavailable.');
   }
+}
+
+// Assets are served directly by Cloudflare, not by the Node origin. Apply
+// browser hardening headers here as well so they cover the actual game page.
+export function secureStaticAssetResponse(response, request) {
+  const headers = new Headers(response.headers);
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  headers.set('Content-Security-Policy',
+    "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
+  if (new URL(request.url).protocol === 'https:') {
+    headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  const pathname = new URL(request.url).pathname.toLowerCase();
+  if (/\.(?:html|js|css|json)$/.test(pathname) || pathname === '/') {
+    headers.set('Cache-Control', 'no-store, max-age=0');
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 export default {
@@ -151,6 +175,6 @@ export default {
       return proxyDynamicRequest(request, env);
     }
 
-    return env.ASSETS.fetch(request);
+    return secureStaticAssetResponse(await env.ASSETS.fetch(request), request);
   },
 };

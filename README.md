@@ -161,3 +161,22 @@ for current setup behavior and `V40_RELEASE_NOTES.md` for historical details.
 ## v47 Game Setup: map family and board size
 
 In unranked lobbies, choose **Classic** or **Seafarers** and then select one of the board-size groups: **4 Player**, **5-6 Player**, or **7-8 Player**. For Seafarers, scenario choices automatically adjust to the group. The range sets the valid player-count minimum and maximum rather than an exact number of required seats. For large Scattered Tiles and Cartographer games, previews use the seven-player board until an eighth human or AI occupies a seat. Casual Play has the same setup format, limited to the 4-player and 5–6-player groups. Lobby invite links populate automatically, with one Copy Link button adjacent to the address.
+
+### Release v48: rules accuracy, room health and security
+
+- In-game Rules scenario names use the exact scenario catalog rather than
+  outdated fallbacks to Four Islands; the active game is authoritative.
+- WebSocket transport includes client pong RTT tracking and server-side ping,
+  message-rate limits, and request-size checks before JSON parsing.
+- No spectators receive a selected player's private hand or development cards.
+- Idle/finished rooms are cleaned automatically; active connected games are
+  never expired solely because no action is being taken.
+- Obsolete `edit_preview_grid` tile-resizing requests are no longer accepted;
+  custom tile painting, fog, and JSON imports/exports remain available.
+- Cloudflare static assets are protected with CSP, no-sniff, framing and
+  referrer headers. Configure optional Worker-to-origin secret in
+  `README_CLOUDFLARE.md` to prevent backend bypass.
+- Fresh builtin-admin bootstrap requires `HEX_ADMIN_PASSWORD`, and never logs
+  a generated credential.
+
+See `V48_RELEASE_NOTES.md` and `V48_SECURITY_AND_RELIABILITY_AUDIT.md`.

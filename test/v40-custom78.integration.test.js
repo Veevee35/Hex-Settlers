@@ -75,7 +75,7 @@ async function startHarness(t) {
   return {peer, port};
 }
 
-test('v40 Classic 7–8 unranked dynamic shape, editable tiles, portable JSON and eight seats', {timeout:25000},async t => {
+test('v48 Classic 7–8 fixed footprint, editable tiles, portable JSON and eight seats', {timeout:25000},async t => {
   const {peer} = await startHarness(t), host = await peer();
   host.send({type:'create_room'});
   await host.wait(m=>m.type==='joined');
@@ -86,24 +86,22 @@ test('v40 Classic 7–8 unranked dynamic shape, editable tiles, portable JSON an
   const blank = await host.wait(m=>m.type==='state' && m.state.previewKey==='classic78:custom');
   assert.equal(blank.state.geom.tiles.length,69);
   host.send({type:'edit_preview_grid',operation:'add',q:100,r:-100});
-  const added = await host.wait(m=>m.type==='state' && m.state.geom.tiles.length===70);
-  assert.equal(added.state.geom.tiles.some(t=>t.q===100&&t.r===-100),true);
-  host.send({type:'edit_preview_tile',tileId:69,tileType:'forest',number:9});
-  await host.wait(m=>m.type==='state' && m.state.geom.tiles[69]?.type==='forest');
-  host.send({type:'edit_preview_grid',operation:'add',q:101,r:-101});
-  await host.wait(m=>m.type==='state' && m.state.geom.tiles.length===71);
+  assert.match((await host.wait(m=>m.type==='error')).error,/unknown message/i,
+    'Obsolete tile-grid mutation must not be accepted.');
+  host.send({type:'edit_preview_tile',tileId:1,tileType:'forest',number:9});
+  await host.wait(m=>m.type==='state' && m.state.geom.tiles[1]?.type==='forest');
   host.send({type:'download_custom_map'});
   const file = (await host.wait(m=>m.type==='custom_map_file')).map;
   assert.equal(file.version,2);
   assert.equal(file.mapKind,'classic78');
-  assert.equal(file.tiles.length,71);
-  assert.equal(file.tiles[69].type,'forest');
-  host.send({type:'edit_preview_grid',operation:'remove',q:100,r:-100});
-  await host.wait(m=>m.type==='state' && m.state.geom.tiles.length===70);
+  assert.equal(file.tiles.length,69);
+  assert.equal(file.tiles[1].type,'forest');
+  host.send({type:'edit_preview_tile',tileId:1,tileType:'hills',number:5});
+  await host.wait(m=>m.type==='state' && m.state.geom.tiles[1]?.type==='hills');
   host.send({type:'upload_custom_map',map:file});
   await host.wait(m=>m.type==='custom_map_loaded');
-  const restored=await host.wait(m=>m.type==='state' && m.state.geom.tiles.length===71 && m.state.geom.tiles.some(t=>t.q===100&&t.r===-100&&t.type==='forest'));
-  assert.equal(restored.state.geom.tiles.find(t=>t.q===100&&t.r===-100).number,9);
+  const restored=await host.wait(m=>m.type==='state' && m.state.geom.tiles.length===69 && m.state.geom.tiles[1]?.type==='forest');
+  assert.equal(restored.state.geom.tiles[1].number,9);
   host.send({type:'upload_custom_map',map:{...file,tiles:[file.tiles[0],file.tiles[0]]}});
   assert.match((await host.wait(m=>m.type==='error')).error,/invalid/i);
   host.send({type:'fill_ai',targetCount:8});
@@ -114,7 +112,7 @@ test('v40 Classic 7–8 unranked dynamic shape, editable tiles, portable JSON an
   host.send({type:'start_game'});
   const started=await host.wait(m=>m.type==='state' && m.state.phase !== 'lobby',8000);
   assert.equal(started.state.players.length,8);
-  assert.equal(started.state.geom.tiles.length,71);
+  assert.equal(started.state.geom.tiles.length,69);
   assert.equal(started.state.rules.mapMode,'classic78');
 });
 
@@ -136,7 +134,7 @@ test('v40 Seafarers 7–8 custom map and Casual protection', {timeout:25000},asy
   const blank=await host.wait(m=>m.type==='state' && m.state.previewKey==='seafarers:test_builder_78');
   assert.equal(blank.state.geom.tiles.length,97);
   host.send({type:'edit_preview_grid',operation:'add',q:100,r:-100});
-  await host.wait(m=>m.type==='state' && m.state.geom.tiles.length===98);
+  assert.match((await host.wait(m=>m.type==='error')).error,/unknown message/i);
   host.send({type:'download_custom_map'});
   const file=(await host.wait(m=>m.type==='custom_map_file')).map;
   assert.equal(file.version,2);

@@ -5749,6 +5749,9 @@ function syncPostgameToState() {
   let websocketReconnectAllowed = true;
   let websocketHeartbeatTimer = null;
   let websocketLastMessageAt = 0;
+  let websocketLastPongAt = 0;
+  let websocketHeartbeatRttMs = null;
+  let websocketConnectionId = null;
   let pendingManualRejoinCode = '';
   let roomConnectionReady = false;
   let roomRecoveryInFlight = false;
@@ -5756,7 +5759,7 @@ function syncPostgameToState() {
   let roomRecoveryTimer = null;
   let pendingReconnectRoomMessages = [];
   const RECONNECT_SAFE_ROOM_MESSAGE_TYPES = new Set([
-    'chat', 'clear_ai', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'edit_preview_grid', 'fill_ai', 'generate_map',
+    'chat', 'clear_ai', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
     'get_state', 'get_texture_pack', 'kick_player', 'leave_room', 'pause_game', 'request_leave_game',
     'ranked_scenario_vote', 'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_player_color', 'set_rules',
     'set_ready', 'set_spectator_mode', 'set_spectator_view', 'set_texture_pack', 'start_game', 'texture_pack_publish',
@@ -5936,6 +5939,8 @@ function syncPostgameToState() {
   function startWebsocketHeartbeat(socket) {
     stopWebsocketHeartbeat();
     websocketLastMessageAt = Date.now();
+    websocketLastPongAt = Date.now();
+    websocketHeartbeatRttMs = null;
     websocketHeartbeatTimer = setInterval(() => {
       if (ws !== socket || !socket || socket.readyState !== WebSocket.OPEN) return;
       if (websocketAuthenticated && roomConnectionReady) noteRecentRoom(room);
@@ -5946,7 +5951,7 @@ function syncPostgameToState() {
       }
       // A dead proxy can leave a browser WebSocket looking open. Force a clean
       // reconnect if the server has been silent through several heartbeats.
-      if (Date.now() - websocketLastMessageAt > CLIENT_HEARTBEAT_MS * 3) {
+      if (Date.now() - websocketLastPongAt > CLIENT_HEARTBEAT_MS * 3) {
         try { socket.close(4000, 'Heartbeat timeout'); } catch (_) {}
       }
     }, CLIENT_HEARTBEAT_MS);
@@ -6736,6 +6741,7 @@ function refreshLobbyJoinLinkUi() {
     socket.addEventListener('close', (event) => {
       if (ws !== socket) return;
       stopWebsocketHeartbeat();
+      websocketConnectionId = null;
       ws = null;
       roomConnectionReady = false;
       setConn(false, 'Disconnected');
@@ -6755,7 +6761,20 @@ function refreshLobbyJoinLinkUi() {
       let msg = null;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (!msg || !msg.type) return;
-      if (msg.type === 'server_pong') return;
+      if (msg.type === 'server_pong') {
+        websocketLastPongAt = Date.now();
+        const sentAt = Number(msg.clientTime);
+        websocketHeartbeatRttMs = Number.isFinite(sentAt) && sentAt > 0
+          ? Math.max(0, Date.now() - sentAt) : null;
+        if (ui.connDot) ui.connDot.title = `Server heartbeat OK${websocketHeartbeatRttMs == null ? '' : ` · ${websocketHeartbeatRttMs} ms`}`;
+        if (websocketConnectionId && msg.connectionId && msg.connectionId !== websocketConnectionId) {
+          try { socket.close(4000, 'Connection identity changed'); } catch (_) {}
+        }
+        if (roomConnectionReady && room?.code && msg.roomCode && msg.roomCode !== room.code) {
+          try { socket.close(4000, 'Room binding changed'); } catch (_) {}
+        }
+        return;
+      }
 
       if (msg.type === 'build_options') {
         const tk = msg.targetKind;
@@ -6948,6 +6967,7 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'hello') {
+        websocketConnectionId = String(msg.connectionId || '');
         const st = Number(msg.serverTime || 0);
         if (st) serverTimeOffsetMs = st - Date.now();
         return;
@@ -9323,14 +9343,14 @@ function refreshLobbyJoinLinkUi() {
     scattered_tiles_78: {
       label: 'Scattered Tiles (7–8)',
       summary: 'A randomized 97-hex Seafarers board, automatically sized for seven or eight players.',
-      setup: ['The seven-player pool has 42 number discs and nine ports; the eight-player pool has 48 discs and eleven ports.', 'Selecting eight players in Game Setup switches the preview to the eight-player pool.'],
+      setup: ['The seven-player pool has 42 number discs and nine ports; the eight-player pool has 48 discs and eleven ports.', 'The preview switches to the eight-player pool only when eight lobby seats are occupied.'],
       rules: ['The correct tile inventory is shuffled every generation.', 'Red number discs are kept apart and off Gold Fields.'],
     },
     cartographer_78: {
       label: 'Cartographer (7–8)',
       summary: 'Each of seven or eight players manually drafts tiles onto the expanded 97-hex board.',
-      setup: ['The draft uses seven- or eight-player tile allowances as selected in Game Setup.', 'The game assigns number discs and ports after the draft.'],
-      rules: ['The manual Cartographer timer and turn order apply.', 'Number and port inventories follow the chosen player count at game start.'],
+      setup: ['The draft uses the seven-player inventory until all eight lobby seats are occupied.', 'The game assigns number discs and ports after the draft.'],
+      rules: ['The manual Cartographer timer and turn order apply.', 'Number and port inventories follow the occupied-seat count at game start.'],
     },
     scattered_tiles_78_7: {
       label: 'Scattered Tiles (7)',
@@ -9914,27 +9934,29 @@ function refreshLobbyJoinLinkUi() {
       return 'Custom';
     }
 
+    // Resolve scenario labels from the same inventory used by the pre-game
+    // rules guide. The old hand-written chain silently labeled all newer 7–8
+    // scenarios (including Eight Islands) as Four Islands.
     const mmRaw = String(rules.mapMode || 'classic').toLowerCase();
-    const is56 = (mmRaw === 'classic56' || mmRaw === 'classic_5_6' || mmRaw === 'classic-5-6' || mmRaw === 'classic5_6' || mmRaw === 'classic5-6');
-    const mapMode = (mmRaw === 'seafarers') ? 'Seafarers' : (mmRaw === 'classic78' ? 'Classic 7–8 Custom' : (is56 ? 'Classic 5–6' : 'Classic'));
-    const scenRaw = String(rules.seafarersScenario || '').toLowerCase();
-    const scenario = (mmRaw === 'seafarers')
-      ? (scenRaw === 'through_the_desert' || scenRaw === 'through-the-desert' || scenRaw === 'desert' || scenRaw === 'throughdesert' || scenRaw === 'through_the_desert_56')
-        ? 'Through the Desert'
-        : (scenRaw === 'fog_island' || scenRaw === 'fog-island' || scenRaw === 'fog' || scenRaw === 'fogisland' || scenRaw === 'fog_island_56' || scenRaw === 'fog-island-56' || scenRaw === 'fog56')
-          ? 'Fog Island'
-          : (scenRaw === 'heading_for_new_shores' || scenRaw === 'heading-for-new-shores' || scenRaw === 'new_shores' || scenRaw === 'newshores' || scenRaw === 'heading')
-            ? 'Heading for New Shores'
-            : (scenRaw === 'cartographer_4_manual' || scenRaw === 'cartographer-4-manual' || scenRaw === 'cartographer_manual' || scenRaw === 'manual_cartographer' || scenRaw === 'cartographer_56_manual' || scenRaw === 'cartographer-56-manual' || scenRaw === 'cartographer56_manual')
-              ? 'Cartographer'
-            : (scenRaw === 'cartographer_4_random' || scenRaw === 'cartographer-4-random' || scenRaw === 'cartographer_random' || scenRaw === 'random_cartographer' || scenRaw === 'cartographer_4' || scenRaw === 'cartographer-4' || scenRaw === 'cartographer4' || scenRaw === 'cartographer' || scenRaw === 'cartographer_56_random' || scenRaw === 'cartographer-56-random' || scenRaw === 'cartographer56_random' || scenRaw === 'scattered_tiles_56' || scenRaw === 'scattered_tiles56' || scenRaw === 'scattered_56')
-              ? 'Scattered Tiles'
-              : (scenRaw === 'test_builder' || scenRaw === 'test-builder' || scenRaw === 'test' || scenRaw === 'builder' || scenRaw === 'test_builder_56' || scenRaw === 'test-builder-56')
-                ? 'Custom Map'
-                : ((scenRaw === 'six_islands' || scenRaw === 'six-islands' || scenRaw === 'sixislands' || scenRaw === 'six')
-                    ? 'Six Islands'
-                    : 'Four Islands')
-      : (is56 ? 'Paired players' : (mmRaw === 'classic78' ? 'Custom Map' : '—'));
+    const mmUi = String(uiMapModeFromRules(rules)).toLowerCase();
+    const is56 = mmUi === 'classic56' || mmUi === 'seafarers56';
+    const is78 = mmUi === 'classic78' || mmUi === 'seafarers78';
+    const mapMode = mmRaw === 'seafarers'
+      ? (is78 ? 'Seafarers 7–8' : is56 ? 'Seafarers 5–6' : 'Seafarers')
+      : (is78 ? 'Classic 7–8' : is56 ? 'Classic 5–6' : 'Classic');
+    const scenRaw = String(rules.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
+    const scenarioAliases = {
+      six: 'six_islands', eight_islands: 'eight_islands_78', fog: 'fog_island',
+      desert: 'through_the_desert', scattered_56: 'cartographer_56_random',
+      cartographer: 'cartographer_4_manual',
+      new_shores: 'heading_for_new_shores',
+    };
+    const normalizedScenario = scenarioAliases[scenRaw] || scenRaw;
+    const scenarioDefinition = LOBBY_RULES_SCENARIOS[normalizedScenario];
+    const scenario = mmRaw === 'seafarers'
+      ? (scenarioDefinition?.label || `Unknown scenario (${scenRaw})`)
+      : (rules.customMap === true ? 'Custom Map' : '—');
+    const usesPairedTurns = state?.paired?.enabled === true || is56 || is78;
 
     const vpToWin = Math.max(0, Math.floor(Number(rules.victoryPointsToWin ?? rules.victoryTarget ?? 10)));
     const configuredResourceMax = Math.floor(Number(rules.baseResourcesPerType ?? rules.baseResourceCount));
@@ -9978,7 +10000,7 @@ function refreshLobbyJoinLinkUi() {
     table.appendChild(tbody);
     content.appendChild(table);
 
-    if (is56 || isCustom78Map(rules)) {
+    if (usesPairedTurns) {
       const note = document.createElement('div');
       note.className = 'smallNote';
       note.style.marginTop = '10px';
@@ -10970,7 +10992,7 @@ function refreshLobbyJoinLinkUi() {
       const scen = (mmL === 'seafarers56')
         ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56') || (r.seafarersScenario === 'cartographer_56_manual') || (r.seafarersScenario === 'cartographer_56_random') || (r.seafarersScenario === 'test_builder_56')) ? r.seafarersScenario : 'six_islands')
         : (r.seafarersScenario || 'four_islands');
-      const scenLabel = LOBBY_RULES_SCENARIOS[scen]?.label || 'Four Islands';
+      const scenLabel = LOBBY_RULES_SCENARIOS[scen]?.label || `Unknown scenario (${scen})`;
       const is56 = mmL === 'classic56';
       const mapLabel = mmL === 'seafarers78' ? `seafarers 7–8 (${scenLabel.toLowerCase()}, paired turns)`
         : mmL === 'classic78' ? 'classic 7–8 (paired turns)'

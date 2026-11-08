@@ -19,6 +19,7 @@ const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validated
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
 const { parseClientMessage } = require('./server/protocol');
+const { roomExpiry, isPlayerActivity, ROOM_LIFETIMES_MS } = require('./server/room-lifecycle');
 const {
   TEXTURE_PACK_ASSET_REL,
   builtinTexturePack,
@@ -34,7 +35,6 @@ const {
   BUILTIN_ADMIN_MARKER,
   BUILTIN_ADMIN_USERNAME,
   generateOneTimeToken,
-  generateTemporaryPassword,
   isAdminUser,
   isBuiltInAdminUser,
   isReservedAdminUsername,
@@ -108,6 +108,19 @@ const {
   resourceKindForTileType,
 } = require('./server/resource-summary');
 
+// Optional origin-shield. When configured on the Node backend, dynamic
+// requests must be relayed by the Cloudflare Worker with its matching secret.
+// This prevents bypassing Worker protections through a public backend URL.
+const UPSTREAM_SHARED_SECRET = String(process.env.HEX_UPSTREAM_SHARED_SECRET || '');
+function trustedProxyRequest(req) {
+  if (!UPSTREAM_SHARED_SECRET) return true;
+  const provided = String(req?.headers?.['x-hex-upstream-secret'] || '');
+  if (!provided || provided.length > 1024) return false;
+  const expected = crypto.createHash('sha256').update(UPSTREAM_SHARED_SECRET).digest();
+  const actual = crypto.createHash('sha256').update(provided).digest();
+  return crypto.timingSafeEqual(expected, actual);
+}
+
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
 const HOST = APP_CONFIG.host;
@@ -141,7 +154,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'features-v46';
+const SERVER_BUILD_ID = 'features-v48';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -1068,11 +1081,16 @@ async function ensureBuiltInAdminAccount() {
   }
 
   let user = findUserByUsername(BUILTIN_ADMIN_USERNAME);
-  let generatedPassword = '';
   let changed = false;
 
   if (!user) {
-    const initialPassword = configuredPassword || generateTemporaryPassword();
+    // Do not mint and print an administrator password into deploy logs.
+    // A fresh installation needs an explicit private environment secret.
+    if (!configuredPassword) {
+      console.error('[admin] Built-in admin is not provisioned: set HEX_ADMIN_PASSWORD as a private hosting variable.');
+      return;
+    }
+    const initialPassword = configuredPassword;
     const result = await createUser({
       username: BUILTIN_ADMIN_USERNAME,
       password: initialPassword,
@@ -1084,7 +1102,6 @@ async function ensureBuiltInAdminAccount() {
     if (!result.ok) throw new Error(result.error || 'Failed to create built-in administrator account.');
     user = result.user;
     user.adminPasswordSource = configuredPassword ? 'environment' : 'account';
-    generatedPassword = configuredPassword ? '' : initialPassword;
     changed = true;
   } else if (!isBuiltInAdminUser(user)) {
     // Never silently elevate a pre-existing account that claimed the reserved
@@ -1122,10 +1139,7 @@ async function ensureBuiltInAdminAccount() {
   }
 
   if (changed) await saveUsersDb();
-  if (generatedPassword) {
-    console.log(`[admin] Created ${BUILTIN_ADMIN_USERNAME} (${BUILTIN_ADMIN_DISPLAY_NAME}). Temporary password: ${generatedPassword}`);
-    console.log('[admin] Save this password now, then set HEX_ADMIN_PASSWORD in your hosting environment before a future data reset.');
-  } else if (configuredPassword && changed) {
+  if (configuredPassword && changed) {
     console.log(`[admin] ${BUILTIN_ADMIN_USERNAME} administrator account is ready using HEX_ADMIN_PASSWORD.`);
   }
 }
@@ -8958,7 +8972,7 @@ function loadActiveRooms() {
     const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
     for (const record of (Array.isArray(parsed && parsed.rooms) ? parsed.rooms : [])) {
       const room = restoreRoom(record, DEFAULT_RULES);
-      if (room) { refreshLegacyRankedBallot(room); rooms.set(room.code, room); }
+      if (room && !roomExpiry(room, now(), false).expired) { refreshLegacyRankedBallot(room); rooms.set(room.code, room); }
     }
   } catch (error) {
     console.error('[rooms] Failed to load active_rooms.json:', error && error.message ? error.message : error);
@@ -8980,7 +8994,7 @@ function restoreRoomFromPersistence(code) {
     const record = records.find((candidate) => normalizeRoomCode(candidate && candidate.code) === normalizedCode);
     if (!record) return null;
     const restored = restoreRoom(record, DEFAULT_RULES);
-    if (!restored) return null;
+    if (!restored || roomExpiry(restored, now(), false).expired) return null;
     refreshLegacyRankedBallot(restored);
     const existing = rooms.get(normalizedCode);
     if (existing) return existing;
@@ -9016,6 +9030,7 @@ function bindSocketToRoomMember(room, playerId, ws, replacementError = 'This roo
 
   const prev = room.sockets.get(pid);
   room.sockets.set(pid, ws);
+  room.lastHumanActivityAt = now(); // A successful reconnect extends the lobby lease.
   ws._roomCode = room.code;
   ws._playerId = pid;
   if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
@@ -9053,6 +9068,7 @@ function createRoom(hostUserId, hostName) {
     hostId,
     createdAt: now(),
     lastActiveAt: now(),
+    lastHumanActivityAt: now(),
     players: [{
       id: hostId,
       name: safeName,
@@ -9128,6 +9144,7 @@ function createRematchRoomFrom(prevRoom) {
     hostId: finalHostId,
     createdAt: now(),
     lastActiveAt: now(),
+    lastHumanActivityAt: now(),
     players,
     spectators,
     sockets: new Map(),
@@ -9550,7 +9567,10 @@ function stateForRoomSocket(room, ws, memberId, baseState = null, stateCache = n
   }
   const cacheKey = `spectator:${viewId || memberId}`;
   if (stateCache && stateCache.has(cacheKey)) return stateCache.get(cacheKey);
-  const state = sanitizeStateFor(game, viewId || memberId, baseState);
+  // A spectator may follow any camera, but is not that player's authenticated
+  // identity. Never send a selected player's hidden resource or development
+  // cards to someone watching the match.
+  const state = sanitizeStateFor(game, memberId, baseState);
   state.spectatorMode = true;
   state.spectatorViewPlayerId = viewId || null;
   if (stateCache) stateCache.set(cacheKey, state);
@@ -9560,6 +9580,9 @@ function stateForRoomSocket(room, ws, memberId, baseState = null, stateCache = n
 function broadcastState(room) {
   if (!room.game) return;
   room.lastActiveAt = now();
+  if (room.game.phase === 'game-over' && !room.finishedAt) {
+    room.finishedAt = Number(room.game?.stats?.endedAt || 0) || now();
+  }
   clearLegacyTradeTimerPause(room.game);
   syncTimer(room.game);
   const baseState = buildSanitizableState(room.game);
@@ -9583,22 +9606,27 @@ function roomHasOpenSocket(room) {
 }
 
 function cleanupRooms() {
-  const cutoff = now() - (1000 * 60 * 60 * 8); // 8 hours
   let changed = false;
   const removedTextureStorageKeys = new Set();
   for (const [code, room] of rooms.entries()) {
     texturePackUploadsForRoom(room);
-    const anyOpen = roomHasOpenSocket(room);
-    const lastActiveAt = Math.max(Number(room.createdAt || 0), Number(room.lastActiveAt || 0));
-    if (!anyOpen && lastActiveAt < cutoff) {
-      for (const upload of Object.values(room.texturePackUploads || {})) removeTexturePackUpload(upload);
-      for (const shared of Object.values(room.sharedTexturePacks || {})) {
-        const storageKey = validTexturePackStorageKey(shared && shared.storageKey);
-        if (storageKey) removedTextureStorageKeys.add(storageKey);
+    const expiry = roomExpiry(room, now(), roomHasOpenSocket(room));
+    if (!expiry.expired) continue;
+    for (const socket of room.sockets?.values?.() || []) {
+      if (socket.readyState === WebSocket.OPEN) {
+        sendJson(socket, { type: 'room_closed_by_admin', code, reason: expiry.reason });
       }
-      rooms.delete(code);
-      changed = true;
+      socket._roomCode = null;
+      socket._playerId = null;
     }
+    room.sockets?.clear?.();
+    for (const upload of Object.values(room.texturePackUploads || {})) removeTexturePackUpload(upload);
+    for (const shared of Object.values(room.sharedTexturePacks || {})) {
+      const storageKey = validTexturePackStorageKey(shared && shared.storageKey);
+      if (storageKey) removedTextureStorageKeys.add(storageKey);
+    }
+    rooms.delete(code);
+    changed = true;
   }
   for (const storageKey of removedTextureStorageKeys) removeTexturePackStorageIfUnreferenced(storageKey);
   if (changed) scheduleActiveRoomsSave();
@@ -10446,10 +10474,13 @@ async function handleAdminHttp(req, res, urlPath) {
     });
     let writable = false;
     try { fs.accessSync(DATA_DIR, fs.constants.W_OK); writable = true; } catch (_) {}
-    let activeGames = 0, pausedGames = 0, waitingRooms = 0, casualRooms = 0, rankedRooms = 0;
+    let activeGames = 0, pausedGames = 0, waitingRooms = 0, casualRooms = 0, rankedRooms = 0, finishedRooms = 0, expiringRooms = 0;
     for (const room of rooms.values()) {
       if (!room.game || room.game.phase === 'lobby') waitingRooms++;
       else if (room.game.phase !== 'game-over') activeGames++;
+      else finishedRooms++;
+      const lease = roomExpiry(room, Date.now(), roomHasOpenSocket(room));
+      if (lease.expired) expiringRooms++;
       if (room.game?.paused) pausedGames++;
       if (room.casual) casualRooms++;
       if (room.ranked) rankedRooms++;
@@ -10463,9 +10494,10 @@ async function handleAdminHttp(req, res, urlPath) {
       memory: { rssBytes: heap.rss, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal, externalBytes: heap.external, arrayBuffersBytes: heap.arrayBuffers },
       eventLoop: { p99DelayMs: Math.round(eventLoopHistogram.percentile(99) / 1e6 * 10) / 10, maxDelayMs: Math.round(eventLoopHistogram.max / 1e6 * 10) / 10 },
       connections: { webSocketClients: wss.clients.size, authenticatedUsers: userSockets.size, queuedPlayers, rankedQueueGroups: rankedQueues.size },
-      rooms: { total: rooms.size, waiting: waitingRooms, activeGames, pausedGames, casual: casualRooms, ranked: rankedRooms },
+      rooms: { total: rooms.size, waiting: waitingRooms, activeGames, finished: finishedRooms, expiredPendingCleanup: expiringRooms, pausedGames, casual: casualRooms, ranked: rankedRooms },
       persistence: { writable, files, historyGames: (HISTORY_DB.games || []).length, historyLimit: HISTORY_MAX_GAMES,
         activeRoomSavePending: !!activeRoomsSaveTimer, historyWriterAvailable: !!HISTORY_WRITER },
+      roomLifetimesMs: ROOM_LIFETIMES_MS,
       email: { configured: isEmailDeliveryConfigured(process.env), provider: emailDeliveryMode(process.env) },
     });
     return;
@@ -11085,6 +11117,10 @@ const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+    if ((urlPath === '/health' || urlPath === '/ws' || urlPath.startsWith('/api/')) && !trustedProxyRequest(req)) {
+      sendHttpJson(req, res, 403, { ok: false, error: 'Origin proxy authentication failed.' });
+      return;
+    }
     if (urlPath === '/health' || urlPath === '/api/health') {
       sendHttpJson(req, res, 200, {
         ok: true,
@@ -11181,7 +11217,7 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
-  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+  if (!trustedProxyRequest(req) || !isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
@@ -11198,7 +11234,9 @@ wss.on('connection', (ws, req) => {
   ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
   ws._connectionId = crypto.randomUUID().slice(0, 12);
   ws._isAlive = true;
-  ws.on('pong', () => { ws._isAlive = true; });
+  ws._messageLimiter = new SlidingWindowRateLimiter({ maxAttempts: 300, windowMs: 10_000 });
+  ws._expensiveMessageLimiter = new SlidingWindowRateLimiter({ maxAttempts: 140, windowMs: 10_000 });
+  ws.on('pong', () => { ws._isAlive = true; ws._lastPongAt = now(); });
 
   sendJson(ws, {
     type: 'hello',
@@ -11227,16 +11265,35 @@ wss.on('connection', (ws, req) => {
 
   ws.on('message', async (data) => {
     try {
+      // Apply request limits before JSON parsing, including malformed input.
+      if (!ws._messageLimiter.consume('message').allowed) {
+        sendJson(ws, { type: 'error', error: 'Too many requests. Connection rate limit exceeded.' });
+        try { ws.close(1008, 'Rate limit exceeded'); } catch (_) {}
+        return;
+      }
       const parsed = parseClientMessage(data);
       if (!parsed.ok) {
         sendJson(ws, { type: 'error', error: parsed.error });
         return;
       }
       const msg = parsed.value;
+      const costly = ['game_action', 'query_build_options', 'query_ship_move_targets', 'set_rules',
+        'generate_map', 'edit_preview_tile', 'edit_preview_port', 'chat', 'upload_custom_map',
+        'texture_pack_publish'].includes(msg.type);
+      const costlyAllowed = !costly || ws._expensiveMessageLimiter.consume('expensive').allowed;
+      if (!costlyAllowed) {
+        sendJson(ws, { type: 'error', error: 'Too many requests. Connection rate limit exceeded.' });
+        try { ws.close(1008, 'Rate limit exceeded'); } catch (_) {}
+        return;
+      }
       ws._isAlive = true;
+      if (isPlayerActivity(msg.type) && ws._userId && ws._roomCode && ws._playerId === ws._userId) {
+        const boundRoom = rooms.get(ws._roomCode);
+        if (boundRoom?.sockets?.get(ws._playerId) === ws) boundRoom.lastHumanActivityAt = now();
+      }
 
     if (msg.type === 'client_ping') {
-      sendJson(ws, { type: 'server_pong', clientTime: Number(msg.clientTime || 0), serverTime: now() });
+      sendJson(ws, { type: 'server_pong', clientTime: Number(msg.clientTime || 0), serverTime: now(), connectionId: ws._connectionId, roomCode: ws._roomCode || null });
       return;
     }
 
@@ -12297,7 +12354,7 @@ if (msg.type === 'create_room') {
 
     // Older saved rooms may predate the Casual custom-map restriction.
     // Block map-editor messages there as well as new settings changes.
-    if (room.casual && ['download_custom_map', 'upload_custom_map', 'edit_preview_tile', 'edit_preview_port', 'edit_preview_grid'].includes(msg.type)) {
+    if (room.casual && ['download_custom_map', 'upload_custom_map', 'edit_preview_tile', 'edit_preview_port'].includes(msg.type)) {
       sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
       return;
     }
@@ -12403,33 +12460,6 @@ if (msg.type === 'create_room') {
       scheduleActiveRoomsSave();
       broadcastPreviewState(room);
       sendJson(ws, { type: 'custom_map_loaded', message: 'Custom map loaded into the lobby.' });
-      return;
-    }
-
-    if (msg.type === 'edit_preview_grid') {
-      if (pid !== room.hostId || (room.game && room.game.phase !== 'lobby') || room.casual || !is78CustomRules(room.rules)) {
-        sendJson(ws,{type:'error',error:'Only an unranked 7–8 custom-map lobby host can change the tile grid.'}); return;
-      }
-      const q = Number(msg.q), r = Number(msg.r), operation = String(msg.operation || '');
-      if (!validCustom78Coord(q,r) || !['add','remove'].includes(operation)) {
-        sendJson(ws,{type:'error',error:'Invalid hex coordinates or operation.'}); return;
-      }
-      ensurePreview(room,false);
-      const previous = room.preview.geom;
-      const axials = previous.tiles.map(t=>({q:t.q,r:t.r}));
-      const at = axials.findIndex(t=>t.q===q && t.r===r);
-      if (operation === 'add') {
-        if (at !== -1) { sendJson(ws,{type:'error',error:'A tile already exists at that coordinate.'}); return; }
-        if (axials.length >= CUSTOM_78_MAX_TILES) { sendJson(ws,{type:'error',error:'The editor safety limit is 1024 tiles.'}); return; }
-        axials.push({q,r});
-      } else {
-        if (at === -1 || axials.length < 2) { sendJson(ws,{type:'error',error:'Cannot remove this tile; keep at least one hex.'}); return; }
-        axials.splice(at,1);
-      }
-      room.preview.geom = buildCustom78Geometry(axials, previous);
-      room.preview.at = now();
-      scheduleActiveRoomsSave();
-      broadcastPreviewState(room);
       return;
     }
 

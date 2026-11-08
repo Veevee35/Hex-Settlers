@@ -685,7 +685,10 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
   const spectatorState = await guest.waitFor((message) =>
     message.type === 'state' && message.state.spectatorViewPlayerId === hostAuth.user.id);
   assert.equal(spectatorState.state.spectatorMode, true);
-  assert.ok(spectatorState.state.players.find((player) => player.id === hostAuth.user.id).resources);
+  assert.equal(spectatorState.state.players.find((player) => player.id === hostAuth.user.id).resources, undefined,
+    'Spectators must not receive another player’s private resource hand.');
+  assert.equal(spectatorState.state.players.find((player) => player.id === hostAuth.user.id).devCards, undefined,
+    'Spectators must not receive another player’s private development cards.');
   const departedGuest = spectatorState.state.players.find((player) => player.id === guestAuth.user.id);
   assert.equal(departedGuest.departed, true);
   assert.equal(departedGuest.handCount, 0);

@@ -37,3 +37,8 @@ test('texture publishing retains the larger established payload allowance', () =
   const largeTexture = JSON.stringify({ type: 'texture_pack_publish', data: 'x'.repeat(REGULAR_MESSAGE_MAX_BYTES) });
   assert.equal(parseClientMessage(largeTexture).ok, true);
 });
+
+test('obsolete custom-grid resizing protocol is rejected', () => {
+  assert.deepEqual(parseClientMessage(JSON.stringify({type: 'edit_preview_grid', operation: 'add', q: 100, r: -100})),
+    {ok: false, error: 'Unknown message type.'});
+});

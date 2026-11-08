@@ -7,6 +7,7 @@ import {
   isDynamicPath,
   normalizedUpstreamOrigin,
   requestHasAllowedOrigin,
+  secureStaticAssetResponse,
 } from '../cloudflare/worker.mjs';
 
 test('Cloudflare Worker routes API, health, and WebSocket requests dynamically', () => {
@@ -88,4 +89,23 @@ test('Cloudflare Worker preserves the route while rewriting trusted proxy header
 test('Cloudflare Worker validates the configured upstream protocol', () => {
   assert.equal(normalizedUpstreamOrigin('https://backend.example/path'), 'https://backend.example');
   assert.throws(() => normalizedUpstreamOrigin('ftp://backend.example'), /http or https/);
+});
+
+test('origin-shield header is injected by Worker, not controlled by requesting player', () => {
+  const request = new Request('https://hexsettlers.org/api/health', {
+    headers: { Origin: 'https://hexsettlers.org', 'X-Hex-Upstream-Secret': 'forged' },
+  });
+  const forwarded = buildUpstreamRequest(request, 'https://backend.example', 'actual-secret');
+  assert.equal(forwarded.headers.get('X-Hex-Upstream-Secret'), 'actual-secret');
+  const withoutSecret = buildUpstreamRequest(request, 'https://backend.example');
+  assert.equal(withoutSecret.headers.get('X-Hex-Upstream-Secret'), null);
+});
+
+test('Cloudflare static assets receive no-sniff, CSP and no-store headers', () => {
+  const response = secureStaticAssetResponse(new Response('<h1>game</h1>', {status: 200}),
+    new Request('https://hexsettlers.org/index.html'));
+  assert.equal(response.headers.get('X-Content-Type-Options'), 'nosniff');
+  assert.match(response.headers.get('Content-Security-Policy'), /script-src 'self'/);
+  assert.match(response.headers.get('Cache-Control'), /no-store/);
+  assert.match(response.headers.get('Strict-Transport-Security'), /max-age=/);
 });

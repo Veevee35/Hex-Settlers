@@ -5,7 +5,8 @@ function serializeRoom(room) {
   return {
     code: String(room.code || ''), hostId: String(room.hostId || ''), createdAt: Number(room.createdAt || Date.now()),
     lastActiveAt: Number(room.lastActiveAt || room.createdAt || Date.now()),
-    rematchRoomCode: String(room.rematchRoomCode || ''),
+    lastHumanActivityAt: Number(room.lastHumanActivityAt || room.lastActiveAt || room.createdAt || Date.now()),
+    rematchRoomCode: String(room.rematchRoomCode || ''), finishedAt: Number(room.finishedAt || 0),
     ranked: !!room.ranked, casual: !!room.casual,
     rankedPreferences: room.rankedPreferences || null,
     rankedScenarioVote: room.rankedScenarioVote || null,
@@ -29,7 +30,8 @@ function restoreRoom(record, defaultRules) {
   return {
     code, hostId, createdAt: Number(record.createdAt || Date.now()),
     lastActiveAt: Number(record.lastActiveAt || record.createdAt || Date.now()),
-    rematchRoomCode: String(record.rematchRoomCode || ''),
+    lastHumanActivityAt: Number(record.lastHumanActivityAt || record.lastActiveAt || record.createdAt || Date.now()),
+    rematchRoomCode: String(record.rematchRoomCode || ''), finishedAt: Number(record.finishedAt || 0),
     ranked: !!record.ranked, casual: !!record.casual,
     rankedPreferences: record.rankedPreferences || null,
     rankedScenarioVote: record.rankedScenarioVote && typeof record.rankedScenarioVote === 'object' ? record.rankedScenarioVote : null,
