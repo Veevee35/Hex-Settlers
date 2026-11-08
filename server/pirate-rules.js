@@ -5,7 +5,6 @@ const VISIBLE_OUTER_SEA_SCENARIOS = new Set([
   'test_builder_56',
   'cartographer_4_manual', 'cartographer_4_random', 'cartographer_4',
   'cartographer_56_manual', 'cartographer_56_random', 'cartographer_56',
-  'cartographer_78_manual','cartographer_78_random','test_builder_78',
 ]);
 
 function isUnrevealedFogTile(tile) {
@@ -21,7 +20,7 @@ function isFogIslandRules(rules) {
 function rulesHideOuterSeaBorder(rules) {
   if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
   const scenario = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g, '_');
-  return !VISIBLE_OUTER_SEA_SCENARIOS.has(scenario);
+  return !scenario.includes('_78') && !VISIBLE_OUTER_SEA_SCENARIOS.has(scenario);
 }
 
 function pirateCanOccupyTile(rules, tile, geom = null) {

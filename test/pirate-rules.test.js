@@ -15,7 +15,7 @@ const revealedFogSea = { id: 2, type: 'sea', fog: true, revealed: true };
 const knownSea = { id: 3, type: 'sea' };
 const land = { id: 4, type: 'forest' };
 
-for (const scenario of ['fog_island', 'fog_island_56']) {
+for (const scenario of ['fog_island', 'fog_island_56', 'fog_island_78']) {
   test(`${scenario} only allows the pirate on revealed sea tiles`, () => {
     const rules = { mapMode: 'seafarers', seafarersScenario: scenario };
     assert.equal(pirateCanOccupyTile(rules, hiddenFogSea), false);
@@ -32,7 +32,7 @@ test('Fog Island starting pirate candidates exclude every unrevealed fog tile', 
   );
 });
 
-test('the fog restriction also protects Custom Map fog tiles', () => {
+test('unrevealed fog also blocks the pirate on a custom map', () => {
   assert.equal(
     pirateCanOccupyTile({ mapMode: 'seafarers', seafarersScenario: 'test_builder_78' }, hiddenFogSea),
     false,

@@ -1,43 +1,47 @@
-# Hex Settlers — v41: Permanent 7–8 Player Maps and Custom Fog
+# Hex Settlers v41 — Permanent 7–8 Player Maps
 
-Based on the v40 full build. The GitHub-managed semantic version display and automatic patch-increment workflow introduced in v39 are preserved. This ZIP does not pre-increment the displayed semantic version: the repository's push workflow handles that on deployment.
+This full-source update builds on **v40** and includes all of the existing project files.
 
-## Permanent scenarios (Unranked only)
+## Permanent scenario selection
 
-### Classic 7–8 Player
-- **Classic:** Uses the author's Classic JSON board geometry; randomizes terrain/number placement according to the accompanying Classic token chart. 69 tiles: 26 sea, 3 desert, 8 of each of five resources; 40 number discs and 9 ports.
-- **Custom Map:** Starts from `hex-settlers-classic78-map Custom Templste.json` (69 hex positions) rather than a single tile. Remains editable and exportable.
+Under **Unranked Play → Game Setup** choose:
+- **Classic 7–8 Player** for the permanent 43-land-hex Classic game. The existing **Custom Map** toggle enables an editable copy of the supplied Classic 7–8 custom template instead.
+- **Seafarers 7–8 Player Scenarios**, then choose **Eight Islands**, **Through the Desert**, **Fog Island**, **Scattered Tiles (7)**, **Scattered Tiles (8)**, **Cartographer (7)**, **Cartographer (8)**, or **Custom Map**.
 
-### Seafarers 7–8 Player
-- **Eight Islands:** Author's Eight Islands coordinates, 40 resource tiles with 8 of each resource, 11 ports and 40 number discs.
-- **Through the Desert:** Author's layout with 97 positions: 40 sea, 7 deserts, 5 gold, 9 of each resource, 11 ports and 50 number discs.
-- **Fog Island:** Author's layout with 79 positions; **23 central fog hexes at game start**. The visible starting islands have 26 sea and 6 of each resource (30 numbered resource hexes). Fog contains 4 sea, 4 gold, and 3 of each resource, with 19 hidden number discs. Exploration reveals hidden type/number and applies the existing Fog Island discovery effects. Hidden details remain private server-side until revealed.
-- **Scattered Tiles:** Uses the author's 7-seat or 8-seat shape templates, with tile and disc inventories from the separate charts: 7 players = 48 sea and 7 of each of 7 terrain types, 42 number discs; 8 players = 41 sea and 8 of each of 7 terrain types, 48 discs.
-- **Cartographer:** 7-seat and 8-seat manual drafts use the same supplied geometry masks, adjusted to the current player count. Each participant places seven terrain tiles; sea positions are prefilled. Auto-placement remains per-player on timeout, not a forced takeover of every remaining turn.
-- **Custom Map:** Starts from `hex-settlers-test_builder_78-map Custom Template.json` (97 hex positions), rather than the prior one-tile blank map.
+The seven-player variants require exactly seven seats and the eight-player variants require exactly eight seats. The shared 7–8 scenarios support either player count. Expanded-map paired turns remain enabled.
 
-The 7–8 modes remain unavailable in Casual and Ranked. Server-side validation enforces this restriction. The custom editor is available only on the two Custom Map selections; permanent scenarios cannot be painted over.
+## Map source and inventories
 
-## Custom-map fog brush
+The bundled `server/maps-78/*.json` files come from the supplied seven-to-eight-player map JSON files. They lock the board footprint and, where appropriate, the island/desert/fog arrangement. Terrain distribution and number discs are randomized using the corresponding existing Seafarers scenario principles, while **preserving the exact tile and disc quantities** from the supplied reference charts.
 
-- New **Fog (cover existing tile)** option in the terrain editor. Paint the tile's actual underlying terrain and number first, then apply fog to conceal it.
-- Concealed tile appears as fog; its type and number are held on the server until discovered by exploration. Applies to both custom-map board sizes and previously supported custom-map modes.
-- Download/upload retains `fog`, `hiddenType`, and `hiddenNumber`. Game-state broadcasts do not reveal hidden details.
+| Permanent scenario | All map hexes, including sea | Numbered discs | Hidden fog hexes | Ports |
+| --- | ---: | ---: | ---: | ---: |
+| Classic 7–8 | 69 | 40 | 0 | 9 |
+| Eight Islands | 79 | 40 | 0 | 11 |
+| Through the Desert | 97 | 50 | 0 | 11 |
+| Fog Island | 79 | 30 visible, 19 hidden | 23 | 11 |
+| Scattered Tiles (7) | 97 | 42 | 0 | 9 |
+| Scattered Tiles (8) | 97 | 48 | 0 | 11 |
+| Cartographer (7) | 97 | 42 after player draft | 0 | 9 after draft |
+| Cartographer (8) | 97 | 48 after player draft | 0 | 11 after draft |
 
-## Uploaded assets and data provenance
+Number discs are distributed with the correct scenario-specific quantities, with sixes/eights kept apart and off Gold Fields. Coastlines, island layouts and other map-specific terrain constraints are preserved instead of trimming outer sea tiles. Eight Islands and Through the Desert spread ports across island regions where practical.
 
-The eight author-supplied JSON maps are retained in `server/maps-78/`. The six token-inventory chart images are retained in `docs/7-8-map-reference/`. Original layouts are not stretched to reconcile source inconsistencies:
+## Fog Island and editable fog tiles
 
-1. **Eight Islands:** Chart states 83 total hexes, comprising 43 sea + 40 land; supplied JSON geometry has **79 hexes**. v41 preserves those 79 coordinates, assigning **39 sea + 40 land**. Four extra sea coordinates can be added when a revised map file is supplied.
-2. **Scattered Tiles / Cartographer:** Both reference charts label total as 96, while their category totals sum to **97**; both uploaded template outlines have **97 coordinates**. v41 uses 97.
-3. **Fog Island:** The face-up reference chart labels total as 55 but shows 26 sea + 30 resource hexes (= **56 face-up**). The original geometry is 79, and the intended 23 fog hexes give 56 visible + 23 hidden. v41 uses the category totals.
+**Fog Island** now hides the central region **at the beginning of play**, even though the uploaded source template displays it as ordinary terrain. All **23** tiles in that region start concealed; four hide sea, four hide Gold Fields, and 15 hide resource tiles. The 19 hidden production numbers appear upon discovery, and the normal Fog Island resource rewards and Gold Field choice apply. Players begin on known, revealed land.
 
-## Validation
+**Custom Map** now has a **Fog (hide existing tile)** brush. First paint the underlying tile and (for producing terrain) its number disc, then paint fog over the same tile. Its true type and number remain secret until discovered by a qualifying road/ship, whereupon normal Fog Island rewards apply. The pirate cannot occupy unrevealed fog, including on a custom map. Fog information round-trips through the JSON map download/upload format, without leaking unrevealed terrain to other players.
 
-- `npm run check`: 350 tests passed, 0 failed; TypeScript compiled and JavaScript syntax checks passed.
-- Live integration tests cover permanent scenario selections, map previews, eight-seat Cartographer, port counts, fog visibility, custom-map fog import/export, and Casual-mode rejection.
-- The tests do not constitute visual verification across browsers and devices; an interactive smoke test after deployment is recommended.
+## Defaults and compatibility
 
-## Deployment
+- Classic 7–8 editable maps initialize from the supplied Classic 7–8 Custom Template JSON; permanent Classic uses the supplied Classic layout.
+- Seafarers 7–8 editable maps initialize from the supplied 7–8 Custom Template JSON.
+- Both Scattered Tiles and Cartographer use the submitted seven/eight-player map dimensions and inventories. Manual Cartographer begins with an empty 97-slot tile draft; numbers and ports are assigned after players place all tiles.
+- Existing game modes, ranked play rules, account features, and 2–6 player scenarios are not intentionally changed.
 
-Deploy the v41 frontend and server together, preserving existing persistent storage and configuration. No new environment variables or database migrations are required. The GitHub automatic version workflow is unchanged; run deployment from the repository as usual.
+## Validation and deployment
+
+Validation: TypeScript bootstrap compile, Node syntax checks, and **349 passing Node tests**, including game-server integration tests for all eight permanent variants, an eight-player manual Cartographer game start, exact terrain inventories, new fog paint + upload/download, and legacy behavior.
+
+**Deployment:** This ZIP changes the game source locally, not the currently deployed Cloudflare website. Deploy your updated server and client/asset code together. If your Cloudflare Worker remains a proxy to a separate Node origin, the Node origin must also be updated for game generation; updating only static assets is insufficient.
