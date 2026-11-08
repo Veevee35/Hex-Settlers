@@ -11,4 +11,4 @@ Chromium isolated-client checks at 390x844, 844x390, 1024x768:
   - Pointer dragging succeeds from timer digits, status line, action message
   - No page JavaScript exceptions
 
-Server integration tests were not completed because node_modules/ws was not included.
+Server integration tests were not completed because node_modules/ws was not included. Thanks
