@@ -37,6 +37,22 @@ test('7–8 scenario layouts, counts, fog, redraws, upload, editor, and drafts',
     assert.deepEqual(actual,expectInventory,`terrain inventory: ${sc||mm}`);
   }
   if(sc==='fog_island_78'){
+    // The two detached center-edge tiles remain revealed; the diagonally
+    // opposite upper-right and lower-left corners belong to the fog bank.
+    const byAxial=(q,r)=>tiles.find(tile=>tile.q===q&&tile.r===r);
+    for(const [q,r] of [[-3,3],[3,-3]]) {
+      const tile=byAxial(q,r);
+      assert.ok(tile,`missing corner tile ${q},${r}`);
+      assert.equal(!!tile.fog,true,`corner tile ${q},${r} must start fogged`);
+      assert.equal(!!tile.revealed,false,`corner tile ${q},${r} must start hidden`);
+    }
+    for(const [q,r] of [[-3,0],[3,0]]) {
+      const tile=byAxial(q,r);
+      assert.ok(tile,`missing center-edge tile ${q},${r}`);
+      assert.equal(!!tile.fog,false,`center-edge tile ${q},${r} must remain visible`);
+      assert.notEqual(tile.type,'sea',`center-edge tile ${q},${r} must be revealed land`);
+      assert.ok(tile.number!=null,`center-edge tile ${q},${r} must have a number disc`);
+    }
     assert.equal(tiles.filter(t=>t.type==='sea'&&!t.fog).length,26);
     for(const kind of ['hills','forest','pasture','field','mountains'])assert.equal(tiles.filter(t=>t.type===kind).length,6);
   }
