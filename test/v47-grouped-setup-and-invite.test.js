@@ -41,11 +41,13 @@ test('v47 setup exposes only map family and board-size ranges, with correct unde
   assert.match(app,/playerCount: null/,'range selection clears any old exact-seat target');
 });
 
-test('v47 invite link has only one Copy Link action next to the populated address', () => {
+test('v51 invite link itself acts as the only copy control', () => {
   const block=html.match(/<div class="roomShareControls"[\s\S]*?<\/div>\s*<\/div>/);
   assert.ok(block);
   assert.match(block[0],/id="roomJoinLinkInput"/);
-  assert.match(block[0],/id="copyJoinLinkBtn"/);
+  assert.match(block[0],/<button id="roomJoinLinkInput"/);
+  assert.doesNotMatch(html,/id="copyJoinLinkBtn"/);
+  assert.match(block[0],/Click to copy/);
   assert.doesNotMatch(html,/id="genJoinLinkBtn"|>Generate Link</);
   assert.doesNotMatch(app,/genJoinLinkBtn/);
 });

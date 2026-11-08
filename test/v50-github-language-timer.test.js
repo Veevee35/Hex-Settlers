@@ -22,7 +22,7 @@ test('Timer Off disables all server phase deadlines in unranked/casual games', (
 
 test('Game setup order, timer option, AI controls, language entrances and ready colors exist', () => {
   const html = source('public/index.html');
-  const order = ['id="playerCountSelect"','id="mapFamilySelect"','id="scenarioRow"','id="victoryPointsSelect"','id="diceAlgorithmSelect"','id="discardLimitInput"','id="baseResourceCountSelect"','id="devDeckModeSelect"','id="friendlyRobberToggle"','id="randomMapAtStartToggle"','id="timerSpeedSelect"'];
+  const order = ['id="playerCountSelect"','id="mapFamilySelect"','id="scenarioRow"','id="timerSpeedSelect"','id="victoryPointsSelect"','id="diceAlgorithmSelect"','id="discardLimitInput"','id="baseResourceCountSelect"','id="devDeckModeSelect"','id="friendlyRobberToggle"','id="randomMapAtStartToggle"','id="explorationPointsRow"'];
   let last = -1;
   for (const tag of order) { const at=html.indexOf(tag); assert.ok(at > last, `misordered or missing ${tag}`); last=at; }
   assert.match(html, /<option value="off">Off/);
@@ -54,7 +54,7 @@ test('30 supported language options and translated page script load before app',
 test('commit stamper busts browser caches without GitHub bot commits', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(),'hex-v50-stamp-'));
   try {
-    for (const p of ['scripts/stamp-git-build.cjs','public/index.html','public/app.js','public/sw.js']) {
+    for (const p of ['scripts/stamp-git-build.cjs','build-version.json','public/index.html','public/app.js','public/sw.js']) {
       const dest=path.join(temp,p);
       fs.mkdirSync(path.dirname(dest),{recursive:true});
       fs.copyFileSync(path.join(ROOT,p),dest);

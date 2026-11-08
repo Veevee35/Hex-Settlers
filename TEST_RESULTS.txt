@@ -1,14 +1,13 @@
-Hex Settlers v27 - Mobile Clock Surface
-Date: 2026-11-07
+Hex Settlers v51 (V1.0.4) — browser lobby preview, click-to-copy room/link, timer/exploration position swap.
 
-node --check public/app.js: passed
-node --check server.js: passed
-tsc -p tsconfig.bootstrap.json --noEmit: passed
-node --test: 263 passed, 4 blocked (ws dependency omitted from user-provided archive)
-Relevant new tests (mobile-clock-surface-v27.test.js): 3 passed
-Chromium isolated-client checks at 390x844, 844x390, 1024x768:
-  - Clock header absent / grip icon absent
-  - Pointer dragging succeeds from timer digits, status line, action message
-  - No page JavaScript exceptions
+Full Node test run with original historical neural AI training reports temporarily available:
+  tests: 384
+  passed: 384
+  failed: 0
 
-Server integration tests were not completed because node_modules/ws was not included.
+New focused tests cover the desktop map-toggle layout, independent mobile map controls,
+room code and direct-join button behavior, timer/exploration position swap, link builder,
+30 languages and Git commit cache stamping.
+
+The generated neural training report files in scripts/output/ are deliberately not packaged
+with the deploy ZIP. Their omission does not affect game deployment or gameplay.

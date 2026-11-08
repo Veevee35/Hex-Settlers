@@ -10,7 +10,7 @@ const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'u
 const linkHelpers = appJs.slice(appJs.indexOf('  function parseDirectJoinCodeFromUrl('), appJs.indexOf('  function connect()'));
 
 function clientAt(address) {
-  const ui = { roomJoinLinkInput: {}, copyJoinLinkBtn: {} };
+  const ui = { roomJoinLinkInput: {}, roomCode: {} };
   let networkCalls = 0;
   const context = vm.createContext({
     URL,
@@ -37,8 +37,12 @@ test('refreshing lobby invite links is synchronous and makes no network requests
   vm.runInContext('for (let i = 0; i < 100; i++) refreshLobbyJoinLinkUi();', client.context, { timeout: 1000 });
   assert.equal(client.networkCalls(), 0);
   assert.equal(client.ui.roomJoinLinkInput.value, 'http://127.0.0.1:3127/?room=ABCD');
-  assert.equal(client.ui.copyJoinLinkBtn.disabled, false);
+  assert.equal(client.ui.roomJoinLinkInput.textContent, 'http://127.0.0.1:3127/?room=ABCD');
+  assert.equal(client.ui.roomCode.disabled, false);
+  assert.equal(client.ui.roomJoinLinkInput.disabled, false);
   vm.runInContext('room = null; refreshLobbyJoinLinkUi();', client.context);
   assert.equal(client.ui.roomJoinLinkInput.value, '');
-  assert.equal(client.ui.copyJoinLinkBtn.disabled, true);
+  assert.equal(client.ui.roomJoinLinkInput.textContent, 'Direct join link');
+  assert.equal(client.ui.roomCode.disabled, true);
+  assert.equal(client.ui.roomJoinLinkInput.disabled, true);
 });

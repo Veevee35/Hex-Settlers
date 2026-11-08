@@ -6,6 +6,8 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
+const { major, minor, patch } = JSON.parse(fs.readFileSync(path.join(root, 'build-version.json'), 'utf8'));
+const versionLabel = `V${major}.${minor}.${patch}`;
 let hash = String(process.env.CF_COMMIT_SHA || process.env.GITHUB_SHA || '').trim();
 if (!hash) {
   try { hash = execFileSync('git', ['rev-parse','HEAD'], {cwd:root,encoding:'utf8'}).trim(); }
@@ -28,5 +30,5 @@ update('public/app.js', /const ASSET_CACHE_SW_BUILD = '[^']+';/, `const ASSET_CA
 update('public/sw.js', /const CACHE_NAME = CACHE_PREFIX \+ '[^']+';/, `const CACHE_NAME = CACHE_PREFIX + '${key}';`);
 const htmlPath=path.join(root,'public/index.html');
 const before=fs.readFileSync(htmlPath,'utf8');
-fs.writeFileSync(htmlPath,before.replace(/(<div class="appVersion" aria-label="Game version">)V\d+\.\d+\.\d+(?: · [a-zA-Z0-9]+)?(<\/div>)/g, (_m,a,b)=>`${a}V1.0.3 · ${hash}${b}`));
+fs.writeFileSync(htmlPath,before.replace(/(<div class="appVersion" aria-label="Game version">)V\d+\.\d+\.\d+(?: · [a-zA-Z0-9]+)?(<\/div>)/g, (_m,a,b)=>`${a}${versionLabel} · ${hash}${b}`));
 console.log(`Hex Settlers Cloudflare revision ${hash}`);

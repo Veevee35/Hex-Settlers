@@ -130,6 +130,39 @@
     ko: {'Off — no timers or timeout autoplay':'끔 — 시간 초과 자동 행동 없음','Fast (½ time)':'빠름 (절반)','Slow (2× time)':'느림 (2배)','Generate New Map':'새 맵 생성','Save Settings Template':'설정 템플릿 저장','Load Game Template':'템플릿 불러오기','Base resources per type':'자원별 초기 수량','Easy':'쉬움','Medium':'보통','Hard':'어려움','Expert':'전문가','AI players difficulty':'AI 난이도','Game Rules':'게임 규칙','Back to Lobby':'로비로 돌아가기','Refresh':'새로고침','Your username':'사용자 이름','Your password':'비밀번호','Welcome to Hex Settlers':'Hex Settlers에 오신 것을 환영합니다','How do you want to play?':'어떤 모드로 플레이할까요?','Game Panels':'게임 패널','Dice Stats':'주사위 통계'},
     ru: {'Off — no timers or timeout autoplay':'Выкл. — без таймеров и автоходов по времени','Fast (½ time)':'Быстро (½ времени)','Slow (2× time)':'Медленно (2× времени)','Generate New Map':'Создать новую карту','Save Settings Template':'Сохранить шаблон','Load Game Template':'Загрузить шаблон','Base resources per type':'Начальные ресурсы каждого типа','Easy':'Легко','Medium':'Средне','Hard':'Сложно','Expert':'Эксперт','AI players difficulty':'Сложность ИИ','Game Rules':'Правила игры','Back to Lobby':'Назад в лобби','Refresh':'Обновить','Your username':'Ваше имя','Your password':'Ваш пароль','Welcome to Hex Settlers':'Добро пожаловать в Hex Settlers','How do you want to play?':'Как хотите играть?','Game Panels':'Игровые панели','Dice Stats':'Статистика кубиков'}
   };
+  // v51 browser preview and click-to-copy labels.  English remains fallback.
+  const lobbyLabels = {
+    es: ['Ocultar mapa','Mostrar mapa','Haz clic para copiar','Enlace directo para unirse','Código de sala'],
+    fr: ['Masquer la carte','Afficher la carte','Cliquer pour copier','Lien direct pour rejoindre','Code du salon'],
+    de: ['Karte ausblenden','Karte anzeigen','Zum Kopieren klicken','Direkter Beitrittslink','Raumcode'],
+    pt: ['Ocultar mapa','Mostrar mapa','Clique para copiar','Link direto para entrar','Código da sala'],
+    it: ['Nascondi mappa','Mostra mappa','Clicca per copiare','Link diretto per entrare','Codice stanza'],
+    nl: ['Kaart verbergen','Kaart tonen','Klik om te kopiëren','Directe deelnamelink','Kamercode'],
+    pl: ['Ukryj mapę','Pokaż mapę','Kliknij, aby skopiować','Bezpośredni link do gry','Kod pokoju'],
+    sv: ['Dölj karta','Visa karta','Klicka för att kopiera','Direktlänk till rummet','Rumskod'],
+    da: ['Skjul kort','Vis kort','Klik for at kopiere','Direkte link til rummet','Rumkode'],
+    no: ['Skjul kart','Vis kart','Klikk for å kopiere','Direktelenke til rommet','Romkode'],
+    fi: ['Piilota kartta','Näytä kartta','Kopioi napsauttamalla','Suora liittymislinkki','Huonekoodi'],
+    cs: ['Skrýt mapu','Zobrazit mapu','Kliknutím zkopírovat','Přímý odkaz pro připojení','Kód místnosti'],
+    ro: ['Ascunde harta','Arată harta','Apasă pentru a copia','Link direct de intrare','Codul camerei'],
+    el: ['Απόκρυψη χάρτη','Εμφάνιση χάρτη','Κλικ για αντιγραφή','Άμεσος σύνδεσμος εισόδου','Κωδικός δωματίου'],
+    tr: ['Haritayı gizle','Haritayı göster','Kopyalamak için tıkla','Doğrudan katılım bağlantısı','Oda kodu'],
+    ru: ['Скрыть карту','Показать карту','Нажмите, чтобы скопировать','Прямая ссылка для входа','Код комнаты'],
+    uk: ['Сховати карту','Показати карту','Натисніть, щоб скопіювати','Пряме посилання для входу','Код кімнати'],
+    ar: ['إخفاء الخريطة','إظهار الخريطة','انقر للنسخ','رابط الانضمام المباشر','رمز الغرفة'],
+    he: ['הסתר מפה','הצג מפה','לחץ להעתקה','קישור ישיר להצטרפות','קוד חדר'],
+    hi: ['नक्शा छिपाएँ','नक्शा दिखाएँ','कॉपी करने के लिए क्लिक करें','सीधे जुड़ने का लिंक','रूम कोड'],
+    zh: ['隐藏地图','显示地图','点击复制','直接加入链接','房间代码'],
+    ja: ['マップを隠す','マップを表示','クリックしてコピー','直接参加リンク','ルームコード'],
+    ko: ['지도 숨기기','지도 보기','클릭하여 복사','바로 참가 링크','방 코드'],
+    id: ['Sembunyikan peta','Tampilkan peta','Klik untuk menyalin','Tautan bergabung langsung','Kode ruang'],
+    vi: ['Ẩn bản đồ','Hiện bản đồ','Nhấp để sao chép','Liên kết tham gia trực tiếp','Mã phòng'],
+    th: ['ซ่อนแผนที่','แสดงแผนที่','คลิกเพื่อคัดลอก','ลิงก์เข้าร่วมโดยตรง','รหัสห้อง'],
+    hu: ['Térkép elrejtése','Térkép megjelenítése','Kattints a másoláshoz','Közvetlen csatlakozási link','Szobakód'],
+    bg: ['Скрий картата','Покажи картата','Щракни за копиране','Директен линк за присъединяване','Код на стаята'],
+    ms: ['Sembunyikan peta','Tunjukkan peta','Klik untuk salin','Pautan masuk terus','Kod bilik']
+  };
+  const lobbyLabelKeys = ['Hide Map','Show Map','Click to copy','Direct join link','Room code'];
   const dictionaries = {};
   for (const [lang, row] of Object.entries(rows)) {
     const values = row.split('|');
@@ -139,6 +172,7 @@
     }
     dictionaries[lang] = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
     Object.assign(dictionaries[lang], extras[lang] || {});
+    if (lobbyLabels[lang]) Object.assign(dictionaries[lang], Object.fromEntries(lobbyLabelKeys.map((key, index) => [key, lobbyLabels[lang][index]])));
   }
   const supported = Object.keys(languageNames).filter(l => l === 'en' || dictionaries[l]);
   let active = 'en';

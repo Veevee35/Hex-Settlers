@@ -4266,7 +4266,7 @@ body:not(.in-game):not(.ranked-lobby) .layout{grid-template-columns:minmax(280px
 .lobbyPanelSplitter:hover,.lobbyPanelSplitter:focus-visible,.lobbyPanelSplitter.dragging{background:linear-gradient(90deg,transparent 25%,var(--accent) 25%,var(--accent) 75%,transparent 75%);opacity:1;outline:0}
 body.in-game .lobbyPanelSplitter,body.ranked-lobby .lobbyPanelSplitter{display:none!important}
 body.casual-mode .uncreatedLobbyIntro .uncreatedLobbyEyebrow{color:#f0ce8a}
-body.casual-mode #joinBtn,body.casual-mode #codeInput,body.casual-mode #rejoinLastBtn,body.casual-mode #lastRoomHint,body.casual-mode #copyJoinLinkBtn,body.casual-mode .roomShareControls{display:none!important}
+body.casual-mode #joinBtn,body.casual-mode #codeInput,body.casual-mode #rejoinLastBtn,body.casual-mode #lastRoomHint,body.casual-mode .roomShareControls{display:none!important}
 .historyToolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line)}
 .historyToolbar .checkRow{display:flex;align-items:center;gap:7px;white-space:nowrap;margin:0}
 .historyReplayTools,.logReplayTools{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
@@ -4486,3 +4486,32 @@ body.in-game .countdownClock .clockActionInfo .turnInfo {
 .languageChoice.selected {border-color:var(--ok);box-shadow:inset 0 0 0 1px var(--ok)}
 
 .lobbyReadyStatus.waiting {color:#ffc9ce;border-color:rgba(255,91,91,.55);background:rgba(255,91,91,.12)}
+
+/* v51: browser-only map toggle and two-column lobby/settings layout.
+   Existing mobile map drawer, ranked ballot and in-game HUD are unchanged. */
+.lobbyCardHeading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+.lobbyCardHeading h2{margin:0;}
+.desktopLobbyMapToggle{display:none;flex:0 0 auto;padding:7px 12px;font-size:12px;}
+.copyValueButton,.copyLinkValue{cursor:pointer;touch-action:manipulation;transition:border-color .14s,background .14s;}
+.copyValueButton:disabled,.copyLinkValue:disabled{cursor:default;opacity:.65;}
+.copyValueButton{display:inline-block;max-width:100%;margin:0;padding:3px 5px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text);text-align:left;font:inherit;font-family:var(--mono);font-size:18px;letter-spacing:2px;}
+.copyLinkValue{display:block;width:100%;min-width:0;height:auto;min-height:38px;margin-top:6px;padding:9px 11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-family:var(--mono);font-size:11px;color:var(--text);}
+.copyHint{margin:3px 0 0;font-size:10px;line-height:1.3;color:var(--muted);}
+.copyValueButton:not(:disabled):hover,.copyLinkValue:not(:disabled):hover{border-color:var(--accent);background:rgba(224,174,58,.07);}
+.copyValueButton:focus-visible,.copyLinkValue:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+body.ranked-lobby .roomTop .copyHint{display:none!important;}
+body.ranked-lobby .copyLinkValue{height:32px;min-height:32px;margin-top:0;padding:7px 9px;font-size:10px;}
+@media(min-width:981px) and (pointer:fine){
+  body.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby):not(.uncreated-lobby) .desktopLobbyMapToggle{display:inline-flex;align-items:center;justify-content:center;}
+  body.desktopLobbyMapHidden.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby):not(.uncreated-lobby) .layout{grid-template-columns:minmax(0,1fr);column-gap:0;}
+  body.desktopLobbyMapHidden.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby):not(.uncreated-lobby) .lobbyPanelSplitter{display:none!important;}
+  body.desktopLobbyMapHidden.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby):not(.uncreated-lobby) .layout>.boardWrap{display:none!important;}
+  body.desktopLobbyMapHidden.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby):not(.uncreated-lobby) .layout>.panel{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(0,1fr);
+    align-items:stretch;gap:16px;min-width:0;min-height:0;overflow:hidden;padding:0;
+  }
+  body.desktopLobbyMapHidden.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby):not(.uncreated-lobby) .layout>.panel>#lobbyCard,
+  body.desktopLobbyMapHidden.hasLobbyMapPreview:not(.in-game):not(.ranked-lobby):not(.uncreated-lobby) .layout>.panel>#setupCard{
+    min-width:0;min-height:0;height:100%;max-height:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+  }
+}

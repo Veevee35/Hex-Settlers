@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.3';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.4';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -142,7 +142,6 @@
     roomBox: $('roomBox'),
     roomCode: $('roomCode'),
     roomJoinLinkInput: $('roomJoinLinkInput'),
-    copyJoinLinkBtn: $('copyJoinLinkBtn'),
     playersList: $('playersList'),
     rankedScenarioVote: $('rankedScenarioVote'),
     colorPickerRow: $('colorPickerRow'),
@@ -4855,6 +4854,29 @@ function syncPostgameToState() {
   }
   $('mobileLobbyMapToggle')?.addEventListener('click', () => setMobileLobbyMapOpen(!document.body.classList.contains('mobileLobbyMapOpen')));
   $('mobileLobbyMapClose')?.addEventListener('click', () => setMobileLobbyMapOpen(false));
+
+  // Desktop lobby preview uses its own preference; mobile retains the map drawer.
+  const DESKTOP_LOBBY_MAP_KEY = 'hexsettlers_desktop_lobby_map_visible_v51';
+  let desktopLobbyMapVisible = true;
+  try { desktopLobbyMapVisible = localStorage.getItem(DESKTOP_LOBBY_MAP_KEY) !== 'false'; } catch (_) {}
+  function syncDesktopLobbyMap() {
+    document.body.classList.toggle('desktopLobbyMapHidden', !desktopLobbyMapVisible);
+    const button = $('desktopLobbyMapToggle');
+    if (button) {
+      button.textContent = desktopLobbyMapVisible ? 'Hide Map' : 'Show Map';
+      button.setAttribute('aria-pressed', String(desktopLobbyMapVisible));
+      button.setAttribute('aria-label', desktopLobbyMapVisible ? 'Hide Map' : 'Show Map');
+      button.title = desktopLobbyMapVisible ? 'Hide Map' : 'Show Map';
+    }
+  }
+  syncDesktopLobbyMap();
+  $('desktopLobbyMapToggle')?.addEventListener('click', () => {
+    desktopLobbyMapVisible = !desktopLobbyMapVisible;
+    try { localStorage.setItem(DESKTOP_LOBBY_MAP_KEY, String(desktopLobbyMapVisible)); } catch (_) {}
+    syncDesktopLobbyMap();
+    // Visibility changes resize the canvas; repaint after the layout settles.
+    requestAnimationFrame(() => { view.autoFit = true; resizeCanvas(); render(); });
+  });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && document.body.classList.contains('mobileLobbyMapOpen')) setMobileLobbyMapOpen(false);
   });
@@ -6033,7 +6055,8 @@ function syncPostgameToState() {
     clearRoomQueryFromUrl();
     if (ui.roomCode) ui.roomCode.textContent = '----';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = '';
-    if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = true;
+    if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.disabled = true;
+    if (ui.roomCode) ui.roomCode.disabled = true;
     if (ui.playersList) ui.playersList.innerHTML = '';
     if (ui.readyBtn) ui.readyBtn.classList.add('hidden');
     if (ui.startBtn) ui.startBtn.classList.add('hidden');
@@ -6688,8 +6711,13 @@ function refreshLobbyJoinLinkUi() {
 
     const code = String((room && room.code) || '').trim().toUpperCase();
     const link = code ? (room?.ranked ? buildSpectatorJoinUrl(code) : buildDirectJoinUrl(code)) : '';
-    if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = link;
-    if (ui.copyJoinLinkBtn) ui.copyJoinLinkBtn.disabled = !link;
+    if (ui.roomJoinLinkInput) {
+      ui.roomJoinLinkInput.value = link; // preserve compatibility with existing invite-link helpers
+      ui.roomJoinLinkInput.textContent = link || 'Direct join link';
+      ui.roomJoinLinkInput.disabled = !link;
+      ui.roomJoinLinkInput.title = link ? 'Click to copy direct join link' : 'Join a room first';
+    }
+    if (ui.roomCode) ui.roomCode.disabled = !code;
   }
 
 
@@ -11430,14 +11458,15 @@ function refreshLobbyJoinLinkUi() {
     send({ type: 'join_room', code, displayName });
   });
 
-  if (ui.copyJoinLinkBtn) {
-    ui.copyJoinLinkBtn.addEventListener('click', () => {
-      refreshLobbyJoinLinkUi();
-      const link = String(ui.roomJoinLinkInput?.value || '');
-      if (!link) { setError('Join a room first.'); return; }
-      copyText(link);
-    });
-  }
+  ui.roomCode?.addEventListener('click', () => {
+    const code = String(room?.code || '').trim().toUpperCase();
+    if (code) copyText(code);
+  });
+  ui.roomJoinLinkInput?.addEventListener('click', () => {
+    refreshLobbyJoinLinkUi();
+    const link = String(ui.roomJoinLinkInput?.value || '');
+    if (link) copyText(link);
+  });
   ui.startBtn.addEventListener('click', () => {
     setError(null);
     send({ type: 'start_game' });
