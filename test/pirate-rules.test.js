@@ -32,10 +32,10 @@ test('Fog Island starting pirate candidates exclude every unrevealed fog tile', 
   );
 });
 
-test('the fog restriction is scoped to Fog Island rules', () => {
+test('the fog restriction also protects Custom Map fog tiles', () => {
   assert.equal(
-    pirateCanOccupyTile({ mapMode: 'seafarers', seafarersScenario: 'four_islands' }, hiddenFogSea),
-    true,
+    pirateCanOccupyTile({ mapMode: 'seafarers', seafarersScenario: 'test_builder_78' }, hiddenFogSea),
+    false,
   );
 });
 

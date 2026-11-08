@@ -95,6 +95,7 @@ const {
   shipWasPlacedThisOpportunity,
 } = require('./server/ship-rules');
 const { editTestBuilderPort, normalizeTestBuilderPorts } = require('./server/test-builder-ports');
+const { scenario78, is78: is78Rules, isCustom78: isCustom78Rule, templateFor: template78, construct78Tiles } = require('./server/maps-78');
 const { computeLandIslands, islandIdForNode, playerHasBuildingOnIsland } = require('./server/land-masses');
 const { INITIAL_RANKED_RATING, rankedRating, calculateRankedChanges } = require('./server/ranked-rating');
 const { METRICS, DEFAULT_RATING_POLICY, validatedRatingPolicy, computePolicyRatingChanges, replayRankedHistory } = require('./server/rating-policy');
@@ -1790,8 +1791,7 @@ function isSeafarers56Scenario(s) {
 }
 
 function is78CustomRules(rules) {
-  return !!rules && (String(rules.mapMode || '') === 'classic78' ||
-    (String(rules.mapMode || '') === 'seafarers' && String(rules.seafarersScenario || '') === 'test_builder_78'));
+  return isCustom78Rule(rules);
 }
 
 function isTestBuilderScenarioKey(s) {
@@ -1811,11 +1811,11 @@ function isCartographer56ScenarioKey(s) {
 
 function isFogIslandScenario(s) {
   const scen = String(s || '').toLowerCase().replace(/-/g,'_');
-  return scen === 'fog_island' || scen === 'fog_island_56';
+  return scen === 'fog_island' || scen === 'fog_island_56' || scen === 'fog_island_78';
 }
 
 function isFogIslandGame(game) {
-  return !!(game && (game.rules?.mapMode || 'classic') === 'seafarers' && isFogIslandScenario(seafarersScenarioKey(game)));
+  return !!(game && ((game.rules?.mapMode || 'classic') === 'seafarers' && isFogIslandScenario(seafarersScenarioKey(game)) || game.geom?.tiles?.some(tile => tile?.fog && !tile?.revealed)));
 }
 
 // Fog Island exploration (Option B):
@@ -2616,11 +2616,11 @@ function defaultVictoryPointsToWin(rules) {
   const mm = String(rules?.mapMode || 'classic').toLowerCase();
   if (mm !== 'seafarers') return 10;
   const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
-  if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog' || scen === 'fog_island_56') return 12;
-  if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56') return 14;
+  if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog' || scen === 'fog_island_56' || scen === 'fog_island_78') return 12;
+  if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56' || scen === 'through_the_desert_78') return 14;
   if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
-  if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-  if (isCartographer4ScenarioKey(scen) || isCartographer56ScenarioKey(scen)) return 12;
+  if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six' || scen === 'eight_islands_78') return 14;
+  if (isCartographer4ScenarioKey(scen) || isCartographer56ScenarioKey(scen) || scen === 'cartographer_78_manual' || scen === 'cartographer_78_random') return 12;
   return 13; // four islands
 }
 
@@ -2630,7 +2630,7 @@ function isPairedTurnPlayerTwoStage(game) {
   const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
     ? 'classic56'
     : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
-  const pairedMode = (mm === 'classic56') || is78CustomRules(game?.rules) || (mm === 'seafarers' && isSeafarers56Scenario(game?.rules?.seafarersScenario));
+  const pairedMode = (mm === 'classic56') || is78Rules(game?.rules) || (mm === 'seafarers' && isSeafarers56Scenario(game?.rules?.seafarersScenario));
   if (!pairedMode) return false;
   return !!(game.paired && game.paired.enabled && String(game.paired.stage || '') === 'p2');
 }
@@ -5094,6 +5094,7 @@ function cartographer56DraftDefaultInventoryForSeatIndex(seatIndex, playerCount)
 
 function cartographerDraftDefaultInventoryForPlayer(game, playerId) {
   const scen = seafarersScenarioKey(game);
+  if (scen === 'cartographer_78_manual') return { sea: 0, desert: 1, gold: 1, hills: 1, forest: 1, pasture: 1, field: 1, mountains: 1 };
   if (isCartographer56ScenarioKey(scen)) {
     const order = Array.isArray(game?.turnOrder) ? game.turnOrder : (game?.players || []).map(p => p.id);
     const seatIndex = Math.max(0, order.indexOf(playerId));
@@ -5116,7 +5117,10 @@ function assignCartographer4NumbersRobberPirateAndPorts(game) {
   const scen = seafarersScenarioKey(game);
   const is56 = isCartographer56ScenarioKey(scen);
   const playerCount = Math.max(0, Array.isArray(game.players) ? game.players.length : 0);
-  const numbersPool = is56
+  const is78Manual = scen === 'cartographer_78_manual';
+  const numbersPool = is78Manual
+    ? require('./server/maps-78').TOKEN_POOLS[playerCount >= 8 ? 'scattered_78_8' : 'scattered_78_7']
+    : is56
     ? cartographer56NumbersPoolForPlayerCount(playerCount || 6)
     : [
         2,
@@ -5158,7 +5162,7 @@ function assignCartographer4NumbersRobberPirateAndPorts(game) {
   }
 
   const pc = Math.max(5, Math.min(6, Math.floor(Number(playerCount || 6))));
-  if (is56 && pc <= 5) {
+  if ((is56 && pc <= 5) || is78Manual) {
     const desertIds = tiles.filter(t => t && t.type === 'desert').map(t => t.id);
     if (desertIds.length) {
       const rid = desertIds[Math.floor(Math.random() * desertIds.length)];
@@ -5177,7 +5181,7 @@ function assignCartographer4NumbersRobberPirateAndPorts(game) {
 
   placeRandomPirate(tiles, { rules: game.rules, geom: game.geom });
 
-  game.geom.ports = generatePortsSeafarers(game.geom, is56 ? 'cartographer_56_random' : 'cartographer_4_random');
+  game.geom.ports = generatePortsSeafarers(game.geom, is78Manual ? 'cartographer_78_random' : (is56 ? 'cartographer_56_random' : 'cartographer_4_random'));
 }
 
 function initCartographer4ManualDraftState(game) {
@@ -5188,7 +5192,7 @@ function initCartographer4ManualDraftState(game) {
   game.cartographerDraft.inventoryByPlayer = invByPlayer;
   game.cartographerDraft.turnIndex = 0;
   game.cartographerDraft.placedCount = 0;
-  game.cartographerDraft.totalCount = Array.isArray(game.geom?.tiles) ? game.geom.tiles.length : 44;
+  game.cartographerDraft.totalCount = (game.geom?.tiles || []).filter(t => t.type === 'unexplored').length;
   game.phase = 'cartographer-draft';
   game.currentPlayerId = game.turnOrder?.[0] || game.players?.[0]?.id || null;
   game.message = `Cartographer Draft: ${playerName(game, game.currentPlayerId)} place a tile.`;
@@ -5235,8 +5239,9 @@ function buildCustom78Geometry(coords, oldGeom = null) {
   const originals = new Map((oldGeom?.tiles || []).map(t => [axialKey(t.q, t.r), t]));
   geom.tiles = geom.tiles.map(tile => {
     const prev = originals.get(axialKey(tile.q, tile.r));
-    return { ...tile, type: prev?.type || 'sea', number: prev?.number ?? null,
-      robber: !!prev?.robber, pirate: !!prev?.pirate };
+    const copied = { ...tile, type: prev?.type || 'sea', number: prev?.number ?? null, robber: !!prev?.robber, pirate: !!prev?.pirate };
+    if (prev?.fog) { copied.fog = true; copied.revealed = false; copied.hiddenType = prev.hiddenType || 'sea'; copied.hiddenNumber = prev.hiddenNumber ?? null; }
+    return copied;
   });
   const oldPorts = new Map((oldGeom?.ports || []).map(port => {
     const edge = oldGeom.edges[port.edgeId];
@@ -5253,6 +5258,23 @@ function initialCustom78Geometry() {
   const geom = buildCustom78Geometry([{q: 0, r: 0}]);
   geom.tiles[0].type = 'desert';
   geom.tiles[0].robber = true;
+  return geom;
+}
+
+
+function initial78Geometry(rules, playerCount = 7) {
+  const fixture = template78(rules, playerCount);
+  const geom = buildGeometryFromAxials(fixture.tiles.map(t => ({ q: t.q, r: t.r })));
+  geom.tiles = construct78Tiles(geom, rules, playerCount);
+  geom.ports = is78CustomRules(rules) ? [] : (String(rules.mapMode) === 'classic78'
+    ? generatePorts(geom, 9)
+    : generatePortsSeafarers(geom, rules.seafarersScenario));
+  // The 7–8 Seafarers charts specify six specialized 2:1 ports and five
+  // generic 3:1 ports for the fixed-island scenarios (not the older 5–6 mix).
+  if (!is78CustomRules(rules) && ['eight_islands_78','through_the_desert_78','fog_island_78'].includes(String(rules.seafarersScenario))) {
+    const sixSpecific = ['brick','lumber','wool','grain','ore','brick'];
+    geom.ports.forEach((port, i) => { port.kind = i < sixSpecific.length ? sixSpecific[i] : 'generic'; });
+  }
   return geom;
 }
 
@@ -5594,7 +5616,7 @@ function generatePortsSeafarersSixIslandsBalanced(geom, count = 11) {
 function generatePortsSeafarers(geom, scenario = 'four_islands') {
   // Seafarers uses the same port placement logic, but scenarios may override the count and/or valid coastline.
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-  const count = (isCartographer4ScenarioKey(s)) ? 11 : (isSeafarers56Scenario(s) ? 11 : 9);
+  const count = (isCartographer4ScenarioKey(s) || ['eight_islands_78','through_the_desert_78','fog_island_78'].includes(s)) ? 11 : (isSeafarers56Scenario(s) ? 11 : 9);
 
   // Six Islands (5–6): enforce 2 ports per island except the top-center island (1 port).
   if (s === 'six_islands') {
@@ -5662,8 +5684,8 @@ function newEmptyGame(room) {
       ? 'classic56'
       : 'classic';
   let geom = null;
-  if (is78CustomRules(room.rules)) {
-    geom = initialCustom78Geometry();
+  if (is78Rules(room.rules)) {
+    geom = initial78Geometry(room.rules, room.players?.length || 7);
   } else if (mapMode === 'classic56') {
     geom = buildGeometryClassic56();
   } else if (mapMode === 'seafarers') {
@@ -5899,8 +5921,8 @@ function startGame(room) {
     }
   } catch (_) { usedPreview = false; }
 
-  if (!usedPreview && is78CustomRules(game.rules)) {
-    game.geom = initialCustom78Geometry();
+  if (!usedPreview && is78Rules(game.rules)) {
+    game.geom = initial78Geometry(game.rules, game.players?.length || 7);
     usedPreview = true;
   }
   if (!usedPreview) {
@@ -5943,8 +5965,8 @@ function startGame(room) {
   room.preview = null;
 
   // Manual Cartographer 4-player scenario starts with a player tile draft before setup placements.
-  if ((game.rules?.mapMode || 'classic') === 'seafarers' && (seafarersScenarioKey(game) === 'cartographer_4_manual' || seafarersScenarioKey(game) === 'cartographer_56_manual')) {
-    if (!usedPreview) game.geom.tiles = generateBoardSeafarersCartographer4ManualDraft(game.geom);
+  if ((game.rules?.mapMode || 'classic') === 'seafarers' && (seafarersScenarioKey(game) === 'cartographer_4_manual' || seafarersScenarioKey(game) === 'cartographer_56_manual' || seafarersScenarioKey(game) === 'cartographer_78_manual')) {
+    if (!usedPreview && seafarersScenarioKey(game) !== 'cartographer_78_manual') game.geom.tiles = generateBoardSeafarersCartographer4ManualDraft(game.geom);
     game.geom.ports = [];
     initCartographer4ManualDraftState(game);
   }
@@ -6071,7 +6093,7 @@ function advanceSetup(game) {
           ? 'classic56'
           : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
         const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-        const pairedOn = (mm === 'classic56') || is78CustomRules(game.rules) || (mm === 'seafarers' && isSeafarers56Scenario(scen));
+        const pairedOn = (mm === 'classic56') || is78Rules(game.rules) || (mm === 'seafarers' && isSeafarers56Scenario(scen));
         if (pairedOn) {
           game.paired = { enabled: true, stage: 'p1', p1Id: game.currentPlayerId, p2Id: (order && order.length >= 5) ? order[(0 + 3) % order.length] : null, p1Idx: 0, offset: 3 };
         } else {
@@ -6501,9 +6523,9 @@ function applyActionCore(room, playerId, action) {
 
 
     // Fog Island: initial settlements are restricted to the two starting islands (unrevealed fog counts as sea during setup).
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && isFogIslandScenario(seafarersScenarioKey(game))) {
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && ['fog_island','fog_island_56'].includes(seafarersScenarioKey(game))) {
       if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
-        if (!nodeIsOnFogStartIslands(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting islands.' };
+        if (seafarersScenarioKey(game) !== 'fog_island_78' && !nodeIsOnFogStartIslands(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the starting islands.' };
       }
     }
 
@@ -7672,7 +7694,7 @@ if (kind === 'pirate_steal') {
       const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
         ? 'classic56'
         : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
-      if (((mm === 'classic56') || is78CustomRules(game.rules) || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) && game.paired && game.paired.stage === 'p2') {
+      if (((mm === 'classic56') || is78Rules(game.rules) || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) && game.paired && game.paired.stage === 'p2') {
         return { ok: false, error: 'Player 2 cannot trade with other players.' };
       }
     }
@@ -8095,7 +8117,7 @@ function pickAvailableColor(room) {
 }
 
 function maxPlayersForRules(rules) {
-  if (is78CustomRules(rules)) return 8;
+  if (is78Rules(rules)) return 8;
   const raw = (rules && rules.mapMode) ? String(rules.mapMode).toLowerCase() : 'classic';
   const mm = (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
     ? 'classic56'
@@ -8221,7 +8243,7 @@ function gameUsesPairedTurns(game) {
   const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
     ? 'classic56'
     : (rawMM === 'seafarers' ? 'seafarers' : 'classic');
-  return (mm === 'classic56') || is78CustomRules(game?.rules) || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')));
+  return (mm === 'classic56') || is78Rules(game?.rules) || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')));
 }
 
 function recomputeLargestArmy(game) {
@@ -8940,13 +8962,13 @@ function rejoinRoom(code, playerId) {
 
 
 function customMapEnabled(rules) {
-  return (!!rules?.customMap || String(rules?.mapMode || '') === 'classic78') && ['classic', 'classic56', 'classic78'].includes(String(rules?.mapMode || '').toLowerCase());
+  return !!rules?.customMap && ['classic', 'classic56', 'classic78'].includes(String(rules?.mapMode || '').toLowerCase());
 }
 function editableCustomMapRules(rules) {
   return customMapEnabled(rules) || (String(rules?.mapMode || '') === 'seafarers' && isTestBuilderScenarioKey(rules?.seafarersScenario));
 }
 function mapPreviewKey(rules, playerCount = null) {
-  if (is78CustomRules(rules)) return String(rules.mapMode) === 'classic78' ? 'classic78:custom' : 'seafarers:test_builder_78';
+  if (is78Rules(rules)) return `${rules.mapMode === 'classic78' ? 'classic78' + (is78CustomRules(rules) ? ':custom' : ':classic') : 'seafarers:' + rules.seafarersScenario}${rules.mapMode === 'seafarers' && String(rules.seafarersScenario || '').startsWith('cartographer_78') ? ':p' + (Number(playerCount || 0) >= 8 ? 8 : 7) : ''}`;
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
@@ -8990,7 +9012,7 @@ function mapPreviewKey(rules, playerCount = null) {
 }
 
 function generatePreviewGeom(rules, room = null) {
-  if (is78CustomRules(rules)) return initialCustom78Geometry();
+  if (is78Rules(rules)) return initial78Geometry(rules, room?.players?.length || 7);
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
@@ -11778,7 +11800,7 @@ if (msg.type === 'create_room') {
           : 'classic';
 
       const rawScen = String(r.seafarersScenario ?? next.seafarersScenario ?? 'four_islands').toLowerCase();
-      next.seafarersScenario = (rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'desert' || rawScen === 'throughdesert')
+      next.seafarersScenario = scenario78(rawScen) ? rawScen : (rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'desert' || rawScen === 'throughdesert')
         ? 'through_the_desert'
         : (rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fogisland')
           ? 'fog_island'
@@ -11809,17 +11831,17 @@ if (msg.type === 'create_room') {
 
       // Casual play deliberately excludes all custom-board editors, including
       // uploads and crafted settings messages. Enforce on the server, not only UI.
-      if (room.casual && (r.customMap === true || next.mapMode === 'classic78' || next.seafarersScenario === 'test_builder_78' || next.seafarersScenario === 'test_builder' || next.seafarersScenario === 'test_builder_56')) {
+      if (room.casual && (r.customMap === true || next.mapMode === 'classic78' || scenario78(next.seafarersScenario) || next.seafarersScenario === 'test_builder' || next.seafarersScenario === 'test_builder_56')) {
         sendJson(ws, { type: 'error', error: 'Custom maps are not available in Casual Play.' });
         return;
       }
-      next.customMap = next.mapMode !== 'seafarers' && (next.mapMode === 'classic78' || r.customMap === true);
+      next.customMap = next.mapMode !== 'seafarers' && r.customMap === true;
       if (editableCustomMapRules(next)) next.randomMapAtStart = false;
 
       if (typeof r.explorationPointsEnabled === 'boolean') {
         next.explorationPointsEnabled = r.explorationPointsEnabled;
       } else if (r.seafarersScenario != null) {
-        next.explorationPointsEnabled = next.seafarersScenario !== 'fog_island' && next.seafarersScenario !== 'fog_island_56';
+        next.explorationPointsEnabled = !['fog_island','fog_island_56','fog_island_78'].includes(next.seafarersScenario);
       } else if (typeof next.explorationPointsEnabled !== 'boolean') {
         next.explorationPointsEnabled = true;
       }
@@ -12006,7 +12028,8 @@ if (msg.type === 'create_room') {
       if (msg.type === 'download_custom_map') {
         sendJson(ws, { type: 'custom_map_file', map: {
           format: 'hex-settlers-custom-map', version: is78CustomRules(room.rules) ? 2 : 1, mapKind,
-          tiles: geom.tiles.map(t => ({ q: t.q, r: t.r, type: t.type, number: t.number, robber: !!t.robber, pirate: !!t.pirate })),
+          tiles: geom.tiles.map(t => ({ q: t.q, r: t.r, type: t.type, number: t.number, robber: !!t.robber, pirate: !!t.pirate,
+            ...(t.fog ? { fog: true, hiddenType: t.hiddenType || 'sea', hiddenNumber: t.hiddenNumber ?? null } : {}) })),
           ports: (geom.ports || []).map(port => ({ edgeId: port.edgeId, kind: port.kind })),
         } });
         return;
@@ -12029,6 +12052,11 @@ if (msg.type === 'create_room') {
           const num = input.number == null ? null : Number(input.number);
           if (!validTypes.has(input.type) || (num !== null && (!Number.isInteger(num) || num < 2 || num > 12 || num === 7)) ||
               (['sea','desert'].includes(input.type) && num !== null)) return null;
+          if (input.fog === true) {
+            const ht = input.hiddenType || 'sea', hn = input.hiddenNumber == null ? null : Number(input.hiddenNumber);
+            if (!validTypes.has(ht) || (hn !== null && (!Number.isInteger(hn) || hn < 2 || hn > 12 || hn === 7)) || (['sea','desert'].includes(ht) && hn !== null)) return null;
+            return {...tile,type:'sea',number:null,robber:false,pirate:false,fog:true,revealed:false,hiddenType:ht,hiddenNumber:hn};
+          }
           return {...tile,type:input.type, number:num, robber:input.robber === true, pirate:input.pirate === true};
         });
         if (trial.tiles.some(t => !t) || trial.tiles.filter(t => t.robber).length > 1 ||
@@ -12059,6 +12087,11 @@ if (msg.type === 'create_room') {
         const n = incoming.number == null ? null : Number(incoming.number);
         if (n !== null && (!Number.isInteger(n) || n < 2 || n > 12 || n === 7)) return null;
         if ((incoming.type === 'sea' || incoming.type === 'desert') && n !== null) return null;
+        if (incoming.fog === true) {
+          const ht = incoming.hiddenType || 'sea', hn = incoming.hiddenNumber == null ? null : Number(incoming.hiddenNumber);
+          if (!validTypes.has(ht) || (hn !== null && (!Number.isInteger(hn) || hn < 2 || hn > 12 || hn === 7)) || (['sea','desert'].includes(ht) && hn !== null)) return null;
+          return { ...tile,type:'sea',number:null,robber:false,pirate:false,fog:true,revealed:false,hiddenType:ht,hiddenNumber:hn };
+        }
         return { ...tile, type: incoming.type, number: n, robber: incoming.robber === true, pirate: incoming.pirate === true };
       });
       if (tiles.some(tile => !tile) || tiles.filter(tile => tile.robber).length !== 1 ||
@@ -12137,10 +12170,21 @@ if (msg.type === 'create_room') {
         sendJson(ws, { type: 'error', error: 'Invalid tile ID.' });
         return;
       }
-      const allowed = new Set(['sea','desert','forest','hills','pasture','field','mountains','gold']);
+      const allowed = new Set(['sea','desert','forest','hills','pasture','field','mountains','gold','fog']);
       let tt = String(msg.tileType || 'sea').toLowerCase();
       if (!allowed.has(tt)) tt = 'sea';
       const t = geom.tiles[tid];
+      if (tt === 'fog') {
+        const was = t.fog && !t.revealed;
+        const hiddenType = was ? (t.hiddenType || 'sea') : t.type;
+        const hiddenNumber = was ? (t.hiddenNumber ?? null) : (t.number ?? null);
+        t.fog = true; t.revealed = false; t.hiddenType = hiddenType; t.hiddenNumber = hiddenNumber;
+        t.type = 'sea'; t.number = null; t.robber = false; t.pirate = false;
+        if (!geom.tiles.some(x => x.robber)) { const land = geom.tiles.find(x => x.type === 'desert') || geom.tiles.find(x=>x.type !== 'sea'); if(land) land.robber=true; }
+        normalizeTestBuilderPorts(geom);
+        room.preview.at = now(); scheduleActiveRoomsSave(); broadcastPreviewState(room); return;
+      }
+      if (t.fog) { delete t.fog; delete t.revealed; delete t.hiddenType; delete t.hiddenNumber; }
       // If painting a desert, make the robber live here (matches typical setup expectations).
       if (tt === 'desert') {
         for (const x of geom.tiles) x.robber = false;
@@ -12252,7 +12296,7 @@ if (msg.type === 'create_room') {
 
       const scen = String((room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
       const isSix = (mm === 'seafarers' && isSeafarers56Scenario(scen));
-      const isEight = is78CustomRules(room.rules);
+      const isEight = is78Rules(room.rules);
 
       const minPlayers = isEight ? 7 : ((mm === 'classic56') ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2)));
       const maxPlayers = isEight ? 8 : ((mm === 'classic56') ? 6 : (isSix ? 6 : 4));

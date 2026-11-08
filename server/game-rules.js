@@ -41,7 +41,7 @@ function defaultVictoryPointsForScenario(scenario) {
 
 function defaultExplorationPointsForScenario(scenario) {
   const id = String(scenario?.id || scenario?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
-  return id !== 'fog_island' && id !== 'fog_island_56';
+  return id !== 'fog_island' && id !== 'fog_island_56' && id !== 'fog_island_78';
 }
 
 function rankedRulesForScenario(scenarioOrId) {
@@ -97,7 +97,7 @@ function seafarersDesertsSeparateLandMasses(rules) {
   const scenario = String(rules?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
   return scenario === 'cartographer_4_manual' || scenario === 'cartographer_4_random' || scenario === 'cartographer_4' ||
     scenario === 'cartographer_56_manual' || scenario === 'cartographer_56_random' || scenario === 'cartographer_56' ||
-    scenario === 'test_builder' || scenario === 'test_builder_56' || scenario === 'test_builder_78';
+    scenario === 'test_builder' || scenario === 'test_builder_56' || scenario === 'test_builder_78' || scenario === 'through_the_desert_78' || scenario === 'cartographer_78_manual' || scenario === 'cartographer_78_random';
 }
 
 function microActionDurationMs(rules) {
@@ -110,7 +110,7 @@ function bankMaxForRules(rules) {
   const custom = Math.floor(Number(rules && (rules.baseResourcesPerType ?? rules.baseResourceCount)));
   if (Number.isFinite(custom)) return Math.max(1, Math.min(40, custom));
   const mapMode = normalizedMapModeRaw(rules && rules.mapMode);
-  if (mapMode === 'classic78' || (mapMode === 'seafarers' && rules?.seafarersScenario === 'test_builder_78')) return BANK_MAX_78;
+  if (mapMode === 'classic78' || (mapMode === 'seafarers' && ['test_builder_78','eight_islands_78','through_the_desert_78','fog_island_78','cartographer_78_manual','cartographer_78_random'].includes(rules?.seafarersScenario))) return BANK_MAX_78;
   if (mapMode === 'classic56') return BANK_MAX_56;
   if (mapMode === 'seafarers' && isSeafarers56Scenario(rules && rules.seafarersScenario)) return BANK_MAX_56;
   return BANK_MAX_DEFAULT;

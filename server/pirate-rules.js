@@ -5,6 +5,7 @@ const VISIBLE_OUTER_SEA_SCENARIOS = new Set([
   'test_builder_56',
   'cartographer_4_manual', 'cartographer_4_random', 'cartographer_4',
   'cartographer_56_manual', 'cartographer_56_random', 'cartographer_56',
+  'cartographer_78_manual','cartographer_78_random','test_builder_78',
 ]);
 
 function isUnrevealedFogTile(tile) {
@@ -14,7 +15,7 @@ function isUnrevealedFogTile(tile) {
 function isFogIslandRules(rules) {
   if (String(rules?.mapMode || 'classic').toLowerCase() !== 'seafarers') return false;
   const scenario = String(rules?.seafarersScenario || '').toLowerCase().replace(/-/g, '_');
-  return scenario === 'fog_island' || scenario === 'fog_island_56';
+  return scenario === 'fog_island' || scenario === 'fog_island_56' || scenario === 'fog_island_78';
 }
 
 function rulesHideOuterSeaBorder(rules) {
@@ -25,7 +26,7 @@ function rulesHideOuterSeaBorder(rules) {
 
 function pirateCanOccupyTile(rules, tile, geom = null) {
   if (!tile || tile.type !== 'sea') return false;
-  if (isFogIslandRules(rules) && isUnrevealedFogTile(tile)) return false;
+  if (isUnrevealedFogTile(tile)) return false;
   if (rulesHideOuterSeaBorder(rules)) {
     const neighbors = geom?.tileNeighbors?.[tile.id];
     if (Array.isArray(neighbors) && neighbors.length < 6) return false;
