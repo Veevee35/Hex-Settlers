@@ -46,7 +46,7 @@
     }
   ],
   "vars": {
-    "PUBLIC_BASE_URL": "https://REPLACE_WITH_YOUR_STAGING_WORKERS_DEV_URL",
+    "PUBLIC_BASE_URL": "https://hex-settlers-cloudflare-staging.bt616923.workers.dev",
     "HEX_EMAIL_FROM": "",
     "ALLOW_EMPTY_DATABASE": "0"
   }

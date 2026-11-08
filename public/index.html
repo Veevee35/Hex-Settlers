@@ -7,10 +7,11 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=release-v1.0.5" />
+  <link rel="stylesheet" href="styles.css?v=release-v1.0.3" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
+    <button id="loginLanguageBtn" class="btn portalLanguageButton" type="button">🌐 <span>Language</span></button>
     <div class="portalBackdrop"></div>
     <div class="portalCard authPortalCard">
       <img class="portalLogo" src="/favicon.png" alt="Hex Settlers">
@@ -35,7 +36,7 @@
         </a>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.5</div>
+    <div class="appVersion" aria-label="Game version">V1.0.3</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -55,7 +56,7 @@
         <button id="casualModeBtn" class="modeChoice"><strong>Casual Play · vs AI</strong><span>All maps and settings, one human player, no shareable lobby or ratings.</span></button>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.5</div>
+    <div class="appVersion" aria-label="Game version">V1.0.3</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -88,8 +89,20 @@
     <button id="changeModeBtn" class="accountMenuItem">Change Game Type</button>
     <button id="accountPlayerStatsBtn" class="accountMenuItem">Player Stats</button>
     <button id="accountGameLogBtn" class="accountMenuItem">Game Log</button>
+    <button id="accountLanguageBtn" class="accountMenuItem">🌐 <span>Language</span></button>
     <button id="accountLogoutBtn" class="accountMenuItem dangerText">Log Out</button>
   </div>
+
+  <section id="languagePage" class="languagePage hidden" role="dialog" aria-modal="true" aria-labelledby="languagePageTitle">
+    <div class="languagePageInner">
+      <div class="languagePageHeader">
+        <h1 id="languagePageTitle">Select Language</h1>
+        <button id="languagePageBackBtn" class="btn primary" type="button">Back</button>
+      </div>
+      <p id="languagePageDescription" class="portalLead">Language selection is saved on this device. Untranslated game text remains in English.</p>
+      <div id="languageGrid" class="languageGrid"></div>
+    </div>
+  </section>
 
   <div id="registerOverlay" class="portalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
     <form id="registerForm" class="portalCard registerCard">
@@ -246,10 +259,9 @@
                   <option value="expert">Expert</option>
                 </select>
                 <select id="aiFillSelect" class="input" style="width:200px;"></select>
-                <button id="aiFillBtn" class="btn">Fill</button>
-                <button id="aiClearBtn" class="btn">Clear AI</button>
+
               </div>
-              <div id="aiFillNote" class="smallNote">AI players are server-controlled and will auto-place during setup. Difficulty applies to all AI in the room.</div>
+              <div id="aiFillNote" class="smallNote">Selecting a total player count immediately adds or removes AI opponents. AI opponents take their own turns even when the timer is Off.</div>
             </div>
           </div>
 
@@ -257,262 +269,245 @@
         </div>
 
 
-        <div class="card" id="setupCard">
+        <div id="setupCard" class="card">
           <h2>Game Setup</h2>
           <div class="smallNote">Host can adjust these before starting. They lock once the game begins.</div>
-
-          <label class="label">Discard limit</label>
-          <input id="discardLimitInput" class="input" type="number" min="3" max="30" value="7" />
-
-          <label class="label">Robber rules</label>
-          <label class="row" style="justify-content:flex-start; gap:10px; cursor:pointer;">
-            <input id="friendlyRobberToggle" type="checkbox" />
-            <span>Friendly Robber mode</span>
-          </label>
-          <div class="smallNote">Prevents the robber from being placed on any tile beside an active player with 2 victory points or fewer.</div>
-
-          <label class="label">Timer speed</label>
-          <select id="timerSpeedSelect" class="input">
-            <option value="fast">Fast (½ time)</option>
-            <option value="normal" selected>Normal</option>
-            <option value="slow">Slow (2× time)</option>
-          </select>
-
-          <label class="label">Dice algorithm</label>
-          <select id="diceAlgorithmSelect" class="input">
-            <option value="random">Random — independent fair dice</option>
-            <option value="balanced">Balanced Bag — exact distribution every 36 rolls</option>
-            <option value="probability_corrected" selected>Probability Corrected — gently evens out luck</option>
-            <option value="streak_breaker">Streak Breaker — no total three times in a row</option>
-          </select>
-          <div class="smallNote">The host chooses how dice are generated. Every roll is still made by the server and shared with all players.</div>
-
-          <label class="label">Base resources per type</label>
-          <select id="baseResourceCountSelect" class="input">
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10">10</option>
-            <option value="11">11</option>
-            <option value="12">12</option>
-            <option value="13">13</option>
-            <option value="14">14</option>
-            <option value="15">15</option>
-            <option value="16">16</option>
-            <option value="17">17</option>
-            <option value="18">18</option>
-            <option value="19" selected>19</option>
-            <option value="20">20</option>
-            <option value="21">21</option>
-            <option value="22">22</option>
-            <option value="23">23</option>
-            <option value="24">24</option>
-            <option value="25">25</option>
-            <option value="26">26</option>
-            <option value="27">27</option>
-            <option value="28">28</option>
-            <option value="29">29</option>
-            <option value="30">30</option>
-            <option value="31">31</option>
-            <option value="32">32</option>
-            <option value="33">33</option>
-            <option value="34">34</option>
-            <option value="35">35</option>
-            <option value="36">36</option>
-            <option value="37">37</option>
-            <option value="38">38</option>
-            <option value="39">39</option>
-            <option value="40">40</option>
-          </select>
-          <div class="smallNote">Starting bank amount for each resource type (brick, lumber, wool, grain, ore). Default is 19 for 4-player maps and 24 for 5–6 player maps.</div>
-
-          <label class="label" for="mapFamilySelect">Map</label>
-          <select id="mapFamilySelect" class="input">
-            <option value="classic" selected>Classic</option>
-            <option value="seafarers">Seafarers</option>
-          </select>
-
           <label class="label" for="playerCountSelect">Number of Players</label>
           <select id="playerCountSelect" class="input">
-            <option value="4" selected>4 Player</option>
-            <option value="6">5-6 Player</option>
-            <option value="8">7-8 Player</option>
-          </select>
+<option value="4" selected>4 Player</option>
+<option value="6">5-6 Player</option>
+<option value="8">7-8 Player</option>
+</select>
           <div class="smallNote">Select a board size. You can start with the supported number of humans and AI: 2–4, 5–6, or 7–8. The 7–8 player Scattered Tiles and Cartographer boards change automatically when the eighth seat is occupied. Casual offers 4-player and 5–6-player maps.</div>
-
-          <!-- Internal map-mode value kept for compatibility with multiplayer and scenario rules. -->
+          <label class="label" for="mapFamilySelect">Map</label>
+          <select id="mapFamilySelect" class="input">
+<option value="classic" selected>Classic</option>
+<option value="seafarers">Seafarers</option>
+</select>
           <select id="mapModeSelect" class="input hidden" aria-hidden="true" tabindex="-1">
-            <option value="classic" selected>Classic</option>
-            <option value="classic56">Classic 5–6 Player</option>
-            <option value="classic78">Classic 7–8 Player</option>
-            <option value="seafarers">Seafarers</option>
-            <option value="seafarers56">Seafarers 5–6 Player Scenarios</option>
-            <option value="seafarers78">Seafarers 7–8 Player Scenarios</option>
-          </select>
+<option value="classic" selected>Classic</option>
+<option value="classic56">Classic 5–6 Player</option>
+<option value="classic78">Classic 7–8 Player</option>
+<option value="seafarers">Seafarers</option>
+<option value="seafarers56">Seafarers 5–6 Player Scenarios</option>
+<option value="seafarers78">Seafarers 7–8 Player Scenarios</option>
+</select>
           <label id="classicCustomMapRow" class="checkRow" style="margin-top:10px;align-items:center;gap:8px">
-            <input id="classicCustomMapToggle" type="checkbox" />
-            <span>Custom Map — paint tiles, fog, and ports on Classic boards</span>
-          </label>
+<input id="classicCustomMapToggle" type="checkbox"/>
+<span>Custom Map — paint tiles, fog, and ports on Classic boards</span>
+</label>
           <div id="classic56Note" class="smallNote hidden">Classic 5–6 uses paired turns (Player 1 rolls + acts, then Player 2 acts). Player 2 may only trade with the bank. Requires 5–6 players and uses 11 ports.</div>
           <div id="sixIslandsNote" class="smallNote hidden">Seafarers 5–6 scenarios use paired turns like the classic 5–6 rules (Player 1 rolls + acts, then Player 2 acts). Player 2 may only trade with the bank. Requires 5–6 players and uses 11 ports.</div>
-
           <div id="scenarioRow" class="hidden">
-            <label class="label">Seafarers scenario</label>
-            <select id="mapScenarioSelect" class="input">
-              <option value="four_islands" selected>Four Islands</option>
-              <option value="through_the_desert">Through the Desert</option>
-              <option value="fog_island">Fog Island</option>
-              <option value="heading_for_new_shores">Heading for New Shores</option>
-              <option value="cartographer_4_manual">Cartographer</option>
-              <option value="cartographer_4_random">Scattered Tiles</option>
-              <option value="test_builder">Custom Map (Solo)</option>
-            </select>
-          </div>
-
+<label class="label">Seafarers scenario</label>
+<select id="mapScenarioSelect" class="input">
+<option value="four_islands" selected>Four Islands</option>
+<option value="through_the_desert">Through the Desert</option>
+<option value="fog_island">Fog Island</option>
+<option value="heading_for_new_shores">Heading for New Shores</option>
+<option value="cartographer_4_manual">Cartographer</option>
+<option value="cartographer_4_random">Scattered Tiles</option>
+<option value="test_builder">Custom Map (Solo)</option>
+</select>
+</div>
           <div id="scenario78Note" class="smallNote hidden">7–8 player maps can fill empty seats with AI up to the selected player count. Cartographer and Scattered Tiles use the seven- or eight-player inventory selected under Number of players. Custom Map remains editable. Unranked only.</div>
           <div id="scenario78Row" class="hidden">
-            <label class="label">Seafarers 7–8-player scenario</label>
-            <select id="mapScenario78Select" class="input">
-              <option value="eight_islands_78" selected>Eight Islands</option>
-              <option value="through_the_desert_78">Through the Desert</option>
-              <option value="fog_island_78">Fog Island</option>
-              <option value="cartographer_78">Cartographer</option>
-              <option value="scattered_tiles_78">Scattered Tiles</option>
-              <option value="test_builder_78">Custom Map</option>
-            </select>
-          </div>
+<label class="label">Seafarers 7–8-player scenario</label>
+<select id="mapScenario78Select" class="input">
+<option value="eight_islands_78" selected>Eight Islands</option>
+<option value="through_the_desert_78">Through the Desert</option>
+<option value="fog_island_78">Fog Island</option>
+<option value="cartographer_78">Cartographer</option>
+<option value="scattered_tiles_78">Scattered Tiles</option>
+<option value="test_builder_78">Custom Map</option>
+</select>
+</div>
           <div id="scenario56Row" class="hidden">
-            <label class="label">Seafarers 5–6 scenario</label>
-            <select id="mapScenario56Select" class="input">
-              <option value="six_islands" selected>Six Islands</option>
-              <option value="through_the_desert_56">Through the Desert</option>
-              <option value="fog_island_56">Fog Island</option>
-              <option value="cartographer_56_manual">Cartographer</option>
-              <option value="cartographer_56_random">Scattered Tiles</option>
-              <option value="test_builder_56">Custom Map</option>
-            </select>
-          </div>
-
+<label class="label">Seafarers 5–6 scenario</label>
+<select id="mapScenario56Select" class="input">
+<option value="six_islands" selected>Six Islands</option>
+<option value="through_the_desert_56">Through the Desert</option>
+<option value="fog_island_56">Fog Island</option>
+<option value="cartographer_56_manual">Cartographer</option>
+<option value="cartographer_56_random">Scattered Tiles</option>
+<option value="test_builder_56">Custom Map</option>
+</select>
+</div>
           <div id="explorationPointsRow" class="hidden">
-            <label class="label">Exploration victory points</label>
-            <label class="row" style="justify-content:flex-start; gap:10px; cursor:pointer;">
-              <input id="explorationPointsToggle" type="checkbox" checked />
-              <span>Award exploration victory points</span>
-            </label>
-            <div class="smallNote">Awards scenario exploration points for first settlements on new islands, desert-separated land masses, and eligible Through-the-Desert regions.</div>
-          </div>
-
+<label class="label">Exploration victory points</label>
+<label class="row" style="justify-content:flex-start; gap:10px; cursor:pointer;">
+<input id="explorationPointsToggle" type="checkbox" checked>
+<span>Award exploration victory points</span>
+</label>
+<div class="smallNote">Awards scenario exploration points for first settlements on new islands, desert-separated land masses, and eligible Through-the-Desert regions.</div>
+</div>
           <div id="testBuilderRow" class="hidden">
-            <label class="label">Custom Map Editor</label>
-            <div class="row" style="gap:8px; flex-wrap:wrap;">
-              <select id="testToolSelect" class="input" style="width:145px;">
-                <option value="tile" selected>Paint tiles</option>
-                <option value="port">Place ports</option>
-              </select>
-              <select id="testBrushSelect" class="input" style="flex:1; min-width:180px;">
-                <option value="forest" selected>Forest (lumber)</option>
-                <option value="hills">Hills (brick)</option>
-                <option value="pasture">Pasture (wool)</option>
-                <option value="field">Field (grain)</option>
-                <option value="mountains">Mountains (ore)</option>
-                <option value="gold">Gold</option>
-                <option value="desert">Desert</option>
-                <option value="sea">Sea</option>
-                <option value="fog">Fog (hide existing tile)</option>
-              </select>
-              <select id="testNumberSelect" class="input" style="width:110px;">
-                <option value="" selected>No #</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-                <option value="6">6</option>
-                <option value="8">8</option>
-                <option value="9">9</option>
-                <option value="10">10</option>
-                <option value="11">11</option>
-                <option value="12">12</option>
-              </select>
-              <select id="testPortSelect" class="input hidden" style="flex:1; min-width:180px;">
-                <option value="generic" selected>Generic port (3:1)</option>
-                <option value="brick">Brick port (2:1)</option>
-                <option value="lumber">Lumber port (2:1)</option>
-                <option value="wool">Wool port (2:1)</option>
-                <option value="grain">Grain port (2:1)</option>
-                <option value="ore">Ore port (2:1)</option>
-                <option value="remove">Remove port</option>
-              </select>
-              <button id="testResetBtn" class="btn" type="button">Reset blank</button>
-              <button id="customMapDownloadBtn" class="btn" type="button">Download Map</button>
-              <button id="customMapUploadBtn" class="btn" type="button">Upload Map</button>
-              <input id="customMapUploadInput" class="hidden" type="file" accept=".json,application/json" />
-            </div>
-            <div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
-          </div>
-
+<label class="label">Custom Map Editor</label>
+<div class="row" style="gap:8px; flex-wrap:wrap;">
+<select id="testToolSelect" class="input" style="width:145px;">
+<option value="tile" selected>Paint tiles</option>
+<option value="port">Place ports</option>
+</select>
+<select id="testBrushSelect" class="input" style="flex:1; min-width:180px;">
+<option value="forest" selected>Forest (lumber)</option>
+<option value="hills">Hills (brick)</option>
+<option value="pasture">Pasture (wool)</option>
+<option value="field">Field (grain)</option>
+<option value="mountains">Mountains (ore)</option>
+<option value="gold">Gold</option>
+<option value="desert">Desert</option>
+<option value="sea">Sea</option>
+<option value="fog">Fog (hide existing tile)</option>
+</select>
+<select id="testNumberSelect" class="input" style="width:110px;">
+<option value="" selected>No #</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+<option value="6">6</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10">10</option>
+<option value="11">11</option>
+<option value="12">12</option>
+</select>
+<select id="testPortSelect" class="input hidden" style="flex:1; min-width:180px;">
+<option value="generic" selected>Generic port (3:1)</option>
+<option value="brick">Brick port (2:1)</option>
+<option value="lumber">Lumber port (2:1)</option>
+<option value="wool">Wool port (2:1)</option>
+<option value="grain">Grain port (2:1)</option>
+<option value="ore">Ore port (2:1)</option>
+<option value="remove">Remove port</option>
+</select>
+<button id="testResetBtn" class="btn" type="button">Reset blank</button>
+<button id="customMapDownloadBtn" class="btn" type="button">Download Map</button>
+<button id="customMapUploadBtn" class="btn" type="button">Upload Map</button>
+<input id="customMapUploadInput" class="hidden" accept=".json,application/json" type="file"/>
+</div>
+<div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
+</div>
           <label class="label">Victory points to win</label>
           <select id="victoryPointsSelect" class="input">
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10" selected>10</option>
-            <option value="11">11</option>
-            <option value="12">12</option>
-            <option value="13">13</option>
-            <option value="14">14</option>
-            <option value="15">15</option>
-            <option value="16">16</option>
-            <option value="17">17</option>
-            <option value="18">18</option>
-            <option value="19">19</option>
-            <option value="20">20</option>
-            <option value="21">21</option>
-            <option value="22">22</option>
-            <option value="23">23</option>
-            <option value="24">24</option>
-            <option value="25">25</option>
-            <option value="26">26</option>
-            <option value="27">27</option>
-            <option value="28">28</option>
-            <option value="29">29</option>
-            <option value="30">30</option>
-          </select>
-
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+<option value="6">6</option>
+<option value="7">7</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10" selected>10</option>
+<option value="11">11</option>
+<option value="12">12</option>
+<option value="13">13</option>
+<option value="14">14</option>
+<option value="15">15</option>
+<option value="16">16</option>
+<option value="17">17</option>
+<option value="18">18</option>
+<option value="19">19</option>
+<option value="20">20</option>
+<option value="21">21</option>
+<option value="22">22</option>
+<option value="23">23</option>
+<option value="24">24</option>
+<option value="25">25</option>
+<option value="26">26</option>
+<option value="27">27</option>
+<option value="28">28</option>
+<option value="29">29</option>
+<option value="30">30</option>
+</select>
+          <label class="label">Dice algorithm</label>
+          <select id="diceAlgorithmSelect" class="input">
+<option value="random">Random — independent fair dice</option>
+<option value="balanced">Balanced Bag — exact distribution every 36 rolls</option>
+<option value="probability_corrected" selected>Probability Corrected — gently evens out luck</option>
+<option value="streak_breaker">Streak Breaker — no total three times in a row</option>
+</select>
+          <div class="smallNote">The host chooses how dice are generated. Every roll is still made by the server and shared with all players.</div>
+          <label class="label">Discard limit</label>
+          <input id="discardLimitInput" class="input" max="30" min="3" type="number" value="7"/>
+          <label class="label">Base resources per type</label>
+          <select id="baseResourceCountSelect" class="input">
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+<option value="6">6</option>
+<option value="7">7</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10">10</option>
+<option value="11">11</option>
+<option value="12">12</option>
+<option value="13">13</option>
+<option value="14">14</option>
+<option value="15">15</option>
+<option value="16">16</option>
+<option value="17">17</option>
+<option value="18">18</option>
+<option value="19" selected>19</option>
+<option value="20">20</option>
+<option value="21">21</option>
+<option value="22">22</option>
+<option value="23">23</option>
+<option value="24">24</option>
+<option value="25">25</option>
+<option value="26">26</option>
+<option value="27">27</option>
+<option value="28">28</option>
+<option value="29">29</option>
+<option value="30">30</option>
+<option value="31">31</option>
+<option value="32">32</option>
+<option value="33">33</option>
+<option value="34">34</option>
+<option value="35">35</option>
+<option value="36">36</option>
+<option value="37">37</option>
+<option value="38">38</option>
+<option value="39">39</option>
+<option value="40">40</option>
+</select>
+          <div class="smallNote">Starting bank amount for each resource type (brick, lumber, wool, grain, ore). Default is 19 for 4-player maps and 24 for 5–6 player maps.</div>
           <label class="label">Development card deck</label>
           <select id="devDeckModeSelect" class="input">
-            <option value="25" selected>Standard (25 cards) — 2 Monopoly, 2 Road Building, 2 Invention, 14 Knights, 5 Victory Points</option>
-            <option value="38">Large (38 cards) — 3 Monopoly, 3 Road Building, 3 Invention, 21 Knights, 8 Victory Points</option>
-            <option value="13">Small (13 cards) — 1 Monopoly, 1 Road Building, 1 Invention, 7 Knights, 3 Victory Points</option>
-          </select>
+<option value="25" selected>Standard (25 cards) — 2 Monopoly, 2 Road Building, 2 Invention, 14 Knights, 5 Victory Points</option>
+<option value="38">Large (38 cards) — 3 Monopoly, 3 Road Building, 3 Invention, 21 Knights, 8 Victory Points</option>
+<option value="13">Small (13 cards) — 1 Monopoly, 1 Road Building, 1 Invention, 7 Knights, 3 Victory Points</option>
+</select>
           <div class="smallNote">Changes the development card deck for this game only.</div>
-
+          <label class="label">Robber rules</label>
+          <label class="row" style="justify-content:flex-start; gap:10px; cursor:pointer;">
+<input id="friendlyRobberToggle" type="checkbox"/>
+<span>Friendly Robber mode</span>
+</label>
+          <div class="smallNote">Prevents the robber from being placed on any tile beside an active player with 2 victory points or fewer.</div>
           <label class="label">Map preview</label>
           <label class="checkRow">
-            <input id="randomMapAtStartToggle" type="checkbox" />
-            <span>Surprise map at game start</span>
-          </label>
+<input id="randomMapAtStartToggle" type="checkbox"/>
+<span>Surprise map at game start</span>
+</label>
           <div class="smallNote">Players can inspect a sample layout, but a different layout is generated when the game starts.</div>
+          <label class="label">Timer speed</label>
+          <select id="timerSpeedSelect" class="input">
+<option value="off">Off — no timers or timeout autoplay</option>
+<option value="fast">Fast (½ time)</option>
+<option value="normal" selected>Normal</option>
+<option value="slow">Slow (2× time)</option>
+</select>
           <div class="row">
-            <button id="regenMapBtn" class="btn">Generate New Map</button>
-          </div>
+<button id="regenMapBtn" class="btn">Generate New Map</button>
+</div>
           <div id="mapGenNote" class="smallNote"></div>
-
           <div class="row settingsTemplateActions">
-            <button id="saveRulesBtn" class="btn primary" type="button">Save Settings Template</button>
-            <button id="loadRulesBtn" class="btn" type="button">Load Game Template</button>
-            <span id="settingsAutosaveStatus" class="smallNote" aria-live="polite">Changes save automatically.</span>
-          </div>
-
+<button id="saveRulesBtn" class="btn primary" type="button">Save Settings Template</button>
+<button id="loadRulesBtn" class="btn" type="button">Load Game Template</button>
+<span aria-live="polite" class="smallNote" id="settingsAutosaveStatus">Changes save automatically.</span>
+</div>
           <div id="rulesPreview" class="smallNote"></div>
         </div>
 
@@ -780,6 +775,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=release-v1.0.5"></script>
+  <script src="languages.js?v=release-v1.0.3"></script>
+  <script src="app.js?v=release-v1.0.3"></script>
 </body>
 </html>

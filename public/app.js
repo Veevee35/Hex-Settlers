@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.5';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.3';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -9502,8 +9502,8 @@ function refreshLobbyJoinLinkUi() {
     }
 
     const speed = String(ui.timerSpeedSelect?.value || 'normal').toLowerCase();
-    const speedFactor = speed === 'fast' ? 0.5 : (speed === 'slow' ? 2 : 1);
-    const speedLabel = speed === 'fast' ? 'Fast' : (speed === 'slow' ? 'Slow' : 'Normal');
+    const speedFactor = speed === 'off' ? 0 : (speed === 'fast' ? 0.5 : (speed === 'slow' ? 2 : 1));
+    const speedLabel = speed === 'off' ? 'Off' : speed === 'fast' ? 'Fast' : (speed === 'slow' ? 'Slow' : 'Normal');
     const victoryTarget = selectedInt(selection ? null : ui.victoryPointsSelect, defaultVictoryPointsFor({
       mapMode,
       seafarersScenario: scenarioKey,
@@ -9928,6 +9928,7 @@ function refreshLobbyJoinLinkUi() {
 
     function timerSpeedName() {
       const ratio = playMs / 30000;
+      if (ratio === 0) return 'Off';
       if (Math.abs(ratio - 0.5) < 0.12) return 'Fast';
       if (Math.abs(ratio - 1.0) < 0.12) return 'Normal';
       if (Math.abs(ratio - 2.0) < 0.25) return 'Slow';
@@ -10756,9 +10757,8 @@ function refreshLobbyJoinLinkUi() {
         // total so a single Fill click can make the lobby start-ready.
         const configured = String(room?.rules?.playerCount ?? '');
         const matches = value => [...ui.aiFillSelect.options].some(o => o.value === value);
-        const desired = (configured && matches(configured)) ? configured
-          : (prev && matches(prev)) ? prev
-            : String(Math.max(minPlayers, Math.min(effectiveMaxPlayers, current)));
+        const desired = matches(String(current)) ? String(current)
+          : String(Math.max(start, Math.min(effectiveMaxPlayers, current)));
         ui.aiFillSelect.value = desired;
       }
     } catch (_) {}
@@ -10862,8 +10862,8 @@ function refreshLobbyJoinLinkUi() {
       ui.friendlyRobberToggle.disabled = !isHost;
     }
     if (ui.timerSpeedSelect) {
-      const factor = (r.setupTurnMs || 60000) / 60000;
-      const preset = factor <= 0.75 ? 'fast' : (factor >= 1.5 ? 'slow' : 'normal');
+      const factor = Number(r.setupTurnMs ?? 60000) / 60000;
+      const preset = factor === 0 ? 'off' : factor <= 0.75 ? 'fast' : (factor >= 1.5 ? 'slow' : 'normal');
       ui.timerSpeedSelect.value = preset;
       ui.timerSpeedSelect.disabled = !isHost;
     }
@@ -10984,9 +10984,9 @@ function refreshLobbyJoinLinkUi() {
     }
 
     if (ui.rulesPreview) {
-      const s1 = Math.round((r.setupTurnMs || 60000) / 1000);
-      const s2 = Math.round((r.playTurnMs || 30000) / 1000);
-      const s3 = Math.round((r.microPhaseMs || 15000) / 1000);
+      const s1 = Math.round(Number(r.setupTurnMs ?? 60000) / 1000);
+      const s2 = Math.round(Number(r.playTurnMs ?? 30000) / 1000);
+      const s3 = Math.round(Number(r.microPhaseMs ?? 15000) / 1000);
       const mmUi = uiMapModeFromRules(r);
       const mmL = String(mmUi || 'classic').toLowerCase();
       const scen = (mmL === 'seafarers56')
@@ -11023,6 +11023,8 @@ function refreshLobbyJoinLinkUi() {
       const amReady = !!(meInLobby && meInLobby.ready === true);
       ui.readyBtn.classList.toggle('hidden', !showReady);
       ui.readyBtn.classList.toggle('primary', amReady);
+      ui.readyBtn.classList.toggle('readyYes', amReady);
+      ui.readyBtn.classList.toggle('readyNo', !amReady);
       ui.readyBtn.textContent = amReady ? 'Unready' : 'Ready';
       ui.readyBtn.setAttribute('aria-pressed', amReady ? 'true' : 'false');
       ui.readyBtn.disabled = !showReady;
@@ -11454,16 +11456,12 @@ function refreshLobbyJoinLinkUi() {
     send({ type: 'set_ai_difficulty', difficulty });
   });
 
-  if (ui.aiFillBtn) ui.aiFillBtn.addEventListener('click', () => {
-    if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
-    const target = Math.floor(Number(ui.aiFillSelect?.value || 0));
-    if (!Number.isFinite(target) || target <= 0) return;
+  if (ui.aiFillSelect) ui.aiFillSelect.addEventListener('change', () => {
+    if (!room || !myPlayerId || room.hostId !== myPlayerId || (state && state.phase !== 'lobby')) return;
+    const target = Math.floor(Number(ui.aiFillSelect.value));
+    if (!Number.isFinite(target) || target < 1) return;
+    // Changes to an already-selected AI count are now server-controlled on selection.
     send({ type: 'fill_ai', targetCount: target });
-  });
-
-  if (ui.aiClearBtn) ui.aiClearBtn.addEventListener('click', () => {
-    if (!room || !myPlayerId || room.hostId !== myPlayerId) return;
-    send({ type: 'clear_ai' });
   });
 
   function applyVisibleMapSizeSelection() {
@@ -11606,7 +11604,7 @@ function refreshLobbyJoinLinkUi() {
     const devDeckMode = parseInt(ui.devDeckModeSelect?.value, 10);
     const baseResourcesPerType = parseInt(ui.baseResourceCountSelect?.value, 10);
     const preset = ui.timerSpeedSelect?.value || 'normal';
-    const factor = preset === 'fast' ? .5 : preset === 'slow' ? 2 : 1;
+    const factor = preset === 'off' ? 0 : preset === 'fast' ? .5 : preset === 'slow' ? 2 : 1;
     const modeUi = ui.mapModeSelect?.value || 'classic';
     const mapMode = ['seafarers56','seafarers78'].includes(modeUi) ? 'seafarers' : modeUi;
     const seafarersScenario = modeUi === 'seafarers78' ? ui.mapScenario78Select?.value : modeUi === 'seafarers56' ? ui.mapScenario56Select?.value
@@ -13002,7 +13000,8 @@ function ensureTimerUiInterval() {
     // solo pause/resume controls are available only in unranked games.
     const isHostNow = !!(room && myPlayerId && room.hostId === myPlayerId && !room.ranked);
     ui.backTurnBtn?.classList.toggle('hidden', !(inGame && !historyReplay.active && !amSpectator && !room?.ranked));
-    for (const control of [ui.pauseBtn, ui.playBtn]) control?.classList.toggle('hidden', !(inGame && !historyReplay.active && !amSpectator && !room?.ranked));
+    const timerEnabled = Number(state?.rules?.playTurnMs ?? room?.rules?.playTurnMs ?? 30000) > 0;
+    for (const control of [ui.pauseBtn, ui.playBtn]) control?.classList.toggle('hidden', !(timerEnabled && inGame && !historyReplay.active && !amSpectator && !room?.ranked));
     if (ui.backTurnBtn) {
       ui.backTurnBtn.disabled = !myPlayerId || !state?.canUndoPreviousTurn || !!state?.turnUndoVote;
       ui.backTurnBtn.title = state?.canUndoPreviousTurn
@@ -14925,7 +14924,9 @@ let lastDiscoveryGoldPromptId = 0;
 
 function configuredMicroActionSeconds() {
   const rules = (state && state.rules) || {};
+  if (!state?.ranked && Number(rules.playTurnMs) === 0) return 0;
   const ms = Number(rules.microPhaseMs ?? rules.microMs ?? 15000);
+  if (ms === 0) return 0;
   return Math.max(1, Math.ceil((Number.isFinite(ms) ? ms : 15000) / 1000));
 }
 
@@ -14954,7 +14955,9 @@ function handleDiscoveryGoldPrompt() {
   sub.style.opacity = '0.85';
   sub.style.fontSize = '12px';
   sub.style.marginBottom = '10px';
-  sub.textContent = `You have ${configuredMicroActionSeconds()} seconds before the game auto-picks.`;
+  sub.textContent = configuredMicroActionSeconds() === 0
+    ? 'Timer Off — choose a resource when you are ready.'
+    : `You have ${configuredMicroActionSeconds()} seconds before the game auto-picks.`;
   wrap.appendChild(sub);
 
   const row = document.createElement('div');
@@ -15017,9 +15020,12 @@ function handleProductionGoldPrompt() {
   sub.style.opacity = '0.85';
   sub.style.fontSize = '12px';
   sub.style.marginBottom = '10px';
-  sub.textContent = (sp.roll != null)
-    ? `Triggered by roll ${sp.roll}. You have ${configuredMicroActionSeconds()} seconds before the game auto-picks.`
+  const selectionDeadline = configuredMicroActionSeconds() === 0
+    ? 'Timer Off — choose your resources when you are ready.'
     : `You have ${configuredMicroActionSeconds()} seconds before the game auto-picks.`;
+  sub.textContent = (sp.roll != null)
+    ? `Triggered by roll ${sp.roll}. ${selectionDeadline}`
+    : selectionDeadline;
   wrap.appendChild(sub);
 
   const picksLabel = document.createElement('div');

@@ -2154,7 +2154,9 @@ function awardFogDiscovery(game, playerId, tileId) {
     }
 
     game.special = { kind: 'discovery_gold', id: game.discoverySeq++, forPlayerId: playerId, tileId };
-    game.message = `Gold Field discovered. ${playerName(game, playerId)} has ${microActionSeconds(game)} seconds to choose a resource.`;
+    game.message = microActionSeconds(game) === 0
+      ? `Gold Field discovered. ${playerName(game, playerId)} may choose a resource without a timer.`
+      : `Gold Field discovered. ${playerName(game, playerId)} has ${microActionSeconds(game)} seconds to choose a resource.`;
     pushLog(game, `${playerName(game, playerId)} discovered a Gold Field.`, 'discover', { tileId, tileType: 'gold' });
     return { kind: 'gold' };
   }
@@ -2920,6 +2922,8 @@ function timerSegmentKey(game) {
 
 function phaseDurationMs(game, phase) {
   const rules = game?.rules || DEFAULT_RULES;
+  // Off removes expiration/timeout actions for human players AND AI games.
+  if (!game?.ranked && Number(rules.playTurnMs) === 0) return 0;
   const micro = microActionDurationMs(rules);
   if (game?.special?.kind === 'discovery_gold') return micro;
   switch (phase) {
@@ -2956,6 +2960,7 @@ function phaseDurationMs(game, phase) {
 }
 
 function microActionSeconds(game) {
+  if (!game?.ranked && Number(game?.rules?.playTurnMs) === 0) return 0;
   return Math.max(1, Math.ceil(microActionDurationMs(game?.rules) / 1000));
 }
 
@@ -7480,7 +7485,9 @@ if (kind === 'choose_production_gold') {
     sp.amount = Math.max(1, Math.floor(Number(next.amount || 1)));
     sp.tileIds = Array.isArray(next.tileIds) ? next.tileIds.slice() : [];
     sp.id = (game.discoverySeq = (game.discoverySeq || 1), game.discoverySeq++);
-    game.message = `${playerName(game, sp.forPlayerId)} has ${microActionSeconds(game)} seconds to choose ${sp.amount} resource${sp.amount === 1 ? '' : 's'} for Gold Field production (roll ${sp.roll}).`;
+    game.message = microActionSeconds(game) === 0
+      ? `${playerName(game, sp.forPlayerId)} may choose ${sp.amount} resource${sp.amount === 1 ? '' : 's'} for Gold Field production (roll ${sp.roll}) without a timer.`
+      : `${playerName(game, sp.forPlayerId)} has ${microActionSeconds(game)} seconds to choose ${sp.amount} resource${sp.amount === 1 ? '' : 's'} for Gold Field production (roll ${sp.roll}).`;
     return { ok: true };
   }
 
@@ -7550,7 +7557,9 @@ if (kind === 'choose_production_gold') {
 
       if (game.special && game.special.kind === 'production_gold' && game.special.forPlayerId) {
         game.phase = 'production-gold';
-        game.message = `${playerName(game, playerId)} rolled ${roll}. ${playerName(game, game.special.forPlayerId)} has ${microActionSeconds(game)} seconds to choose ${game.special.amount} resource${game.special.amount === 1 ? '' : 's'} from Gold Field production.`;
+        game.message = microActionSeconds(game) === 0
+          ? `${playerName(game, playerId)} rolled ${roll}. ${playerName(game, game.special.forPlayerId)} may choose ${game.special.amount} resource${game.special.amount === 1 ? '' : 's'} from Gold Field production without a timer.`
+          : `${playerName(game, playerId)} rolled ${roll}. ${playerName(game, game.special.forPlayerId)} has ${microActionSeconds(game)} seconds to choose ${game.special.amount} resource${game.special.amount === 1 ? '' : 's'} from Gold Field production.`;
       } else {
         game.phase = 'main-actions';
         game.message = `${playerName(game, playerId)} rolled ${roll}. Build or end turn.`;
@@ -11582,6 +11591,12 @@ if (msg.type === 'create_room') {
 
       const room = createRoom(ws._userId, desiredName);
       room.casual = msg.casual === true;
+      if (room.casual) {
+        room.rules.setupTurnMs = 0;
+        room.rules.playTurnMs = 0;
+        room.rules.microPhaseMs = 0;
+        room.rules.microMs = 0;
+      }
       if (room.casual) addAIPlayersToRoom(room, 4);
       bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
       ensurePreview(room, true);
@@ -12119,7 +12134,7 @@ if (msg.type === 'create_room') {
       const clampMs = (v, def) => {
         const n = Math.floor(Number(v));
         if (!Number.isFinite(n)) return def;
-        return Math.max(5000, Math.min(300000, n));
+        return n === 0 ? 0 : Math.max(5000, Math.min(300000, n));
       };
       next.setupTurnMs = clampMs(r.setupTurnMs, next.setupTurnMs);
       next.playTurnMs = clampMs(r.playTurnMs, next.playTurnMs);
@@ -12672,6 +12687,9 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'pause_game') {
+      if (Number(room.game?.rules?.playTurnMs) === 0) {
+        sendJson(ws, { type: 'error', error: 'Timer is Off; pause and play are disabled.' }); return;
+      }
       if (room.ranked) { sendJson(ws, { type: 'error', error: 'Ranked match timing is server-controlled.' }); return; }
       if (!room.game || room.game.phase === 'lobby') {
         sendJson(ws, { type: 'error', error: 'No active game.' });

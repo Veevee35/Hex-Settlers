@@ -4473,3 +4473,16 @@ body.in-game .countdownClock .clockActionInfo .turnInfo {
     font-size:11px;
   }
 }
+
+/* Readiness is visible before and after lobby readiness changes. */
+#readyBtn.readyYes {background:linear-gradient(180deg,#127441,#07532e);border-color:#56e69a;color:#fff;box-shadow:0 0 0 1px rgba(56,210,122,.35)}
+#readyBtn.readyNo {background:linear-gradient(180deg,#942d38,#671c2a);border-color:#f27889;color:#fff;box-shadow:0 0 0 1px rgba(255,91,91,.3)}
+.portalLanguageButton {position:absolute;top:max(18px,env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:50;white-space:nowrap;}
+.languagePage {position:fixed;inset:0;z-index:5000;background:#0f141a;overflow-y:auto;padding:clamp(18px,4vw,50px);color:var(--text)}
+.languagePageInner {max-width:850px;margin:0 auto}
+.languagePageHeader {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:26px;flex-wrap:wrap}
+.languageGrid {display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px}
+.languageChoice {display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:64px;text-align:left}
+.languageChoice.selected {border-color:var(--ok);box-shadow:inset 0 0 0 1px var(--ok)}
+
+.lobbyReadyStatus.waiting {color:#ffc9ce;border-color:rgba(255,91,91,.55);background:rgba(255,91,91,.12)}

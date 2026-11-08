@@ -47,13 +47,15 @@ test('automatic patch increment and rollover, manually changed major resets mino
   assert.throws(() => nextVersion({ major: 1, minor: 1, patch: 100, lastBuiltMajor: 1 }), /Invalid build-version/);
 });
 
-test('version workflow bumps on GitHub branch pushes and commits stamped assets', () => {
+test('Cloudflare Builds stamps each Git commit without a duplicate version-bump push', () => {
   const workflow = read('.github/workflows/version-on-push.yml');
-  assert.match(workflow, /push:\s+branches:/);
-  assert.match(workflow, /- main\s+- master/);
-  assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /node scripts\/bump-version\.cjs --bump/);
-  assert.match(workflow, /git push origin/);
+  const script = read('scripts/stamp-git-build.cjs');
+  const guide = read('GITHUB_CLOUDFLARE_AUTODEPLOY.md');
+  assert.match(workflow, /workflow_dispatch/);
+  assert.doesNotMatch(workflow, /^  push:/m);
+  assert.match(script, /rev-parse/);
+  assert.match(script, /ASSET_CACHE_SW_BUILD/);
+  assert.match(guide, /wrangler deploy --config wrangler.jsonc/);
 });
 
 test('version bump stamps page text, both asset URL revisions, service worker, and package metadata', t => {

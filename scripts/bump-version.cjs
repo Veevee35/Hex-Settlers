@@ -44,6 +44,7 @@ function prepareFiles(state) {
   for (const [oldPattern, replacement] of [
     [/(styles\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(app\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
+    [/(languages\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
   ]) {
     if (!oldPattern.test(htmlFile.after)) throw new Error(`Missing client cache reference: ${oldPattern}`);
     htmlFile.after = htmlFile.after.replace(oldPattern, replacement);

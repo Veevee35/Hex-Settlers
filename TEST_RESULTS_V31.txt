@@ -1,6 +1,0 @@
-Hex Settlers v31 test results
-Frontend JS syntax check: PASS
-Legacy server JS syntax check: PASS
-Targeted new tests: 6/6 PASS
-Total node --test suite: 285 tests, 281 pass, 4 fail due to missing `ws` package in sandbox.
-Chromium layout fixture: mobile resources use full width; desktop dev cards remain below cost; icons grow with zoom.
