@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.4';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.5';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -34,6 +34,9 @@
     } catch (_) {}
   }
   registerAssetCacheServiceWorker();
+  window.addEventListener('hexsettlers:languagechange', () => {
+    try { if (typeof render === 'function') render(); } catch (_) {}
+  });
 
   const ui = {
     connDot: $('connDot'),
@@ -8928,6 +8931,7 @@ function refreshLobbyJoinLinkUi() {
     for (const m of msgs) {
       const row = document.createElement('div');
       row.className = 'chatRow';
+      row.setAttribute('data-i18n-skip', '');
 
       const meta = document.createElement('div');
       meta.className = 'chatMeta';
@@ -10603,6 +10607,7 @@ function refreshLobbyJoinLinkUi() {
       if (!room.ranked && p.id === room.hostId) label += ' (host)';
       if (p.id === myPlayerId) label += ' (you)';
       name.textContent = label;
+      name.setAttribute('data-i18n-skip', ''); // Player names are not UI strings.
       tag.appendChild(badge);
       tag.appendChild(name);
       if (!p.isAI && p.id) {
@@ -13349,6 +13354,7 @@ if (ui.moveShipBtn) {
 
         const name = document.createElement('div');
         name.className = 'resSummaryName';
+        name.setAttribute('data-i18n-skip', '');
         name.textContent = p.name + (p.id === myPlayerId ? ' (you)' : '');
         main.appendChild(name);
 
@@ -16341,7 +16347,7 @@ function handleProductionGoldPrompt() {
       ctx.fillRect(10, 10, 260, 40);
       ctx.fillStyle = '#e8eef6';
       ctx.font = '600 12px ui-sans-serif, system-ui';
-      ctx.fillText(`Mode: ${inputMode.kind ? inputMode.kind.replaceAll('_',' ') : 'view'}`, 20, 34);
+      ctx.fillText(`${window.HexSettlersLanguages?.t('Mode') || 'Mode'}: ${window.HexSettlersLanguages?.t(inputMode.kind ? inputMode.kind.replaceAll('_',' ') : 'view') || (inputMode.kind ? inputMode.kind.replaceAll('_',' ') : 'view')}`, 20, 34);
       ctx.restore();
     }
 

@@ -171,6 +171,9 @@
       continue;
     }
     dictionaries[lang] = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
+    // Additional game-wide labels are loaded before this module.  Keep curated
+    // v50/v51 translations as the final override where both packs overlap.
+    Object.assign(dictionaries[lang], window.HexSettlersLocaleExpansion?.[lang] || {});
     Object.assign(dictionaries[lang], extras[lang] || {});
     if (lobbyLabels[lang]) Object.assign(dictionaries[lang], Object.fromEntries(lobbyLabelKeys.map((key, index) => [key, lobbyLabels[lang][index]])));
   }
@@ -179,10 +182,45 @@
   try { const saved = localStorage.getItem(KEY); if (supported.includes(saved)) active = saved; } catch (_) {}
   const textRecords = new WeakMap();
   const attributeRecords = new WeakMap();
-  const translatableAttrs = ['placeholder', 'title', 'aria-label'];
-  const excluded = 'script,style,textarea,code,pre,[data-i18n-skip]';
+  const translatableAttrs = ['placeholder', 'title', 'aria-label', 'alt'];
+  // Chat, player names, user-selected labels, and the room code are user data.
+  // Never translate them even if they happen to match a dictionary entry.
+  const excluded = 'script,style,textarea,code,pre,[data-i18n-skip],.chatRow,.chatBody,.chatMeta,.resSummaryName,.roomCodeValue,.friendName,.playerName';
+  // Keep the original English as a reversible source.  Do not modify messages
+  // sent to the game server or attempt to guess/transliterate player content.
+  const aliases = Object.freeze({
+    'Game panels': 'Game Panels', 'game panels': 'Game Panels',
+    'Not Ready': 'Unready', 'Game log': 'Game Log', 'Victory points': 'Victory Point',
+    'Paused': 'Pause', 'Pause game': 'Pause', 'Resume game': 'Play',
+    'Off': 'Off', 'Auto': 'Automatic', 'Your turn': 'Your Turn',
+    'Victory': 'Victory!', 'No Dev Cards': 'No development cards.',
+    'Start game': 'Start Game', 'Trade with Bank': 'Bank Trade',
+    'Your Roll': 'YOUR ROLL', 'Exit replay': 'Exit Replay',
+    'Resources Gained': 'Gained', 'Resources Lost': 'Lost'
+  });
+  // Only translate these explicit numeric UI status prefixes; never treat a
+  // dynamic username or free-form chat text as a translation template.
+  const numericLabels = new Set([
+    'Ranked rating', 'Unranked rating', 'Remaining in deck',
+    'Turn', 'Turns', 'Games', 'Wins', 'Roads', 'Ships', 'Trades',
+    'CARDS', 'DEV', 'VP', 'KP', 'LR', 'Spectators', 'Players'
+  ]);
   function translated(s) {
-    return (dictionaries[active] && dictionaries[active][s]) || s;
+    const dict = dictionaries[active];
+    if (!dict || !s) return s;
+    const exact = dict[s] || (aliases[s] && dict[aliases[s]]);
+    if (exact) return exact;
+    const boardSize = /^([1-9](?:[-–][1-9])?) Player$/.exec(s);
+    if (boardSize && dict.Players && dict.Player) return `${boardSize[1]} ${boardSize[1] === '1' ? dict.Player : dict.Players}`;
+    const match = /^([A-Za-z][A-Za-z ]{0,30}):\s*([0-9—][0-9.,/%+\-]*)$/.exec(s);
+    if (match && numericLabels.has(match[1]) && dict[match[1]]) {
+      return `${dict[match[1]]}: ${match[2]}`;
+    }
+    return s;
+  }
+  function format(key, fields = {}) {
+    return translated(key).replace(/\{([a-z][a-z0-9_]*)\}/gi, (full, name) =>
+      Object.prototype.hasOwnProperty.call(fields, name) ? String(fields[name]) : full);
   }
   function updateTextNode(node) {
     if (!node || node.nodeType !== Node.TEXT_NODE || node.parentElement?.closest(excluded)) return;
@@ -255,7 +293,7 @@
     localize(document.getElementById('languagePage'));
   }
   function closeLanguagePage() { document.getElementById('languagePage')?.classList.add('hidden'); }
-  window.HexSettlersLanguages = Object.freeze({ setLanguage, getLanguage: () => active, supported: [...supported], localize });
+  window.HexSettlersLanguages = Object.freeze({ setLanguage, getLanguage: () => active, supported: [...supported], localize, t: translated, format, getCoverage: () => Object.fromEntries(supported.filter(l => l !== 'en').map(l => [l, Object.keys(dictionaries[l]).length])) });
   function init() {
     document.getElementById('loginLanguageBtn')?.addEventListener('click', openLanguagePage);
     document.getElementById('accountLanguageBtn')?.addEventListener('click', openLanguagePage);
