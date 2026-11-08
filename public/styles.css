@@ -4557,3 +4557,29 @@ body.ranked-lobby .copyLinkValue{height:32px;min-height:32px;margin-top:0;paddin
 .walkthroughDemoAction{max-width:100%;white-space:normal;text-align:center}
 .walkthroughSimulated{font-size:10px;line-height:1.35;color:#8ca6b7}
 @media(max-width:720px){.walkthroughAnnotationPanel{align-items:center}}
+
+/* V54 All Games and lobby tools */
+.journeyBottomActions{display:flex;justify-content:center;gap:10px;margin:16px auto 0;flex-wrap:wrap}
+.journeyBottomActions .btn{min-width:96px;padding:9px 15px;font-size:.87rem}
+.journeySettingsPanel{margin-top:16px;border:1px solid #315065;background:#0c1a25;border-radius:14px;padding:18px;max-height:68vh;overflow:auto}
+.journeySettingsHeading{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.journeySettingsHeading h2{font-size:1.13rem;margin:0}
+.settingsMockBoard{margin:16px 0;border:1px solid #42617b;background:#091822;overflow:hidden;border-radius:12px;min-height:225px}
+.settingsMockTop,.settingsMockBottom{padding:12px;text-align:center;background:#162c3e;font-size:calc(12px * var(--mock-scale,1));}
+.settingsMockStage{display:flex;align-items:stretch;justify-content:space-between;gap:8px;min-height:156px;padding:10px}
+.settingsMockLog,.settingsMockSide{border-radius:7px;background:#243848;padding:12px 8px;font-size:calc(12px * var(--mock-scale,1));flex:0 0 auto;max-width:35%}
+.settingsMockSide{width:min(var(--mock-width,30%),35%)}
+.settingsMockLog{width:25%}
+.settingsMockHexes{display:flex;flex:1;flex-wrap:wrap;gap:3px;justify-content:center;align-content:center;max-width:330px;margin:auto}
+.settingsMockHexes span{display:grid;place-items:center;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);background:#315d52;width:58px;height:62px;font-size:27px}
+.settingsMockHexes span:nth-child(3n){background:#946e3c}.settingsMockHexes span:nth-child(4n){background:#526c81}
+.settingsSandboxSliders{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}
+.settingsSandboxSliders label{display:grid;grid-template-columns:1fr auto;gap:5px;align-items:center;font-size:.82rem}
+.settingsSandboxSliders input{grid-column:1/-1;width:100%;accent-color:#56acff}
+.settingsSandboxSliders output{color:#ffca65}
+.journeySettingsActions{display:flex;gap:12px;justify-content:center;margin-top:16px}
+.lobbyCardHeading{display:flex;align-items:center;gap:8px}
+.lobbyCardHeading h2{margin-right:auto}.leaveLobbyTopBtn{font-size:.8rem;padding:7px 10px}
+#modalActions.bossProfileActions{justify-content:space-between;width:100%;display:flex}
+#modalActions.bossProfileActions button:last-child{margin-left:auto}
+@media(max-width:680px){.settingsSandboxSliders{grid-template-columns:1fr}.journeySettingsHeading{flex-direction:column;align-items:flex-start}.settingsMockHexes span{width:43px;height:45px;font-size:20px}}

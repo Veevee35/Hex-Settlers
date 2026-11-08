@@ -12,9 +12,9 @@ test('game type changes use server-acknowledged room exit before choosing new mo
   assert.match(app, /pendingPlayModeSwitch = mode;[\s\S]{0,100}send\(\{ type: 'leave_room', switchMode: mode \}\)/);
   assert.match(app, /const switchedTo = pendingPlayModeSwitch && msg\.switchMode === pendingPlayModeSwitch/);
   assert.match(app, /handleLocalRoomExit\(''\);\s*activatePlayMode\(switchedTo, \{ skipRecentRoom: true \}\)/);
-  assert.match(server, /const switchMode = \['ranked', 'unranked', 'casual'\]\.includes\(msg\.switchMode\)/);
-  assert.match(server, /remainingHumans\.length\) \{[\s\S]{0,400}rooms\.delete\(code\)/);
-  assert.match(server, /sort\(\(a, b\) => Number\(a\.joinedAt \|\| 0\) - Number\(b\.joinedAt \|\| 0\)\)/);
+  assert.match(server, /const switchMode = \['ranked', 'unranked', 'casual', 'journey'\]\.includes\(msg\.switchMode\)/);
+  assert.match(server, /!remainingHumans\.length && \(\!room\.game[\s\S]{0,600}rooms\.delete\(code\)/);
+  assert.match(server, /sort\(\(a,\s*b\) => Number\(a\.joinedAt \|\| 0\) - Number\(b\.joinedAt \|\| 0\)\)/);
 });
 
 test('ranked queue canceled on navigation except Player Stats, Game Log and Friends overlays', () => {

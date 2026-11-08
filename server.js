@@ -9098,7 +9098,7 @@ function createRoom(hostUserId, hostName) {
     preview: null,
     rules: { ...DEFAULT_RULES },
     casual: false,
-    visibility: 'private', friendsOnly: false,
+    visibility: 'private', friendsOnly: false, bossIds: [],
     chat: [],
     chatSeq: 1,
     aiSeq: 1,
@@ -9172,7 +9172,7 @@ function createRematchRoomFrom(prevRoom) {
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'easy',
     expertAiTuning: (prevRoom && prevRoom.expertAiTuning) ? { ...prevRoom.expertAiTuning } : null,
     casual: !!(prevRoom && prevRoom.casual),
-    visibility: prevRoom?.visibility === 'public' ? 'public' : 'private', friendsOnly: !!prevRoom?.friendsOnly,
+    visibility: prevRoom?.casual ? 'private' : (prevRoom?.visibility === 'public' ? 'public' : 'private'), friendsOnly: !!prevRoom?.friendsOnly, bossIds: [],
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
     pendingLeaveRequests: Object.create(null),
   };
@@ -9194,13 +9194,41 @@ function canAccessRoom(room, userId) {
 }
 
 function visiblePublicLobbies(userId) {
-  return Array.from(rooms.values()).filter(room => room && !room.ranked && room.visibility === 'public'
+  return Array.from(rooms.values()).filter(room => room && !room.ranked && !room.casual && room.visibility === 'public'
     && (!room.game || room.game.phase === 'lobby') && canAccessRoom(room, userId))
     .map(room => ({ code: room.code, host: (room.players.find(p => p.id === room.hostId) || {}).name || 'Host',
       players: room.players.filter(p => !p.isAI).length, aiPlayers: room.players.filter(p => p.isAI).length,
       maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES), mapMode: room.rules?.mapMode || 'classic',
       casual: !!room.casual, friendsOnly: !!room.friendsOnly, createdAt: room.createdAt }))
     .sort((a,b) => b.createdAt - a.createdAt).slice(0, 100);
+}
+
+function isRoomBoss(room, userId) {
+  return !!room && !room.ranked && !!userId && (room.hostId === userId || (Array.isArray(room.bossIds) && room.bossIds.includes(userId)));
+}
+
+function seniorLobbyPlayer(room, exceptId) {
+  return (room?.players || []).filter(p => p && !p.isAI && p.id !== exceptId)
+    .sort((a,b) => Number(a.joinedAt || 0) - Number(b.joinedAt || 0))[0] || null;
+}
+
+function maybePauseDisconnectedTurn(room) {
+  const game = room?.game;
+  if (!game || room.ranked || game.paused || game.phase === 'lobby' || game.phase === 'game-over' || Number(game.rules?.playTurnMs) === 0) return false;
+  const pid = game.currentPlayerId;
+  if (!pid || playerById(game, pid)?.isAI) return false;
+  // One check per player turn, including paired extra turns and each setup placement.
+  const turnKey = game.phase.startsWith('setup')
+    ? `setup:${game.setup?.round || 1}:${game.setup?.index ?? 0}:${pid}`
+    : `turn:${game.turnNumber || 0}:${game.paired?.stage || 'main'}:${pid}`;
+  if (room._connectionTurnKey === turnKey) return false;
+  room._connectionTurnKey = turnKey;
+  const socket = room.sockets?.get(pid);
+  if (socket?.readyState === WebSocket.OPEN) return false;
+  pauseGame(game, 'disconnected-player');
+  game.message = `${playerName(game, pid)} is disconnected. Game paused; any player may resume.`;
+  pushLog(game, game.message, 'system');
+  return true;
 }
 
 function joinRoom(code, userId, name, options = {}) {
@@ -9429,7 +9457,7 @@ function roomSnapshot(room) {
     // but matched players never receive host/admin ownership.
     hostId: room.ranked ? null : room.hostId,
     ranked: !!room.ranked, casual: !!room.casual,
-    visibility: room.visibility === 'public' ? 'public' : 'private', friendsOnly: !!room.friendsOnly,
+    visibility: room.visibility === 'public' && !room.casual ? 'public' : 'private', friendsOnly: !!room.friendsOnly, bossIds: Array.isArray(room.bossIds) ? room.bossIds : [],
     rankedScenarioVote: room.rankedScenarioVote ? {
       options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
       votes: room.rankedScenarioVote.votes || {},
@@ -9622,6 +9650,7 @@ function broadcastState(room) {
     room.finishedAt = Number(room.game?.stats?.endedAt || 0) || now();
   }
   clearLegacyTradeTimerPause(room.game);
+  maybePauseDisconnectedTurn(room);
   syncTimer(room.game);
   const baseState = buildSanitizableState(room.game);
   const stateCache = new Map();
@@ -11655,7 +11684,7 @@ if (msg.type === 'create_room') {
 
       const room = createRoom(ws._userId, desiredName);
       room.casual = msg.casual === true;
-      room.visibility = msg.visibility === 'public' ? 'public' : 'private';
+      room.visibility = !room.casual && msg.visibility === 'public' ? 'public' : 'private';
       room.friendsOnly = msg.friendsOnly === true;
       if (room.casual) {
         room.rules.setupTurnMs = 0;
@@ -11850,13 +11879,9 @@ if (msg.type === 'create_room') {
       // A game-type change explicitly gives up the current lobby seat. Unlike
       // an ordinary Leave Room request, this also lets the unranked host leave
       // during setup without trapping them or destroying their friends' lobby.
-      const switchMode = ['ranked', 'unranked', 'casual'].includes(msg.switchMode) ? msg.switchMode : null;
+      const switchMode = ['ranked', 'unranked', 'casual', 'journey'].includes(msg.switchMode) ? msg.switchMode : null;
       if (switchMode && (room.ranked || (room.game && room.game.phase !== 'lobby' && !gameOver))) {
         sendJson(ws, { type: 'error', error: 'You cannot change game types during an active match.' });
-        return;
-      }
-      if (!room.ranked && pid === room.hostId && !gameOver && !switchMode) {
-        sendJson(ws, { type: 'error', error: 'The host cannot leave this room.' });
         return;
       }
       if (room.game && room.game.phase && room.game.phase !== 'lobby' && !gameOver && roomRole(room, pid) === 'player') {
@@ -11868,17 +11893,17 @@ if (msg.type === 'create_room') {
       if (leavingHost) {
         // joinedAt is stable across reconnects and preserves who has occupied
         // this lobby longest, regardless of their socket connection state.
-        const nextHost = room.players.filter((player) => player && !player.isAI)
-          .sort((a, b) => Number(a.joinedAt || 0) - Number(b.joinedAt || 0))[0] || null;
+        const nextHost = seniorLobbyPlayer(room, pid);
         if (nextHost) room.hostId = nextHost.id;
       }
+      room.bossIds = (room.bossIds || []).filter(id => id !== pid);
       if (room.sockets.get(pid) === ws) room.sockets.delete(pid);
       ws._roomCode = null;
       ws._playerId = null;
       // A solo AI-only lobby must be actually removed from persistence, not
       // left running with bots when its one human switches game types.
       const remainingHumans = room.players.filter((player) => player && !player.isAI);
-      if (switchMode && !remainingHumans.length) {
+      if (!remainingHumans.length && (!room.game || room.game.phase === 'lobby')) {
         for (const memberSocket of room.sockets.values()) {
           memberSocket._roomCode = null;
           memberSocket._playerId = null;
@@ -11914,6 +11939,11 @@ if (msg.type === 'create_room') {
       }
       if (wantSpectator) {
         if (roleNow === 'spectator') return;
+        if (pid === room.hostId) {
+          const successor = seniorLobbyPlayer(room, pid);
+          if (!successor) { sendJson(ws, { type: 'error', error: 'Another human player must join before the host can spectate.' }); return; }
+          room.hostId = successor.id;
+        }
         const moved = moveRoomPlayerToSpectator(room, pid);
         if (!moved.ok) {
           sendJson(ws, { type: 'error', error: moved.error || 'Could not switch to spectator mode.' });
@@ -12169,8 +12199,25 @@ if (msg.type === 'create_room') {
       if (room.ranked || pid !== room.hostId || (room.game && room.game.phase !== 'lobby')) {
         sendJson(ws, { type: 'error', error: 'Only the host can change lobby access before the game starts.' }); return;
       }
-      room.visibility = msg.visibility === 'public' ? 'public' : 'private';
+      // Public/private is set exclusively when a lobby is created. In-lobby
+      // controls can only change friends-only access; they must not silently
+      // turn a public lobby private when no visibility field is supplied.
       room.friendsOnly = msg.friendsOnly === true;
+      broadcastRoom(room);
+      return;
+    }
+
+    if (msg.type === 'set_room_boss') {
+      if (room.ranked || pid !== room.hostId || (room.game && room.game.phase !== 'lobby')) {
+        sendJson(ws, { type: 'error', error: 'Only the host may appoint a boss before the game starts.' }); return;
+      }
+      const targetId = String(msg.userId || '');
+      const candidate = findRoomPlayer(room, targetId);
+      if (!candidate || candidate.isAI || targetId === room.hostId) {
+        sendJson(ws, { type: 'error', error: 'Choose another human player in the lobby.' }); return;
+      }
+      room.bossIds = (Array.isArray(room.bossIds) ? room.bossIds : []).filter(id => id !== targetId);
+      if (msg.enabled !== false) room.bossIds.push(targetId);
       broadcastRoom(room);
       return;
     }
@@ -12192,7 +12239,7 @@ if (msg.type === 'create_room') {
 
 
     if (msg.type === 'set_rules') {
-      if (pid !== room.hostId) {
+      if (!isRoomBoss(room, pid)) {
         sendJson(ws, { type: 'error', error: 'Only host can change settings.' });
         return;
       }
@@ -12384,7 +12431,7 @@ if (msg.type === 'create_room') {
 
     // Host-only: add/remove server-controlled AI players in the lobby.
     if (msg.type === 'set_ai_difficulty') {
-      if (pid !== room.hostId) {
+      if (!isRoomBoss(room, pid)) {
         sendJson(ws, { type: 'error', error: 'Only host can change AI difficulty.' });
         return;
       }
@@ -12415,7 +12462,7 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'set_expert_ai_tuning') {
-      if (pid !== room.hostId) {
+      if (!isRoomBoss(room, pid)) {
         sendJson(ws, { type: 'error', error: 'Only host can tune expert AI.' });
         return;
       }
@@ -12432,7 +12479,7 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'fill_ai' || msg.type === 'clear_ai') {
-      if (pid !== room.hostId) {
+      if (!isRoomBoss(room, pid)) {
         sendJson(ws, { type: 'error', error: 'Only host can manage AI players.' });
         return;
       }
@@ -12454,7 +12501,7 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'generate_map') {
-      if (pid !== room.hostId) {
+      if (!isRoomBoss(room, pid)) {
         sendJson(ws, { type: 'error', error: 'Only host can regenerate the map.' });
         return;
       }
@@ -12478,7 +12525,7 @@ if (msg.type === 'create_room') {
     // Portable map layouts contain only tile/port choices. No client-supplied geometry,
     // users, game state, or arbitrary objects are ever trusted or deserialized.
     if (msg.type === 'download_custom_map' || msg.type === 'upload_custom_map') {
-      if (pid !== room.hostId || (room.game && room.game.phase !== 'lobby') || !editableCustomMapRules(room.rules)) {
+      if (!isRoomBoss(room, pid) || (room.game && room.game.phase !== 'lobby') || !editableCustomMapRules(room.rules)) {
         sendJson(ws, { type: 'error', error: 'Custom maps can only be saved or loaded by the lobby host before the game starts.' }); return;
       }
       ensurePreview(room, false);
@@ -12580,7 +12627,7 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'edit_preview_tile') {
-      if (pid !== room.hostId) {
+      if (!isRoomBoss(room, pid)) {
         sendJson(ws, { type: 'error', error: 'Only the lobby host can edit the custom map.' });
         return;
       }
@@ -12671,7 +12718,7 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'edit_preview_port') {
-      if (pid !== room.hostId) {
+      if (!isRoomBoss(room, pid)) {
         sendJson(ws, { type: 'error', error: 'Only the lobby host can edit the custom map.' });
         return;
       }
@@ -14547,7 +14594,8 @@ const aiTickInterval = setInterval(() => {
     if (!roomHasOpenSocket(room)) continue;
     if (!room.game) continue;
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
-    const changed = handleTimeout(room) || handleAI(room);
+    const autoPaused = maybePauseDisconnectedTurn(room);
+    const changed = autoPaused || handleTimeout(room) || handleAI(room);
     // Headless self-play only needs the terminal state. Avoid serializing and
     // sending every intermediate action, which otherwise dominates CPU/memory.
     if (changed && (!AI_TRAINING_MODE || room.game.phase === 'game-over')) broadcastState(room);

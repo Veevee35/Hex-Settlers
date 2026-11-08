@@ -9,7 +9,7 @@ const CLIENT_MESSAGE_TYPES = Object.freeze([
   'query_ship_move_targets', 'rejoin_room', 'rematch_room', 'request_leave_game',
   'ranked_queue_join', 'ranked_queue_leave', 'ranked_scenario_vote',
   'respond_leave_game', 'set_ai_difficulty', 'set_expert_ai_tuning',
-  'set_lobby_access', 'set_player_color', 'set_ready', 'set_rules', 'set_spectator_mode', 'set_spectator_view', 'set_texture_pack',
+  'set_lobby_access', 'set_room_boss', 'set_player_color', 'set_ready', 'set_rules', 'set_spectator_mode', 'set_spectator_view', 'set_texture_pack',
   'start_game', 'texture_pack_publish',
 ]);
 

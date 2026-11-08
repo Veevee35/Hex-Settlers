@@ -63,9 +63,10 @@ test('casual supports friends and guests but never writes wins or game history',
 });
 
 test('Journey portal, skippable 12-step tutorial, public/private lobby controls and 404 view exist',()=>{
- for(const id of ['journeyScreen','journeyPublicBtn','journeyPrivateBtn','journeyChallengeBtn','journeyHostPublicBtn','journeyHostPrivateBtn','journeyPrivateCode','publicLobbyList','walkthroughOverlay','walkthroughSkipBtn','roomNotFoundScreen','roomNotFoundBackBtn','lobbyVisibilitySelect','lobbyFriendsOnlyToggle']) {
+ for(const id of ['journeyScreen','journeyPublicBtn','journeyPrivateBtn','journeyChallengeBtn','journeyHostPublicBtn','journeyHostPrivateBtn','journeyPrivateCode','publicLobbyList','walkthroughOverlay','walkthroughSkipBtn','roomNotFoundScreen','roomNotFoundBackBtn','lobbyFriendsOnlyToggle']) {
   assert.ok(html.includes(`id="${id}"`), `Missing UI #${id}`);
  }
+ assert.doesNotMatch(html,/id="lobbyVisibilitySelect"/);
  assert.match(html,/id="journeyChallengeBtn"[^>]*disabled/);
  assert.match(app,/const tutorialSteps = \[/);
  assert.match(app,/const TUTORIAL_PREFIX = 'hexsettlers_journey_walkthrough_v53_'/);

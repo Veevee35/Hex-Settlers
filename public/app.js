@@ -1312,7 +1312,7 @@
       const text = document.createElement('div');
       const heading = document.createElement('strong'); heading.textContent = `${item.host || 'Host'} · ${item.code || ''}`;
       const detail = document.createElement('p'); detail.className = 'smallNote';
-      detail.textContent = `${Number(item.players || 0)} players + ${Number(item.aiPlayers || 0)} AI / ${Number(item.maxPlayers || 4)} seats · ${item.casual ? 'Casual' : 'Unranked'} · ${item.mapMode || 'Classic'}${item.friendsOnly ? ' · Friends only' : ''}`;
+      detail.textContent = `${Number(item.players || 0)} players + ${Number(item.aiPlayers || 0)} AI / ${Number(item.maxPlayers || 4)} seats · Unranked · ${item.mapMode || 'Classic'}${item.friendsOnly ? ' · Friends only' : ''}`;
       text.append(heading,detail);
       const join = document.createElement('button'); join.type = 'button'; join.className = 'btn primary'; join.textContent = 'Join lobby';
       join.addEventListener('click', () => beginJourneyJoin(item.code));
@@ -1324,8 +1324,11 @@
     $('journeyHomeOptions')?.classList.toggle('hidden', view !== 'home');
     $('journeyPublicPanel')?.classList.toggle('hidden', view !== 'public');
     $('journeyPrivatePanel')?.classList.toggle('hidden', view !== 'private');
-    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public lobbies' : view === 'private' ? 'Private lobby' : 'Choose your next adventure';
+    $('journeySettingsPanel')?.classList.toggle('hidden', view !== 'settings');
+    $('journeyTutorialBtn')?.classList.toggle('hidden', view === 'settings');
+    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public lobbies' : view === 'private' ? 'Private lobby' : view === 'settings' ? 'Settings' : 'All Games';
     if (view === 'public') requestPublicLobbies();
+    if (view === 'settings') syncSettingsSandbox();
   }
   function beginJourneyJoin(code) {
     const c = String(code || '').trim().toUpperCase();
@@ -1389,7 +1392,7 @@
     if (authUser) {
       selectInvitedLobbyMode();
       // A refresh in a recently active room bypasses the game-type portal.
-      if (!pendingDirectJoinRoomCode && typeof recentRoomCodeForUser === 'function' && recentRoomCodeForUser(authUser) && selectedPlayMode !== 'ranked') {
+      if (!pendingDirectJoinRoomCode && typeof recentRoomCodeForUser === 'function' && recentRoomCodeForUser(authUser) && selectedPlayMode !== 'ranked' && selectedPlayMode !== 'journey') {
         selectedPlayMode = 'unranked';
         try { sessionStorage.setItem('hexsettlers_play_mode', 'unranked'); } catch (_) {}
       }
@@ -1514,6 +1517,11 @@
       if (lead) lead.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Create a shareable game for up to six players, human or AI. Results never affect stats.' : 'Create a lobby to invite friends, or enter a room code to join an existing game.';
     }
     $('accountOrb')?.classList.toggle('hidden', !loggedIn);
+    const journeyModeLabel = $('unrankedModeBtn')?.querySelector('strong');
+    if (journeyModeLabel && loggedIn) {
+      let walked = false; try { walked = localStorage.getItem(tutorialStorageKey()) === '1'; } catch (_) {}
+      journeyModeLabel.textContent = walked ? 'All Games' : 'Start Your Journey';
+    }
     if (loggedIn) {
       const label = authUser.displayName || authUser.username || '?';
       if ($('accountOrbInitial')) $('accountOrbInitial').textContent = label.slice(0, 1).toUpperCase();
@@ -7186,7 +7194,7 @@ function refreshLobbyJoinLinkUi() {
           // never restore a stale localStorage code on a fresh page load.
           const existingRoom = room?.code ? String(room.code).trim().toUpperCase() : '';
           const recent = recentRoomCodeForUser(authUser);
-          const code = existingRoom || (selectedPlayMode === 'ranked' ? '' : recent);
+          const code = existingRoom || (['ranked','journey'].includes(selectedPlayMode) ? '' : recent);
           if (code) {
             pendingRecentRoomRejoinCode = existingRoom ? '' : code;
             selectedPlayMode = 'unranked';
@@ -7700,6 +7708,7 @@ function refreshLobbyJoinLinkUi() {
     ui.modalTitle.textContent = '';
     ui.modalBody.innerHTML = '';
     ui.modalActions.innerHTML = '';
+    ui.modalActions.classList.remove('bossProfileActions');
     modalType = null;
     activeToolModal = null;
     chatRefs = null;
@@ -7730,6 +7739,7 @@ function refreshLobbyJoinLinkUi() {
     ui.modalBody.innerHTML = '';
     if (bodyNode) ui.modalBody.appendChild(bodyNode);
     ui.modalActions.innerHTML = '';
+    ui.modalActions.classList.remove('bossProfileActions');
     for (const a of (actions || [])) {
       const b = document.createElement('button');
       b.className = 'btn' + (a.primary ? ' primary' : '');
@@ -7806,7 +7816,16 @@ function refreshLobbyJoinLinkUi() {
     const lastGame = Number(stats.lastGameAt || 0);
     footer.textContent = `${memberSince ? `Settler since ${new Date(memberSince).toLocaleDateString()}` : 'Hex Settlers player'}${lastGame ? ` · Last game ${new Date(lastGame).toLocaleDateString()}` : ''}`;
     body.appendChild(footer);
-    openModal({ title: 'Player Profile', bodyNode: body, actions: [{ label: 'Close', primary: true, onClick: closeModal }] });
+    const mayAppoint = !!room && !room.ranked && room.gamePhase === 'lobby' && room.hostId === myPlayerId
+      && (room.players || []).some(player => player.id === profile.id && !player.isAI) && profile.id !== myPlayerId;
+    const alreadyBoss = !!room?.bossIds?.includes(profile.id);
+    const actions = [];
+    if (mayAppoint) actions.push({ label: alreadyBoss ? 'Remove Boss' : 'Make Boss', onClick: () => {
+      send({ type: 'set_room_boss', userId: profile.id, enabled: !alreadyBoss }); closeModal();
+    }});
+    actions.push({ label: 'Close', primary: true, onClick: closeModal });
+    openModal({ title: 'Player Profile', bodyNode: body, actions });
+    ui.modalActions?.classList.toggle('bossProfileActions', mayAppoint);
   }
 
   async function openPlayerProfileById(userId) {
@@ -10696,6 +10715,10 @@ function refreshLobbyJoinLinkUi() {
 
     ui.playersList.innerHTML = '';
     if (!room) {
+      // Pre-lobby forms never expose access or leave controls. Visibility is
+      // selected through Public / Private / Casual entry paths instead.
+      $('lobbyAccessControls')?.classList.add('hidden');
+      $('leaveLobbyTopBtn')?.classList.add('hidden');
       if (ui.roomBox) ui.roomBox.classList.add('hidden');
       if (ui.setupCard) ui.setupCard.classList.add('hidden');
       return;
@@ -10736,6 +10759,7 @@ function refreshLobbyJoinLinkUi() {
       if (p.isAI) label += ` (AI · ${aiDifficultyDisplayName(p.aiDifficulty || room.aiDifficulty)})`;
       if (roleLabel === 'spectator') label += ' (spectator)';
       if (!room.ranked && p.id === room.hostId) label += ' (host)';
+      else if (!room.ranked && room.bossIds?.includes(p.id)) label += ' (boss)';
       if (p.id === myPlayerId) label += ' (you)';
       name.textContent = label;
       name.setAttribute('data-i18n-skip', ''); // Player names are not UI strings.
@@ -10797,7 +10821,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (p.id === myPlayerId) {
         if (!gameStartedNow || roleLabel === 'spectator') {
-          if (!room.ranked && p.id !== room.hostId) {
+          if (!room.ranked) {
             const leaveBtn = document.createElement('button');
             leaveBtn.className = 'btn';
             leaveBtn.type = 'button';
@@ -10820,14 +10844,10 @@ function refreshLobbyJoinLinkUi() {
           spectBtn.style.padding = '6px 8px';
           spectBtn.style.fontSize = '11px';
           spectBtn.textContent = (roleLabel === 'spectator') ? 'Join Game' : 'Spectator Mode';
-          if (p.id === room.hostId) {
-            spectBtn.disabled = true;
-            spectBtn.title = 'The host must remain an active player.';
-          }
+          if (p.id === room.hostId) spectBtn.title = 'Pass host to the longest-waiting player and spectate (another human must be present).';
           spectBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
-            if (p.id === room.hostId) return;
             send({ type: 'set_spectator_mode', enabled: roleLabel !== 'spectator' });
           });
           controls.appendChild(spectBtn);
@@ -10869,7 +10889,7 @@ function refreshLobbyJoinLinkUi() {
     // AI fill controls (host-only, lobby only)
     try {
       const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
-      const canManageAI = !!(!room.ranked && myPlayerId && room.hostId === myPlayerId && !gameStartedNow);
+      const canManageAI = !!(!room.ranked && myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId)) && !gameStartedNow);
       if (ui.aiFillRow) ui.aiFillRow.classList.toggle('hidden', !canManageAI);
 
       // AI difficulty (host-only, lobby only)
@@ -11015,17 +11035,14 @@ function refreshLobbyJoinLinkUi() {
     if (ui.setupCard) ui.setupCard.classList.toggle('hidden', gameStarted || !!room.ranked);
     const accessControls = $('lobbyAccessControls');
     if (accessControls) accessControls.classList.toggle('hidden', !!room.ranked || gameStartedForControls);
-    if ($('lobbyVisibilitySelect')) {
-      $('lobbyVisibilitySelect').value = room.visibility === 'public' ? 'public' : 'private';
-      $('lobbyVisibilitySelect').disabled = room.hostId !== myPlayerId || gameStartedForControls;
-    }
+    $('leaveLobbyTopBtn')?.classList.toggle('hidden', !!room.ranked || gameStartedForControls);
     if ($('lobbyFriendsOnlyToggle')) {
       $('lobbyFriendsOnlyToggle').checked = !!room.friendsOnly;
       $('lobbyFriendsOnlyToggle').disabled = room.hostId !== myPlayerId || gameStartedForControls;
     }
 
     const r = room.rules || { discardLimit: 7, setupTurnMs: 60000, playTurnMs: 30000, microPhaseMs: 15000 };
-    const isHost = !!(myPlayerId && room.hostId === myPlayerId) && !gameStartedForControls;
+    const isHost = !!(myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId))) && !gameStartedForControls;
 
     if (ui.discardLimitInput) {
       ui.discardLimitInput.value = r.discardLimit ?? 7;
@@ -11372,7 +11389,7 @@ function refreshLobbyJoinLinkUi() {
       }
     }
     if (mode === 'ranked') clearRecentRoom();
-    if (mode === 'journey') { journeyView = 'home'; roomNotFoundVisible = false; }
+    if (mode === 'journey') { journeyView = 'home'; roomNotFoundVisible = false; pendingRecentRoomRejoinCode = ''; }
     if (mode === 'journey' && !room && !tutorialCompletedOnThisLaunch) {
       let seen = false; try { seen = localStorage.getItem(tutorialStorageKey()) === '1'; } catch (_) {}
       if (!seen) openWalkthrough();
@@ -11414,6 +11431,56 @@ function refreshLobbyJoinLinkUi() {
   $('journeyPrivateJoinBtn')?.addEventListener('click', () => beginJourneyJoin($('journeyPrivateCode')?.value));
   $('journeyPrivateCode')?.addEventListener('keydown', e => { if (e.key === 'Enter') beginJourneyJoin(e.target.value); });
   $('journeyTutorialBtn')?.addEventListener('click', openWalkthrough);
+  $('journeyRankedBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
+  $('journeyCasualBtn')?.addEventListener('click', () => choosePlayMode('casual'));
+  $('journeySettingsBtn')?.addEventListener('click', () => setJourneyView('settings'));
+  $('journeySettingsBackBtn')?.addEventListener('click', () => { setAudioPanelVisible(false); setJourneyView('home'); });
+  const sandboxControls = [
+    ['sandboxToolsScale', 'sandboxToolsScaleValue', 'tools_bar', 'settingsMockTop'],
+    ['sandboxTurnScale', 'sandboxTurnScaleValue', 'turn_bar', 'settingsMockBottom'],
+    ['sandboxLogScale', 'sandboxLogScaleValue', 'log_panel', 'settingsMockLog'],
+    ['sandboxResourcesScale', 'sandboxResourcesScaleValue', 'resources_panel', 'settingsMockSide'],
+  ];
+  function syncSettingsSandbox() {
+    for (const [id, valueId, scaleKey, sampleId] of sandboxControls) {
+      const input = $(id); if (!input) continue;
+      const pct = Math.round(getToolUiScale(scaleKey) * 100);
+      input.value = String(pct);
+      $(valueId).textContent = `${pct}%`;
+      $(sampleId)?.style.setProperty('--mock-scale', String(pct / 100));
+    }
+    const width = getSavedRightSidebarWidth();
+    if ($('sandboxRightWidth')) $('sandboxRightWidth').value = String(width);
+    if ($('sandboxRightWidthValue')) $('sandboxRightWidthValue').textContent = `${width}px`;
+    $('settingsMockSide')?.style.setProperty('--mock-width', String(Math.round(width / 15)) + '%');
+    let ratio = 50; try { ratio = Math.round((Number(localStorage.getItem(MOBILE_SPLIT_RATIO_KEY)) || .4) * 100); } catch (_) {}
+    if ($('sandboxMobileRatio')) $('sandboxMobileRatio').value = String(ratio);
+    if ($('sandboxMobileRatioValue')) $('sandboxMobileRatioValue').textContent = `${ratio}%`;
+  }
+  for (const [id, valueId, scaleKey, sampleId] of sandboxControls) $(id)?.addEventListener('input', event => {
+    const pct = Number(event.target.value);
+    setToolUiScale(scaleKey, pct / 100);
+    $(valueId).textContent = `${pct}%`;
+    $(sampleId)?.style.setProperty('--mock-scale', String(pct / 100));
+  });
+  $('sandboxRightWidth')?.addEventListener('input', event => {
+    const width = Number(event.target.value);
+    setRightSidebarWidth(width, { persist: true });
+    $('sandboxRightWidthValue').textContent = `${width}px`;
+    $('settingsMockSide')?.style.setProperty('--mock-width', String(Math.round(width/15))+'%');
+  });
+  $('sandboxMobileRatio')?.addEventListener('input', event => {
+    const ratio = Number(event.target.value);
+    try { localStorage.setItem(MOBILE_SPLIT_RATIO_KEY, String(ratio / 100)); } catch (_) {}
+    $('sandboxMobileRatioValue').textContent = `${ratio}%`;
+  });
+  $('sandboxAudioBtn')?.addEventListener('click', () => setAudioPanelVisible(true));
+  $('sandboxResetBtn')?.addEventListener('click', () => {
+    for (const [, , key] of sandboxControls) setToolUiScale(key, 1);
+    setRightSidebarWidth(RIGHT_SIDEBAR_DEFAULT_WIDTH, { persist: true });
+    try { localStorage.removeItem(MOBILE_SPLIT_RATIO_KEY); } catch (_) {}
+    syncSettingsSandbox();
+  });
   $('roomNotFoundBackBtn')?.addEventListener('click', () => { roomNotFoundVisible = false; clearRoomQueryFromUrl(); returnToGameTypeSelection(''); });
   $('walkthroughSkipBtn')?.addEventListener('click', finishWalkthrough);
   $('walkthroughPrevBtn')?.addEventListener('click', () => { tutorialIndex = Math.max(0, tutorialIndex-1); updateWalkthrough(); });
@@ -11649,10 +11716,10 @@ function refreshLobbyJoinLinkUi() {
   });
   const lobbyAccessChanged = () => {
     if (!room || room.ranked || room.hostId !== myPlayerId) return;
-    send({ type:'set_lobby_access', visibility: $('lobbyVisibilitySelect')?.value || 'private', friendsOnly: !!$('lobbyFriendsOnlyToggle')?.checked });
+    send({ type:'set_lobby_access', friendsOnly: !!$('lobbyFriendsOnlyToggle')?.checked });
   };
-  $('lobbyVisibilitySelect')?.addEventListener('change', lobbyAccessChanged);
   $('lobbyFriendsOnlyToggle')?.addEventListener('change', lobbyAccessChanged);
+  $('leaveLobbyTopBtn')?.addEventListener('click', openLeaveRoomConfirm);
   ui.startBtn.addEventListener('click', () => {
     setError(null);
     send({ type: 'start_game' });
