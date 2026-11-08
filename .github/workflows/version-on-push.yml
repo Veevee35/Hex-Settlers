@@ -1,0 +1,43 @@
+name: Increment Web Build Version
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+# Sequential bumps: two pushes must not both calculate from the same version.
+concurrency:
+  group: web-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip version bump]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Synchronize latest branch before incrementing
+        run: |
+          git fetch origin "${GITHUB_REF_NAME}"
+          git checkout -B "${GITHUB_REF_NAME}" "origin/${GITHUB_REF_NAME}"
+      - name: Bump version and update visible footer / cache key
+        run: node scripts/bump-version.cjs --bump
+      - name: Commit version as the deployed source of truth
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build-version.json package.json package-lock.json public/index.html public/app.js public/sw.js
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: increment Hex Settlers build version [skip version bump]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

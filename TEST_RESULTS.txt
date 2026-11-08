@@ -1,0 +1,14 @@
+Hex Settlers v27 - Mobile Clock Surface
+Date: 2026-11-07
+
+node --check public/app.js: passed
+node --check server.js: passed
+tsc -p tsconfig.bootstrap.json --noEmit: passed
+node --test: 263 passed, 4 blocked (ws dependency omitted from user-provided archive)
+Relevant new tests (mobile-clock-surface-v27.test.js): 3 passed
+Chromium isolated-client checks at 390x844, 844x390, 1024x768:
+  - Clock header absent / grip icon absent
+  - Pointer dragging succeeds from timer digits, status line, action message
+  - No page JavaScript exceptions
+
+Server integration tests were not completed because node_modules/ws was not included.
