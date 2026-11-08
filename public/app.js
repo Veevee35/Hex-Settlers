@@ -89,9 +89,7 @@
     scenario56Row: $('scenario56Row'),
     scenario78Note: $('scenario78Note'),
     scenario78Row: $('scenario78Row'), mapScenario78Select: $('mapScenario78Select'),
-    custom78Coords: $('custom78Coords'),
-    custom78Q: $('custom78Q'), custom78R: $('custom78R'),
-    custom78AddBtn: $('custom78AddBtn'), custom78RemoveBtn: $('custom78RemoveBtn'),
+    playerCountSelect: $('playerCountSelect'),
     mapScenario56Select: $('mapScenario56Select'),
     explorationPointsRow: $('explorationPointsRow'),
     explorationPointsToggle: $('explorationPointsToggle'),
@@ -3914,9 +3912,11 @@ function syncPostgameToState() {
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'through_the_desert_56' || scen === 'through_the_desert_78' || scen === 'eight_islands_78') return 14;
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-    if (scen === 'cartographer_78' || scen === 'scattered_tiles_78' || scen === 'cartographer_78_7' || scen === 'cartographer_78_8' || scen === 'scattered_tiles_78_7' || scen === 'scattered_tiles_78_8') return 12;
-    if (scen === 'cartographer_4_manual' || scen === 'cartographer-4-manual' || scen === 'cartographer_manual' || scen === 'manual_cartographer' || scen === 'cartographer_56_manual' || scen === 'cartographer-56-manual' || scen === 'cartographer56_manual') return 12;
-    if (scen === 'cartographer_4_random' || scen === 'cartographer-4-random' || scen === 'cartographer_random' || scen === 'random_cartographer' || scen === 'cartographer_4' || scen === 'cartographer-4' || scen === 'cartographer4' || scen === 'cartographer' || scen === 'cartographer_56_random' || scen === 'cartographer-56-random' || scen === 'cartographer56_random' || scen === 'scattered_tiles_56' || scen === 'scattered_tiles56' || scen === 'scattered_56') return 12;
+    // The 5–6 and 7–8 player Cartographer / Scattered Tiles scenarios default to 14 VP.
+    if (scen === 'cartographer_78' || scen === 'scattered_tiles_78' || scen === 'cartographer_78_7' || scen === 'cartographer_78_8' || scen === 'scattered_tiles_78_7' || scen === 'scattered_tiles_78_8') return 14;
+    if (scen === 'cartographer_56_manual' || scen === 'cartographer-56-manual' || scen === 'cartographer56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer-56-random' || scen === 'cartographer56_random' || scen === 'scattered_tiles_56' || scen === 'scattered_tiles56' || scen === 'scattered_56') return 14;
+    if (scen === 'cartographer_4_manual' || scen === 'cartographer-4-manual' || scen === 'cartographer_manual' || scen === 'manual_cartographer') return 12;
+    if (scen === 'cartographer_4_random' || scen === 'cartographer-4-random' || scen === 'cartographer_random' || scen === 'random_cartographer' || scen === 'cartographer_4' || scen === 'cartographer-4' || scen === 'cartographer4' || scen === 'cartographer') return 12;
     return 13; // four islands
   }
 
@@ -3938,6 +3938,29 @@ function syncPostgameToState() {
     return rules?.mapMode || 'classic';
   }
 
+  function syncPlayerCountOptions(requested = null) {
+    if (!ui.playerCountSelect) return;
+    const mode = String(ui.mapModeSelect?.value || 'classic');
+    const is78 = mode === 'classic78' || mode === 'seafarers78';
+    const is56 = mode === 'classic56' || mode === 'seafarers56';
+    const custom = !!ui.classicCustomMapToggle?.checked ||
+      (mode === 'seafarers78' && ui.mapScenario78Select?.value === 'test_builder_78') ||
+      (mode === 'seafarers56' && ui.mapScenario56Select?.value === 'test_builder_56') ||
+      (mode === 'seafarers' && ui.mapScenarioSelect?.value === 'test_builder');
+    const min = is78 ? 7 : (is56 ? 5 : (custom || selectedPlayMode === 'casual' ? 1 : 2));
+    const max = is78 ? 8 : (is56 ? 6 : 4);
+    const prior = requested == null ? Number(ui.playerCountSelect.value) : Number(requested);
+    const chosen = Number.isInteger(prior) && prior >= min && prior <= max ? prior : max;
+    ui.playerCountSelect.replaceChildren();
+    for (let count = min; count <= max; count++) {
+      const opt = document.createElement('option');
+      opt.value = String(count);
+      opt.textContent = `${count} player${count === 1 ? '' : 's'}`;
+      ui.playerCountSelect.appendChild(opt);
+    }
+    ui.playerCountSelect.value = String(chosen);
+  }
+
   function uiIsSixIslands(rulesOrSelection) {
     const mm = String(rulesOrSelection?.mapMode || 'classic').toLowerCase();
     if (mm === 'seafarers56') return true;
@@ -3952,13 +3975,8 @@ function syncPostgameToState() {
 
   function syncTestBuilderToolModeUi() {
     const portMode = String(ui.testToolSelect?.value || 'tile') === 'port';
-    const custom78 = (ui.mapModeSelect?.value === 'classic78' && !!ui.classicCustomMapToggle?.checked) ||
-      (ui.mapModeSelect?.value === 'seafarers78' && ui.mapScenario78Select?.value==='test_builder_78');
-    const shapeTool = ['add','remove'].includes(String(ui.testToolSelect?.value || 'tile'));
-    ui.custom78Coords?.classList.toggle('hidden', !custom78);
-    for (const opt of ui.testToolSelect?.options || []) if (['add','remove'].includes(opt.value)) opt.disabled = !custom78;
-    ui.testBrushSelect?.classList.toggle('hidden', portMode || shapeTool);
-    ui.testNumberSelect?.classList.toggle('hidden', portMode || shapeTool);
+    ui.testBrushSelect?.classList.toggle('hidden', portMode);
+    ui.testNumberSelect?.classList.toggle('hidden', portMode);
     ui.testPortSelect?.classList.toggle('hidden', !portMode);
   }
 
@@ -9288,14 +9306,14 @@ function refreshLobbyJoinLinkUi() {
     scattered_tiles_78: {
       label: 'Scattered Tiles (7–8)',
       summary: 'A randomized 97-hex Seafarers board, automatically sized for seven or eight players.',
-      setup: ['The seven-player pool has 42 number discs and nine ports; the eight-player pool has 48 discs and eleven ports.', 'When the lobby reaches eight players, its map preview switches to the eight-player pool.'],
+      setup: ['The seven-player pool has 42 number discs and nine ports; the eight-player pool has 48 discs and eleven ports.', 'Selecting eight players in Game Setup switches the preview to the eight-player pool.'],
       rules: ['The correct tile inventory is shuffled every generation.', 'Red number discs are kept apart and off Gold Fields.'],
     },
     cartographer_78: {
       label: 'Cartographer (7–8)',
       summary: 'Each of seven or eight players manually drafts tiles onto the expanded 97-hex board.',
-      setup: ['The draft uses seven-player tile allowances for seven players, and eight-player allowances when the eighth seat fills.', 'The game assigns number discs and ports after the draft.'],
-      rules: ['The manual Cartographer timer and turn order apply.', 'Number and port inventories are based on the actual player count at game start.'],
+      setup: ['The draft uses seven- or eight-player tile allowances as selected in Game Setup.', 'The game assigns number discs and ports after the draft.'],
+      rules: ['The manual Cartographer timer and turn order apply.', 'Number and port inventories follow the chosen player count at game start.'],
     },
     scattered_tiles_78_7: {
       label: 'Scattered Tiles (7)',
@@ -9324,7 +9342,7 @@ function refreshLobbyJoinLinkUi() {
     test_builder_78: {
       label: 'Custom Map (7–8)',
       summary: 'An editable 97-hex Seafarers map using the supplied seven-to-eight-player custom template.',
-      setup: ['Paint resource, sea, desert, Gold Field, or Fog tiles; add or remove hexes as needed.', 'Choose a number on terrain, or paint Fog over an existing tile to hide its type and number.'],
+      setup: ['Paint resource, sea, desert, Gold Field, or Fog tiles on the fixed map layout.', 'Choose a number on terrain, or paint Fog over an existing tile to hide its type and number.'],
       rules: ['Fog uncovers and awards resources using the standard Fog Island rules.', 'Uploaded and downloaded custom maps preserve hidden terrain and number discs.', 'The selected lobby rules control points, timers, and bank supply.'],
     },
     heading_for_new_shores: {
@@ -10672,15 +10690,19 @@ function refreshLobbyJoinLinkUi() {
         const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56'));
         // Respect the server's lobby capacity: all permanent 7–8 scenarios
         // (not just editable custom maps) allow Fill to 7 or Fill to 8.
-        const is78Lobby = Number(room?.maxPlayers) === 8 || String(room?.rules?.mapMode || '') === 'classic78';
+        const is78Lobby = Number(room?.maxPlayers) === 8 || String(room?.rules?.mapMode || '') === 'classic78' || uiMapModeFromRules(room?.rules) === 'seafarers78';
         const minPlayers = is78Lobby ? 7 : ((mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2)));
         const maxPlayers = is78Lobby ? 8 : ((mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4));
+        // Selecting 7 must still show the 7-player AI controls even though
+        // maxPlayers sent by the server is now 7 rather than 8.
+        const capacity = Math.floor(Number(room?.maxPlayers));
+        const effectiveMaxPlayers = Number.isFinite(capacity) && capacity >= minPlayers ? Math.min(maxPlayers, capacity) : maxPlayers;
         const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;
         const current = (room.players || []).length;
         const start = Math.max(humans, 1);
         const prev = ui.aiFillSelect.value;
         ui.aiFillSelect.innerHTML = '';
-        for (let target = start; target <= maxPlayers; target++) {
+        for (let target = start; target <= effectiveMaxPlayers; target++) {
           const opt = document.createElement('option');
           const add = Math.max(0, target - current);
           const rem = Math.max(0, current - target);
@@ -10691,8 +10713,13 @@ function refreshLobbyJoinLinkUi() {
           opt.textContent = `Fill to ${target} ${suffix}`.trim();
           ui.aiFillSelect.appendChild(opt);
         }
-        // Keep selection if possible, otherwise default to the minimum needed to start.
-        const desired = (prev && [...ui.aiFillSelect.options].some(o => o.value === prev)) ? prev : String(Math.max(minPlayers, Math.min(maxPlayers, current)));
+        // The game-size selection is authoritative. Prefer filling to that
+        // total so a single Fill click can make the lobby start-ready.
+        const configured = String(room?.rules?.playerCount ?? '');
+        const matches = value => [...ui.aiFillSelect.options].some(o => o.value === value);
+        const desired = (configured && matches(configured)) ? configured
+          : (prev && matches(prev)) ? prev
+            : String(Math.max(minPlayers, Math.min(effectiveMaxPlayers, current)));
         ui.aiFillSelect.value = desired;
       }
     } catch (_) {}
@@ -10823,6 +10850,8 @@ function refreshLobbyJoinLinkUi() {
         ui.classicCustomMapToggle.disabled = !isHost;
       }
     }
+    syncPlayerCountOptions(r.playerCount);
+    if (ui.playerCountSelect) ui.playerCountSelect.disabled = !isHost || gameStarted;
     if (ui.devDeckModeSelect) {
       const ddRaw = String(r.devDeckMode ?? 25);
       ui.devDeckModeSelect.value = (ddRaw === '13' || ddRaw === '25' || ddRaw === '38') ? ddRaw : '25';
@@ -11405,6 +11434,7 @@ function refreshLobbyJoinLinkUi() {
   if (ui.mapModeSelect && ui.scenarioRow) {
     ui.mapModeSelect.addEventListener('change', () => {
       const mm = (ui.mapModeSelect.value || 'classic');
+      syncPlayerCountOptions();
       ui.scenarioRow.classList.toggle('hidden', mm !== 'seafarers');
       if (ui.scenario56Row) ui.scenario56Row.classList.toggle('hidden', mm !== 'seafarers56');
       if (ui.scenario78Row) ui.scenario78Row.classList.toggle('hidden', mm !== 'seafarers78');
@@ -11511,7 +11541,7 @@ function refreshLobbyJoinLinkUi() {
   const SETTINGS_FIELDS = [
     ['discardLimitInput', 'Discard limit'], ['friendlyRobberToggle', 'Friendly Robber'],
     ['timerSpeedSelect', 'Timer speed'], ['diceAlgorithmSelect', 'Dice algorithm'],
-    ['baseResourceCountSelect', 'Bank resources per type'], ['mapModeSelect', 'Map type'],
+    ['baseResourceCountSelect', 'Bank resources per type'], ['mapModeSelect', 'Map type'], ['playerCountSelect', 'Number of players'],
     ['mapScenarioSelect', 'Seafarers scenario'], ['mapScenario56Select', '5–6-player scenario'], ['mapScenario78Select','7–8-player scenario'], ['classicCustomMapToggle','Custom Map'],
     ['explorationPointsToggle', 'Exploration victory points'],
     ['victoryPointsSelect', 'Victory points to win'], ['devDeckModeSelect', 'Development deck'],
@@ -11540,7 +11570,7 @@ function refreshLobbyJoinLinkUi() {
       discardLimit: Number.isFinite(discardLimit) ? discardLimit : 7,
       setupTurnMs: Math.round(60000 * factor), playTurnMs: Math.round(30000 * factor),
       microPhaseMs: Math.round(15000 * factor), diceAlgorithm: normalizeDiceAlgorithmClient(ui.diceAlgorithmSelect?.value),
-      mapMode, customMap: ['classic','classic56','classic78'].includes(mapMode) && !!ui.classicCustomMapToggle?.checked, seafarersScenario, victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
+      mapMode, playerCount: Number(ui.playerCountSelect?.value || 4), customMap: ['classic','classic56','classic78'].includes(mapMode) && !!ui.classicCustomMapToggle?.checked, seafarersScenario, victoryPointsToWin: Number.isFinite(vpToWin) ? vpToWin : undefined,
       devDeckMode: [13,25,38].includes(devDeckMode) ? devDeckMode : undefined,
       baseResourcesPerType: Number.isFinite(baseResourcesPerType) ? Math.max(1, Math.min(40, baseResourcesPerType)) : undefined,
       friendlyRobber: ui.friendlyRobberToggle ? !!ui.friendlyRobberToggle.checked : false,
@@ -11723,6 +11753,7 @@ function refreshLobbyJoinLinkUi() {
   }
 
     ui.classicCustomMapToggle?.addEventListener('change', () => {
+      syncPlayerCountOptions();
       ui.testBuilderRow?.classList.toggle('hidden', !ui.classicCustomMapToggle.checked);
       if (ui.classicCustomMapToggle.checked && ui.randomMapAtStartToggle) ui.randomMapAtStartToggle.checked = false;
       commitLobbySettings();
@@ -11741,13 +11772,6 @@ function refreshLobbyJoinLinkUi() {
     const link = document.createElement('a'); link.href = url; link.download = filename;
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
-  }
-  for (const [button, operation] of [[ui.custom78AddBtn,'add'],[ui.custom78RemoveBtn,'remove']]) {
-    button?.addEventListener('click', () => {
-      const q = Number(ui.custom78Q?.value), r = Number(ui.custom78R?.value);
-      if (!Number.isInteger(q) || !Number.isInteger(r)) { setError('Enter integer hex coordinates.'); return; }
-      send({type:'edit_preview_grid',operation,q,r});
-    });
   }
   ui.customMapDownloadBtn?.addEventListener('click', () => send({ type: 'download_custom_map' }));
   ui.customMapUploadBtn?.addEventListener('click', () => ui.customMapUploadInput?.click());
@@ -15223,18 +15247,7 @@ function handleProductionGoldPrompt() {
       const scen = String(rr.seafarersScenario || 'four_islands').toLowerCase();
       if ((mm === 'seafarers' && uiIsTestBuilderScenario(rr)) || (['classic','classic56','classic78'].includes(mm) && rr.customMap === true)) {
         const tool = String(ui.testToolSelect?.value || 'tile');
-        if (['add','remove'].includes(tool) && isCustom78Map(rr)) {
-          const world = screenToWorld({x,y});
-          const qr = (2 / 3) * world.y;
-          const qq = (Math.sqrt(3) / 3) * world.x - qr / 2;
-          let cubeX = qq, cubeZ = qr, cubeY = -cubeX-cubeZ;
-          let rx = Math.round(cubeX), ry = Math.round(cubeY), rz = Math.round(cubeZ);
-          const dx=Math.abs(rx-cubeX),dy=Math.abs(ry-cubeY),dz=Math.abs(rz-cubeZ);
-          if (dx > dy && dx > dz) rx=-ry-rz; else if (dy > dz) ry=-rx-rz; else rz=-rx-ry;
-          if (ui.custom78Q) ui.custom78Q.value=String(rx);
-          if (ui.custom78R) ui.custom78R.value=String(rz);
-          send({type:'edit_preview_grid',operation:tool,q:rx,r:rz});
-        } else if (tool === 'port') {
+        if (tool === 'port') {
           const edgeId = pickEdge(x, y);
           if (edgeId != null) {
             const portKind = String(ui.testPortSelect?.value || 'generic');

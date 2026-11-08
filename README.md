@@ -151,9 +151,9 @@ See `V39_RELEASE_NOTES.md` for details.
 ### 7–8 player map workshop (v40)
 
 Unranked Play offers **Classic 7–8 Player — Custom Map** and **Seafarers 7–8
-Player — Custom Map**. Their editable maps have no predefined board outline.
-Use Add/Remove Tile in the lobby editor or enter axial Q/R coordinates, then
-paint tile terrain, numbers and ports. Export to JSON v2 with Download Map;
-re-import the corresponding JSON with Upload Map. Save your map exports for the
-future scenario-bounds update. These experimental types are unavailable in
-Casual and Ranked Play. See `V40_RELEASE_NOTES.md` for editor safety limits.
+Player — Custom Map**, with fixed, editable hex layouts based on the supplied
+templates. Paint tile terrain (including hidden Fog), numbers, and ports on
+existing hexes; adding/removing hexes is no longer exposed in the editor.
+Export to JSON v2 with Download Map and re-import with Upload Map. These
+custom types are unavailable in Casual and Ranked Play. See `V44_RELEASE_NOTES.md`
+for current setup behavior and `V40_RELEASE_NOTES.md` for historical details.

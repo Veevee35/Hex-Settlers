@@ -4347,18 +4347,19 @@ body.in-game .historyReplayBar {
   }
 }
 
-/* v37 — The clock has one stable footprint. Action/status messages wrap
-   within a reserved message area rather than resizing the clock panel. */
+/* v45 — Size the turn clock to its actual time, turn, and action text.
+   The former fixed 190px/176px/150px heights left a large dead area under
+   short action messages. Keep long notices scrollable without obscuring the board. */
 body.in-game .countdownClock {
   box-sizing:border-box;
   display:flex;
   flex-direction:column;
-  width:190px!important;
+  width:clamp(190px,19vw,250px)!important;
   min-width:190px!important;
-  max-width:190px!important;
-  height:190px!important;
-  min-height:190px!important;
-  max-height:190px!important;
+  max-width:min(250px,calc(100vw - 12px))!important;
+  height:auto!important;
+  min-height:0!important;
+  max-height:min(65dvh,340px)!important;
   overflow:hidden;
 }
 body.in-game .countdownClock .clockTopRow,
@@ -4371,10 +4372,13 @@ body.in-game .countdownClock .clockMeta {
 }
 body.in-game .countdownClock .clockActionInfo {
   box-sizing:border-box;
-  flex:1 1 auto;
+  flex:0 1 auto;
   min-height:0;
-  max-height:none!important;
+  max-height:min(34dvh,180px)!important;
   width:100%;
+  margin-top:6px!important;
+  padding-top:6px!important;
+  padding-bottom:0!important;
   overflow-x:hidden;
   overflow-y:auto;
   white-space:normal!important;
@@ -4399,17 +4403,23 @@ body.in-game .countdownClock .clockActionInfo .turnInfo {
     width:min(190px,calc(100vw - 12px))!important;
     min-width:0!important;
     max-width:min(190px,calc(100vw - 12px))!important;
-    height:176px!important;
-    min-height:176px!important;
-    max-height:176px!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:min(60dvh,290px)!important;
+  }
+  body.in-game .countdownClock .clockActionInfo {
+    margin-top:4px!important;
+    padding-top:4px!important;
+    max-height:min(36dvh,180px)!important;
   }
 }
 @media (max-width:900px) and (max-height:550px) and (orientation:landscape) {
   body.in-game .countdownClock {
-    height:150px!important;
-    min-height:150px!important;
-    max-height:150px!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:min(64dvh,220px)!important;
   }
+  body.in-game .countdownClock .clockActionInfo {max-height:min(34dvh,120px)!important;}
 }
 
 /* v38 — Casual rules browser and unified administrator console */

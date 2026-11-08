@@ -141,7 +141,7 @@ const SERVER_INSTANCE_ID = String(
   process.env.RAILWAY_DEPLOYMENT_ID ||
   crypto.randomUUID()
 ).slice(0, 64);
-const SERVER_BUILD_ID = 'features-v38';
+const SERVER_BUILD_ID = 'features-v45';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function randCode(len = 4) {
@@ -1839,8 +1839,8 @@ function is78Rules(rules) {
 }
 function isCartographer78Manual(s) { return s === 'cartographer_78' || s === 'cartographer_78_7' || s === 'cartographer_78_8'; }
 // A single Cartographer / Scattered Tiles choice picks the appropriate tile pool
-// from the number of occupied lobby seats, including AI. Preserve explicit old
-// scenario keys in saved rooms/replays, but adjust them at 7/8-player boundaries.
+// from the selected Game Setup player count, falling back to occupied seats
+// in old lobbies. Preserve explicit old scenario keys in saved rooms/replays.
 function resolve78ScenarioForPlayers(scenario, playerCount) {
   const s = String(scenario || '');
   const count = Math.floor(Number(playerCount || 0));
@@ -2853,7 +2853,10 @@ function defaultVictoryPointsToWin(rules) {
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56' || scen==='through_the_desert_78' || scen==='eight_islands_78') return 14;
   if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
   if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-  if (isCartographer4ScenarioKey(scen) || isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen) || scen==='scattered_tiles_78' || scen.startsWith('scattered_tiles_78_')) return 12;
+  // Expanded Scattered Tiles / Cartographer (5–6 and 7–8 players) use 14 VP.
+  if (isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen) || scen.startsWith('scattered_tiles_56') || scen === 'scattered_56' || scen.startsWith('scattered_tiles_78')) return 14;
+  // The original four-player Cartographer scenarios retain their 12-VP default.
+  if (isCartographer4ScenarioKey(scen)) return 12;
   return 13; // four islands
 }
 
@@ -5906,7 +5909,7 @@ function newEmptyGame(room) {
   let geom = null;
   if (is78Rules(room.rules)) {
     geom = is78CustomRules(room.rules) ? (mapMode==='classic78' ? custom78StartingGeometry('classic_custom') : initialCustom78Geometry()) :
-      (mapMode==='classic78' ? generate78Scenario('classic') : generate78Scenario(resolve78ScenarioForPlayers(room.rules.seafarersScenario, room.players.length)));
+      (mapMode==='classic78' ? generate78Scenario('classic') : generate78Scenario(resolve78ScenarioForPlayers(room.rules.seafarersScenario, selectedPlayerCountForRules(room.rules) ?? room.players.length)));
   } else if (mapMode === 'classic56') {
     geom = buildGeometryClassic56();
   } else if (mapMode === 'seafarers') {
@@ -8343,7 +8346,30 @@ function pickAvailableColor(room) {
   return COLORS[0];
 }
 
+// A room can explicitly target a fixed number of players (human + AI).
+// For older rooms without a selection, retain the legacy per-map capacity
+// and 7/8-player inventory selection based on the current lobby roster.
+function playerCountRangeForRules(rules, casual = false) {
+  if (is78Rules(rules)) return { min: 7, max: 8 };
+  const mode = String(rules?.mapMode || 'classic').toLowerCase();
+  if (mode === 'classic56' || (mode === 'seafarers' && isSeafarers56Scenario(rules?.seafarersScenario))) {
+    return { min: 5, max: 6 };
+  }
+  return { min: (casual || editableCustomMapRules(rules)) ? 1 : 2, max: 4 };
+}
+
+function selectedPlayerCountForRules(rules) {
+  const value = Number(rules?.playerCount);
+  const { min, max } = playerCountRangeForRules(rules);
+  // Casual Classic can be one human; set_rules validates that special case.
+  const casualSolo = value === 1 && max === 4;
+  return rules?.playerCount != null && rules.playerCount !== '' && Number.isInteger(value) &&
+    (casualSolo || value >= min && value <= max) ? value : null;
+}
+
 function maxPlayersForRules(rules) {
+  const selected = selectedPlayerCountForRules(rules);
+  if (selected != null) return selected;
   if (is78Rules(rules)) return 8;
   const raw = (rules && rules.mapMode) ? String(rules.mapMode).toLowerCase() : 'classic';
   const mm = (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
@@ -9195,6 +9221,7 @@ function editableCustomMapRules(rules) {
   return customMapEnabled(rules) || (String(rules?.mapMode || '') === 'seafarers' && isTestBuilderScenarioKey(rules?.seafarersScenario));
 }
 function mapPreviewKey(rules, playerCount = null) {
+  playerCount = selectedPlayerCountForRules(rules) ?? playerCount;
   if (is78Rules(rules)) return String(rules.mapMode) === 'classic78' ? (rules.customMap ? 'classic78:custom' : 'classic78:classic') : `seafarers:${resolve78ScenarioForPlayers(rules.seafarersScenario, playerCount)}`;
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
@@ -9242,7 +9269,7 @@ function generatePreviewGeom(rules, room = null) {
   if (is78Rules(rules)) {
     if (is78CustomRules(rules)) return String(rules.mapMode)==='classic78'? custom78StartingGeometry('classic_custom') : initialCustom78Geometry();
     if (String(rules.mapMode)==='classic78') return generate78Scenario('classic');
-    return generate78Scenario(resolve78ScenarioForPlayers(rules.seafarersScenario, room?.players?.length || 0));
+    return generate78Scenario(resolve78ScenarioForPlayers(rules.seafarersScenario, selectedPlayerCountForRules(rules) ?? (room?.players?.length || 0)));
   }
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
@@ -9250,7 +9277,7 @@ function generatePreviewGeom(rules, room = null) {
       ? 'classic56'
       : 'classic';
   if (mm === 'seafarers') {
-    const previewPlayerCount = Math.max(0, Math.floor(Number(room?.players?.length || 0))) || 6;
+    const previewPlayerCount = selectedPlayerCountForRules(rules) ?? (Math.max(0, Math.floor(Number(room?.players?.length || 0))) || 6);
     const key = mapPreviewKey(rules, previewPlayerCount);
     const scen = key.split(':')[1] || 'four_islands';
     let geom = null;
@@ -12070,6 +12097,26 @@ if (msg.type === 'create_room') {
         return;
       }
       next.customMap = next.mapMode !== 'seafarers' && r.customMap === true;
+
+      // The selection is a game-size target, distinct from the current lobby
+      // occupancy. Existing v43 clients that omit it keep legacy behavior.
+      const range = playerCountRangeForRules(next, !!room.casual);
+      if (r.playerCount != null && r.playerCount !== '') {
+        const requested = Number(r.playerCount);
+        if (!Number.isInteger(requested) || requested < range.min || requested > range.max) {
+          sendJson(ws, { type: 'error', error: `This map supports ${range.min}–${range.max} players.` });
+          return;
+        }
+        next.playerCount = requested;
+      } else if (selectedPlayerCountForRules(next) == null) {
+        delete next.playerCount;
+      }
+      const seatLimit = maxPlayersForRules(next);
+      const humanCount = room.players.filter(p => p && !isAIPlayerObj(p)).length;
+      if (humanCount > seatLimit) {
+        sendJson(ws, { type: 'error', error: `Cannot select ${seatLimit} seats while ${humanCount} human players are in the lobby.` });
+        return;
+      }
       if (editableCustomMapRules(next)) next.randomMapAtStart = false;
 
       if (typeof r.explorationPointsEnabled === 'boolean') {
@@ -12096,6 +12143,7 @@ if (msg.type === 'create_room') {
       const rulesChanged = JSON.stringify(room.rules || DEFAULT_RULES) !== JSON.stringify(next);
       room.rules = next;
       if (room.casual) addAIPlayersToRoom(room, maxPlayersForRules(next));
+      else if (room.players.length > seatLimit) addAIPlayersToRoom(room, seatLimit);
       if (rulesChanged) resetHumanRoomPlayerReadiness(room);
       const nextKey = mapPreviewKey(next, room?.players?.length || 0);
       const previewChanged = ensurePreview(room, (prevKey !== nextKey) || !room.preview);
@@ -12533,6 +12581,11 @@ if (msg.type === 'create_room') {
 
       const minPlayers = isEight ? 7 : ((mm === 'classic56') ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2)));
       const maxPlayers = isEight ? 8 : ((mm === 'classic56') ? 6 : (isSix ? 6 : 4));
+      const configuredCount = selectedPlayerCountForRules(room.rules);
+      if (configuredCount != null && room.players.length !== configuredCount) {
+        sendJson(ws, { type: 'error', error: `Game is set to ${configuredCount} players. Add human players, use Fill for AI seats, or change Number of players in Game Setup.` });
+        return;
+      }
       if (room.players.length < minPlayers || room.players.length > maxPlayers) {
         const msgErr = isEight ? '7–8-player maps require 7 or 8 players (AI can fill empty seats).' : (mm === 'classic56')
           ? 'Classic 5–6 requires 5 or 6 players.'

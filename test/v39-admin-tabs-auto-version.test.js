@@ -18,7 +18,7 @@ test('separate admin user and merge tabs route to distinct panels', () => {
   assert.match(app, /openUserManagementScreen\(\{ selfOnly: true \}\)/);
 });
 
-test('V1.0.0 appears on both portal pages, and all assets reflect the same build version', () => {
+test('the current version appears on both portal pages, and all assets reflect the same build version', () => {
   const html = read('public/index.html');
   const js = read('public/app.js');
   const sw = read('public/sw.js');
@@ -67,14 +67,17 @@ test('version bump stamps page text, both asset URL revisions, service worker, a
     fs.copyFileSync(path.join(root, rel), path.join(fixture, rel));
   }
   const bump = () => execFileSync(process.execPath, [path.join(fixture, 'scripts/bump-version.cjs'), '--bump'], { encoding: 'utf8' }).trim();
-  assert.equal(bump(), 'V1.0.1');
+  const next = nextVersion(JSON.parse(read('build-version.json')));
+  const expectedTag = `release-v${next.major}.${next.minor}.${next.patch}`;
+  const expectedLabel = `V${next.major}.${next.minor}.${next.patch}`;
+  assert.equal(bump(), expectedLabel);
   let html = fs.readFileSync(path.join(fixture, 'public/index.html'), 'utf8');
-  assert.ok(html.includes('styles.css?v=release-v1.0.1'));
-  assert.ok(html.includes('app.js?v=release-v1.0.1'));
-  assert.equal((html.match(/>V1\.0\.1<\/div>/g) || []).length, 2);
-  assert.ok(fs.readFileSync(path.join(fixture, 'public/app.js'), 'utf8').includes("ASSET_CACHE_SW_BUILD = 'release-v1.0.1'"));
-  assert.ok(fs.readFileSync(path.join(fixture, 'public/sw.js'), 'utf8').includes("CACHE_NAME = CACHE_PREFIX + 'release-v1.0.1'"));
-  assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package-lock.json'))).version, '1.0.1');
+  assert.ok(html.includes(`styles.css?v=${expectedTag}`));
+  assert.ok(html.includes(`app.js?v=${expectedTag}`));
+  assert.equal((html.match(new RegExp(`>${expectedLabel.replace(/\./g, '\\.')}<\/div>`, 'g')) || []).length, 2);
+  assert.ok(fs.readFileSync(path.join(fixture, 'public/app.js'), 'utf8').includes(`ASSET_CACHE_SW_BUILD = '${expectedTag}'`));
+  assert.ok(fs.readFileSync(path.join(fixture, 'public/sw.js'), 'utf8').includes(`CACHE_NAME = CACHE_PREFIX + '${expectedTag}'`));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package-lock.json'))).version, expectedLabel.slice(1));
   fs.writeFileSync(path.join(fixture, 'build-version.json'), JSON.stringify({ major: 1, minor: 3, patch: 99, lastBuiltMajor: 1 }));
   assert.equal(bump(), 'V1.4.0');
   fs.writeFileSync(path.join(fixture, 'build-version.json'), JSON.stringify({ major: 2, minor: 4, patch: 90, lastBuiltMajor: 1 }));

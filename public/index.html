@@ -333,6 +333,14 @@
           </select>
           <div class="smallNote">Starting bank amount for each resource type (brick, lumber, wool, grain, ore). Default is 19 for 4-player maps and 24 for 5–6 player maps.</div>
 
+          <label class="label" for="playerCountSelect">Number of players</label>
+          <select id="playerCountSelect" class="input">
+            <option value="2">2 players</option>
+            <option value="3">3 players</option>
+            <option value="4" selected>4 players</option>
+          </select>
+          <div class="smallNote">Choose the total players for this game, including AI. Available counts depend on the map size. Use Fill in the Players panel to add AI seats.</div>
+
           <label class="label">Map</label>
           <select id="mapModeSelect" class="input">
             <option value="classic" selected>Classic</option>
@@ -362,7 +370,7 @@
             </select>
           </div>
 
-          <div id="scenario78Note" class="smallNote hidden">7–8 player maps can fill every empty seat with AI up to eight. Cartographer and Scattered Tiles automatically use the seven- or eight-player inventory based on occupied seats. Custom Map remains editable. Unranked only.</div>
+          <div id="scenario78Note" class="smallNote hidden">7–8 player maps can fill empty seats with AI up to the selected player count. Cartographer and Scattered Tiles use the seven- or eight-player inventory selected under Number of players. Custom Map remains editable. Unranked only.</div>
           <div id="scenario78Row" class="hidden">
             <label class="label">Seafarers 7–8-player scenario</label>
             <select id="mapScenario78Select" class="input">
@@ -400,8 +408,6 @@
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               <select id="testToolSelect" class="input" style="width:145px;">
                 <option value="tile" selected>Paint tiles</option>
-                <option value="add">Add tile (7–8)</option>
-                <option value="remove">Remove tile (7–8)</option>
                 <option value="port">Place ports</option>
               </select>
               <select id="testBrushSelect" class="input" style="flex:1; min-width:180px;">
@@ -438,17 +444,11 @@
                 <option value="remove">Remove port</option>
               </select>
               <button id="testResetBtn" class="btn" type="button">Reset blank</button>
-              <div id="custom78Coords" class="row hidden" style="gap:5px; flex-wrap:wrap; align-items:center;">
-                <label for="custom78Q">Q</label><input id="custom78Q" class="input" type="number" step="1" value="1" style="width:75px" />
-                <label for="custom78R">R</label><input id="custom78R" class="input" type="number" step="1" value="0" style="width:75px" />
-                <button id="custom78AddBtn" class="btn" type="button">Add at Q / R</button>
-                <button id="custom78RemoveBtn" class="btn" type="button">Remove at Q / R</button>
-              </div>
               <button id="customMapDownloadBtn" class="btn" type="button">Download Map</button>
               <button id="customMapUploadBtn" class="btn" type="button">Upload Map</button>
               <input id="customMapUploadInput" class="hidden" type="file" accept=".json,application/json" />
             </div>
-            <div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. On 7–8 custom maps, select Add/Remove Tile and click a hex position, or enter Q/R coordinates; pan and zoom for more room. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
+            <div class="muted" style="font-size:12px; margin-top:6px;">Host: paint tiles, or select a port type and click a shoreline edge. Ports cannot share a corner. Numbers are ignored on Sea/Desert.</div>
           </div>
 
           <label class="label">Victory points to win</label>
