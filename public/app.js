@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.2';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.0';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -3914,7 +3914,7 @@ function syncPostgameToState() {
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'through_the_desert_56' || scen === 'through_the_desert_78' || scen === 'eight_islands_78') return 14;
     if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-    if (scen === 'cartographer_78_7' || scen === 'cartographer_78_8' || scen==='scattered_tiles_78_7' || scen==='scattered_tiles_78_8') return 12;
+    if (scen === 'cartographer_78' || scen === 'scattered_tiles_78' || scen === 'cartographer_78_7' || scen === 'cartographer_78_8' || scen === 'scattered_tiles_78_7' || scen === 'scattered_tiles_78_8') return 12;
     if (scen === 'cartographer_4_manual' || scen === 'cartographer-4-manual' || scen === 'cartographer_manual' || scen === 'manual_cartographer' || scen === 'cartographer_56_manual' || scen === 'cartographer-56-manual' || scen === 'cartographer56_manual') return 12;
     if (scen === 'cartographer_4_random' || scen === 'cartographer-4-random' || scen === 'cartographer_random' || scen === 'random_cartographer' || scen === 'cartographer_4' || scen === 'cartographer-4' || scen === 'cartographer4' || scen === 'cartographer' || scen === 'cartographer_56_random' || scen === 'cartographer-56-random' || scen === 'cartographer56_random' || scen === 'scattered_tiles_56' || scen === 'scattered_tiles56' || scen === 'scattered_56') return 12;
     return 13; // four islands
@@ -9285,6 +9285,18 @@ function refreshLobbyJoinLinkUi() {
       setup: ['Seven or eight players begin on known, visible islands.', 'The center is hidden at game start, regardless of the uploaded template’s visible center.'],
       rules: ['Placing a ship or road at a fog edge reveals an adjacent tile and its number disc.', 'Discovering resources awards one card from the bank, Gold Fields prompt a choice, and sea grants no card.', 'The pirate cannot start on or enter an unrevealed fog tile. Paired turns apply.'],
     },
+    scattered_tiles_78: {
+      label: 'Scattered Tiles (7–8)',
+      summary: 'A randomized 97-hex Seafarers board, automatically sized for seven or eight players.',
+      setup: ['The seven-player pool has 42 number discs and nine ports; the eight-player pool has 48 discs and eleven ports.', 'When the lobby reaches eight players, its map preview switches to the eight-player pool.'],
+      rules: ['The correct tile inventory is shuffled every generation.', 'Red number discs are kept apart and off Gold Fields.'],
+    },
+    cartographer_78: {
+      label: 'Cartographer (7–8)',
+      summary: 'Each of seven or eight players manually drafts tiles onto the expanded 97-hex board.',
+      setup: ['The draft uses seven-player tile allowances for seven players, and eight-player allowances when the eighth seat fills.', 'The game assigns number discs and ports after the draft.'],
+      rules: ['The manual Cartographer timer and turn order apply.', 'Number and port inventories are based on the actual player count at game start.'],
+    },
     scattered_tiles_78_7: {
       label: 'Scattered Tiles (7)',
       summary: 'A 97-position randomized Seafarers board for seven players.',
@@ -9540,7 +9552,7 @@ function refreshLobbyJoinLinkUi() {
     const scenarioOptions = {
       seafarers: ['four_islands', 'through_the_desert', 'fog_island', 'heading_for_new_shores', 'cartographer_4_manual', 'cartographer_4_random'],
       seafarers56: ['six_islands', 'through_the_desert_56', 'fog_island_56', 'cartographer_56_manual', 'cartographer_56_random'],
-      seafarers78: ['eight_islands_78', 'through_the_desert_78', 'fog_island_78', 'cartographer_78_7', 'cartographer_78_8', 'scattered_tiles_78_7', 'scattered_tiles_78_8', 'test_builder_78'],
+      seafarers78: ['eight_islands_78', 'through_the_desert_78', 'fog_island_78', 'cartographer_78', 'scattered_tiles_78', 'test_builder_78'],
     };
     const buildRuleTabs = (element, list, selectedKey, clickHandler) => {
       if (!element) return;
@@ -10658,8 +10670,11 @@ function refreshLobbyJoinLinkUi() {
         const allowSolo = !!room?.casual || !!room?.rules?.customMap || (mm === 'seafarers' && uiIsTestBuilderScenario(room?.rules));
         const scen = String(room?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
         const isSeafarers56 = (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56'));
-        const minPlayers = isCustom78Map(room?.rules) ? 7 : ((mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2)));
-        const maxPlayers = isCustom78Map(room?.rules) ? 8 : ((mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4));
+        // Respect the server's lobby capacity: all permanent 7–8 scenarios
+        // (not just editable custom maps) allow Fill to 7 or Fill to 8.
+        const is78Lobby = Number(room?.maxPlayers) === 8 || String(room?.rules?.mapMode || '') === 'classic78';
+        const minPlayers = is78Lobby ? 7 : ((mm === 'classic56') ? 5 : (isSeafarers56 ? 5 : (allowSolo ? 1 : 2)));
+        const maxPlayers = is78Lobby ? 8 : ((mm === 'classic56') ? 6 : (isSeafarers56 ? 6 : 4));
         const humans = (room.players || []).filter(pp => pp && !pp.isAI).length;
         const current = (room.players || []).length;
         const start = Math.max(humans, 1);
@@ -10824,8 +10839,11 @@ function refreshLobbyJoinLinkUi() {
     if (ui.scenario78Row) ui.scenario78Row.classList.toggle('hidden', mmNow !== 'seafarers78');
     if (ui.mapScenario78Select) {
       const allowed=new Set(Array.from(ui.mapScenario78Select.options).map(o=>o.value));
-      const value=String(r.seafarersScenario||'eight_islands_78');
-      ui.mapScenario78Select.value=allowed.has(value)?value:'eight_islands_78';
+      const savedValue = String(r.seafarersScenario || 'eight_islands_78');
+      // Existing saved lobbies may still use the former separate 7/8 options.
+      const value = savedValue.startsWith('cartographer_78_') ? 'cartographer_78'
+        : savedValue.startsWith('scattered_tiles_78_') ? 'scattered_tiles_78' : savedValue;
+      ui.mapScenario78Select.value = allowed.has(value) ? value : 'eight_islands_78';
       ui.mapScenario78Select.disabled=!isHost || mmNow!=='seafarers78';
     }
     if (ui.classic56Note) ui.classic56Note.classList.toggle('hidden', mmNow !== 'classic56');

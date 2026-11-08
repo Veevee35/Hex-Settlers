@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=release-v1.0.2" />
+  <link rel="stylesheet" href="styles.css?v=release-v1.0.0" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -35,7 +35,7 @@
         </a>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.2</div>
+    <div class="appVersion" aria-label="Game version">V1.0.0</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -55,7 +55,7 @@
         <button id="casualModeBtn" class="modeChoice"><strong>Casual Play · vs AI</strong><span>All maps and settings, one human player, no shareable lobby or ratings.</span></button>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.2</div>
+    <div class="appVersion" aria-label="Game version">V1.0.0</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -362,17 +362,15 @@
             </select>
           </div>
 
-          <div id="scenario78Note" class="smallNote hidden">Permanent 7–8-player scenarios use the uploaded component counts. Custom Map retains the editable template, with fog tiles. Unranked only.</div>
+          <div id="scenario78Note" class="smallNote hidden">7–8 player maps can fill every empty seat with AI up to eight. Cartographer and Scattered Tiles automatically use the seven- or eight-player inventory based on occupied seats. Custom Map remains editable. Unranked only.</div>
           <div id="scenario78Row" class="hidden">
             <label class="label">Seafarers 7–8-player scenario</label>
             <select id="mapScenario78Select" class="input">
               <option value="eight_islands_78" selected>Eight Islands</option>
               <option value="through_the_desert_78">Through the Desert</option>
               <option value="fog_island_78">Fog Island</option>
-              <option value="cartographer_78_7">Cartographer — 7-player tiles</option>
-              <option value="cartographer_78_8">Cartographer — 8-player tiles</option>
-              <option value="scattered_tiles_78_7">Scattered Tiles — 7-player tiles</option>
-              <option value="scattered_tiles_78_8">Scattered Tiles — 8-player tiles</option>
+              <option value="cartographer_78">Cartographer</option>
+              <option value="scattered_tiles_78">Scattered Tiles</option>
               <option value="test_builder_78">Custom Map</option>
             </select>
           </div>
@@ -777,6 +775,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=release-v1.0.2"></script>
+  <script src="app.js?v=release-v1.0.0"></script>
 </body>
 </html>

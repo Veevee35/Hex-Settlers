@@ -1801,6 +1801,7 @@ const MAP78_PRESETS = Object.freeze({
   seafarers_custom: require('./server/maps-78/seafarers_custom.json'),
 });
 const SCENARIOS_78 = new Set(['eight_islands_78','through_the_desert_78','fog_island_78',
+  'cartographer_78','scattered_tiles_78',
   'cartographer_78_7','cartographer_78_8','scattered_tiles_78_7','scattered_tiles_78_8','test_builder_78']);
 const TTD78_START_KEYS = (() => {
   const tiles=MAP78_PRESETS.through_the_desert_78.tiles;
@@ -1836,7 +1837,23 @@ function is78Rules(rules) {
   return !!rules && (String(rules.mapMode || '') === 'classic78' ||
     (String(rules.mapMode || '') === 'seafarers' && SCENARIOS_78.has(String(rules.seafarersScenario || ''))));
 }
-function isCartographer78Manual(s) { return s === 'cartographer_78_7' || s === 'cartographer_78_8'; }
+function isCartographer78Manual(s) { return s === 'cartographer_78' || s === 'cartographer_78_7' || s === 'cartographer_78_8'; }
+// A single Cartographer / Scattered Tiles choice picks the appropriate tile pool
+// from the number of occupied lobby seats, including AI. Preserve explicit old
+// scenario keys in saved rooms/replays, but adjust them at 7/8-player boundaries.
+function resolve78ScenarioForPlayers(scenario, playerCount) {
+  const s = String(scenario || '');
+  const count = Math.floor(Number(playerCount || 0));
+  if (s === 'cartographer_78' || s === 'cartographer_78_7' || s === 'cartographer_78_8') {
+    if (s === 'cartographer_78_8' && count < 7) return s; // old persisted preview compatibility
+    return count === 8 ? 'cartographer_78_8' : 'cartographer_78_7';
+  }
+  if (s === 'scattered_tiles_78' || s === 'scattered_tiles_78_7' || s === 'scattered_tiles_78_8') {
+    if (s === 'scattered_tiles_78_8' && count < 7) return s;
+    return count === 8 ? 'scattered_tiles_78_8' : 'scattered_tiles_78_7';
+  }
+  return s;
+}
 function is78Scenario(s) { return SCENARIOS_78.has(String(s || '')); }
 function preset78Name(s) {
   if (s === 'scattered_tiles_78_7') return 'cartographer_78_7';
@@ -2836,7 +2853,7 @@ function defaultVictoryPointsToWin(rules) {
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56' || scen==='through_the_desert_78' || scen==='eight_islands_78') return 14;
   if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
   if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-  if (isCartographer4ScenarioKey(scen) || isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen) || scen.startsWith('scattered_tiles_78_')) return 12;
+  if (isCartographer4ScenarioKey(scen) || isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen) || scen==='scattered_tiles_78' || scen.startsWith('scattered_tiles_78_')) return 12;
   return 13; // four islands
 }
 
@@ -5889,7 +5906,7 @@ function newEmptyGame(room) {
   let geom = null;
   if (is78Rules(room.rules)) {
     geom = is78CustomRules(room.rules) ? (mapMode==='classic78' ? custom78StartingGeometry('classic_custom') : initialCustom78Geometry()) :
-      (mapMode==='classic78' ? generate78Scenario('classic') : generate78Scenario(String(room.rules.seafarersScenario)));
+      (mapMode==='classic78' ? generate78Scenario('classic') : generate78Scenario(resolve78ScenarioForPlayers(room.rules.seafarersScenario, room.players.length)));
   } else if (mapMode === 'classic56') {
     geom = buildGeometryClassic56();
   } else if (mapMode === 'seafarers') {
@@ -6078,6 +6095,11 @@ function startGame(room) {
     room.rules = rankedRulesForScenario(selectedId);
   }
   const game = newEmptyGame(room);
+  // Freeze the chosen 7/8-player inventory in the running game. The lobby keeps
+  // the unified scenario selection so a rematch can choose afresh by seat count.
+  if (is78Rules(game.rules) && game.rules.mapMode === 'seafarers') {
+    game.rules.seafarersScenario = resolve78ScenarioForPlayers(game.rules.seafarersScenario, game.players.length);
+  }
   game.ranked = !!room.ranked;
   game.casual = !!room.casual;
   // Lock each ranked match to the rules active at the start of that match.
@@ -6127,7 +6149,7 @@ function startGame(room) {
 
   if (!usedPreview && is78Rules(game.rules)) {
     game.geom = is78CustomRules(game.rules) ? (game.rules.mapMode==='classic78'?custom78StartingGeometry('classic_custom'):initialCustom78Geometry()) :
-      (game.rules.mapMode==='classic78'?generate78Scenario('classic'):generate78Scenario(String(game.rules.seafarersScenario)));
+      (game.rules.mapMode==='classic78'?generate78Scenario('classic'):generate78Scenario(resolve78ScenarioForPlayers(game.rules.seafarersScenario, game.players.length)));
     usedPreview = true;
   }
   if (!usedPreview) {
@@ -9173,7 +9195,7 @@ function editableCustomMapRules(rules) {
   return customMapEnabled(rules) || (String(rules?.mapMode || '') === 'seafarers' && isTestBuilderScenarioKey(rules?.seafarersScenario));
 }
 function mapPreviewKey(rules, playerCount = null) {
-  if (is78Rules(rules)) return String(rules.mapMode) === 'classic78' ? (rules.customMap ? 'classic78:custom' : 'classic78:classic') : `seafarers:${rules.seafarersScenario}`;
+  if (is78Rules(rules)) return String(rules.mapMode) === 'classic78' ? (rules.customMap ? 'classic78:custom' : 'classic78:classic') : `seafarers:${resolve78ScenarioForPlayers(rules.seafarersScenario, playerCount)}`;
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
     : (raw === 'classic56' || raw === 'classic_5_6' || raw === 'classic-5-6' || raw === 'classic5_6' || raw === 'classic5-6')
@@ -9220,7 +9242,7 @@ function generatePreviewGeom(rules, room = null) {
   if (is78Rules(rules)) {
     if (is78CustomRules(rules)) return String(rules.mapMode)==='classic78'? custom78StartingGeometry('classic_custom') : initialCustom78Geometry();
     if (String(rules.mapMode)==='classic78') return generate78Scenario('classic');
-    return generate78Scenario(String(rules.seafarersScenario));
+    return generate78Scenario(resolve78ScenarioForPlayers(rules.seafarersScenario, room?.players?.length || 0));
   }
   const raw = String(rules?.mapMode || 'classic').toLowerCase();
   const mm = (raw === 'seafarers') ? 'seafarers'
@@ -11488,11 +11510,14 @@ if (msg.type === 'create_room') {
       // told not to enter an automatic reconnect war.
       bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
 
-      ensurePreview(room, false);
+      const previewChanged = ensurePreview(room, false);
 
       sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: !room.ranked && ws._userId === room.hostId, role: roomRole(room, ws._userId) || 'player' });
       sendRoomStateToSocket(room, ws, ws._userId);
       broadcastRoom(room);
+      // A seventh/eighth human seat can change the scenario inventory. Send
+      // the new preview to everyone, not only the player who just joined.
+      if (previewChanged && (!room.game || room.game.phase === 'lobby')) broadcastPreviewState(room);
       return;
     }
 
@@ -12506,14 +12531,10 @@ if (msg.type === 'create_room') {
       const isSix = (mm === 'seafarers' && isSeafarers56Scenario(scen));
       const isEight = is78Rules(room.rules);
 
-      if ((scen==='cartographer_78_7'||scen==='scattered_tiles_78_7') && room.players.length!==7 ||
-          (scen==='cartographer_78_8'||scen==='scattered_tiles_78_8') && room.players.length!==8) {
-        sendJson(ws,{type:'error',error:'This 7–8 scenario needs exactly the player count named in its map option.'});return;
-      }
       const minPlayers = isEight ? 7 : ((mm === 'classic56') ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2)));
       const maxPlayers = isEight ? 8 : ((mm === 'classic56') ? 6 : (isSix ? 6 : 4));
       if (room.players.length < minPlayers || room.players.length > maxPlayers) {
-        const msgErr = isEight ? 'Custom 7–8 maps require 7 or 8 players (AI can fill empty seats).' : (mm === 'classic56')
+        const msgErr = isEight ? '7–8-player maps require 7 or 8 players (AI can fill empty seats).' : (mm === 'classic56')
           ? 'Classic 5–6 requires 5 or 6 players.'
           : (isSix ? 'Seafarers 5–6 scenarios require 5 or 6 players.' : (allowSolo ? 'Need at least 1 player.' : 'Need at least 2 players.' ));
         sendJson(ws, { type: 'error', error: msgErr });
