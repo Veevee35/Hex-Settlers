@@ -2,6 +2,8 @@
 
 Hex Settlers is a browser-based, server-authoritative hex strategy game. It supports account-backed online lobbies, classic and 5–6-player maps, multiple seafaring scenarios, spectators, game history, custom texture packs, and test/normal/expert/neural AI opponents.
 
+**Cloudflare-only deployment:** follow [`CLOUDFLARE_ONLY_DEPLOYMENT.md`](CLOUDFLARE_ONLY_DEPLOYMENT.md) to migrate saved Railway data to private R2 and deploy a Durable-Object-managed Cloudflare Container.
+
 ## Run locally
 
 Requirements: Node.js 20 or newer.
@@ -26,7 +28,7 @@ The check builds the bootstrap, runs unit and end-to-end server tests, and synta
 
 ## Runtime data
 
-Set `DATA_DIR` to keep mutable data outside the repository. Railway uses `RAILWAY_VOLUME_MOUNT_PATH` automatically when a volume is attached.
+Set `DATA_DIR` to keep mutable data outside the repository. Cloudflare Containers load backed-up state into `/data` from private R2; local Node runs can use `DATA_DIR`. Legacy Railway volumes are supported only for backup migration.
 
 | File | Contents |
 | --- | --- |
@@ -51,20 +53,20 @@ Copy `.env.example` into your hosting environment; the server does not load `.en
 | `HEX_AUTH_ATTEMPTS_PER_MINUTE` | `12` | Password-auth limit per client address |
 | `HEX_WS_MAX_PAYLOAD` | `50331648` | Transport ceiling needed by large texture packs |
 | `HEX_BUILTIN_ADMIN_ENABLED` | on outside tests | Creates the reserved `Benleethom` administrator account |
-| `HEX_ADMIN_PASSWORD` | generated once when absent | Initial password for the built-in administrator; set this securely in Railway |
+| `HEX_ADMIN_PASSWORD` | unset | Required as a private Cloudflare secret to provision/synchronize the built-in administrator; never stored in the source |
 | `HEX_ADMIN_FORCE_PASSWORD_SYNC` | `false` | One-restart override that forces the environment password onto the built-in administrator |
 | `HEX_PUBLIC_BASE_URL` | inferred from request | Public origin used in verification and password-reset links |
 | `HEX_EMAIL_FROM` | `Hex Settlers <no-reply@send.tenthson.com>` | Sender identity for account email; use a verified sending domain you control |
 | `HEX_EMAIL_MODE` | `none` | Use `resend` for the recommended free HTTPS delivery; `cloudflare`, `direct`, and `smtp` are optional overrides |
-| `RESEND_API_KEY` | unset | Private sending-only Resend API key stored in Railway |
+| `RESEND_API_KEY` | unset | Private sending-only Resend API key stored in Cloudflare secrets |
 | `RESEND_TIMEOUT_MS` | `15000` | Timeout for a Resend API request |
 | `HEX_EMAIL_CLOUDFLARE_ENDPOINT` | public URL + `/api/internal/send-email` | HTTPS endpoint for the Cloudflare mail bridge |
-| `HEX_EMAIL_BRIDGE_SECRET` | unset | Shared secret stored in both Railway and the Cloudflare Worker secret store |
+| `HEX_EMAIL_BRIDGE_SECRET` | unset | Legacy-only Cloudflare email bridge configuration; new Container uses Resend directly |
 | `HEX_EMAIL_EHLO_NAME` | sender domain | Public hostname used only by optional direct SMTP delivery |
 | `SMTP_HOST` and `SMTP_*` | unset | Optional authenticated relay override when `HEX_EMAIL_MODE=smtp` |
 | `AI_FAST` | off | Accelerated AI ticks for simulations only |
 
-The built-in administrator uses username **Benleethom** and player name **Ben**. When `HEX_ADMIN_PASSWORD` is omitted on the first production start, the server prints a one-time random temporary password in the deploy log. Ben sees every registered account in **User Management**, can reset non-admin passwords, and can permanently remove non-admin accounts after typing the username. Ordinary players see only their own account in **My Account**. Signed-in users can change their own password and verify a recovery email. The Railway + Cloudflare deployment sends verification and reset messages through Resend's HTTPS API, avoiding Railway's blocked direct-SMTP path and Cloudflare's paid Email Sending requirement. See `ADMIN_SETUP.md` for setup details and optional delivery overrides.
+The built-in administrator uses username **Benleethom** and player name **Ben**. No administrator password is printed in logs. New installations require an explicitly configured private administrator password. Ben sees every registered account in **User Management**, can reset non-admin passwords, and can permanently remove non-admin accounts after typing the username. Ordinary players see only their own account in **My Account**. Signed-in users can change their own password and verify a recovery email. The new Cloudflare Container can send verification and reset email using Resend's HTTPS API, without Railway. See `CLOUDFLARE_ONLY_DEPLOYMENT.md` for Cloudflare-only setup; `ADMIN_SETUP.md` retains legacy reference notes.
 
 Expert AI weights also have optional `EXPERT_AI_*` environment overrides; see the defaults near the bottom of `server.js`.
 

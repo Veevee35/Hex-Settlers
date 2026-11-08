@@ -15,6 +15,7 @@ const { monitorEventLoopDelay } = require('perf_hooks');
 const WebSocket = require('ws');
 
 const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
+const CF_STATE = require('./cloudflare/state-sync');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
@@ -213,7 +214,9 @@ function historyArchiveSignature() {
 }
 async function backupGameHistory(label) {
   const filename = `${label}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.json`;
-  await fs.promises.writeFile(path.join(DATA_DIR, filename), JSON.stringify({ format: HISTORY_EXPORT_FORMAT, exportedAt: Date.now(), games: HISTORY_DB.games || [] }), { flag: 'wx', mode: 0o600 });
+  const backupText = JSON.stringify({ format: HISTORY_EXPORT_FORMAT, exportedAt: Date.now(), games: HISTORY_DB.games || [] });
+  await fs.promises.writeFile(path.join(DATA_DIR, filename), backupText, { flag: 'wx', mode: 0o600 });
+  if (CF_STATE.isEnabled()) await CF_STATE.persistBackup(filename, backupText);
   return filename;
 }
 
@@ -9750,6 +9753,14 @@ async function completeTexturePackStorage(storageKey) {
   if (!source || !destination) throw new Error('Invalid texture pack storage.');
   await fs.promises.mkdir(TEXTURE_PACK_STORAGE_DIR, { recursive: true });
   await fs.promises.rename(source, destination);
+  // Cloudflare Containers have ephemeral disks. Retain completed custom packs in R2.
+  if (CF_STATE.isEnabled()) {
+    for (const rel of TEXTURE_PACK_ASSET_REL) {
+      const filename = texturePackStoragePath(storageKey, rel);
+      if (!filename || !fs.existsSync(filename)) continue;
+      await CF_STATE.persistTexture(storageKey, rel, await fs.promises.readFile(filename));
+    }
+  }
 }
 
 function removeTexturePackUpload(upload) {
@@ -9766,7 +9777,17 @@ function removeTexturePackStorageIfUnreferenced(storageKey) {
     }
   }
   const storagePath = texturePackStoragePath(key);
-  if (storagePath) fs.promises.rm(storagePath, { recursive: true, force: true }).catch(() => {});
+  if (storagePath) {
+    // Delete from R2 as well, otherwise removed packs reappear on cold start.
+    if (CF_STATE.isEnabled()) {
+      for (const rel of TEXTURE_PACK_ASSET_REL) {
+        if (fs.existsSync(texturePackStoragePath(key, rel))) {
+          CF_STATE.removeTexture(key, rel).catch(error => console.error('[textures] R2 removal failed', error));
+        }
+      }
+    }
+    fs.promises.rm(storagePath, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function readSharedTexturePackAsset(shared, rel) {
@@ -10554,8 +10575,10 @@ async function handleAdminHttp(req, res, urlPath) {
     const backupName = `rating_rebuild_backup_${Date.now()}.json`;
     const backupPath = path.join(DATA_DIR, backupName);
     try {
-      fs.writeFileSync(backupPath, JSON.stringify({ users: USERS_DB, history: HISTORY_DB,
-        policy: RATING_POLICY, createdAt: Date.now() }));
+      const backupContents = JSON.stringify({ users: USERS_DB, history: HISTORY_DB,
+        policy: RATING_POLICY, createdAt: Date.now() });
+      fs.writeFileSync(backupPath, backupContents);
+      if (CF_STATE.isEnabled()) await CF_STATE.persistBackup(backupName, backupContents);
       for (const user of (USERS_DB.users || [])) {
         user.rankedRating = rankedRating(projection.calculation.ratings[user.id]);
       }
@@ -11117,13 +11140,16 @@ const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+    // Cloudflare Container readiness ping, not exposed as a dynamic public route.
+    if (urlPath === '/ready') { sendHttpJson(req, res, 200, { ready: true }); return; }
     if ((urlPath === '/health' || urlPath === '/ws' || urlPath.startsWith('/api/')) && !trustedProxyRequest(req)) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Origin proxy authentication failed.' });
       return;
     }
     if (urlPath === '/health' || urlPath === '/api/health') {
-      sendHttpJson(req, res, 200, {
-        ok: true,
+      sendHttpJson(req, res, CF_STATE.isUnhealthy() ? 503 : 200, {
+        ok: !CF_STATE.isUnhealthy(),
+        persistence: { mode: CF_STATE.isEnabled() ? 'r2' : 'local', healthy: !CF_STATE.isUnhealthy() },
         build: SERVER_BUILD_ID,
         instanceId: SERVER_INSTANCE_ID,
         startedAt: SERVER_STARTED_AT,

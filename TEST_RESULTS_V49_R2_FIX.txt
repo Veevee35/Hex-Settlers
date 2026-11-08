@@ -1,0 +1,2294 @@
+
+> hex-settlers@1.0.3 check
+> tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js
+
+TAP version 13
+# state key validation and fail-closed startup: PASS
+# Subtest: scripts/test-cloudflare-state.cjs
+ok 1 - scripts/test-cloudflare-state.cjs
+  ---
+  duration_ms: 110.043175
+  type: 'test'
+  ...
+# Subtest: server/test-builder-ports.js
+ok 2 - server/test-builder-ports.js
+  ---
+  duration_ms: 20.822723
+  type: 'test'
+  ...
+# Subtest: direct invite bypasses saved ranked selection after login and shows lobby
+ok 3 - direct invite bypasses saved ranked selection after login and shows lobby
+  ---
+  duration_ms: 2.099426
+  type: 'test'
+  ...
+# Subtest: without an invitation, ranked/unranked selection remains unchanged
+ok 4 - without an invitation, ranked/unranked selection remains unchanged
+  ---
+  duration_ms: 2.045645
+  type: 'test'
+  ...
+# Subtest: the account orb puts Player Stats and Game Log immediately above Log Out
+ok 5 - the account orb puts Player Stats and Game Log immediately above Log Out
+  ---
+  duration_ms: 0.25188
+  type: 'test'
+  ...
+# Subtest: account orb actions open stats, live log, or past game logs as appropriate
+ok 6 - account orb actions open stats, live log, or past game logs as appropriate
+  ---
+  duration_ms: 1.490308
+  type: 'test'
+  ...
+# Subtest: WebSocket login honors invite before last-room autorejoin and lobby displays on joined
+ok 7 - WebSocket login honors invite before last-room autorejoin and lobby displays on joined
+  ---
+  duration_ms: 0.364259
+  type: 'test'
+  ...
+# Subtest: active room snapshots omit sockets and previews while preserving game and expert AI state
+ok 8 - active room snapshots omit sockets and previews while preserving game and expert AI state
+  ---
+  duration_ms: 1.585952
+  type: 'test'
+  ...
+# Subtest: legacy room snapshots use their creation time as the last activity fallback
+ok 9 - legacy room snapshots use their creation time as the last activity fallback
+  ---
+  duration_ms: 0.219731
+  type: 'test'
+  ...
+# Subtest: invalid room records are ignored
+ok 10 - invalid room records are ignored
+  ---
+  duration_ms: 0.111037
+  type: 'test'
+  ...
+# Subtest: history backup import validates shape, IDs, and retention without losing saved games
+ok 11 - history backup import validates shape, IDs, and retention without losing saved games
+  ---
+  duration_ms: 1.29941
+  type: 'test'
+  ...
+# Subtest: admin dashboard has five tabs, self-only Manage Account, casual four-map rules browser
+ok 12 - admin dashboard has five tabs, self-only Manage Account, casual four-map rules browser
+  ---
+  duration_ms: 4.234206
+  type: 'test'
+  ...
+# Subtest: admin endpoints protect, export, import, delete and triple-confirm history reset; expose real process diagnostics
+ok 13 - admin endpoints protect, export, import, delete and triple-confirm history reset; expose real process diagnostics
+  ---
+  duration_ms: 292.38936
+  type: 'test'
+  ...
+# Subtest: AI difficulty selector exposes only easy, medium, hard, and expert
+ok 14 - AI difficulty selector exposes only easy, medium, hard, and expert
+  ---
+  duration_ms: 1.585151
+  type: 'test'
+  ...
+# Subtest: Expert is accepted by the server as the neural learning AI
+ok 15 - Expert is accepted by the server as the neural learning AI
+  ---
+  duration_ms: 4.517563
+  type: 'test'
+  ...
+# Subtest: robber scoring targets productive opponents and avoids the AI
+ok 16 - robber scoring targets productive opponents and avoids the AI
+  ---
+  duration_ms: 1.582757
+  type: 'test'
+  ...
+# Subtest: pirate and victim scoring prefer opponent ships and richer hands
+ok 17 - pirate and victim scoring prefer opponent ships and richer hands
+  ---
+  duration_ms: 0.39121
+  type: 'test'
+  ...
+# Subtest: mixed bank basket applies each offered resource own port ratio
+ok 18 - mixed bank basket applies each offered resource own port ratio
+  ---
+  duration_ms: 1.702748
+  type: 'test'
+  ...
+# Subtest: mixed bank basket requires enough of every offered resource
+ok 19 - mixed bank basket requires enough of every offered resource
+  ---
+  duration_ms: 0.25185
+  type: 'test'
+  ...
+# Subtest: mixed bank basket must have one incoming card per completed outgoing trade
+ok 20 - mixed bank basket must have one incoming card per completed outgoing trade
+  ---
+  duration_ms: 0.183577
+  type: 'test'
+  ...
+# Subtest: mixed bank basket rejects partial port payments
+ok 21 - mixed bank basket rejects partial port payments
+  ---
+  duration_ms: 0.198249
+  type: 'test'
+  ...
+# Subtest: mixed bank basket cannot give and receive the same resource
+ok 22 - mixed bank basket cannot give and receive the same resource
+  ---
+  duration_ms: 0.135895
+  type: 'test'
+  ...
+# Subtest: legacy one-resource bank trade actions remain supported for AI and older clients
+ok 23 - legacy one-resource bank trade actions remain supported for AI and older clients
+  ---
+  duration_ms: 0.11289
+  type: 'test'
+  ...
+# Subtest: force 4 to 1 applies independently to every offered resource
+ok 24 - force 4 to 1 applies independently to every offered resource
+  ---
+  duration_ms: 0.79546
+  type: 'test'
+  ...
+# Subtest: ranked ballots exclude manual Cartographer but still include Scattered Tiles
+ok 25 - ranked ballots exclude manual Cartographer but still include Scattered Tiles
+  ---
+  duration_ms: 0.82937
+  type: 'test'
+  ...
+# Subtest: cartographer_4_manual: one timed-out tile does not auto-place the other players' turns
+ok 26 - cartographer_4_manual: one timed-out tile does not auto-place the other players' turns
+  ---
+  duration_ms: 6073.028536
+  type: 'test'
+  ...
+# Subtest: cartographer_56_manual: one timed-out tile does not auto-place the other players' turns
+ok 27 - cartographer_56_manual: one timed-out tile does not auto-place the other players' turns
+  ---
+  duration_ms: 6303.163924
+  type: 'test'
+  ...
+# Subtest: audio settings expose separate local volumes for your rolls and other players rolls
+ok 28 - audio settings expose separate local volumes for your rolls and other players rolls
+  ---
+  duration_ms: 0.995532
+  type: 'test'
+  ...
+# Subtest: legacy dice-roll volume initializes both split roll settings
+ok 29 - legacy dice-roll volume initializes both split roll settings
+  ---
+  duration_ms: 0.267984
+  type: 'test'
+  ...
+# Subtest: audio settings split local and other-player end-turn warnings
+ok 30 - audio settings split local and other-player end-turn warnings
+  ---
+  duration_ms: 0.48444
+  type: 'test'
+  ...
+# Subtest: dice-roll broadcasts identify the roller and clients route the sound by local player
+ok 31 - dice-roll broadcasts identify the roller and clients route the sound by local player
+  ---
+  duration_ms: 0.51067
+  type: 'test'
+  ...
+# Subtest: stolen-from audio is configurable and uses the supplied local sound asset
+ok 32 - stolen-from audio is configurable and uses the supplied local sound asset
+  ---
+  duration_ms: 0.372952
+  type: 'test'
+  ...
+# Subtest: successful robber, pirate, and monopoly losses send stolen-from audio only to affected players
+ok 33 - successful robber, pirate, and monopoly losses send stolen-from audio only to affected players
+  ---
+  duration_ms: 2.149041
+  type: 'test'
+  ...
+# Subtest: winner and loser sounds have independent sliders and local assets
+ok 34 - winner and loser sounds have independent sliders and local assets
+  ---
+  duration_ms: 0.360313
+  type: 'test'
+  ...
+# Subtest: game-result audio is routed only to the matching winner or loser player
+ok 35 - game-result audio is routed only to the matching winner or loser player
+  ---
+  duration_ms: 0.397168
+  type: 'test'
+  ...
+# Subtest: the initial board fits desktop and phone canvases, including off-center maps
+ok 36 - the initial board fits desktop and phone canvases, including off-center maps
+  ---
+  duration_ms: 3.581472
+  type: 'test'
+  ...
+# Subtest: manual board positioning survives renders and an empty preview is safe
+ok 37 - manual board positioning survives renders and an empty preview is safe
+  ---
+  duration_ms: 5.647027
+  type: 'test'
+  ...
+# Subtest: invite links preserve the serving host, port, and path without copying account-action parameters
+ok 38 - invite links preserve the serving host, port, and path without copying account-action parameters
+  ---
+  duration_ms: 4.752908
+  type: 'test'
+  ...
+# Subtest: refreshing lobby invite links is synchronous and makes no network requests
+ok 39 - refreshing lobby invite links is synchronous and makes no network requests
+  ---
+  duration_ms: 2.732742
+  type: 'test'
+  ...
+# Subtest: browser networking keeps only one reconnect timer and ignores retired sockets
+ok 40 - browser networking keeps only one reconnect timer and ignores retired sockets
+  ---
+  duration_ms: 1.365789
+  type: 'test'
+  ...
+# Subtest: browser sends tolerate a socket closing between the ready-state check and send
+ok 41 - browser sends tolerate a socket closing between the ready-state check and send
+  ---
+  duration_ms: 0.29133
+  type: 'test'
+  ...
+# Subtest: lobby room updates do not read game-only state before the preview arrives
+ok 42 - lobby room updates do not read game-only state before the preview arrives
+  ---
+  duration_ms: 0.679975
+  type: 'test'
+  ...
+# Subtest: every trade participant can close and reopen the same offer without changing their response
+ok 43 - every trade participant can close and reopen the same offer without changing their response
+  ---
+  duration_ms: 9.890305
+  type: 'test'
+  ...
+# Subtest: trade responses refresh an open popup but unchanged timer and network updates preserve its controls
+ok 44 - trade responses refresh an open popup but unchanged timer and network updates preserve its controls
+  ---
+  duration_ms: 3.755674
+  type: 'test'
+  ...
+# Subtest: revised offers prompt again, while completed or expired offers cannot be reopened by responders
+ok 45 - revised offers prompt again, while completed or expired offers cannot be reopened by responders
+  ---
+  duration_ms: 2.429034
+  type: 'test'
+  ...
+# Subtest: revised offers wait for mandatory locked choices and pop up immediately afterward
+ok 46 - revised offers wait for mandatory locked choices and pop up immediately afterward
+  ---
+  duration_ms: 2.61975
+  type: 'test'
+  ...
+# Subtest: spectators and replay viewers cannot trade; paused participants can still view an existing offer
+ok 47 - spectators and replay viewers cannot trade; paused participants can still view an existing offer
+  ---
+  duration_ms: 6.224456
+  type: 'test'
+  ...
+# Subtest: bursts of board updates paint once per frame, use the latest state, and read layout once
+ok 48 - bursts of board updates paint once per frame, use the latest state, and read layout once
+  ---
+  duration_ms: 5.693066
+  type: 'test'
+  ...
+# Subtest: a failed draw releases frame and layout caches so later updates can recover
+ok 49 - a failed draw releases frame and layout caches so later updates can recover
+  ---
+  duration_ms: 0.949912
+  type: 'test'
+  ...
+# Subtest: Cloudflare staging and production configs have no Railway proxy and isolate state
+ok 50 - Cloudflare staging and production configs have no Railway proxy and isolate state
+  ---
+  duration_ms: 1.019738
+  type: 'test'
+  ...
+# Subtest: Cloudflare state bootstrap hydrates private R2 JSON and uploaded texture assets
+ok 51 - Cloudflare state bootstrap hydrates private R2 JSON and uploaded texture assets
+  ---
+  duration_ms: 110.481897
+  type: 'test'
+  ...
+# Subtest: Cloudflare boot never silently replaces a missing users.json
+ok 52 - Cloudflare boot never silently replaces a missing users.json
+  ---
+  duration_ms: 103.735754
+  type: 'test'
+  ...
+# Subtest: Cloudflare state synchronization sends authoritative files to the R2 bridge
+ok 53 - Cloudflare state synchronization sends authoritative files to the R2 bridge
+  ---
+  duration_ms: 54.774866
+  type: 'test'
+  ...
+# R2 state PUT failed state/users.json Error: R2 state upload exceeds its size limit
+#     at readBoundedBody (eval at <anonymous> (/mnt/data/hex_do_work/test/cloudflare-r2-known-length.test.cjs:11:28), <anonymous>:24:23)
+#     at async r2StateRequest (eval at <anonymous> (/mnt/data/hex_do_work/test/cloudflare-r2-known-length.test.cjs:11:28), <anonymous>:87:11)
+#     at async TestContext.<anonymous> (/mnt/data/hex_do_work/test/cloudflare-r2-known-length.test.cjs:63:18)
+#     at async Test.run (node:internal/test_runner/test:1054:7)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+#   status: 413
+# }
+# Subtest: R2 state PUT passes original known-length Request body without TransformStream
+ok 54 - R2 state PUT passes original known-length Request body without TransformStream
+  ---
+  duration_ms: 3.735364
+  type: 'test'
+  ...
+# Subtest: R2 state PUT safely buffers small unknown-length streams into byte arrays
+ok 55 - R2 state PUT safely buffers small unknown-length streams into byte arrays
+  ---
+  duration_ms: 2.659871
+  type: 'test'
+  ...
+# Subtest: R2 state PUT rejects oversized declared Content-Length before storage
+ok 56 - R2 state PUT rejects oversized declared Content-Length before storage
+  ---
+  duration_ms: 0.407765
+  type: 'test'
+  ...
+# Subtest: R2 state PUT bounds unknown-length uploads without storing them
+ok 57 - R2 state PUT bounds unknown-length uploads without storing them
+  ---
+  duration_ms: 1.169394
+  type: 'test'
+  ...
+# Subtest: Cloudflare Worker routes API, health, and WebSocket requests dynamically
+ok 58 - Cloudflare Worker routes API, health, and WebSocket requests dynamically
+  ---
+  duration_ms: 0.773467
+  type: 'test'
+  ...
+# Subtest: Cloudflare email bridge rejects requests without its shared secret
+ok 59 - Cloudflare email bridge rejects requests without its shared secret
+  ---
+  duration_ms: 17.571529
+  type: 'test'
+  ...
+# Subtest: Cloudflare email bridge sends an authorized message with the fixed sender
+ok 60 - Cloudflare email bridge sends an authorized message with the fixed sender
+  ---
+  duration_ms: 6.664942
+  type: 'test'
+  ...
+# Subtest: Cloudflare Worker accepts only its own browser origin
+ok 61 - Cloudflare Worker accepts only its own browser origin
+  ---
+  duration_ms: 0.568537
+  type: 'test'
+  ...
+# Subtest: Cloudflare Worker preserves the route while rewriting trusted proxy headers
+ok 62 - Cloudflare Worker preserves the route while rewriting trusted proxy headers
+  ---
+  duration_ms: 0.940328
+  type: 'test'
+  ...
+# Subtest: Cloudflare Worker validates the configured upstream protocol
+ok 63 - Cloudflare Worker validates the configured upstream protocol
+  ---
+  duration_ms: 0.438411
+  type: 'test'
+  ...
+# Subtest: origin-shield header is injected by Worker, not controlled by requesting player
+ok 64 - origin-shield header is injected by Worker, not controlled by requesting player
+  ---
+  duration_ms: 0.667547
+  type: 'test'
+  ...
+# Subtest: Cloudflare static assets receive no-sniff, CSP and no-store headers
+ok 65 - Cloudflare static assets receive no-sniff, CSP and no-store headers
+  ---
+  duration_ms: 0.66307
+  type: 'test'
+  ...
+# Subtest: departing player returns every resource while leaving unrelated state untouched
+ok 66 - departing player returns every resource while leaving unrelated state untouched
+  ---
+  duration_ms: 1.288994
+  type: 'test'
+  ...
+# Subtest: departed title holder remains until one active player strictly surpasses the benchmark
+ok 67 - departed title holder remains until one active player strictly surpasses the benchmark
+  ---
+  duration_ms: 0.39778
+  type: 'test'
+  ...
+# Subtest: played development card is removed from the hand
+ok 68 - played development card is removed from the hand
+  ---
+  duration_ms: 1.071526
+  type: 'test'
+  ...
+# Subtest: dice algorithm names normalize safely and unknown values fall back to random
+ok 69 - dice algorithm names normalize safely and unknown values fall back to random
+  ---
+  duration_ms: 0.764984
+  type: 'test'
+  ...
+# Subtest: random mode returns an authoritative valid dice pair
+ok 70 - random mode returns an authoritative valid dice pair
+  ---
+  duration_ms: 0.638452
+  type: 'test'
+  ...
+# Subtest: balanced bag contains every dice pair once and the exact 2d6 distribution per cycle
+ok 71 - balanced bag contains every dice pair once and the exact 2d6 distribution per cycle
+  ---
+  duration_ms: 0.761779
+  type: 'test'
+  ...
+# Subtest: streak breaker guarantees that a total cannot occur three times consecutively
+ok 72 - streak breaker guarantees that a total cannot occur three times consecutively
+  ---
+  duration_ms: 0.283238
+  type: 'test'
+  ...
+# Subtest: probability corrected mode remains valid while favoring an underrepresented tail
+ok 73 - probability corrected mode remains valid while favoring an underrepresented tail
+  ---
+  duration_ms: 0.397459
+  type: 'test'
+  ...
+# Subtest: email addresses are normalized, validated, and safely masked
+ok 74 - email addresses are normalized, validated, and safely masked
+  ---
+  duration_ms: 1.499322
+  type: 'test'
+  ...
+# Subtest: email is enabled only when a usable delivery transport is configured
+ok 75 - email is enabled only when a usable delivery transport is configured
+  ---
+  duration_ms: 0.224358
+  type: 'test'
+  ...
+# Subtest: Cloudflare bridge sends a protected HTTPS request
+ok 76 - Cloudflare bridge sends a protected HTTPS request
+  ---
+  duration_ms: 14.852209
+  type: 'test'
+  ...
+# Subtest: Resend delivery uses its HTTPS API and configured sender
+ok 77 - Resend delivery uses its HTTPS API and configured sender
+  ---
+  duration_ms: 0.624732
+  type: 'test'
+  ...
+# Subtest: legacy Hex Settlers Resend sender migrates to the no-reply address
+ok 78 - legacy Hex Settlers Resend sender migrates to the no-reply address
+  ---
+  duration_ms: 0.413344
+  type: 'test'
+  ...
+# Subtest: direct MX delivery rejects private and documentation network targets
+ok 79 - direct MX delivery rejects private and documentation network targets
+  ---
+  duration_ms: 3.978
+  type: 'test'
+  ...
+# Subtest: email capture delivery records a message without external network access
+ok 80 - email capture delivery records a message without external network access
+  ---
+  duration_ms: 6.198959
+  type: 'test'
+  ...
+# Subtest: friendly robber protects adjacent active players until they exceed 2 VP
+ok 81 - friendly robber protects adjacent active players until they exceed 2 VP
+  ---
+  duration_ms: 1.361824
+  type: 'test'
+  ...
+# Subtest: friendly robber also protects sea tiles beside ships owned by active players with 2 VP or fewer
+ok 82 - friendly robber also protects sea tiles beside ships owned by active players with 2 VP or fewer
+  ---
+  duration_ms: 0.315185
+  type: 'test'
+  ...
+# Subtest: friendly robber remains opt-in
+ok 83 - friendly robber remains opt-in
+  ---
+  duration_ms: 0.151408
+  type: 'test'
+  ...
+# Subtest: automatic thief targeting detects the moving player own buildings and ships
+ok 84 - automatic thief targeting detects the moving player own buildings and ships
+  ---
+  duration_ms: 0.186812
+  type: 'test'
+  ...
+# Subtest: setup, client targeting, server validation, timeout, and AI paths share friendly robber rules
+ok 85 - setup, client targeting, server validation, timeout, and AI paths share friendly robber rules
+  ---
+  duration_ms: 1.385329
+  type: 'test'
+  ...
+# Subtest: settings changes autosave independently of named template storage
+ok 86 - settings changes autosave independently of named template storage
+  ---
+  duration_ms: 1.615256
+  type: 'test'
+  ...
+# Subtest: gameplay preserves roll and end turn game action targets outside action bar
+ok 87 - gameplay preserves roll and end turn game action targets outside action bar
+  ---
+  duration_ms: 0.565102
+  type: 'test'
+  ...
+# Subtest: game panels button toggles whole sidebar and mobile exposes three tabs
+ok 88 - game panels button toggles whole sidebar and mobile exposes three tabs
+  ---
+  duration_ms: 0.46462
+  type: 'test'
+  ...
+# Subtest: mobile action grid and condensed resource strip are present
+ok 89 - mobile action grid and condensed resource strip are present
+  ---
+  duration_ms: 0.668218
+  type: 'test'
+  ...
+# Subtest: current release advances all frontend cache versions
+ok 90 - current release advances all frontend cache versions
+  ---
+  duration_ms: 0.206221
+  type: 'test'
+  ...
+# Subtest: mobile resources are in a separate persistent element above the divider
+ok 91 - mobile resources are in a separate persistent element above the divider
+  ---
+  duration_ms: 0.998877
+  type: 'test'
+  ...
+# Subtest: mobile controls occupy real flex rows rather than absolute overlays
+ok 92 - mobile controls occupy real flex rows rather than absolute overlays
+  ---
+  duration_ms: 0.33166
+  type: 'test'
+  ...
+# Subtest: desktop toolbars stop at sidebar and collapsed pause overlay fills empty space
+ok 93 - desktop toolbars stop at sidebar and collapsed pause overlay fills empty space
+  ---
+  duration_ms: 0.208354
+  type: 'test'
+  ...
+# Subtest: timer surface drags without a separate grip and preserves bounded movement
+ok 94 - timer surface drags without a separate grip and preserves bounded movement
+  ---
+  duration_ms: 0.481035
+  type: 'test'
+  ...
+# Subtest: default rules preserve the established game defaults
+ok 95 - default rules preserve the established game defaults
+  ---
+  duration_ms: 1.131216
+  type: 'test'
+  ...
+# Subtest: Fog Island variants default exploration victory points off
+ok 96 - Fog Island variants default exploration victory points off
+  ---
+  duration_ms: 0.194624
+  type: 'test'
+  ...
+# Subtest: micro actions use the configured timer, with 15 seconds on Normal
+ok 97 - micro actions use the configured timer, with 15 seconds on Normal
+  ---
+  duration_ms: 0.220112
+  type: 'test'
+  ...
+# Subtest: bank sizing keeps classic, 5-6 player, seafarers, and custom behavior
+ok 98 - bank sizing keeps classic, 5-6 player, seafarers, and custom behavior
+  ---
+  duration_ms: 0.215765
+  type: 'test'
+  ...
+# Subtest: Seafarers scenarios award new-land-mass exploration points when enabled
+ok 99 - Seafarers scenarios award new-land-mass exploration points when enabled
+  ---
+  duration_ms: 0.252481
+  type: 'test'
+  ...
+# Subtest: Test Builder treats both sea and desert as exploration boundaries
+ok 100 - Test Builder treats both sea and desert as exploration boundaries
+  ---
+  duration_ms: 0.11249
+  type: 'test'
+  ...
+# Subtest: production and discovery Gold choices use the configured micro-action timer
+ok 101 - production and discovery Gold choices use the configured micro-action timer
+  ---
+  duration_ms: 1.71081
+  type: 'test'
+  ...
+# Subtest: expired discovery Gold choices auto-pick and both prompts show the configured time
+ok 102 - expired discovery Gold choices auto-pick and both prompts show the configured time
+  ---
+  duration_ms: 2.222412
+  type: 'test'
+  ...
+# Subtest: session cookies are HTTP-only, same-site, and secure when TLS is trusted
+ok 103 - session cookies are HTTP-only, same-site, and secure when TLS is trusted
+  ---
+  duration_ms: 0.938515
+  type: 'test'
+  ...
+# Subtest: TLS detection only trusts forwarded protocol when proxy trust is enabled
+ok 104 - TLS detection only trusts forwarded protocol when proxy trust is enabled
+  ---
+  duration_ms: 0.140051
+  type: 'test'
+  ...
+# Subtest: JSON body reader parses valid data and rejects invalid or oversized bodies
+ok 105 - JSON body reader parses valid data and rejects invalid or oversized bodies
+  ---
+  duration_ms: 1.284537
+  type: 'test'
+  ...
+# Subtest: roll/end dock is above the measured bottom bar instead of a fixed guess
+ok 106 - roll/end dock is above the measured bottom bar instead of a fixed guess
+  ---
+  duration_ms: 1.023874
+  type: 'test'
+  ...
+# Subtest: top bar reserves space for orb and scale controls while tools scroll
+ok 107 - top bar reserves space for orb and scale controls while tools scroll
+  ---
+  duration_ms: 0.613345
+  type: 'test'
+  ...
+# Subtest: mobile Build dropdown and proxy buttons are gone, without removing node building actions
+ok 108 - mobile Build dropdown and proxy buttons are gone, without removing node building actions
+  ---
+  duration_ms: 0.854819
+  type: 'test'
+  ...
+# Subtest: clock drag bounds are calculated from the board and its top and bottom controls
+ok 109 - clock drag bounds are calculated from the board and its top and bottom controls
+  ---
+  duration_ms: 0.486934
+  type: 'test'
+  ...
+# Subtest: in-game account orb follows measured top-bar height and remains centered
+ok 110 - in-game account orb follows measured top-bar height and remains centered
+  ---
+  duration_ms: 0.944184
+  type: 'test'
+  ...
+# Subtest: Development Cards header reserves a bounded grid column for scale controls
+ok 111 - Development Cards header reserves a bounded grid column for scale controls
+  ---
+  duration_ms: 0.421866
+  type: 'test'
+  ...
+# Subtest: cache keys agree for CSS, JS and service worker
+ok 112 - cache keys agree for CSS, JS and service worker
+  ---
+  duration_ms: 0.266852
+  type: 'test'
+  ...
+# Subtest: desert tiles split Cartographer exploration land masses
+ok 113 - desert tiles split Cartographer exploration land masses
+  ---
+  duration_ms: 1.367372
+  type: 'test'
+  ...
+# Subtest: desert remains part of a land mass in scenarios without the special exploration rule
+ok 114 - desert remains part of a land mass in scenarios without the special exploration rule
+  ---
+  duration_ms: 0.19873
+  type: 'test'
+  ...
+# Subtest: landing page owns login and account creation requires email verification
+ok 115 - landing page owns login and account creation requires email verification
+  ---
+  duration_ms: 1.588656
+  type: 'test'
+  ...
+# Subtest: Cartographer and Scattered Tiles keep 6 and 8 off Gold Fields
+ok 116 - Cartographer and Scattered Tiles keep 6 and 8 off Gold Fields
+  ---
+  duration_ms: 0.661407
+  type: 'test'
+  ...
+# Subtest: authenticated portal offers ranked and unranked paths plus an account menu
+ok 117 - authenticated portal offers ranked and unranked paths plus an account menu
+  ---
+  duration_ms: 0.587005
+  type: 'test'
+  ...
+# Subtest: ranked matchmaking is one server-authoritative four-player scenario ballot
+ok 118 - ranked matchmaking is one server-authoritative four-player scenario ballot
+  ---
+  duration_ms: 1.493122
+  type: 'test'
+  ...
+# Subtest: friends persist on accounts and lobby rows support friend requests
+ok 119 - friends persist on accounts and lobby rows support friend requests
+  ---
+  duration_ms: 1.672663
+  type: 'test'
+  ...
+# Subtest: lobby exposes a full rules page next to Create Lobby
+ok 120 - lobby exposes a full rules page next to Create Lobby
+  ---
+  duration_ms: 1.176644
+  type: 'test'
+  ...
+# Subtest: rules guide covers every selectable map and Seafarers scenario
+ok 121 - rules guide covers every selectable map and Seafarers scenario
+  ---
+  duration_ms: 2.302703
+  type: 'test'
+  ...
+# Subtest: rules guide documents core game functions and responsive page styling
+ok 122 - rules guide documents core game functions and responsive page styling
+  ---
+  duration_ms: 1.5456
+  type: 'test'
+  ...
+# Subtest: Test Builder exposes tile and typed-port tools for both board sizes
+ok 123 - Test Builder exposes tile and typed-port tools for both board sizes
+  ---
+  duration_ms: 0.390018
+  type: 'test'
+  ...
+# Subtest: all Seafarers scenarios expose the exploration victory-point toggle
+ok 124 - all Seafarers scenarios expose the exploration victory-point toggle
+  ---
+  duration_ms: 0.445482
+  type: 'test'
+  ...
+# Subtest: Cartographer placement highlights treat outer land edges as open ocean
+ok 125 - Cartographer placement highlights treat outer land edges as open ocean
+  ---
+  duration_ms: 0.301915
+  type: 'test'
+  ...
+# Subtest: Fog Island rules describe the enabled exploration settlement bonus
+ok 126 - Fog Island rules describe the enabled exploration settlement bonus
+  ---
+  duration_ms: 0.465331
+  type: 'test'
+  ...
+# Subtest: all game panel and statistics tab scales allow 300% while retaining saved preferences
+ok 127 - all game panel and statistics tab scales allow 300% while retaining saved preferences
+  ---
+  duration_ms: 0.849211
+  type: 'test'
+  ...
+# Subtest: mobile selected Resources fills the width and does not repeat its title
+ok 128 - mobile selected Resources fills the width and does not repeat its title
+  ---
+  duration_ms: 0.492202
+  type: 'test'
+  ...
+# Subtest: log/dev split moves with pointer or keyboard and persists ratio
+ok 129 - log/dev split moves with pointer or keyboard and persists ratio
+  ---
+  duration_ms: 0.520515
+  type: 'test'
+  ...
+# Subtest: dev card list stays below cost note and can clip/scroll as log expands
+ok 130 - dev card list stays below cost note and can clip/scroll as log expands
+  ---
+  duration_ms: 0.544241
+  type: 'test'
+  ...
+# Subtest: resource icons no longer stop growing at the width of the grid column
+ok 131 - resource icons no longer stop growing at the width of the grid column
+  ---
+  duration_ms: 0.336798
+  type: 'test'
+  ...
+# Subtest: client JS, CSS, and service worker share fresh v31 cache key
+ok 132 - client JS, CSS, and service worker share fresh v31 cache key
+  ---
+  duration_ms: 0.465081
+  type: 'test'
+  ...
+# Subtest: entire clock panel starts pointer drag, including time and action information
+ok 133 - entire clock panel starts pointer drag, including time and action information
+  ---
+  duration_ms: 1.023113
+  type: 'test'
+  ...
+# Subtest: no grip icon is generated and no empty clock header renders on mobile
+ok 134 - no grip icon is generated and no empty clock header renders on mobile
+  ---
+  duration_ms: 0.678834
+  type: 'test'
+  ...
+# Subtest: clock remains constrained to board space and preserves its position
+ok 135 - clock remains constrained to board space and preserves its position
+  ---
+  duration_ms: 0.287133
+  type: 'test'
+  ...
+# Subtest: friends can enter a username without recipient enumeration
+ok 136 - friends can enter a username without recipient enumeration
+  ---
+  duration_ms: 1.138367
+  type: 'test'
+  ...
+# Subtest: in-lobby friends get a contextual invite button and receive an actionable invitation
+ok 137 - in-lobby friends get a contextual invite button and receive an actionable invitation
+  ---
+  duration_ms: 0.695469
+  type: 'test'
+  ...
+# Subtest: mobile unranked lobby has a map drawer and eliminates the permanently reserved board
+ok 138 - mobile unranked lobby has a map drawer and eliminates the permanently reserved board
+  ---
+  duration_ms: 0.296167
+  type: 'test'
+  ...
+# Subtest: ranked previews use intrinsic 3:2 dimensions while hidden control rows do not take space
+ok 139 - ranked previews use intrinsic 3:2 dimensions while hidden control rows do not take space
+  ---
+  duration_ms: 0.515367
+  type: 'test'
+  ...
+# Subtest: turn badges use the roll dock and map drawing clips/culls off-canvas terrain
+ok 140 - turn badges use the roll dock and map drawing clips/culls off-canvas terrain
+  ---
+  duration_ms: 0.873417
+  type: 'test'
+  ...
+# Subtest: mobile gameplay exposes a labeled divider between the map and sidebar
+ok 141 - mobile gameplay exposes a labeled divider between the map and sidebar
+  ---
+  duration_ms: 1.087621
+  type: 'test'
+  ...
+# Subtest: mobile divider supports touch dragging, keyboard resizing, and persistence
+ok 142 - mobile divider supports touch dragging, keyboard resizing, and persistence
+  ---
+  duration_ms: 0.335335
+  type: 'test'
+  ...
+# Subtest: mobile assets are cache-busted together while desktop retains right dock
+ok 143 - mobile assets are cache-busted together while desktop retains right dock
+  ---
+  duration_ms: 0.255335
+  type: 'test'
+  ...
+# Subtest: neural training ignores hypothetical lookahead games
+ok 144 - neural training ignores hypothetical lookahead games
+  ---
+  duration_ms: 0.958356
+  type: 'test'
+  ...
+# Subtest: neural policy has a Gold-income signal and goal-directed Gold choices
+ok 145 - neural policy has a Gold-income signal and goal-directed Gold choices
+  ---
+  duration_ms: 0.546063
+  type: 'test'
+  ...
+# Subtest: historical 500-game curriculum trained exactly once per completed game
+ok 146 - historical 500-game curriculum trained exactly once per completed game
+  ---
+  duration_ms: 0.141783
+  type: 'test'
+  ...
+# Subtest: 5000-game fastest-victory curriculum covers every scenario at full victory targets
+ok 147 - 5000-game fastest-victory curriculum covers every scenario at full victory targets
+  ---
+  duration_ms: 0.20592
+  type: 'test'
+  ...
+# Subtest: fast-victory trajectories are bounded and omitted from serialized game state
+ok 148 - fast-victory trajectories are bounded and omitted from serialized game state
+  ---
+  duration_ms: 0.40495
+  type: 'test'
+  ...
+# Subtest: trained neural parameters remain finite and structurally valid
+ok 149 - trained neural parameters remain finite and structurally valid
+  ---
+  duration_ms: 0.150287
+  type: 'test'
+  ...
+# Subtest: 13000-game fast-win and denial training records exactly 1000 real victories per standard mode
+ok 150 - 13000-game fast-win and denial training records exactly 1000 real victories per standard mode
+  ---
+  duration_ms: 38.475651
+  type: 'test'
+  ...
+# Subtest: evolutionary selection rewards larger margins and faster victories
+ok 151 - evolutionary selection rewards larger margins and faster victories
+  ---
+  duration_ms: 0.837232
+  type: 'test'
+  ...
+# Subtest: fast victories and holding rivals away from victory earn higher rewards
+ok 152 - fast victories and holding rivals away from victory earn higher rewards
+  ---
+  duration_ms: 0.935732
+  type: 'test'
+  ...
+# Subtest: opponent signals track the leader, blocked production, and departed players
+ok 153 - opponent signals track the leader, blocked production, and departed players
+  ---
+  duration_ms: 0.355916
+  type: 'test'
+  ...
+# Subtest: migration and distributed merging preserve old weights and train new opponent inputs
+ok 154 - migration and distributed merging preserve old weights and train new opponent inputs
+  ---
+  duration_ms: 1.087109
+  type: 'test'
+  ...
+# Subtest: standard curriculum has exactly thirteen modes at full victory targets
+ok 155 - standard curriculum has exactly thirteen modes at full victory targets
+  ---
+  duration_ms: 3.489002
+  type: 'test'
+  ...
+# Subtest: atomic JSON writes leave a complete parseable file
+ok 156 - atomic JSON writes leave a complete parseable file
+  ---
+  duration_ms: 8.028167
+  type: 'test'
+  ...
+# Subtest: queued writer preserves write order and flushes the newest value
+ok 157 - queued writer preserves write order and flushes the newest value
+  ---
+  duration_ms: 3.702083
+  type: 'test'
+  ...
+# Subtest: coalescing writer persists the latest rapidly-updated snapshot
+ok 158 - coalescing writer persists the latest rapidly-updated snapshot
+  ---
+  duration_ms: 3.273727
+  type: 'test'
+  ...
+# Subtest: coalescing writer defers serialization of a replacement snapshot
+ok 159 - coalescing writer defers serialization of a replacement snapshot
+  ---
+  duration_ms: 5.197298
+  type: 'test'
+  ...
+# Subtest: fog_island only allows the pirate on revealed sea tiles
+ok 160 - fog_island only allows the pirate on revealed sea tiles
+  ---
+  duration_ms: 1.008751
+  type: 'test'
+  ...
+# Subtest: fog_island_56 only allows the pirate on revealed sea tiles
+ok 161 - fog_island_56 only allows the pirate on revealed sea tiles
+  ---
+  duration_ms: 0.181945
+  type: 'test'
+  ...
+# Subtest: fog_island_78 only allows the pirate on revealed sea tiles
+ok 162 - fog_island_78 only allows the pirate on revealed sea tiles
+  ---
+  duration_ms: 0.082284
+  type: 'test'
+  ...
+# Subtest: Fog Island starting pirate candidates exclude every unrevealed fog tile
+ok 163 - Fog Island starting pirate candidates exclude every unrevealed fog tile
+  ---
+  duration_ms: 0.57667
+  type: 'test'
+  ...
+# Subtest: unrevealed fog also blocks the pirate on a custom map
+ok 164 - unrevealed fog also blocks the pirate on a custom map
+  ---
+  duration_ms: 0.156737
+  type: 'test'
+  ...
+# Subtest: map finalization replaces missing or duplicate pirates with exactly one random sea placement
+ok 165 - map finalization replaces missing or duplicate pirates with exactly one random sea placement
+  ---
+  duration_ms: 0.192911
+  type: 'test'
+  ...
+# Subtest: map finalization keeps Fog Island pirates off unrevealed fog
+ok 166 - map finalization keeps Fog Island pirates off unrevealed fog
+  ---
+  duration_ms: 0.187262
+  type: 'test'
+  ...
+# Subtest: map finalization excludes hidden outer-border sea tiles
+ok 167 - map finalization excludes hidden outer-border sea tiles
+  ---
+  duration_ms: 0.174613
+  type: 'test'
+  ...
+# Subtest: gameplay and client targeting use the pirate tile restriction
+ok 168 - gameplay and client targeting use the pirate tile restriction
+  ---
+  duration_ms: 0.444851
+  type: 'test'
+  ...
+# Subtest: player trade rejects every resource when it appears on both sides
+ok 169 - player trade rejects every resource when it appears on both sides
+  ---
+  duration_ms: 1.175493
+  type: 'test'
+  ...
+# Subtest: player trade allows multiple resources when the two sides do not overlap
+ok 170 - player trade allows multiple resources when the two sides do not overlap
+  ---
+  duration_ms: 0.161404
+  type: 'test'
+  ...
+# Subtest: zero quantities do not create a false player-trade overlap
+ok 171 - zero quantities do not create a false player-trade overlap
+  ---
+  duration_ms: 0.254133
+  type: 'test'
+  ...
+# Subtest: port placement finds the requested number of non-adjacent shoreline edges
+ok 172 - port placement finds the requested number of non-adjacent shoreline edges
+  ---
+  duration_ms: 1.413572
+  type: 'test'
+  ...
+# Subtest: port placement randomizes which valid shoreline edges are selected
+ok 173 - port placement randomizes which valid shoreline edges are selected
+  ---
+  duration_ms: 1.958354
+  type: 'test'
+  ...
+# Subtest: port placement returns only the feasible maximum instead of allowing adjacency
+ok 174 - port placement returns only the feasible maximum instead of allowing adjacency
+  ---
+  duration_ms: 0.201474
+  type: 'test'
+  ...
+# Subtest: postgame screen keeps its summary heading and actions in separate mobile grid rows
+ok 175 - postgame screen keeps its summary heading and actions in separate mobile grid rows
+  ---
+  duration_ms: 0.883823
+  type: 'test'
+  ...
+# Subtest: long names wrap, while tabs and summary content remain scrollable on mobile
+ok 176 - long names wrap, while tabs and summary content remain scrollable on mobile
+  ---
+  duration_ms: 0.291179
+  type: 'test'
+  ...
+# Subtest: postgame markup preserves main menu, rematch, hide and all result tabs
+ok 177 - postgame markup preserves main menu, rematch, hide and all result tabs
+  ---
+  duration_ms: 0.337489
+  type: 'test'
+  ...
+# Subtest: all postgame summary tabs use the shared player-card visual system
+ok 178 - all postgame summary tabs use the shared player-card visual system
+  ---
+  duration_ms: 0.909431
+  type: 'test'
+  ...
+# Subtest: summary player cards contain only the requested eight breakdown metrics
+ok 179 - summary player cards contain only the requested eight breakdown metrics
+  ---
+  duration_ms: 0.778825
+  type: 'test'
+  ...
+# Subtest: game overview uses larger cards, metric boxes, and readable text
+ok 180 - game overview uses larger cards, metric boxes, and readable text
+  ---
+  duration_ms: 0.237928
+  type: 'test'
+  ...
+# Subtest: dice keeps all three views and presents rolls as aligned bar charts
+ok 181 - dice keeps all three views and presents rolls as aligned bar charts
+  ---
+  duration_ms: 0.296146
+  type: 'test'
+  ...
+# Subtest: the Game Tools box is hidden in the lobby but remains available in game
+ok 182 - the Game Tools box is hidden in the lobby but remains available in game
+  ---
+  duration_ms: 0.290058
+  type: 'test'
+  ...
+# Subtest: development-card summaries use full-color game artwork and retain focus controls
+ok 183 - development-card summaries use full-color game artwork and retain focus controls
+  ---
+  duration_ms: 0.333703
+  type: 'test'
+  ...
+# Subtest: thief and victim see the stolen resource in their game log
+ok 184 - thief and victim see the stolen resource in their game log
+  ---
+  duration_ms: 1.236034
+  type: 'test'
+  ...
+# Subtest: other players and public history retain the private generic steal text
+ok 185 - other players and public history retain the private generic steal text
+  ---
+  duration_ms: 0.170597
+  type: 'test'
+  ...
+# Subtest: protocol accepts current gameplay, ranked matchmaking, Test Builder, expert AI, and texture messages
+ok 186 - protocol accepts current gameplay, ranked matchmaking, Test Builder, expert AI, and texture messages
+  ---
+  duration_ms: 1.220721
+  type: 'test'
+  ...
+# Subtest: protocol rejects malformed, unknown, and oversized regular messages
+ok 187 - protocol rejects malformed, unknown, and oversized regular messages
+  ---
+  duration_ms: 1.642447
+  type: 'test'
+  ...
+# Subtest: texture publishing retains the larger established payload allowance
+ok 188 - texture publishing retains the larger established payload allowance
+  ---
+  duration_ms: 4.450452
+  type: 'test'
+  ...
+# Subtest: obsolete custom-grid resizing protocol is rejected
+ok 189 - obsolete custom-grid resizing protocol is rejected
+  ---
+  duration_ms: 0.231729
+  type: 'test'
+  ...
+# Subtest: legacy history without a ranked flag counts toward Unranked and Combined, not Ranked
+ok 190 - legacy history without a ranked flag counts toward Unranked and Combined, not Ranked
+  ---
+  duration_ms: 1.850891
+  type: 'test'
+  ...
+# Subtest: ranked ballot is server timed for 30 seconds and permits revision/abstention
+ok 191 - ranked ballot is server timed for 30 seconds and permits revision/abstention
+  ---
+  duration_ms: 0.882261
+  type: 'test'
+  ...
+# Subtest: ranked lobby is full width and has a spectator invite, no ordinary lobby controls
+ok 192 - ranked lobby is full width and has a spectator invite, no ordinary lobby controls
+  ---
+  duration_ms: 0.453334
+  type: 'test'
+  ...
+# Subtest: login and game-type screens both expose Terms of Service and Privacy Policy actions
+ok 193 - login and game-type screens both expose Terms of Service and Privacy Policy actions
+  ---
+  duration_ms: 0.943984
+  type: 'test'
+  ...
+# Subtest: legal dialog can close and opens the published legal documents
+ok 194 - legal dialog can close and opens the published legal documents
+  ---
+  duration_ms: 3.711267
+  type: 'test'
+  ...
+# Subtest: ranked lobby has viewport layout, compact vote cards and safe small-screen fallback
+ok 195 - ranked lobby has viewport layout, compact vote cards and safe small-screen fallback
+  ---
+  duration_ms: 1.351668
+  type: 'test'
+  ...
+# Subtest: ranked scenarios each receive a complete locked ruleset
+ok 196 - ranked scenarios each receive a complete locked ruleset
+  ---
+  duration_ms: 1.353511
+  type: 'test'
+  ...
+# Subtest: ranked ballot protocol and persistence retain options and votes
+ok 197 - ranked ballot protocol and persistence retain options and votes
+  ---
+  duration_ms: 0.449137
+  type: 'test'
+  ...
+# Subtest: ranked matchmaking is one four-player server-owned queue with a three-option ballot
+ok 198 - ranked matchmaking is one four-player server-owned queue with a three-option ballot
+  ---
+  duration_ms: 1.697981
+  type: 'test'
+  ...
+# Subtest: ranked Back and End Game controls are disabled but available in unranked
+ok 199 - ranked Back and End Game controls are disabled but available in unranked
+  ---
+  duration_ms: 1.223074
+  type: 'test'
+  ...
+# Subtest: Player Stats exposes Ranked, Unranked, and Combined with independent ratings
+ok 200 - Player Stats exposes Ranked, Unranked, and Combined with independent ratings
+  ---
+  duration_ms: 0.84878
+  type: 'test'
+  ...
+# Subtest: End Game click handler uses spectator detection defined in its own scope
+ok 201 - End Game click handler uses spectator detection defined in its own scope
+  ---
+  duration_ms: 0.972477
+  type: 'test'
+  ...
+# Subtest: unranked End Game actions get through the browser when paused but regular actions do not
+ok 202 - unranked End Game actions get through the browser when paused but regular actions do not
+  ---
+  duration_ms: 1.468816
+  type: 'test'
+  ...
+# Subtest: End Game modal prompt resets its deduplication when the next room starts a vote at ID 1
+ok 203 - End Game modal prompt resets its deduplication when the next room starts a vote at ID 1
+  ---
+  duration_ms: 1.002663
+  type: 'test'
+  ...
+# Subtest: admin closure and every Main Menu destination restore the game-type chooser
+ok 204 - admin closure and every Main Menu destination restore the game-type chooser
+  ---
+  duration_ms: 0.975481
+  type: 'test'
+  ...
+# Subtest: ranked Rematch returns to ready state and never auto-enqueues
+ok 205 - ranked Rematch returns to ready state and never auto-enqueues
+  ---
+  duration_ms: 0.56375
+  type: 'test'
+  ...
+# Subtest: ranked rematch server handler actually detaches only the requester without joining a queue
+ok 206 - ranked rematch server handler actually detaches only the requester without joining a queue
+  ---
+  duration_ms: 0.98773
+  type: 'test'
+  ...
+# Subtest: all new or invalid ratings default to 1000 without deriving anything from win/loss stats
+ok 207 - all new or invalid ratings default to 1000 without deriving anything from win/loss stats
+  ---
+  duration_ms: 1.496187
+  type: 'test'
+  ...
+# Subtest: four equal ranked players: winner gains 24 and three losers lose 8 each
+ok 208 - four equal ranked players: winner gains 24 and three losers lose 8 each
+  ---
+  duration_ms: 0.894078
+  type: 'test'
+  ...
+# Subtest: five and six player ratings retain the point pool and reward underdog wins
+ok 209 - five and six player ratings retain the point pool and reward underdog wins
+  ---
+  duration_ms: 0.390199
+  type: 'test'
+  ...
+# Subtest: invalid ranked outcomes cannot change ratings, and AI does not enter the rating pool
+ok 210 - invalid ranked outcomes cannot change ratings, and AI does not enter the rating pool
+  ---
+  duration_ms: 0.150076
+  type: 'test'
+  ...
+# Subtest: initial migration resets every legacy account once, then never overwrites earned ratings
+ok 211 - initial migration resets every legacy account once, then never overwrites earned ratings
+  ---
+  duration_ms: 1.141472
+  type: 'test'
+  ...
+# Subtest: only authoritative ranked games update ratings, and results apply only once
+ok 212 - only authoritative ranked games update ratings, and results apply only once
+  ---
+  duration_ms: 2.455393
+  type: 'test'
+  ...
+# Subtest: active ranked rooms retain their ranked flag after persistence and restore
+ok 213 - active ranked rooms retain their ranked flag after persistence and restore
+  ---
+  duration_ms: 0.499173
+  type: 'test'
+  ...
+# Subtest: game history includes the ranked flag and per-user rating changes in its saved snapshot
+ok 214 - game history includes the ranked flag and per-user rating changes in its saved snapshot
+  ---
+  duration_ms: 0.88837
+  type: 'test'
+  ...
+# Subtest: Player Stats uses ranked rating instead of resource change columns, and summaries show rating changes
+ok 215 - Player Stats uses ranked rating instead of resource change columns, and summaries show rating changes
+  ---
+  duration_ms: 1.871933
+  type: 'test'
+  ...
+# Subtest: policy defaults reproduce v13 and support detailed gameplay categories
+ok 216 - policy defaults reproduce v13 and support detailed gameplay categories
+  ---
+  duration_ms: 2.004583
+  type: 'test'
+  ...
+# Subtest: weighting gives or subtracts points from recorded behaviors without affecting unranked
+ok 217 - weighting gives or subtracts points from recorded behaviors without affecting unranked
+  ---
+  duration_ms: 1.148261
+  type: 'test'
+  ...
+# Subtest: rebuild replays ranked in date order and excludes unranked without modifying inputs
+ok 218 - rebuild replays ranked in date order and excludes unranked without modifying inputs
+  ---
+  duration_ms: 0.760607
+  type: 'test'
+  ...
+# Subtest: weight parameters are validated against malformed/out of bounds admin input
+ok 219 - weight parameters are validated against malformed/out of bounds admin input
+  ---
+  duration_ms: 0.488387
+  type: 'test'
+  ...
+# Subtest: ranked matchmaking uses one four-player queue before the scenario ballot
+ok 220 - ranked matchmaking uses one four-player queue before the scenario ballot
+  ---
+  duration_ms: 0.553154
+  type: 'test'
+  ...
+# Subtest: mobile UI exposes accessible action and panel controls and board aligned prompts
+ok 221 - mobile UI exposes accessible action and panel controls and board aligned prompts
+  ---
+  duration_ms: 0.350869
+  type: 'test'
+  ...
+# Subtest: admin rating endpoints require confirmation, preview hash, and preserve backups
+ok 222 - admin rating endpoints require confirmation, preview hash, and preserve backups
+  ---
+  duration_ms: 1.122603
+  type: 'test'
+  ...
+# Subtest: only a server-confirmed lobby visited in the last five minutes is automatically eligible
+ok 223 - only a server-confirmed lobby visited in the last five minutes is automatically eligible
+  ---
+  duration_ms: 1.999816
+  type: 'test'
+  ...
+# Subtest: recent lobby record does not carry across accounts or a backwards clock
+ok 224 - recent lobby record does not carry across accounts or a backwards clock
+  ---
+  duration_ms: 0.671333
+  type: 'test'
+  ...
+# Subtest: completed games are not recorded as recent active lobbies
+ok 225 - completed games are not recorded as recent active lobbies
+  ---
+  duration_ms: 0.484641
+  type: 'test'
+  ...
+# Subtest: uncreated lobby navigation removes stale room and spectator query parameters
+ok 226 - uncreated lobby navigation removes stale room and spectator query parameters
+  ---
+  duration_ms: 0.751714
+  type: 'test'
+  ...
+# Subtest: uncreated lobby hides the board and all room-only setup cards instead of drawing a blank map
+ok 227 - uncreated lobby hides the board and all room-only setup cards instead of drawing a blank map
+  ---
+  duration_ms: 0.817503
+  type: 'test'
+  ...
+# Subtest: direct invitations take priority over auto-rejoin, and old un-timed saved codes cannot auto-rejoin
+ok 228 - direct invitations take priority over auto-rejoin, and old un-timed saved codes cannot auto-rejoin
+  ---
+  duration_ms: 1.149924
+  type: 'test'
+  ...
+# Subtest: pre-game tools are hidden in markup and postgame navigation is player-specific
+ok 229 - pre-game tools are hidden in markup and postgame navigation is player-specific
+  ---
+  duration_ms: 2.761505
+  type: 'test'
+  ...
+# Subtest: pause, play, and voted previous-turn restoration are separate server-authoritative controls
+ok 230 - pause, play, and voted previous-turn restoration are separate server-authoritative controls
+  ---
+  duration_ms: 2.784539
+  type: 'test'
+  ...
+# Subtest: administrator account merging combines identity data without exposing email addresses
+ok 231 - administrator account merging combines identity data without exposing email addresses
+  ---
+  duration_ms: 0.752495
+  type: 'test'
+  ...
+# Subtest: administrator room management stays server-authorized and surprise maps ignore previews at start
+ok 232 - administrator room management stays server-authorized and surprise maps ignore previews at start
+  ---
+  duration_ms: 0.634126
+  type: 'test'
+  ...
+# Subtest: obsolete public backup artifacts are removed
+ok 233 - obsolete public backup artifacts are removed
+  ---
+  duration_ms: 0.248976
+  type: 'test'
+  ...
+# Subtest: turn snapshots only advance on a new player turn, including paired second player
+ok 234 - turn snapshots only advance on a new player turn, including paired second player
+  ---
+  duration_ms: 1.669838
+  type: 'test'
+  ...
+# Subtest: undo holds the previous player at the beginning with a fresh timer until Play
+ok 235 - undo holds the previous player at the beginning with a fresh timer until Play
+  ---
+  duration_ms: 0.433714
+  type: 'test'
+  ...
+# Subtest: rematch uses one persisted room code and admits others only when clicking
+ok 236 - rematch uses one persisted room code and admits others only when clicking
+  ---
+  duration_ms: 0.4372
+  type: 'test'
+  ...
+# Subtest: account orb tracks the adjustable right sidebar and management modal has its own width
+ok 237 - account orb tracks the adjustable right sidebar and management modal has its own width
+  ---
+  duration_ms: 0.517941
+  type: 'test'
+  ...
+# Subtest: successive rematch actions join first player lobby without moving nonparticipants
+ok 238 - successive rematch actions join first player lobby without moving nonparticipants
+  ---
+  duration_ms: 1.736849
+  type: 'test'
+  ...
+# Subtest: game replay exposes a full-width action scrubber below its other controls
+ok 239 - game replay exposes a full-width action scrubber below its other controls
+  ---
+  duration_ms: 1.212869
+  type: 'test'
+  ...
+# Subtest: replay scrubber spans every recorded action and stays synchronized with navigation
+ok 240 - replay scrubber spans every recorded action and stays synchronized with navigation
+  ---
+  duration_ms: 0.319602
+  type: 'test'
+  ...
+# Subtest: replay patches reconstruct array, object, addition, and deletion changes
+ok 241 - replay patches reconstruct array, object, addition, and deletion changes
+  ---
+  duration_ms: 1.415725
+  type: 'test'
+  ...
+# Subtest: recorded replay materializes every successful game frame without embedding itself
+ok 242 - recorded replay materializes every successful game frame without embedding itself
+  ---
+  duration_ms: 0.903994
+  type: 'test'
+  ...
+# Subtest: lobby reconnects stale room state and defers safe lobby messages until rejoined
+ok 243 - lobby reconnects stale room state and defers safe lobby messages until rejoined
+  ---
+  duration_ms: 1.957121
+  type: 'test'
+  ...
+# Subtest: other-player texture packs wait for a confirmed room and can be fetched from their lobby row
+ok 244 - other-player texture packs wait for a confirmed room and can be fetched from their lobby row
+  ---
+  duration_ms: 0.635057
+  type: 'test'
+  ...
+# Subtest: Simplified is exposed as a built-in texture pack for every player
+ok 245 - Simplified is exposed as a built-in texture pack for every player
+  ---
+  duration_ms: 0.218299
+  type: 'test'
+  ...
+# Subtest: setup highlights exclude ocean and unrevealed-fog-only nodes
+ok 246 - setup highlights exclude ocean and unrevealed-fog-only nodes
+  ---
+  duration_ms: 0.56361
+  type: 'test'
+  ...
+# Subtest: paired extra action turns suppress player-trade composition for every paired map
+ok 247 - paired extra action turns suppress player-trade composition for every paired map
+  ---
+  duration_ms: 0.897824
+  type: 'test'
+  ...
+# Subtest: bank trades support mixed-resource baskets and add five seconds
+ok 248 - bank trades support mixed-resource baskets and add five seconds
+  ---
+  duration_ms: 0.791274
+  type: 'test'
+  ...
+# Subtest: player trades cannot give and receive the same resource
+ok 249 - player trades cannot give and receive the same resource
+  ---
+  duration_ms: 0.61663
+  type: 'test'
+  ...
+# Subtest: the center-board YOUR ROLL banner is shown only for the local roll phase
+ok 250 - the center-board YOUR ROLL banner is shown only for the local roll phase
+  ---
+  duration_ms: 0.273813
+  type: 'test'
+  ...
+# Subtest: buy development card is placed in the turn action bar instead of the development-card panel
+ok 251 - buy development card is placed in the turn action bar instead of the development-card panel
+  ---
+  duration_ms: 0.575739
+  type: 'test'
+  ...
+# Subtest: robber and pirate placement tiles show clear legal and illegal marks above the board
+ok 252 - robber and pirate placement tiles show clear legal and illegal marks above the board
+  ---
+  duration_ms: 1.649198
+  type: 'test'
+  ...
+# Subtest: Room IDs includes a spectator link that joins directly as a spectator
+ok 253 - Room IDs includes a spectator link that joins directly as a spectator
+  ---
+  duration_ms: 0.689369
+  type: 'test'
+  ...
+# Subtest: placement and extra-turn badges are alongside Roll Dice in the dock, never over the button
+ok 254 - placement and extra-turn badges are alongside Roll Dice in the dock, never over the button
+  ---
+  duration_ms: 0.562399
+  type: 'test'
+  ...
+# Subtest: live Dice Stats offers player and probability display choices
+ok 255 - live Dice Stats offers player and probability display choices
+  ---
+  duration_ms: 1.209865
+  type: 'test'
+  ...
+# Subtest: the in-game Rules tab displays the maximum cards for each individual resource
+ok 256 - the in-game Rules tab displays the maximum cards for each individual resource
+  ---
+  duration_ms: 0.257138
+  type: 'test'
+  ...
+# Subtest: setup placement turns show a red Your Turn banner near Roll Dice
+ok 257 - setup placement turns show a red Your Turn banner near Roll Dice
+  ---
+  duration_ms: 0.492353
+  type: 'test'
+  ...
+# Subtest: new roads, ships, settlements, and cities render 50 percent larger for two seconds
+ok 258 - new roads, ships, settlements, and cities render 50 percent larger for two seconds
+  ---
+  duration_ms: 0.987089
+  type: 'test'
+  ...
+# Subtest: ships placed during the current action opportunity cannot be moved immediately
+ok 259 - ships placed during the current action opportunity cannot be moved immediately
+  ---
+  duration_ms: 0.599093
+  type: 'test'
+  ...
+# Subtest: lobby readiness is visible and enforced by the server
+ok 260 - lobby readiness is visible and enforced by the server
+  ---
+  duration_ms: 1.672633
+  type: 'test'
+  ...
+# Subtest: proposed trades stay open while responders can change their response
+ok 261 - proposed trades stay open while responders can change their response
+  ---
+  duration_ms: 2.023742
+  type: 'test'
+  ...
+# Subtest: discard timers are 30 seconds without changing other micro-action timers
+ok 262 - discard timers are 30 seconds without changing other micro-action timers
+  ---
+  duration_ms: 0.280183
+  type: 'test'
+  ...
+# Subtest: Monopoly logs the total and per-player resource breakdown
+ok 263 - Monopoly logs the total and per-player resource breakdown
+  ---
+  duration_ms: 0.31808
+  type: 'test'
+  ...
+# Subtest: the host can select a persisted server-authoritative dice algorithm
+ok 264 - the host can select a persisted server-authoritative dice algorithm
+  ---
+  duration_ms: 0.493855
+  type: 'test'
+  ...
+# Subtest: texture packs can be changed from the in-game tools bar
+ok 265 - texture packs can be changed from the in-game tools bar
+  ---
+  duration_ms: 0.405752
+  type: 'test'
+  ...
+# Subtest: port artwork is centered by visible pixels instead of inconsistent transparent padding
+ok 266 - port artwork is centered by visible pixels instead of inconsistent transparent padding
+  ---
+  duration_ms: 0.579034
+  type: 'test'
+  ...
+# Subtest: ports use the true shoreline normal on every map, including open Scattered Tiles boundaries
+ok 267 - ports use the true shoreline normal on every map, including open Scattered Tiles boundaries
+  ---
+  duration_ms: 1.434594
+  type: 'test'
+  ...
+# Subtest: Cartographer/Scattered Tiles number distribution never puts a 6 or 8 on gold
+ok 268 - Cartographer/Scattered Tiles number distribution never puts a 6 or 8 on gold
+  ---
+  duration_ms: 37.894378
+  type: 'test'
+  ...
+# Subtest: Back is available to every active player after the first completed turn
+ok 269 - Back is available to every active player after the first completed turn
+  ---
+  duration_ms: 0.950153
+  type: 'test'
+  ...
+# Subtest: terms and privacy reference the new support mailbox
+ok 270 - terms and privacy reference the new support mailbox
+  ---
+  duration_ms: 0.540075
+  type: 'test'
+  ...
+# Subtest: change-name changes only display name, allows duplicates and persists admin name after restart
+ok 271 - change-name changes only display name, allows duplicates and persists admin name after restart
+  ---
+  duration_ms: 445.876948
+  type: 'test'
+  ...
+# Subtest: resource counts render as an accessible overlaid badge above the icon
+ok 272 - resource counts render as an accessible overlaid badge above the icon
+  ---
+  duration_ms: 1.696629
+  type: 'test'
+  ...
+# Subtest: desktop collapsed sidebar exposes a draggable, live Resources window
+ok 273 - desktop collapsed sidebar exposes a draggable, live Resources window
+  ---
+  duration_ms: 0.57036
+  type: 'test'
+  ...
+# Subtest: bottom bar scaling also updates standalone roll and end turn buttons
+ok 274 - bottom bar scaling also updates standalone roll and end turn buttons
+  ---
+  duration_ms: 0.289526
+  type: 'test'
+  ...
+# Subtest: v31 has consistent cache bust keys for all deployed entry points
+ok 275 - v31 has consistent cache bust keys for all deployed entry points
+  ---
+  duration_ms: 0.214133
+  type: 'test'
+  ...
+# Subtest: resource summary separates actual deltas by source and turn
+ok 276 - resource summary separates actual deltas by source and turn
+  ---
+  duration_ms: 1.547453
+  type: 'test'
+  ...
+# Subtest: Gold Field picks retain their selected cards in a distinct production source
+ok 277 - Gold Field picks retain their selected cards in a distinct production source
+  ---
+  duration_ms: 0.251429
+  type: 'test'
+  ...
+# Subtest: blocked production is an opportunity loss without changing hand deltas
+ok 278 - blocked production is an opportunity loss without changing hand deltas
+  ---
+  duration_ms: 0.202665
+  type: 'test'
+  ...
+# Subtest: robber-blocked tiles count each adjacent settlement and city as lost production
+ok 279 - robber-blocked tiles count each adjacent settlement and city as lost production
+  ---
+  duration_ms: 0.394144
+  type: 'test'
+  ...
+# Subtest: blocked production recognizes canonical, legacy, and direct resource tile names
+ok 280 - blocked production recognizes canonical, legacy, and direct resource tile names
+  ---
+  duration_ms: 0.368185
+  type: 'test'
+  ...
+# Subtest: restored games backfill blocked-production buckets for every current player
+ok 281 - restored games backfill blocked-production buckets for every current player
+  ---
+  duration_ms: 0.291099
+  type: 'test'
+  ...
+# Subtest: legacy resource summaries gain the new loss buckets without losing old data
+ok 282 - legacy resource summaries gain the new loss buckets without losing old data
+  ---
+  duration_ms: 0.183517
+  type: 'test'
+  ...
+# Subtest: resources overview exposes the ten requested toggles in order
+ok 283 - resources overview exposes the ten requested toggles in order
+  ---
+  duration_ms: 0.392952
+  type: 'test'
+  ...
+# Subtest: resources overview compares gained and lost resources in separate full-color lanes
+ok 284 - resources overview compares gained and lost resources in separate full-color lanes
+  ---
+  duration_ms: 0.547806
+  type: 'test'
+  ...
+# Subtest: resources overview can display Gold Field production and blocked Gold with the supplied icon
+ok 285 - resources overview can display Gold Field production and blocked Gold with the supplied icon
+  ---
+  duration_ms: 0.64986
+  type: 'test'
+  ...
+# Subtest: development purchases count as spent and Monopoly victims use their own loss source
+ok 286 - development purchases count as spent and Monopoly victims use their own loss source
+  ---
+  duration_ms: 0.265079
+  type: 'test'
+  ...
+# Subtest: resource overview uses one shared proportional stack scale that is stable when Gold display changes
+ok 287 - resource overview uses one shared proportional stack scale that is stable when Gold display changes
+  ---
+  duration_ms: 2.618198
+  type: 'test'
+  ...
+# Subtest: Road Building uses one shared two-placement allowance for a road and a ship
+ok 288 - Road Building uses one shared two-placement allowance for a road and a ship
+  ---
+  duration_ms: 1.216044
+  type: 'test'
+  ...
+# Subtest: Road Building allowance is private to its player and restores legacy active games
+ok 289 - Road Building allowance is private to its player and restores legacy active games
+  ---
+  duration_ms: 0.123517
+  type: 'test'
+  ...
+# Subtest: server and client apply the shared allowance to ships, roads, and pre-roll placement
+ok 290 - server and client apply the shared allowance to ships, roads, and pre-roll placement
+  ---
+  duration_ms: 5.164158
+  type: 'test'
+  ...
+# Subtest: runtime config validates environment values and Railway proxy defaults
+ok 291 - runtime config validates environment values and Railway proxy defaults
+  ---
+  duration_ms: 0.876692
+  type: 'test'
+  ...
+# Subtest: origin checking allows same-host or explicitly configured origins
+ok 292 - origin checking allows same-host or explicitly configured origins
+  ---
+  duration_ms: 0.234924
+  type: 'test'
+  ...
+# Subtest: proxy address and security headers are only trusted when configured
+ok 293 - proxy address and security headers are only trusted when configured
+  ---
+  duration_ms: 0.312521
+  type: 'test'
+  ...
+# Subtest: the no-room page restores the lobby card before its early return
+ok 294 - the no-room page restores the lobby card before its early return
+  ---
+  duration_ms: 1.216976
+  type: 'test'
+  ...
+# Subtest: every local room exit rebuilds page chrome without reloading
+ok 295 - every local room exit rebuilds page chrome without reloading
+  ---
+  duration_ms: 0.529589
+  type: 'test'
+  ...
+# Subtest: winning actions and room changes push state to all connected participants
+ok 296 - winning actions and room changes push state to all connected participants
+  ---
+  duration_ms: 0.652785
+  type: 'test'
+  ...
+# Subtest: password hashes remain verifiable without blocking-compatible format changes
+ok 297 - password hashes remain verifiable without blocking-compatible format changes
+  ---
+  duration_ms: 89.605679
+  type: 'test'
+  ...
+# Subtest: session tokens are stored as hashes and legacy records migrate safely
+ok 298 - session tokens are stored as hashes and legacy records migrate safely
+  ---
+  duration_ms: 0.499643
+  type: 'test'
+  ...
+# Subtest: sliding-window limiter allows the configured attempts and reports retry time
+ok 299 - sliding-window limiter allows the configured attempts and reports retry time
+  ---
+  duration_ms: 0.214803
+  type: 'test'
+  ...
+# Subtest: ranked queue runs a timed server-owned ballot and locks ranked actions
+ok 300 - ranked queue runs a timed server-owned ballot and locks ranked actions
+  ---
+  duration_ms: 3875.956913
+  type: 'test'
+  ...
+# Subtest: unranked End Game with AI opponents waits five seconds and allows the proposer to withdraw
+ok 301 - unranked End Game with AI opponents waits five seconds and allows the proposer to withdraw
+  ---
+  duration_ms: 6111.175933
+  type: 'test'
+  ...
+# Subtest: six-player trades reach hosts and non-hosts promptly with private hands preserved
+ok 302 - six-player trades reach hosts and non-hosts promptly with private hands preserved
+  ---
+  duration_ms: 625.041761
+  type: 'test'
+  ...
+# Local action-to-state maximum by player (host first): 7.9 ms, 8.4 ms, 8.7 ms, 9.2 ms, 9.7 ms, 11.5 ms
+# Subtest: every map and scenario preview keeps ports valid and completed Seafarers maps start with a pirate
+ok 303 - every map and scenario preview keeps ports valid and completed Seafarers maps start with a pirate
+  ---
+  duration_ms: 244.881652
+  type: 'test'
+  ...
+# Subtest: Test Builder supports custom port painting on both Seafarers board sizes
+ok 304 - Test Builder supports custom port painting on both Seafarers board sizes
+  ---
+  duration_ms: 203.448092
+  type: 'test'
+  ...
+# Subtest: account, lobby, expert tuning, chat, and game-start protocol remains compatible
+ok 305 - account, lobby, expert tuning, chat, and game-start protocol remains compatible
+  ---
+  duration_ms: 6184.183767
+  type: 'test'
+  ...
+# Subtest: accounts, active rooms, expert tuning, and neural model survive a clean restart
+ok 306 - accounts, active rooms, expert tuning, and neural model survive a clean restart
+  ---
+  duration_ms: 283.855768
+  type: 'test'
+  ...
+# Subtest: browser authentication uses an HTTP-only cookie for WebSocket sessions
+ok 307 - browser authentication uses an HTTP-only cookie for WebSocket sessions
+  ---
+  duration_ms: 164.458714
+  type: 'test'
+  ...
+# Subtest: players can upload, download, and select shared texture packs without giant WebSocket payloads
+ok 308 - players can upload, download, and select shared texture packs without giant WebSocket payloads
+  ---
+  duration_ms: 765.557806
+  type: 'test'
+  ...
+# Subtest: compiled TypeScript bootstrap serves the current game entry point
+ok 309 - compiled TypeScript bootstrap serves the current game entry point
+  ---
+  duration_ms: 118.617664
+  type: 'test'
+  ...
+# Subtest: heartbeat replies and a replacement socket recovers an authenticated lobby without a reconnect war
+ok 310 - heartbeat replies and a replacement socket recovers an authenticated lobby without a reconnect war
+  ---
+  duration_ms: 317.991163
+  type: 'test'
+  ...
+# Subtest: built-in Benleethom administrator can list users and securely reset another user password
+ok 311 - built-in Benleethom administrator can list users and securely reset another user password
+  ---
+  duration_ms: 276.706011
+  type: 'test'
+  ...
+# Subtest: ordinary users can manage only themselves, verify recovery email, and reset a forgotten password
+ok 312 - ordinary users can manage only themselves, verify recovery email, and reset a forgotten password
+  ---
+  duration_ms: 412.321595
+  type: 'test'
+  ...
+# Subtest: v38 casual maps exclude custom maps and Unranked classic custom maps round-trip
+ok 313 - v38 casual maps exclude custom maps and Unranked classic custom maps round-trip
+  ---
+  duration_ms: 208.374388
+  type: 'test'
+  ...
+# Subtest: v38 Unranked Classic 5–6 Custom Map supports six seats, export, and import validation
+ok 314 - v38 Unranked Classic 5–6 Custom Map supports six seats, export, and import validation
+  ---
+  duration_ms: 173.678002
+  type: 'test'
+  ...
+# Subtest: switching out of a solo Casual or Unranked lobby deletes the abandoned room
+ok 315 - switching out of a solo Casual or Unranked lobby deletes the abandoned room
+  ---
+  duration_ms: 179.252914
+  type: 'test'
+  ...
+# Subtest: switching away from shared Unranked elects the longest-present remaining human
+ok 316 - switching away from shared Unranked elects the longest-present remaining human
+  ---
+  duration_ms: 222.297982
+  type: 'test'
+  ...
+# Subtest: Cartographer and Scattered Tiles treat the outside of every board boundary as sea
+ok 317 - Cartographer and Scattered Tiles treat the outside of every board boundary as sea
+  ---
+  duration_ms: 0.832526
+  type: 'test'
+  ...
+# Subtest: ordinary land-only edges remain invalid ship edges
+ok 318 - ordinary land-only edges remain invalid ship edges
+  ---
+  duration_ms: 0.182615
+  type: 'test'
+  ...
+# Subtest: explicit and trimmed sea adjacency remain valid for every Seafarers scenario
+ok 319 - explicit and trimmed sea adjacency remain valid for every Seafarers scenario
+  ---
+  duration_ms: 0.109716
+  type: 'test'
+  ...
+# Subtest: newly placed ships stay locked only for the current normal or paired extra-turn opportunity
+ok 320 - newly placed ships stay locked only for the current normal or paired extra-turn opportunity
+  ---
+  duration_ms: 0.203026
+  type: 'test'
+  ...
+# Subtest: Test Builder places, changes, and removes selected port types on shoreline edges
+ok 321 - Test Builder places, changes, and removes selected port types on shoreline edges
+  ---
+  duration_ms: 1.480463
+  type: 'test'
+  ...
+# Subtest: Test Builder rejects non-shoreline and directly adjacent ports
+ok 322 - Test Builder rejects non-shoreline and directly adjacent ports
+  ---
+  duration_ms: 0.237277
+  type: 'test'
+  ...
+# Subtest: Test Builder removes ports whose edges stop being shoreline
+ok 323 - Test Builder removes ports whose edges stop being shoreline
+  ---
+  duration_ms: 0.200773
+  type: 'test'
+  ...
+# Subtest: Simplified is a complete built-in texture pack
+ok 324 - Simplified is a complete built-in texture pack
+  ---
+  duration_ms: 30.333496
+  type: 'test'
+  ...
+# Subtest: Gold resource icon lives at each texture-pack root
+ok 325 - Gold resource icon lives at each texture-pack root
+  ---
+  duration_ms: 0.247273
+  type: 'test'
+  ...
+# Subtest: texture-pack identifiers and asset paths are normalized safely
+ok 326 - texture-pack identifiers and asset paths are normalized safely
+  ---
+  duration_ms: 0.560005
+  type: 'test'
+  ...
+# Subtest: successful player trade adds ten seconds to an active timer
+ok 327 - successful player trade adds ten seconds to an active timer
+  ---
+  duration_ms: 0.723652
+  type: 'test'
+  ...
+# Subtest: successful bank trade can add five seconds to the active timer
+ok 328 - successful bank trade can add five seconds to the active timer
+  ---
+  duration_ms: 0.121854
+  type: 'test'
+  ...
+# Subtest: trade-time bonus requires the initiator's live turn segment
+ok 329 - trade-time bonus requires the initiator's live turn segment
+  ---
+  duration_ms: 0.140632
+  type: 'test'
+  ...
+# Subtest: ratings start at zero, are signed integers, and victory dominates individual awards
+ok 330 - ratings start at zero, are signed integers, and victory dominates individual awards
+  ---
+  duration_ms: 3.808043
+  type: 'test'
+  ...
+# Subtest: unranked-only replay includes legacy games, accumulates losses below zero, and excludes ranked games
+ok 331 - unranked-only replay includes legacy games, accumulates losses below zero, and excludes ranked games
+  ---
+  duration_ms: 2.064213
+  type: 'test'
+  ...
+# Subtest: server migrates historic unranked scores once and does not reset them on restart
+ok 332 - server migrates historic unranked scores once and does not reset them on restart
+  ---
+  duration_ms: 1.620404
+  type: 'test'
+  ...
+# Subtest: live unranked games update only signed unranked scores exactly once
+ok 333 - live unranked games update only signed unranked scores exactly once
+  ---
+  duration_ms: 3.277313
+  type: 'test'
+  ...
+# Subtest: profiles and leaderboards expose both ratings and the unranked ladder sorts by its own score
+ok 334 - profiles and leaderboards expose both ratings and the unranked ladder sorts by its own score
+  ---
+  duration_ms: 0.451511
+  type: 'test'
+  ...
+# Subtest: built-in administrator identity and safe user projection are explicit
+ok 335 - built-in administrator identity and safe user projection are explicit
+  ---
+  duration_ms: 1.081501
+  type: 'test'
+  ...
+# Subtest: lobby exposes self-service account management and pre-login password recovery
+ok 336 - lobby exposes self-service account management and pre-login password recovery
+  ---
+  duration_ms: 4.626667
+  type: 'test'
+  ...
+# Subtest: v34 friend-only history filter and portable replays are wired in both Game Log and History
+ok 337 - v34 friend-only history filter and portable replays are wired in both Game Log and History
+  ---
+  duration_ms: 1.114531
+  type: 'test'
+  ...
+# Subtest: v34 casual mode is AI-only on the server and has a clean uncreated lobby
+ok 338 - v34 casual mode is AI-only on the server and has a clean uncreated lobby
+  ---
+  duration_ms: 0.741248
+  type: 'test'
+  ...
+# Subtest: v34 Classic 4 and Classic 5–6 expose custom map files and an adjustable settings sidebar
+ok 339 - v34 Classic 4 and Classic 5–6 expose custom map files and an adjustable settings sidebar
+  ---
+  duration_ms: 0.551712
+  type: 'test'
+  ...
+# Subtest: desktop mode choices are 3 columns while mobile choice cards are compact
+ok 340 - desktop mode choices are 3 columns while mobile choice cards are compact
+  ---
+  duration_ms: 1.117024
+  type: 'test'
+  ...
+# Subtest: casual pre-lobby does not show room code; neither pre-lobby shows game panel splitter
+ok 341 - casual pre-lobby does not show room code; neither pre-lobby shows game panel splitter
+  ---
+  duration_ms: 0.293803
+  type: 'test'
+  ...
+# Subtest: lobby board resizes by repaint instead of clearing and receives a ResizeObserver
+ok 342 - lobby board resizes by repaint instead of clearing and receives a ResizeObserver
+  ---
+  duration_ms: 1.752513
+  type: 'test'
+  ...
+# Subtest: load settings template sits next to save and invokes the existing apply routine
+ok 343 - load settings template sits next to save and invokes the existing apply routine
+  ---
+  duration_ms: 1.169654
+  type: 'test'
+  ...
+# Subtest: replay toolbar is placed below the measured HUD, not under it
+ok 344 - replay toolbar is placed below the measured HUD, not under it
+  ---
+  duration_ms: 0.211809
+  type: 'test'
+  ...
+# Subtest: CSS, JS and service worker share the current asset revision
+ok 345 - CSS, JS and service worker share the current asset revision
+  ---
+  duration_ms: 0.346022
+  type: 'test'
+  ...
+# Subtest: game type changes use server-acknowledged room exit before choosing new mode
+ok 346 - game type changes use server-acknowledged room exit before choosing new mode
+  ---
+  duration_ms: 1.991644
+  type: 'test'
+  ...
+# Subtest: ranked queue canceled on navigation except Player Stats, Game Log and Friends overlays
+ok 347 - ranked queue canceled on navigation except Player Stats, Game Log and Friends overlays
+  ---
+  duration_ms: 1.518691
+  type: 'test'
+  ...
+# Subtest: ranked match finding closes browsing overlays and reveals joined ranked room
+ok 348 - ranked match finding closes browsing overlays and reveals joined ranked room
+  ---
+  duration_ms: 0.681438
+  type: 'test'
+  ...
+# Subtest: mobile mode heading wraps clear of account orb
+ok 349 - mobile mode heading wraps clear of account orb
+  ---
+  duration_ms: 0.302706
+  type: 'test'
+  ...
+# Subtest: turn clock keeps a readable desktop width but shrinks vertically to its content
+ok 350 - turn clock keeps a readable desktop width but shrinks vertically to its content
+  ---
+  duration_ms: 0.985176
+  type: 'test'
+  ...
+# Subtest: clock action message sizes naturally, keeps wraps, and only scrolls for long text
+ok 351 - clock action message sizes naturally, keeps wraps, and only scrolls for long text
+  ---
+  duration_ms: 0.221393
+  type: 'test'
+  ...
+# Subtest: mobile clock maintains 190px footprint with auto height in portrait and landscape
+ok 352 - mobile clock maintains 190px footprint with auto height in portrait and landscape
+  ---
+  duration_ms: 0.140983
+  type: 'test'
+  ...
+# Subtest: updated stylesheet is versioned to invalidate browser cache
+ok 353 - updated stylesheet is versioned to invalidate browser cache
+  ---
+  duration_ms: 0.314239
+  type: 'test'
+  ...
+# Subtest: separate admin user and merge tabs route to distinct panels
+ok 354 - separate admin user and merge tabs route to distinct panels
+  ---
+  duration_ms: 4.12472
+  type: 'test'
+  ...
+# Subtest: the current version appears on both portal pages, and all assets reflect the same build version
+ok 355 - the current version appears on both portal pages, and all assets reflect the same build version
+  ---
+  duration_ms: 4.888312
+  type: 'test'
+  ...
+# Subtest: automatic patch increment and rollover, manually changed major resets minor and patch
+ok 356 - automatic patch increment and rollover, manually changed major resets minor and patch
+  ---
+  duration_ms: 1.133139
+  type: 'test'
+  ...
+# Subtest: version workflow bumps on GitHub branch pushes and commits stamped assets
+ok 357 - version workflow bumps on GitHub branch pushes and commits stamped assets
+  ---
+  duration_ms: 0.219351
+  type: 'test'
+  ...
+# Subtest: version bump stamps page text, both asset URL revisions, service worker, and package metadata
+ok 358 - version bump stamps page text, both asset URL revisions, service worker, and package metadata
+  ---
+  duration_ms: 125.901697
+  type: 'test'
+  ...
+# Subtest: v48 Classic 7–8 fixed footprint, editable tiles, portable JSON and eight seats
+ok 359 - v48 Classic 7–8 fixed footprint, editable tiles, portable JSON and eight seats
+  ---
+  duration_ms: 271.515939
+  type: 'test'
+  ...
+# Subtest: v40 Seafarers 7–8 custom map and Casual protection
+ok 360 - v40 Seafarers 7–8 custom map and Casual protection
+  ---
+  duration_ms: 224.74295
+  type: 'test'
+  ...
+# PASSED MAP classic78 69 40 0 9
+# PASSED MAP eight_islands_78 79 40 0 11
+# PASSED MAP through_the_desert_78 97 50 0 11
+# PASSED MAP fog_island_78 79 30 23 11
+# PASSED MAP scattered_tiles_78_7 97 42 0 9
+# PASSED MAP scattered_tiles_78_8 97 48 0 11
+# PASSED MAP cartographer_78_7 97 0 0 0
+# PASSED MAP cartographer_78_8 97 0 0 0
+# Subtest: 7–8 scenario layouts, counts, fog, redraws, upload, editor, and drafts
+ok 361 - 7–8 scenario layouts, counts, fog, redraws, upload, editor, and drafts
+  ---
+  duration_ms: 374.602439
+  type: 'test'
+  ...
+# Subtest: v43 unified 7–8 choices auto-change maps at 8 occupied seats, with AI filling and starting both sizes
+ok 362 - v43 unified 7–8 choices auto-change maps at 8 occupied seats, with AI filling and starting both sizes
+  ---
+  duration_ms: 1196.345454
+  type: 'test'
+  ...
+# Subtest: v43 lobby only shows one option each and host AI seat picker respects server capacity
+ok 363 - v43 lobby only shows one option each and host AI seat picker respects server capacity
+  ---
+  duration_ms: 4.374387
+  type: 'test'
+  ...
+# Subtest: v46 player-count selection caps seats while 7/8 preview variants follow occupied seats
+ok 364 - v46 player-count selection caps seats while 7/8 preview variants follow occupied seats
+  ---
+  duration_ms: 386.325651
+  type: 'test'
+  ...
+# Subtest: v44 editor retains painting/ports but removes all custom hex-shape controls
+ok 365 - v44 editor retains painting/ports but removes all custom hex-shape controls
+  ---
+  duration_ms: 3.401409
+  type: 'test'
+  ...
+# Subtest: all expanded Cartographer and Scattered Tiles defaults show 14 VP on the client
+ok 366 - all expanded Cartographer and Scattered Tiles defaults show 14 VP on the client
+  ---
+  duration_ms: 1.102984
+  type: 'test'
+  ...
+# Subtest: server defaults all expanded Cartographer and Scattered Tiles variants to 14 VP, preserving custom targets
+ok 367 - server defaults all expanded Cartographer and Scattered Tiles variants to 14 VP, preserving custom targets
+  ---
+  duration_ms: 201.811253
+  type: 'test'
+  ...
+# Subtest: v47 setup exposes only map family and board-size ranges, with correct underlying modes
+ok 368 - v47 setup exposes only map family and board-size ranges, with correct underlying modes
+  ---
+  duration_ms: 2.771049
+  type: 'test'
+  ...
+# Subtest: v47 invite link has only one Copy Link action next to the populated address
+ok 369 - v47 invite link has only one Copy Link action next to the populated address
+  ---
+  duration_ms: 0.48414
+  type: 'test'
+  ...
+# Subtest: v47 server accepts 7 of 8 and Casual 5–6 ranges after clearing a legacy exact count
+ok 370 - v47 server accepts 7 of 8 and Casual 5–6 ranges after clearing a legacy exact count
+  ---
+  duration_ms: 206.626255
+  type: 'test'
+  ...
+# Subtest: inactivity leases ignore timer broadcasts and favor ongoing connected games
+ok 371 - inactivity leases ignore timer broadcasts and favor ongoing connected games
+  ---
+  duration_ms: 0.807618
+  type: 'test'
+  ...
+# Subtest: finished-game room cleanup uses game end time even while state broadcasts occur
+ok 372 - finished-game room cleanup uses game end time even while state broadcasts occur
+  ---
+  duration_ms: 0.131118
+  type: 'test'
+  ...
+# Subtest: player activity ignores heartbeat, state polling, and preview queries
+ok 373 - player activity ignores heartbeat, state polling, and preview queries
+  ---
+  duration_ms: 0.162865
+  type: 'test'
+  ...
+# Subtest: restored rooms preserve human activity so old entries cannot resurrect forever
+ok 374 - restored rooms preserve human activity so old entries cannot resurrect forever
+  ---
+  duration_ms: 0.439192
+  type: 'test'
+  ...
+# Subtest: websocket flooding is rate limited per connection independently
+ok 375 - websocket flooding is rate limited per connection independently
+  ---
+  duration_ms: 0.421065
+  type: 'test'
+  ...
+# Subtest: in-game rules modal resolves scenario labels via same catalog as lobby guide
+ok 376 - in-game rules modal resolves scenario labels via same catalog as lobby guide
+  ---
+  duration_ms: 1.028872
+  type: 'test'
+  ...
+# Subtest: configured upstream secret rejects direct API and WebSocket access
+ok 377 - configured upstream secret rejects direct API and WebSocket access
+  ---
+  duration_ms: 100.831705
+  type: 'test'
+  ...
+1..377
+# tests 377
+# suites 0
+# pass 377
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 28797.962394

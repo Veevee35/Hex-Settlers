@@ -1,0 +1,12 @@
+node_modules
+cloudflare/node_modules
+.git
+*.zip
+*.log
+TEST_RESULTS*
+*.md
+.DS_Store
+.env*
+.dev.vars
+**/*.bak
+**/*.tmp

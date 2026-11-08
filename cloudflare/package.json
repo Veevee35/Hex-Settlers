@@ -1,0 +1,10 @@
+{
+  "name": "hex-settlers-cloudflare-runtime",
+  "private": true,
+  "dependencies": {
+    "@cloudflare/containers": "latest"
+  },
+  "devDependencies": {
+    "wrangler": "latest"
+  }
+}

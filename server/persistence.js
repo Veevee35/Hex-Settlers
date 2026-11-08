@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { persistJsonFile } = require('../cloudflare/state-sync');
 
 async function atomicWriteText(filePath, text) {
   const directory = path.dirname(filePath);
@@ -11,6 +12,8 @@ async function atomicWriteText(filePath, text) {
   try {
     await fs.promises.writeFile(temporaryPath, text, { encoding: 'utf8', mode: 0o600 });
     await fs.promises.rename(temporaryPath, filePath);
+    // A write is committed only when the private R2 copy is durable.
+    await persistJsonFile(filePath, text);
   } catch (error) {
     try { await fs.promises.unlink(temporaryPath); } catch (_) {}
     throw error;

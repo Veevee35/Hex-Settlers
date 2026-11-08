@@ -1,0 +1,55 @@
+{
+	"$schema": "./cloudflare/node_modules/wrangler/config-schema.json",
+	"name": "hex-settlers",
+	"main": "cloudflare/container-worker.mjs",
+	"compatibility_date": "2026-11-07",
+	"observability": {
+		"enabled": true
+	},
+	"assets": {
+		"directory": "public",
+		"binding": "ASSETS",
+		"run_worker_first": [
+			"/api/*",
+			"/health",
+			"/ws",
+			"/texture-pack-template.zip"
+		]
+	},
+	"containers": [
+		{
+			"class_name": "HexGameContainer",
+			"image": "./cloudflare/Dockerfile",
+			"image_build_context": ".",
+			"instance_type": "standard-1",
+			"max_instances": 1
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "HEX_BACKEND",
+				"class_name": "HexGameContainer"
+			}
+		]
+	},
+	"exports": {
+		"HexGameContainer": {
+			"type": "durable-object",
+			"storage": "sqlite"
+		}
+	},
+	"r2_buckets": [
+		{
+			"binding": "STATE",
+			"bucket_name": "hex-settlers-state"
+		}
+	],
+	"vars": {
+		"PUBLIC_BASE_URL": "https://hexsettlers.org",
+		"HEX_EMAIL_FROM": "no-reply@hexsettlers.org",
+		"ALLOW_EMPTY_DATABASE": "0"
+	},
+	"workers_dev": false,
+	"preview_urls": false
+}
