@@ -1234,6 +1234,115 @@
 
   let authUser = null;
   let selectedPlayMode = (() => { try { return sessionStorage.getItem('hexsettlers_play_mode') || ''; } catch (_) { return ''; } })();
+  let journeyView = 'home';
+  let requestedLobbyVisibility = 'private';
+  let roomNotFoundVisible = false;
+  const TUTORIAL_PREFIX = 'hexsettlers_journey_walkthrough_v53_';
+  let tutorialIndex = 0;
+  let tutorialCompletedOnThisLaunch = false;
+  const tutorialDemoActions = {
+    3: ['Lay a road', 'Road placed! Connecting roads opens new settlement sites.'],
+    5: ['Roll the dice', 'You rolled an 8. Any settlement beside an 8 token collects a resource.'],
+    6: ['Open build menu', 'Build tools: Road, Settlement, City, Ship and Development Card. Valid spaces light up on the real game board.'],
+    7: ['Offer a trade', 'Trade offered: one sheep for one ore. Another player can accept or decline.'],
+    8: ['Play a Knight', 'Knight played! Move the robber to block production and steal a resource from an adjacent player.'],
+    9: ['Try desktop controls', 'Desktop: use the wheel to zoom, drag the board to pan, and resize the game panels.'],
+    10: ['Try mobile controls', 'Mobile: pinch to zoom, drag to pan and open the lower tool panels.'],
+  };
+  const tutorialSteps = [
+    ['Welcome to Hex Settlers', 'Build settlements, connect roads, trade resources, and be first to the victory-point target.', 'Pick a starting corner. The three surrounding land hexes determine which resources you can earn.'],
+    ['Explore your starting board', 'Every numbered hex produces when its number is rolled. The robber can block production on one hex.', '🌲 Wood · 🧱 Brick · 🌾 Wheat · 🐑 Sheep · ⛰️ Ore. A number token shows when that hex produces.'],
+    ['Place your first settlement', 'Your opening setup places a settlement on a legal intersection. Select a corner touching useful numbers and different resources.', 'Try it: tap the glowing ⌂ on the example board to place a settlement.'],
+    ['Build your first road', 'After placing a starting settlement, place a connected road. Roads extend toward other settlement sites; two of your own settlements must be separated by at least two edges.', 'Road = one wood + one brick. On seafaring maps, ships cross water.'],
+    ['Finish starting placements', 'Players place their second settlement and attached route in reverse turn order. The second settlement grants your starting resources.', 'Before play begins, survey open junctions, ports, and possible expansion routes.'],
+    ['Roll and gather resources', 'On your turn roll the dice. Settlements receive one resource from adjacent matching hexes; cities receive two. A seven activates the robber and discard rules.', 'Check the resource display for what you can spend this turn.'],
+    ['Use the build tools', 'Open the build panel to select Road, Settlement, City, Ship, or Development Card. The board highlights valid placement targets.', 'Costs: settlement = wood + brick + sheep + wheat; city = three ore + two wheat.'],
+    ['Trade and plan', 'Offer other players resources, accept trades, or use the bank and ports. Ports improve exchange rates for specified resources.', 'Compare the resources you need with the production numbers on your settlements.'],
+    ['Development cards and victory', 'Development cards can grant Knights, Monopoly, Road Building, Year of Plenty, or hidden Victory Points. Longest Road and Largest Army also award points.', 'Reach the victory target shown in Game Setup to win.'],
+    ['Browser controls', 'On desktop, the left panels show the log and development cards, the right side contains game tools and resources, and the board supports zoom and drag.', 'Resize panels, hide the map preview in the lobby, and inspect the build menu before taking actions.'],
+    ['Mobile controls', 'On phones or tablets, swipe and pinch the map to navigate. Open the collapsible panels for resources, game log, trade, and development cards.', 'The map-preview toggle opens the lobby board; touch-friendly action buttons sit near the bottom.'],
+    ['Ready for your journey', 'Create a Public lobby for other players to discover, or a Private lobby to share only with people you choose. Casual is untracked and supports up to six players.', 'You can replay this walkthrough whenever you want. Good luck, settler!'],
+  ];
+  function tutorialStorageKey() { return TUTORIAL_PREFIX + String(authUser?.id || authUser?.username || 'guest'); }
+  function updateWalkthrough() {
+    const item = tutorialSteps[tutorialIndex];
+    if (!item) return;
+    $('walkthroughTitle').textContent = item[0]; $('walkthroughBody').textContent = item[1];
+    $('walkthroughAnnotation').textContent = item[2];
+    $('walkthroughProgress').textContent = `${tutorialIndex + 1} / ${tutorialSteps.length}`;
+    $('walkthroughPrevBtn').disabled = tutorialIndex === 0;
+    $('walkthroughNextBtn').textContent = tutorialIndex === tutorialSteps.length - 1 ? 'Finish walkthrough' : 'Next';
+    const settlement = $('walkthroughTryBuild');
+    settlement?.classList.toggle('walkthroughBuildActive', tutorialIndex === 2);
+    settlement?.classList.toggle('hidden', tutorialIndex !== 2);
+    settlement?.classList.remove('demoBuilt');
+    const demo = $('walkthroughDemoAction');
+    if (demo) {
+      demo.classList.toggle('hidden', !tutorialDemoActions[tutorialIndex]);
+      demo.textContent = tutorialDemoActions[tutorialIndex]?.[0] || 'Try the action';
+    }
+  }
+  function finishWalkthrough() {
+    $('walkthroughOverlay')?.classList.add('hidden');
+    tutorialCompletedOnThisLaunch = true;
+    try { localStorage.setItem(tutorialStorageKey(), '1'); } catch (_) {}
+    if (!room && selectedPlayMode !== 'casual' && selectedPlayMode !== 'ranked') {
+      selectedPlayMode = 'journey'; journeyView = 'home';
+      try { sessionStorage.setItem('hexsettlers_play_mode', 'journey'); } catch (_) {}
+    }
+    updateAuthUi();
+  }
+  function openWalkthrough() {
+    tutorialIndex = 0; updateWalkthrough();
+    $('walkthroughOverlay')?.classList.remove('hidden');
+  }
+  function showRoomNotFound() {
+    pendingDirectJoinRoomCode = null; pendingDirectJoinAsSpectator = false;
+    pendingRecentRoomRejoinCode = ''; roomNotFoundVisible = true;
+    clearRoomRecoveryState();
+    updateAuthUi();
+  }
+  function requestPublicLobbies() { if (websocketAuthenticated && ws?.readyState === WebSocket.OPEN) send({ type: 'list_public_lobbies' }); }
+  function renderPublicLobbies(items) {
+    const list = $('publicLobbyList'); if (!list) return;
+    list.replaceChildren();
+    if (!items.length) { list.textContent = 'No public lobbies available right now. Host one to get started.'; return; }
+    for (const item of items) {
+      const card = document.createElement('div'); card.className = 'publicLobbyItem'; card.setAttribute('role','listitem');
+      const text = document.createElement('div');
+      const heading = document.createElement('strong'); heading.textContent = `${item.host || 'Host'} · ${item.code || ''}`;
+      const detail = document.createElement('p'); detail.className = 'smallNote';
+      detail.textContent = `${Number(item.players || 0)} players + ${Number(item.aiPlayers || 0)} AI / ${Number(item.maxPlayers || 4)} seats · ${item.casual ? 'Casual' : 'Unranked'} · ${item.mapMode || 'Classic'}${item.friendsOnly ? ' · Friends only' : ''}`;
+      text.append(heading,detail);
+      const join = document.createElement('button'); join.type = 'button'; join.className = 'btn primary'; join.textContent = 'Join lobby';
+      join.addEventListener('click', () => beginJourneyJoin(item.code));
+      card.append(text,join); list.append(card);
+    }
+  }
+  function setJourneyView(view) {
+    journeyView = view;
+    $('journeyHomeOptions')?.classList.toggle('hidden', view !== 'home');
+    $('journeyPublicPanel')?.classList.toggle('hidden', view !== 'public');
+    $('journeyPrivatePanel')?.classList.toggle('hidden', view !== 'private');
+    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public lobbies' : view === 'private' ? 'Private lobby' : 'Choose your next adventure';
+    if (view === 'public') requestPublicLobbies();
+  }
+  function beginJourneyJoin(code) {
+    const c = String(code || '').trim().toUpperCase();
+    if (!c || !/^[A-Z0-9]{4,8}$/.test(c)) { showRoomNotFound(); return; }
+    selectedPlayMode = 'unranked'; roomNotFoundVisible = false;
+    try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+    updateAuthUi();
+    send({ type: 'join_room', code:c, displayName: authUser?.displayName || authUser?.username || 'Player' });
+  }
+  function beginJourneyHost(visibility) {
+    requestedLobbyVisibility = visibility === 'public' ? 'public' : 'private';
+    selectedPlayMode = 'unranked'; roomNotFoundVisible = false;
+    try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+    prepareUncreatedLobby(); updateAuthUi();
+    send({ type:'create_room', displayName:authUser?.displayName || authUser?.username || 'Host', visibility:requestedLobbyVisibility });
+  }
+
   let authToken = null;
   let pendingAutoRejoin = false;
   let pendingRecentRoomRejoinCode = '';
@@ -1389,17 +1498,20 @@
     const rankedScreen = $('rankedScreen');
     const appRoot = $('app');
     landing?.classList.toggle('hidden', loggedIn);
-    modeScreen?.classList.toggle('hidden', !loggedIn || !!selectedPlayMode);
-    rankedScreen?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'ranked');
-    appRoot?.classList.toggle('hidden', !loggedIn || !['unranked', 'casual'].includes(selectedPlayMode));
+    modeScreen?.classList.toggle('hidden', !loggedIn || !!selectedPlayMode || roomNotFoundVisible);
+    $('journeyScreen')?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'journey' || roomNotFoundVisible);
+    $('roomNotFoundScreen')?.classList.toggle('hidden', !loggedIn || !roomNotFoundVisible);
+    if (typeof setJourneyView === 'function') setJourneyView(journeyView);
+    rankedScreen?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'ranked' || roomNotFoundVisible);
+    appRoot?.classList.toggle('hidden', !loggedIn || roomNotFoundVisible || !['unranked', 'casual'].includes(selectedPlayMode));
     if (typeof document !== 'undefined') document.body?.classList.toggle('casual-mode', selectedPlayMode === 'casual' || !!room?.casual);
     if ($('uncreatedLobbyIntro')) {
       const eyebrow = $('uncreatedLobbyIntro').querySelector('.uncreatedLobbyEyebrow');
-      if (eyebrow) eyebrow.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'CASUAL · VS AI' : 'UNRANKED PLAY';
+      if (eyebrow) eyebrow.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'CASUAL · FRIENDS & AI' : 'UNRANKED PLAY';
       const title = $('uncreatedLobbyIntro').querySelector('h1');
-      if (title) title.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Play against the AI' : 'Start a new adventure';
+      if (title) title.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Play with friends or AI' : 'Start a new adventure';
       const lead = $('uncreatedLobbyIntro').querySelector('p');
-      if (lead) lead.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Create a private AI-only lobby with every map and game setting available.' : 'Create a lobby to invite friends, or enter a room code to join an existing game.';
+      if (lead) lead.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Create a shareable game for up to six players, human or AI. Results never affect stats.' : 'Create a lobby to invite friends, or enter a room code to join an existing game.';
     }
     $('accountOrb')?.classList.toggle('hidden', !loggedIn);
     if (loggedIn) {
@@ -1441,6 +1553,17 @@
     if (ui.lastRoomHint) ui.lastRoomHint.textContent = last ? `Last room: ${last}` : '';
     if (ui.myAccountLabel) ui.myAccountLabel.textContent = loggedIn ? `${authUser.username} (${authUser.displayName || authUser.username})` : '—';
   }
+
+  async function refreshDeployedVersion() {
+    try {
+      const response = await fetch('/api/build-version', { cache:'no-store', credentials:'same-origin' });
+      if (!response.ok) return;
+      const info = await response.json();
+      if (!/^V\d+\.\d+\.\d+$/.test(String(info.version || ''))) return;
+      document.querySelectorAll('.appVersion').forEach(node => { node.textContent = info.version; });
+    } catch (_) {} // Old servers and offline mode retain the bundled version.
+  }
+  refreshDeployedVersion();
 
   function clearAuthLocal() {
     authUser = null;
@@ -6082,7 +6205,7 @@ function syncPostgameToState() {
     pendingPlayModeSwitch = null;
     returnToUnrankedAfterLeave = false;
     returnToModeSelectionAfterLeave = false;
-    selectedPlayMode = '';
+    selectedPlayMode = ''; roomNotFoundVisible = false;
     try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
     try { sessionStorage.removeItem(AUTO_CREATE_ROOM_KEY); } catch (_) {}
     try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
@@ -6669,9 +6792,12 @@ function syncPostgameToState() {
   function parseDirectJoinCodeFromUrl() {
     try {
       const params = new URLSearchParams(window.location.search || '');
-      let code = String(params.get('room') || params.get('code') || '').trim().toUpperCase();
-      code = code.replace(/[^A-Z0-9]/g, '');
-      if (!code) return null;
+      const raw = params.has('room') ? params.get('room') : params.has('code') ? params.get('code') : null;
+      if (raw === null) return null;
+      const code = String(raw).trim().toUpperCase();
+      // Invalid invite URLs must reach the same indistinguishable 404 flow as
+      // nonexistent and restricted lobbies, not silently open a blank lobby.
+      if (!/^[A-Z0-9]{4,8}$/.test(code)) return 'INVALID-CODE';
       if (ui.codeInput && !ui.codeInput.value) ui.codeInput.value = code;
       return code;
     } catch (_) {
@@ -6913,10 +7039,7 @@ function refreshLobbyJoinLinkUi() {
           clearRecentRoom();
           try { localStorage.removeItem(LAST_ROOM_KEY); } catch (_) {}
           if (!room) {
-            selectedPlayMode = 'unranked';
-            prepareUncreatedLobby();
-            updateAuthUi();
-            setError('That lobby is no longer available. Create or join a lobby.');
+            showRoomNotFound();
             return;
           }
         }
@@ -6935,6 +7058,7 @@ function refreshLobbyJoinLinkUi() {
           return;
         }
         if (/room (not found|expired)|^not in a room\.?$|not a member of this room/i.test(String(e).trim())) {
+          if (/room (not found|expired)/i.test(String(e).trim())) { showRoomNotFound(); return; }
           beginRoomRecovery(e);
           return;
         }
@@ -6953,6 +7077,10 @@ function refreshLobbyJoinLinkUi() {
       }
 
 
+      if (msg.type === 'public_lobbies') {
+        renderPublicLobbies(Array.isArray(msg.rooms) ? msg.rooms : []);
+        return;
+      }
       if (msg.type === 'custom_map_file') {
         const label = String(msg.map?.mapKind || 'custom').replace(/[^a-z0-9_-]/gi, '-');
         saveBrowserJson(`hex-settlers-${label}-map.json`, msg.map); return;
@@ -7066,7 +7194,9 @@ function refreshLobbyJoinLinkUi() {
             updateAuthUi();
             send({ type: 'rejoin_room', code, displayName: (ui.nameInput?.value || '').trim() });
           } else if (selectedPlayMode === 'unranked' && !room) {
-            prepareUncreatedLobby();
+            selectedPlayMode = 'journey'; journeyView = 'home';
+            try { sessionStorage.setItem('hexsettlers_play_mode', 'journey'); } catch (_) {}
+            updateAuthUi();
           }
         }
         return;
@@ -7182,6 +7312,7 @@ function refreshLobbyJoinLinkUi() {
           selectedPlayMode = 'unranked';
           try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
         }
+        roomNotFoundVisible = false;
         roomConnectionReady = true;
         pendingRecentRoomRejoinCode = '';
         clearRoomRecoveryState();
@@ -10882,6 +11013,16 @@ function refreshLobbyJoinLinkUi() {
     const gameStartedForControls = !!(state && state.phase && state.phase !== 'lobby');
     if (ui.lobbyCard) ui.lobbyCard.classList.toggle('hidden', gameStartedForControls);
     if (ui.setupCard) ui.setupCard.classList.toggle('hidden', gameStarted || !!room.ranked);
+    const accessControls = $('lobbyAccessControls');
+    if (accessControls) accessControls.classList.toggle('hidden', !!room.ranked || gameStartedForControls);
+    if ($('lobbyVisibilitySelect')) {
+      $('lobbyVisibilitySelect').value = room.visibility === 'public' ? 'public' : 'private';
+      $('lobbyVisibilitySelect').disabled = room.hostId !== myPlayerId || gameStartedForControls;
+    }
+    if ($('lobbyFriendsOnlyToggle')) {
+      $('lobbyFriendsOnlyToggle').checked = !!room.friendsOnly;
+      $('lobbyFriendsOnlyToggle').disabled = room.hostId !== myPlayerId || gameStartedForControls;
+    }
 
     const r = room.rules || { discardLimit: 7, setupTurnMs: 60000, playTurnMs: 30000, microPhaseMs: 15000 };
     const isHost = !!(myPlayerId && room.hostId === myPlayerId) && !gameStartedForControls;
@@ -11050,9 +11191,9 @@ function refreshLobbyJoinLinkUi() {
     const minPlayers = isClassic56 ? 5 : (isSix ? 5 : (allowSolo ? 1 : 2));
     const gameIsInLobby = !state || state.phase === 'lobby';
     const meInLobby = (room.players || []).find((player) => player && player.id === myPlayerId) || null;
-    const allPlayersReady = !!room.casual || ((room.players || []).length > 0 && (room.players || []).every((player) => !!(player && (player.isAI || player.ready === true))));
+    const allPlayersReady = ((room.players || []).length > 0 && (room.players || []).every((player) => !!(player && (player.isAI || player.ready === true))));
     if (ui.readyBtn) {
-      const showReady = !!(gameIsInLobby && meInLobby && !meInLobby.isAI && !room.ranked && !room.casual);
+      const showReady = !!(gameIsInLobby && meInLobby && !meInLobby.isAI && !room.ranked);
       const amReady = !!(meInLobby && meInLobby.ready === true);
       ui.readyBtn.classList.toggle('hidden', !showReady);
       ui.readyBtn.classList.toggle('primary', amReady);
@@ -11219,7 +11360,7 @@ function refreshLobbyJoinLinkUi() {
 
   function activatePlayMode(mode, { skipRecentRoom = false } = {}) {
     $('playModeNotice')?.classList.add('hidden');
-    if (mode === 'casual' && !room) prepareUncreatedLobby();
+    if (mode === 'casual' && !room) { requestedLobbyVisibility = 'private'; prepareUncreatedLobby(); }
     if (mode === 'unranked' && !room) {
       // A fresh switch starts with a clean lobby; only normal navigation can
       // recover a recently occupied room that the player has NOT left.
@@ -11231,6 +11372,11 @@ function refreshLobbyJoinLinkUi() {
       }
     }
     if (mode === 'ranked') clearRecentRoom();
+    if (mode === 'journey') { journeyView = 'home'; roomNotFoundVisible = false; }
+    if (mode === 'journey' && !room && !tutorialCompletedOnThisLaunch) {
+      let seen = false; try { seen = localStorage.getItem(tutorialStorageKey()) === '1'; } catch (_) {}
+      if (!seen) openWalkthrough();
+    }
     selectedPlayMode = mode;
     try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {}
     updateAuthUi();
@@ -11238,7 +11384,7 @@ function refreshLobbyJoinLinkUi() {
   }
 
   function choosePlayMode(mode) {
-    if (!['ranked', 'unranked', 'casual'].includes(mode) || pendingPlayModeSwitch) return;
+    if (!['ranked', 'unranked', 'casual', 'journey'].includes(mode) || pendingPlayModeSwitch) return;
     if (room && (room.casual ? 'casual' : room.ranked ? 'ranked' : 'unranked') !== mode) {
       if (!roomConnectionReady || ws?.readyState !== WebSocket.OPEN) {
         setError('Reconnect to your current lobby before changing game types.');
@@ -11258,7 +11404,36 @@ function refreshLobbyJoinLinkUi() {
     pendingRankedMatchmaking = false;
   });
   $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
-  $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('unranked'));
+  $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('journey'));
+  $('journeyPublicBtn')?.addEventListener('click', () => setJourneyView('public'));
+  $('journeyPrivateBtn')?.addEventListener('click', () => setJourneyView('private'));
+  $('journeyBackBtn')?.addEventListener('click', () => journeyView === 'home' ? returnToGameTypeSelection('') : setJourneyView('home'));
+  $('journeyHostPublicBtn')?.addEventListener('click', () => beginJourneyHost('public'));
+  $('journeyHostPrivateBtn')?.addEventListener('click', () => beginJourneyHost('private'));
+  $('journeyRefreshBtn')?.addEventListener('click', requestPublicLobbies);
+  $('journeyPrivateJoinBtn')?.addEventListener('click', () => beginJourneyJoin($('journeyPrivateCode')?.value));
+  $('journeyPrivateCode')?.addEventListener('keydown', e => { if (e.key === 'Enter') beginJourneyJoin(e.target.value); });
+  $('journeyTutorialBtn')?.addEventListener('click', openWalkthrough);
+  $('roomNotFoundBackBtn')?.addEventListener('click', () => { roomNotFoundVisible = false; clearRoomQueryFromUrl(); returnToGameTypeSelection(''); });
+  $('walkthroughSkipBtn')?.addEventListener('click', finishWalkthrough);
+  $('walkthroughPrevBtn')?.addEventListener('click', () => { tutorialIndex = Math.max(0, tutorialIndex-1); updateWalkthrough(); });
+  $('walkthroughNextBtn')?.addEventListener('click', () => {
+    if (tutorialIndex === tutorialSteps.length - 1) { finishWalkthrough(); return; }
+    tutorialIndex += 1; updateWalkthrough();
+  });
+  $('walkthroughTryBuild')?.addEventListener('click', event => {
+    if (tutorialIndex !== 2) return;
+    event.currentTarget.classList.add('demoBuilt');
+    $('walkthroughAnnotation').textContent = 'Settlement placed! Now connect it to your next build site with a road.';
+  });
+  $('walkthroughDemoAction')?.addEventListener('click', () => {
+    const demo = tutorialDemoActions[tutorialIndex];
+    if (!demo) return;
+    $('walkthroughAnnotation').textContent = demo[1];
+    $('walkthroughDemoAction').textContent = '✓ ' + demo[0];
+  });
+  // Refresh discovery without exposing private or friends-only rooms.
+  setInterval(() => { if (selectedPlayMode === 'journey' && journeyView === 'public') requestPublicLobbies(); }, 12000);
   $('casualModeBtn')?.addEventListener('click', () => choosePlayMode('casual'));
   function startRankedMatchmaking() {
     rankedQueueActive = true;
@@ -11286,7 +11461,7 @@ function refreshLobbyJoinLinkUi() {
       return;
     }
     stopRankedMatchmaking();
-    selectedPlayMode = '';
+    selectedPlayMode = ''; roomNotFoundVisible = false;
     try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
     setAccountMenuOpen(false);
     updateAuthUi();
@@ -11383,7 +11558,7 @@ function refreshLobbyJoinLinkUi() {
         profile.querySelector('.friendPresence').classList.toggle('online', !!friend.online);
         profile.addEventListener('click', () => void openPlayerProfileById(friend.id));
         row.appendChild(profile);
-        if (canInvite && !room.casual) {
+        if (canInvite) {
           const invite = document.createElement('button');
           invite.type = 'button';
           invite.className = 'btn friendInviteBtn';
@@ -11448,7 +11623,7 @@ function refreshLobbyJoinLinkUi() {
     resetViewportForRoomChange();
     render();
     const displayName = (ui.nameInput?.value || '').trim() || authUser.displayName || 'Host';
-    send({ type: 'create_room', displayName, casual: selectedPlayMode === 'casual' });
+    send({ type: 'create_room', displayName, casual: selectedPlayMode === 'casual', visibility: selectedPlayMode === 'casual' ? 'private' : requestedLobbyVisibility });
   });
 
   ui.joinBtn.addEventListener('click', () => {
@@ -11472,6 +11647,12 @@ function refreshLobbyJoinLinkUi() {
     const link = String(ui.roomJoinLinkInput?.value || '');
     if (link) copyText(link);
   });
+  const lobbyAccessChanged = () => {
+    if (!room || room.ranked || room.hostId !== myPlayerId) return;
+    send({ type:'set_lobby_access', visibility: $('lobbyVisibilitySelect')?.value || 'private', friendsOnly: !!$('lobbyFriendsOnlyToggle')?.checked });
+  };
+  $('lobbyVisibilitySelect')?.addEventListener('change', lobbyAccessChanged);
+  $('lobbyFriendsOnlyToggle')?.addEventListener('change', lobbyAccessChanged);
   ui.startBtn.addEventListener('click', () => {
     setError(null);
     send({ type: 'start_game' });
@@ -11498,9 +11679,50 @@ function refreshLobbyJoinLinkUi() {
     send({ type: 'fill_ai', targetCount: target });
   });
 
+  function scenarioForResizedBoard(oldScenario, newMode) {
+    if (!newMode.startsWith('seafarers')) return '';
+    const key = String(oldScenario || 'four_islands');
+    const size = newMode === 'seafarers78' ? '78' : newMode === 'seafarers56' ? '56' : '4';
+    if (key.startsWith('fog_island')) return size === '4' ? 'fog_island' : `fog_island_${size}`;
+    if (key.startsWith('through_the_desert')) return size === '4' ? 'through_the_desert' : `through_the_desert_${size}`;
+    if (key.startsWith('scattered_tiles') || /cartographer_.*random/.test(key)) {
+      return size === '78' ? 'scattered_tiles_78' : size === '56' ? 'cartographer_56_random' : 'cartographer_4_random';
+    }
+    if (key.startsWith('cartographer')) {
+      return size === '78' ? 'cartographer_78' : size === '56' ? 'cartographer_56_manual' : 'cartographer_4_manual';
+    }
+    if (key.startsWith('test_builder')) return size === '78' ? 'test_builder_78' : size === '56' ? 'test_builder_56' : 'test_builder';
+    if (key === 'heading_for_new_shores' && size === '4') return key;
+    // Four/Six/Eight Islands are the size variants of the island scenario.
+    return size === '78' ? 'eight_islands_78' : size === '56' ? 'six_islands' : 'four_islands';
+  }
+  let lastSetupPlayerCount = String(ui.playerCountSelect?.value || '4');
   function applyVisibleMapSizeSelection() {
     if (!ui.mapModeSelect || !ui.mapFamilySelect || !ui.playerCountSelect) return;
+    const selectedCount = String(ui.playerCountSelect.value || '4');
+    const playerCountChanged = selectedCount !== lastSetupPlayerCount;
+    lastSetupPlayerCount = selectedCount;
+    const oldMode = ui.mapModeSelect.value;
+    const oldScenario = oldMode === 'seafarers78' ? ui.mapScenario78Select?.value : oldMode === 'seafarers56' ? ui.mapScenario56Select?.value : ui.mapScenarioSelect?.value;
     const mode = mapModeForSetupSelection(ui.mapFamilySelect.value, ui.playerCountSelect.value);
+    const scenario = scenarioForResizedBoard(oldScenario, mode);
+    // Resizing changes only the variant of the selected scenario. Reset any
+    // manual overrides to the default rules of that resulting scenario.
+    if (mode !== oldMode || playerCountChanged) {
+      if (mode === 'seafarers' && ui.mapScenarioSelect) ui.mapScenarioSelect.value = scenario;
+      if (mode === 'seafarers56' && ui.mapScenario56Select) ui.mapScenario56Select.value = scenario;
+      if (mode === 'seafarers78' && ui.mapScenario78Select) ui.mapScenario78Select.value = scenario;
+      vpTouched = false; baseResourceCountTouched = false;
+      if (ui.discardLimitInput) ui.discardLimitInput.value = '7';
+      if (ui.diceAlgorithmSelect) ui.diceAlgorithmSelect.value = 'probability_corrected';
+      if (ui.devDeckModeSelect) ui.devDeckModeSelect.value = '25';
+      if (ui.friendlyRobberToggle) ui.friendlyRobberToggle.checked = false;
+      if (ui.randomMapAtStartToggle) ui.randomMapAtStartToggle.checked = false;
+      if (ui.explorationPointsToggle) ui.explorationPointsToggle.checked = !scenario.startsWith('fog_island');
+      if (ui.timerSpeedSelect) ui.timerSpeedSelect.value = room?.casual || selectedPlayMode === 'casual' ? 'off' : 'normal';
+      if (ui.victoryPointsSelect) ui.victoryPointsSelect.value = String(defaultVictoryPointsFor({ mapMode:mode, seafarersScenario:scenario }));
+      if (ui.baseResourceCountSelect) ui.baseResourceCountSelect.value = String(defaultBaseResourcesFor({ mapMode:mode, seafarersScenario:scenario, seafarersScenario56:scenario }));
+    }
     ui.mapModeSelect.value = mode;
     ui.mapModeSelect.dispatchEvent(new Event('change', { bubbles: true }));
   }

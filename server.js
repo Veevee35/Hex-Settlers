@@ -16,6 +16,7 @@ const WebSocket = require('ws');
 
 const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
 const CF_STATE = require('./cloudflare/state-sync');
+const { applyBuild, displayVersion } = require('./server/build-version');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
@@ -473,7 +474,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
 function persistGameHistoryFromGame(room, game, winnerId) {
   if (!room || !game) return;
   // Prevent accidental persistence from simulation/dry-run rooms (e.g. build option previews).
-  if (room._dryRun) return;
+  if (room._dryRun || room.casual) return; // Casual never enters lifetime game history.
   // Real rooms always have a code + sockets map.
   if (!room.code || !room.sockets) return;
   if (String(game.phase || '').toLowerCase() !== 'game-over') return;
@@ -710,6 +711,7 @@ function rebuildUserStatsFromHistory() {
 
     const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
     for (const g of games) {
+      if (g.casual) continue;
       const wid = String(g.winnerId || '').trim();
       const endedAt = Math.max(0, Number(g.endedAt || 0));
       for (const p of (Array.isArray(g.players) ? g.players : [])) {
@@ -3343,7 +3345,7 @@ function recomputeLongestRoad(game) {
 function persistUserStatsFromGame(room, game, winnerId) {
   if (!room || !game) return;
   // Prevent accidental persistence from simulation/dry-run rooms (e.g. build option previews).
-  if (room._dryRun) return;
+  if (room._dryRun || room.casual) return; // No casual wins, losses, VP or ratings.
   if (!room.code || !room.sockets) return;
 
   // Only persist when the game is truly over.
@@ -9061,7 +9063,7 @@ function recoverSocketRoomBinding(ws, message) {
   const room = roomByCodeWithPersistence(requestedCode);
   if (!room) return { ok: false, error: 'Room not found.' };
   const pid = String(ws._userId || '').trim();
-  if (!findRoomMember(room, pid)) return { ok: false, error: 'You are not a member of this room.' };
+  if (!canAccessRoom(room, pid) || !findRoomMember(room, pid)) return { ok: false, error: 'Room not found.' };
   if (!bindSocketToRoomMember(room, pid, ws)) return { ok: false, error: 'Could not restore the room connection.' };
   room.lastActiveAt = now();
   return { ok: true, room, playerId: pid };
@@ -9096,6 +9098,7 @@ function createRoom(hostUserId, hostName) {
     preview: null,
     rules: { ...DEFAULT_RULES },
     casual: false,
+    visibility: 'private', friendsOnly: false,
     chat: [],
     chatSeq: 1,
     aiSeq: 1,
@@ -9169,6 +9172,7 @@ function createRematchRoomFrom(prevRoom) {
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'easy',
     expertAiTuning: (prevRoom && prevRoom.expertAiTuning) ? { ...prevRoom.expertAiTuning } : null,
     casual: !!(prevRoom && prevRoom.casual),
+    visibility: prevRoom?.visibility === 'public' ? 'public' : 'private', friendsOnly: !!prevRoom?.friendsOnly,
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
     pendingLeaveRequests: Object.create(null),
   };
@@ -9178,11 +9182,32 @@ function createRematchRoomFrom(prevRoom) {
 }
 
 
+// A friends-only room must not reveal whether its code exists to strangers.
+// Existing members retain access, including after reconnects and host transfers.
+function canAccessRoom(room, userId) {
+  if (!room || !userId) return false;
+  if (!room.friendsOnly || room.ranked) return true;
+  const uid = String(userId);
+  if (uid === room.hostId || roomRole(room, uid)) return true;
+  const host = findUserById(room.hostId);
+  return !!host && Array.isArray(host.friendIds) && host.friendIds.includes(uid);
+}
+
+function visiblePublicLobbies(userId) {
+  return Array.from(rooms.values()).filter(room => room && !room.ranked && room.visibility === 'public'
+    && (!room.game || room.game.phase === 'lobby') && canAccessRoom(room, userId))
+    .map(room => ({ code: room.code, host: (room.players.find(p => p.id === room.hostId) || {}).name || 'Host',
+      players: room.players.filter(p => !p.isAI).length, aiPlayers: room.players.filter(p => p.isAI).length,
+      maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES), mapMode: room.rules?.mapMode || 'classic',
+      casual: !!room.casual, friendsOnly: !!room.friendsOnly, createdAt: room.createdAt }))
+    .sort((a,b) => b.createdAt - a.createdAt).slice(0, 100);
+}
+
 function joinRoom(code, userId, name, options = {}) {
   const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
   ensureRoomRoleLists(room);
-  if (room.casual && String(userId || '') !== room.hostId) return { ok: false, error: 'Casual rooms are private, AI-only sessions.' };
+  if (!canAccessRoom(room, userId)) return { ok: false, error: 'Room not found.' };
 
   const pid = String(userId || '').trim();
   if (!pid) return { ok: false, error: 'Not logged in.' };
@@ -9232,9 +9257,9 @@ function rejoinRoom(code, playerId) {
   ensureRoomRoleLists(room);
   const pid = String(playerId || '').trim();
   if (!pid) return { ok: false, error: 'Missing player ID.' };
-  if (room.casual && pid !== room.hostId) return { ok: false, error: 'Casual rooms are private.' };
+  if (!canAccessRoom(room, pid)) return { ok: false, error: 'Room not found.' };
   const role = roomRole(room, pid);
-  if (!role) return { ok: false, error: 'Player ID not found in this room.' };
+  if (!role) return { ok: false, error: 'Room not found.' };
   return { ok: true, room, playerId: pid, role };
 }
 
@@ -9404,6 +9429,7 @@ function roomSnapshot(room) {
     // but matched players never receive host/admin ownership.
     hostId: room.ranked ? null : room.hostId,
     ranked: !!room.ranked, casual: !!room.casual,
+    visibility: room.visibility === 'public' ? 'public' : 'private', friendsOnly: !!room.friendsOnly,
     rankedScenarioVote: room.rankedScenarioVote ? {
       options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
       votes: room.rankedScenarioVote.votes || {},
@@ -10958,7 +10984,7 @@ async function handleAccountHttp(req, res, urlPath) {
     if (!target || !Array.isArray(viewer.friendIds) || !viewer.friendIds.includes(target.id)) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Only friends can be invited.' }); return;
     }
-    if (!invitedRoom || invitedRoom.casual || !senderInRoom || (invitedRoom.game && invitedRoom.game.phase !== 'lobby')) {
+    if (!invitedRoom || !senderInRoom || (invitedRoom.game && invitedRoom.game.phase !== 'lobby')) {
       sendHttpJson(req, res, 409, { ok: false, error: 'You must be in an open lobby to send an invitation.' }); return;
     }
     const targetSockets = userSockets.get(target.id);
@@ -11145,6 +11171,33 @@ function safePath(p) {
   return path.join(PUBLIC_DIR, rel);
 }
 
+// The counter is stored in R2, not in the disposable Cloudflare build directory.
+// Each *distinct deployed revision* is counted exactly once after a healthy
+// server starts; failed builds never start the container and never increment.
+const buildSeed = JSON.parse(fs.readFileSync(path.join(__dirname, 'build-version.json'), 'utf8'));
+let deployedVersion = displayVersion(buildSeed);
+let buildVersionReady = Promise.resolve();
+async function registerSuccessfulBuild() {
+  const buildInfo = JSON.parse(fs.readFileSync(path.join(__dirname, 'public/build-info.json'), 'utf8'));
+  const stampedRevision = String(buildInfo.revision || '').trim();
+  // Manual wrangler deployments may skip the GitHub cache-stamping step.
+  // Give those container builds a stable identity based on their actual code.
+  // Reboots and repeated rollouts of the SAME image must not bump the counter.
+  const fingerprint = crypto.createHash('sha256');
+  for (const file of ['server.js', 'public/app.js', 'public/styles.css', 'public/index.html', 'public/locale-expansion.js']) {
+    fingerprint.update(file);
+    fingerprint.update(fs.readFileSync(path.join(__dirname, file)));
+  }
+  const revision = stampedRevision && stampedRevision !== 'unbuilt'
+    ? stampedRevision : `manual-${fingerprint.digest('hex').slice(0, 16)}`;
+  if (!CF_STATE.isEnabled()) { deployedVersion = displayVersion(buildSeed); return; }
+  const previous = await CF_STATE.getVersionState();
+  const next = applyBuild(previous, revision, buildSeed);
+  if (previous?.lastRevision !== revision) await CF_STATE.persistVersionState(next);
+  deployedVersion = displayVersion(next);
+  console.log('[build] Active version', deployedVersion);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
@@ -11153,6 +11206,11 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/ready') { sendHttpJson(req, res, 200, { ready: true }); return; }
     if ((urlPath === '/health' || urlPath === '/ws' || urlPath.startsWith('/api/')) && !trustedProxyRequest(req)) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Origin proxy authentication failed.' });
+      return;
+    }
+    if (urlPath === '/api/build-version') {
+      await buildVersionReady;
+      sendHttpJson(req, res, 200, { version: deployedVersion });
       return;
     }
     if (urlPath === '/health' || urlPath === '/api/health') {
@@ -11577,6 +11635,12 @@ if (msg.type === 'ranked_queue_join') {
       return;
     }
 
+if (msg.type === 'list_public_lobbies') {
+      if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
+      sendJson(ws, { type: 'public_lobbies', rooms: visiblePublicLobbies(ws._userId) });
+      return;
+    }
+
 if (msg.type === 'create_room') {
       if (!ws._userId) {
         sendJson(ws, { type: 'error', error: 'Please log in first.' });
@@ -11591,13 +11655,15 @@ if (msg.type === 'create_room') {
 
       const room = createRoom(ws._userId, desiredName);
       room.casual = msg.casual === true;
+      room.visibility = msg.visibility === 'public' ? 'public' : 'private';
+      room.friendsOnly = msg.friendsOnly === true;
       if (room.casual) {
         room.rules.setupTurnMs = 0;
         room.rules.playTurnMs = 0;
         room.rules.microPhaseMs = 0;
         room.rules.microMs = 0;
       }
-      if (room.casual) addAIPlayersToRoom(room, 4);
+      // Casual starts with one human. AI seats are selected explicitly in the lobby.
       bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
       ensurePreview(room, true);
       // Do not acknowledge a newly created lobby until its membership/rules are
@@ -11630,7 +11696,7 @@ if (msg.type === 'create_room') {
         return;
       }
       const room = result.room;
-      if (room.casual && ws._userId !== room.hostId) { sendJson(ws, { type: 'error', error: 'Casual play is private.' }); return; }
+      // Both Casual and Unranked accept human players subject to lobby access controls.
 
       // Authentication may exist in multiple tabs, but one room seat has one
       // active transport. Replacing it is explicit and the retired client is
@@ -12059,7 +12125,7 @@ if (msg.type === 'create_room') {
       }
       if (!newRoom) {
         newRoom = createRematchRoomFrom(room);
-        if (newRoom.casual && pid !== newRoom.hostId) { sendJson(ws, { type: 'error', error: 'Only the casual host can rematch.' }); return; }
+        
         // Copy AI opponents, but do not pre-join the other human players.
         newRoom.players = newRoom.players.filter((player) => player.id === pid || player.isAI);
         newRoom.spectators = [];
@@ -12098,6 +12164,16 @@ if (msg.type === 'create_room') {
       return;
     }
 
+
+    if (msg.type === 'set_lobby_access') {
+      if (room.ranked || pid !== room.hostId || (room.game && room.game.phase !== 'lobby')) {
+        sendJson(ws, { type: 'error', error: 'Only the host can change lobby access before the game starts.' }); return;
+      }
+      room.visibility = msg.visibility === 'public' ? 'public' : 'private';
+      room.friendsOnly = msg.friendsOnly === true;
+      broadcastRoom(room);
+      return;
+    }
 
     if (msg.type === 'set_ready') {
       if (room.game && room.game.phase !== 'lobby') {
@@ -12246,8 +12322,7 @@ if (msg.type === 'create_room') {
 
       const rulesChanged = JSON.stringify(room.rules || DEFAULT_RULES) !== JSON.stringify(next);
       room.rules = next;
-      if (room.casual) addAIPlayersToRoom(room, maxPlayersForRules(next));
-      else if (room.players.length > seatLimit) addAIPlayersToRoom(room, seatLimit);
+      if (room.players.length > seatLimit) addAIPlayersToRoom(room, seatLimit);
       if (rulesChanged) resetHumanRoomPlayerReadiness(room);
       const nextKey = mapPreviewKey(next, room?.players?.length || 0);
       const previewChanged = ensurePreview(room, (prevKey !== nextKey) || !room.preview);
@@ -12648,9 +12723,7 @@ if (msg.type === 'create_room') {
         return;
       }
       const allowSolo = room.casual || editableCustomMapRules(room.rules);
-      if (room.casual && (room.players.some(p => !p.isAI && p.id !== room.hostId) || !room.players.some(p => !p.isAI && p.id === room.hostId))) {
-        sendJson(ws, { type: 'error', error: 'Casual play allows one human player only.' }); return;
-      }
+      // Casual permits up to six human/AI players, with no tracked stats.
 
       const scen = String((room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
       const isSix = (mm === 'seafarers' && isSeafarers56Scenario(scen));
@@ -12671,7 +12744,7 @@ if (msg.type === 'create_room') {
         return;
       }
       const unready = unreadyHumanRoomPlayers(room);
-      if (!room.casual && unready.length > 0) {
+      if (unready.length > 0) {
         const names = unready.map((player) => String(player.name || 'Player')).join(', ');
         sendJson(ws, { type: 'error', error: `All players must be ready before starting. Waiting for: ${names}.` });
         return;
@@ -14583,5 +14656,6 @@ wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 ensureBuiltInAdminAccount().then(() => {
   server.listen(PORT, HOST, () => {
     console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${PORT} (instance ${SERVER_INSTANCE_ID})`);
+    buildVersionReady = registerSuccessfulBuild().catch(err => { console.error('[build] Version storage unavailable:', err.message); });
   });
 }).catch((error) => fatalShutdown('Administrator initialization failed', error));

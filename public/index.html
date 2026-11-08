@@ -52,8 +52,8 @@
       <div id="playModeNotice" class="playModeNotice hidden" role="status"></div>
       <div class="modeChoices">
         <button id="rankedModeBtn" class="modeChoice"><strong>Ranked Play</strong><span>Match automatically with similarly ranked players.</span></button>
-        <button id="unrankedModeBtn" class="modeChoice"><strong>Unranked Play</strong><span>Create a private lobby or join friends with a room code.</span></button>
-        <button id="casualModeBtn" class="modeChoice"><strong>Casual Play · vs AI</strong><span>All maps and settings, one human player, no shareable lobby or ratings.</span></button>
+        <button id="unrankedModeBtn" class="modeChoice"><strong>Start Your Journey</strong><span>Learn the mechanics, browse public games, or create a private lobby.</span></button>
+        <button id="casualModeBtn" class="modeChoice"><strong>Casual Play</strong><span>Play with friends or AI, up to 6 players. No stats or ratings are tracked.</span></button>
       </div>
     </div>
     <div class="appVersion" aria-label="Game version">V1.0.5</div>
@@ -69,7 +69,49 @@
     </div>
   </section>
 
-  <div id="legalOverlay" class="portalOverlay legalOverlay hidden" aria-hidden="true">
+  <section id="journeyScreen" class="portalScreen hidden">
+  <div class="portalBackdrop"></div>
+  <div class="portalCard journeyCard">
+    <button type="button" id="journeyBackBtn" class="btn journeyBack">Back</button>
+    <p class="portalEyebrow">Start Your Journey</p>
+    <h1 id="journeyTitle">Choose your next adventure</h1>
+    <p id="journeyLead" class="portalLead">Find a game, gather your friends, or learn to play.</p>
+    <div id="journeyHomeOptions" class="journeyOptions">
+      <button type="button" id="journeyPublicBtn" class="modeChoice"><strong>Public lobbies</strong><span>Host a visible game or join a lobby that is open to you.</span></button>
+      <button type="button" id="journeyPrivateBtn" class="modeChoice"><strong>Private lobby</strong><span>Hidden from public lists. Join by invitation, room code, or link.</span></button>
+      <button type="button" id="journeyChallengeBtn" class="modeChoice" disabled><strong>Challenge of the day</strong><span>Coming soon</span></button>
+    </div>
+    <div id="journeyPublicPanel" class="hidden journeyPanel">
+      <div class="journeyActions"><button id="journeyHostPublicBtn" type="button" class="btn primary">Host public lobby</button><button id="journeyRefreshBtn" type="button" class="btn">Refresh lobbies</button></div>
+      <div id="publicLobbyList" class="publicLobbyList" role="list" aria-live="polite">Loading public lobbies…</div>
+    </div>
+    <div id="journeyPrivatePanel" class="hidden journeyPanel">
+      <button id="journeyHostPrivateBtn" type="button" class="btn primary">Host private lobby</button>
+      <p class="smallNote">Only players with an invitation, code, or direct link can find this lobby. Friends-only access can be turned on inside the lobby.</p>
+      <label class="label" for="journeyPrivateCode">Join using room code</label>
+      <div class="row" style="gap:8px"><input id="journeyPrivateCode" class="input code" maxlength="8" placeholder="ABCD"><button type="button" id="journeyPrivateJoinBtn" class="btn">Join lobby</button></div>
+    </div>
+    <button id="journeyTutorialBtn" type="button" class="btn journeyTutorialReplay">Replay the walkthrough</button>
+  </div>
+</section>
+<section id="roomNotFoundScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard journeyCard notFoundCard"><p class="portalEyebrow">Lobby unavailable</p><h1>Lobby not found</h1><p class="portalLead">This lobby doesn't exist, has expired, or is not available to your account.</p><button id="roomNotFoundBackBtn" type="button" class="btn primary portalPrimary">Change Game Type</button></div></section>
+<section id="walkthroughOverlay" class="walkthroughOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="walkthroughTitle">
+ <div class="walkthroughCard">
+   <div class="walkthroughTop"><span id="walkthroughProgress">1 / 12</span><button type="button" id="walkthroughSkipBtn" class="btn">Skip walkthrough</button></div>
+   <h1 id="walkthroughTitle">Welcome to Hex Settlers</h1>
+   <p id="walkthroughBody" class="portalLead"></p>
+   <div class="walkthroughDemo" aria-label="Annotated tutorial illustration">
+      <div class="demoHexGrid" id="demoHexGrid">
+        <div class="demoHex tileWood">🌲</div><div class="demoHex tileOre">⛰️</div><div class="demoHex tileWheat">🌾</div><div class="demoHex tileSheep">🐑</div><div class="demoHex tileBrick">🧱</div><div class="demoHex tileSea">🌊</div>
+        <button type="button" id="walkthroughTryBuild" class="demoBuildPoint" title="Place a settlement" aria-label="Place a settlement">⌂</button>
+      </div>
+      <div class="walkthroughAnnotationPanel"><div class="walkthroughAnnotation" id="walkthroughAnnotation">Choose a starting settlement at a corner where three hexes meet.</div><button type="button" id="walkthroughDemoAction" class="btn primary walkthroughDemoAction hidden">Try the action</button><small class="walkthroughSimulated">Guided example — no live game actions.</small></div>
+   </div>
+   <div class="walkthroughControls"><button type="button" id="walkthroughPrevBtn" class="btn">Previous</button><button type="button" id="walkthroughNextBtn" class="btn primary">Next</button></div>
+ </div>
+</section>
+
+<div id="legalOverlay" class="portalOverlay legalOverlay hidden" aria-hidden="true">
     <section id="legalDialog" class="portalCard legalDialog" role="dialog" aria-modal="true" aria-labelledby="legalDialogTitle" tabindex="-1">
       <div class="legalDialogHeader">
         <h2 id="legalDialogTitle">Terms of Service</h2>
@@ -186,7 +228,12 @@
             <button id="lobbyRulesBtn" class="btn" type="button">Rules</button>
           </div>
 
-          <div class="divider ranked-unavailable lobbyJoinDivider"></div>
+          <div id="lobbyAccessControls" class="lobbyAccessControls hidden">
+  <label class="label" for="lobbyVisibilitySelect">Lobby visibility</label>
+  <select id="lobbyVisibilitySelect" class="input"><option value="private">Private — code or invite only</option><option value="public">Public — listed in lobby browser</option></select>
+  <label class="checkRow"><input type="checkbox" id="lobbyFriendsOnlyToggle"><span>Friends only — other players see Lobby not found, even with a code or link.</span></label>
+ </div>
+ <div class="divider ranked-unavailable lobbyJoinDivider"></div>
 
           <label id="roomCodeLabel" class="label ranked-unavailable">Room code</label>
           <input id="codeInput" class="input code ranked-unavailable" maxlength="8" placeholder="ABCD" />
