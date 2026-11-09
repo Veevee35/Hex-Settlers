@@ -91,7 +91,23 @@
     </div>
     <div id="journeyPublicPanel" class="hidden journeyPanel">
       <div class="journeyActions"><button id="journeyHostPublicBtn" type="button" class="btn primary">Host public lobby</button><button id="journeyRefreshBtn" type="button" class="btn">Refresh lobbies</button></div>
+      <div class="publicLobbyFilters" aria-label="Filter public lobbies">
+        <label>Search <input id="publicLobbySearch" class="input" type="search" placeholder="Host, code, or scenario"></label>
+        <label>Map <select id="publicLobbyMapFilter" class="input"><option value="all">All maps</option><option value="classic">Classic</option><option value="seafarers">Seafarers</option></select></label>
+        <label>Player capacity <select id="publicLobbySeatsFilter" class="input"><option value="all">Any</option><option value="open">Open seats</option><option value="no-ai">No AI players</option></select></label>
+        <label>Turn timer <select id="publicLobbyTimerFilter" class="input"><option value="all">Any</option><option value="off">Off</option><option value="on">On</option></select></label>
+        <label>Sort <select id="publicLobbySort" class="input"><option value="newest">Newest</option><option value="open">Most open seats</option><option value="players">Most players</option></select></label>
+      </div>
+      <p id="publicLobbyCount" class="smallNote" aria-live="polite"></p>
       <div id="publicLobbyList" class="publicLobbyList" role="list" aria-live="polite">Loading public lobbies…</div>
+    </div>
+    <div id="journeyLobbyDetailPanel" class="hidden journeyPanel publicLobbyDetail" aria-label="Public lobby details">
+      <div class="journeyActions"><button id="publicLobbyDetailBackBtn" type="button" class="btn">← Back to public lobbies</button><button id="publicLobbyDetailRefreshBtn" type="button" class="btn">Refresh</button></div>
+      <h2 id="publicLobbyDetailTitle">Lobby details</h2>
+      <div id="publicLobbyDetailMessage" class="smallNote" role="status"></div>
+      <canvas id="publicLobbyDetailMap" class="publicLobbyDetailMap" width="650" height="390" role="img" aria-label="Current lobby map preview"></canvas>
+      <div id="publicLobbyDetailFields" class="publicLobbyDetailFields"></div>
+      <button id="publicLobbyDetailJoinBtn" type="button" class="btn primary">Join this lobby</button>
     </div>
     <div id="journeyPrivatePanel" class="hidden journeyPanel">
       <button id="journeyHostPrivateBtn" type="button" class="btn primary">Host private lobby</button>
@@ -129,10 +145,10 @@
     <button id="journeyTutorialBtn" type="button" class="btn journeyTutorialReplay">Replay the walkthrough</button>
   </div>
 </section>
-<section id="roomNotFoundScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard journeyCard notFoundCard"><p class="portalEyebrow">Lobby unavailable</p><h1>Lobby not found</h1><p class="portalLead">This lobby doesn't exist, has expired, or is not available to your account.</p><button id="roomNotFoundBackBtn" type="button" class="btn primary portalPrimary">Change Game Type</button></div></section>
+<section id="roomNotFoundScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard journeyCard notFoundCard"><p class="portalEyebrow">Lobby unavailable</p><h1>Lobby not found</h1><p class="portalLead">This lobby doesn't exist, has expired, or is not available to your account.</p><button id="roomNotFoundBackBtn" type="button" class="btn primary portalPrimary">← Back</button></div></section>
 <section id="walkthroughOverlay" class="walkthroughOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="walkthroughTitle">
  <div class="walkthroughCard">
-   <div class="walkthroughTop"><span id="walkthroughProgress">1 / 12</span><button type="button" id="walkthroughSkipBtn" class="btn">Skip walkthrough</button></div>
+   <div class="walkthroughTop"><span id="walkthroughProgress">1 / 12</span><span class="walkthroughNav"><button type="button" id="walkthroughBackBtn" class="btn">← Back</button><button type="button" id="walkthroughSkipBtn" class="btn">Skip walkthrough</button></span></div>
    <h1 id="walkthroughTitle">Welcome to Hex Settlers</h1>
    <p id="walkthroughBody" class="portalLead"></p>
    <div class="walkthroughDemo" aria-label="Annotated tutorial illustration">
@@ -183,7 +199,7 @@
 
   <div id="registerOverlay" class="portalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
     <form id="registerForm" class="portalCard registerCard">
-      <button id="registerCloseBtn" class="overlayClose" type="button" aria-label="Close">×</button>
+      <button id="registerCloseBtn" class="btn overlayBackBtn" type="button">← Back to sign in</button>
       <h2 id="registerTitle">Create your account</h2><p class="portalLead">Use email and a password, or choose an available provider below to create a passwordless account.</p>
       <label class="label">Display name</label><input id="registerName" class="input" maxlength="20" autocomplete="name" required>
       <label class="label">Username</label><input id="registerUsername" class="input" maxlength="24" autocomplete="username" required>
@@ -206,7 +222,7 @@
 
   <div id="friendsOverlay" class="portalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="friendsTitle">
     <div class="portalCard registerCard friendsCard">
-      <button id="friendsCloseBtn" class="overlayClose" type="button" aria-label="Close friends">×</button>
+      <button id="friendsCloseBtn" class="btn overlayBackBtn" type="button">← Back</button>
       <h2 id="friendsTitle">Friends</h2>
       <form id="friendRequestForm" class="friendRequestForm" autocomplete="off">
         <label class="label" for="friendUsernameInput">Send a friend request</label>
@@ -220,7 +236,7 @@
     </div>
   </div>
 
-  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">Join one four-player queue. After a match is found, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div></section>
+  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><button id="rankedBackBtn" class="btn portalBackBtn" type="button">← Back to game types</button><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">Join one four-player queue. After a match is found, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div></section>
   <div id="app" class="hidden">
     <main class="layout">
       <section class="panel">
@@ -830,7 +846,7 @@
     <div class="historyPanel">
       <div class="historyTop">
         <div class="historyTopLeft">
-          <button id="historyCloseBtn" class="btn">Close</button>
+          <button id="historyCloseBtn" class="btn">← Back</button>
         </div>
         <div class="historyTopCenter">
           <div class="historyTitle">Stats &amp; History</div>

@@ -9236,10 +9236,35 @@ function canAccessRoom(room, userId) {
 function visiblePublicLobbies(userId) {
   return Array.from(rooms.values()).filter(room => room && !room.ranked && !room.casual && room.visibility === 'public'
     && (!room.game || room.game.phase === 'lobby') && canAccessRoom(room, userId))
-    .map(room => ({ code: room.code, host: (room.players.find(p => p.id === room.hostId) || {}).name || 'Host',
-      players: room.players.filter(p => !p.isAI).length, aiPlayers: room.players.filter(p => p.isAI).length,
-      maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES), mapMode: room.rules?.mapMode || 'classic',
-      casual: !!room.casual, friendsOnly: !!room.friendsOnly, createdAt: room.createdAt }))
+    .map(room => {
+      // Do not generate a different map for discovery: the preview must match
+      // the layout which the host and joined players see in their lobby.
+      if (typeof ensurePreview === 'function') ensurePreview(room, false);
+      const rules = room.rules || DEFAULT_RULES;
+      const maxPlayers = maxPlayersForRules(rules);
+      const players = (room.players || []).filter(p => !p.isAI);
+      const aiPlayers = (room.players || []).filter(p => p.isAI);
+      const tiles = room.preview?.geom?.tiles || [];
+      return {
+        code: room.code,
+        host: (room.players.find(p => p.id === room.hostId) || {}).name || 'Host',
+        players: players.length, aiPlayers: aiPlayers.length, maxPlayers,
+        openSeats: Math.max(0, maxPlayers - (players.length + aiPlayers.length)),
+        playerNames: players.map(p => String(p.name || 'Player').slice(0, 20)),
+        readyPlayers: players.filter(p => p.ready).length,
+        mapMode: rules.mapMode || 'classic', scenario: rules.seafarersScenario || '',
+        victoryPoints: Number(rules.victoryPointsToWin || 10),
+        diceAlgorithm: String(rules.diceAlgorithm || 'random'),
+        timerSeconds: Math.round(Number(rules.playTurnMs ?? 30000) / 1000),
+        aiDifficulty: String(room.aiDifficulty || 'easy'),
+        mapPreview: tiles.map(tile => ({
+          x: Number(tile.cx), y: Number(tile.cy),
+          type: tile.fog && !tile.revealed ? 'unexplored' : String(tile.type || 'sea'),
+          number: tile.fog && !tile.revealed ? null : (Number.isInteger(tile.number) ? tile.number : null),
+        })).filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y)),
+        casual: !!room.casual, friendsOnly: !!room.friendsOnly, createdAt: room.createdAt,
+      };
+    })
     .sort((a,b) => b.createdAt - a.createdAt).slice(0, 100);
 }
 

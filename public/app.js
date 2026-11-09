@@ -851,11 +851,29 @@
     }, 0);
   }
 
+  function isCasualTextureMode() {
+    // Texture UI initializes before the app's navigation/room variables do.
+    // Access them defensively until those later lexical bindings exist.
+    let mode = '', currentRoom = null;
+    try { mode = selectedPlayMode; } catch (_) {}
+    try { currentRoom = room; } catch (_) {}
+    return mode === 'casual' || !!currentRoom?.casual;
+  }
   function refreshTexturePackUi() {
+    const casual = isCasualTextureMode();
+    for (const control of [ui.downloadTexturePackBtn, ui.uploadTexturePackBtn, ui.deleteTexturePackBtn]) {
+      control?.classList.toggle('hidden', casual);
+    }
+    if (ui.texturePackFileInput) ui.texturePackFileInput.disabled = casual;
+    if (casual && !isBuiltinTexturePackId(activeTexturePackId())) {
+      texturePackMetaState.activeId = DEFAULT_TEXTURE_PACK_ID;
+      writeTexturePackMetaState();
+      reloadAllTextureAssets();
+    }
     if (ui.texturePackSelect) {
       const activeId = activeTexturePackId();
       ui.texturePackSelect.innerHTML = '';
-      for (const p of listLocalTexturePacks()) {
+      for (const p of listLocalTexturePacks().filter(p => !casual || p.builtin)) {
         const opt = document.createElement('option');
         opt.value = p.id;
         const count = (p.assets || []).length || 0;
@@ -881,7 +899,8 @@
   }
 
   async function setActiveTexturePackById(packId, options = {}) {
-    const target = String(packId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+    const requested = String(packId || DEFAULT_TEXTURE_PACK_ID).trim() || DEFAULT_TEXTURE_PACK_ID;
+    const target = isCasualTextureMode() && !isBuiltinTexturePackId(requested) ? DEFAULT_TEXTURE_PACK_ID : requested;
     if (target !== DEFAULT_TEXTURE_PACK_ID && !getLocalTexturePackMeta(target)) throw new Error('That texture pack is not saved in this browser.');
     texturePackMetaState.activeId = target;
     writeTexturePackMetaState();
@@ -1237,6 +1256,7 @@
   let journeyView = 'home';
   let requestedLobbyVisibility = 'private';
   let roomNotFoundVisible = false;
+  let roomNotFoundReturnView = ''; // Preserve the discovery hierarchy after a failed lobby join.
   const TUTORIAL_PREFIX = 'hexsettlers_journey_walkthrough_v53_';
   let tutorialIndex = 0;
   let tutorialCompletedOnThisLaunch = false;
@@ -1302,35 +1322,122 @@
     clearRoomRecoveryState();
     updateAuthUi();
   }
-  function requestPublicLobbies() { if (websocketAuthenticated && ws?.readyState === WebSocket.OPEN) send({ type: 'list_public_lobbies' }); }
-  function renderPublicLobbies(items) {
-    const list = $('publicLobbyList'); if (!list) return;
-    list.replaceChildren();
-    if (!items.length) { list.textContent = 'No public lobbies available right now. Host one to get started.'; return; }
-    for (const item of items) {
-      const card = document.createElement('div'); card.className = 'publicLobbyItem'; card.setAttribute('role','listitem');
-      const text = document.createElement('div');
-      const heading = document.createElement('strong'); heading.textContent = `${item.host || 'Host'} · ${item.code || ''}`;
-      const detail = document.createElement('p'); detail.className = 'smallNote';
-      detail.textContent = `${Number(item.players || 0)} players + ${Number(item.aiPlayers || 0)} AI / ${Number(item.maxPlayers || 4)} seats · Unranked · ${item.mapMode || 'Classic'}${item.friendsOnly ? ' · Friends only' : ''}`;
-      text.append(heading,detail);
-      const join = document.createElement('button'); join.type = 'button'; join.className = 'btn primary'; join.textContent = 'Join lobby';
-      join.addEventListener('click', () => beginJourneyJoin(item.code));
-      card.append(text,join); list.append(card);
+  let publicLobbyResults = [];
+  let selectedPublicLobbyCode = '';
+  function requestPublicLobbies() {
+    if (websocketAuthenticated && ws?.readyState === WebSocket.OPEN) send({ type: 'list_public_lobbies' });
+  }
+  function mapFamilyForPublicLobby(item) {
+    return String(item?.mapMode || '').startsWith('seafarers') ? 'seafarers' : 'classic';
+  }
+  function publicLobbyScenarioName(item) {
+    if (mapFamilyForPublicLobby(item) !== 'seafarers') {
+      const mode = String(item?.mapMode || 'classic');
+      return mode === 'classic' ? 'Classic' : (mode === 'classic56' ? 'Classic 5–6' : 'Classic 7–8');
     }
+    return String(item.scenario || 'four_islands').replace(/_(56|78)$/g, (_m, seats) => ` ${seats === '56' ? '5–6' : '7–8'}`).replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+  }
+  function renderPublicLobbies(items) {
+    publicLobbyResults = items.filter(item => item && /^[A-Z0-9]{4,8}$/.test(String(item.code || '')));
+    renderPublicLobbyList();
+    if (journeyView === 'detail') renderPublicLobbyDetail();
+  }
+  function renderPublicLobbyList() {
+    const list = $('publicLobbyList'); if (!list) return;
+    const search = String($('publicLobbySearch')?.value || '').trim().toLowerCase();
+    const map = $('publicLobbyMapFilter')?.value || 'all';
+    const seats = $('publicLobbySeatsFilter')?.value || 'all';
+    const timer = $('publicLobbyTimerFilter')?.value || 'all';
+    const sorting = $('publicLobbySort')?.value || 'newest';
+    const items = publicLobbyResults.filter(item => {
+      if (map !== 'all' && mapFamilyForPublicLobby(item) !== map) return false;
+      if (seats === 'open' && !(Number(item.openSeats) > 0)) return false;
+      if (seats === 'no-ai' && Number(item.aiPlayers) > 0) return false;
+      if (timer === 'off' && Number(item.timerSeconds) !== 0) return false;
+      if (timer === 'on' && Number(item.timerSeconds) === 0) return false;
+      return !search || `${item.code} ${item.host} ${item.mapMode} ${item.scenario} ${publicLobbyScenarioName(item)}`.toLowerCase().includes(search);
+    }).sort((a,b) => sorting === 'open' ? Number(b.openSeats || 0) - Number(a.openSeats || 0)
+      : sorting === 'players' ? Number(b.players || 0) - Number(a.players || 0)
+      : Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    $('publicLobbyCount').textContent = `${items.length} of ${publicLobbyResults.length} public lobbies`;
+    list.replaceChildren();
+    if (!items.length) {
+      list.textContent = publicLobbyResults.length ? 'No lobbies match these filters.' : 'No public lobbies available right now. Host one to get started.';
+      return;
+    }
+    for (const item of items) {
+      const card = document.createElement('button');
+      card.type = 'button'; card.className = 'publicLobbyItem'; card.setAttribute('role','listitem');
+      card.setAttribute('aria-label', `View ${item.host || 'Host'} lobby ${item.code}`);
+      const content = document.createElement('span'); content.className = 'publicLobbyItemText';
+      const heading = document.createElement('strong'); heading.textContent = `${item.host || 'Host'} · ${item.code}`;
+      const detail = document.createElement('span'); detail.className = 'smallNote';
+      detail.textContent = `${publicLobbyScenarioName(item)} · ${Number(item.players || 0)} human + ${Number(item.aiPlayers || 0)} AI / ${Number(item.maxPlayers || 4)} seats`;
+      const meta = document.createElement('span'); meta.className = 'smallNote';
+      meta.textContent = `${Number(item.openSeats || 0)} open · ${Number(item.victoryPoints || 10)} VP · ${Number(item.timerSeconds) === 0 ? 'No timer' : `${Number(item.timerSeconds || 30)}s turns`}${item.friendsOnly ? ' · Friends only' : ''}`;
+      const action = document.createElement('span'); action.className = 'publicLobbyViewAction'; action.textContent = 'Details & map →';
+      content.append(heading, detail, meta); card.append(content, action);
+      card.addEventListener('click', () => {
+        selectedPublicLobbyCode = item.code;
+        setJourneyView('detail');
+      });
+      list.append(card);
+    }
+  }
+  function addPublicLobbyDetailField(grid, labelText, valueText) {
+    const cell = document.createElement('div'); cell.className = 'publicLobbyDetailField';
+    const label = document.createElement('span'); label.textContent = labelText;
+    const value = document.createElement('strong'); value.textContent = valueText;
+    cell.append(label, value); grid.appendChild(cell);
+  }
+  function renderPublicLobbyDetail() {
+    const item = publicLobbyResults.find(item => item.code === selectedPublicLobbyCode);
+    const join = $('publicLobbyDetailJoinBtn'), map = $('publicLobbyDetailMap'), fields = $('publicLobbyDetailFields');
+    if (!join || !map || !fields) return;
+    fields.replaceChildren();
+    $('publicLobbyDetailTitle').textContent = item ? `${item.host || 'Host'}'s lobby · ${item.code}` : 'Lobby unavailable';
+    if (!item) {
+      $('publicLobbyDetailMessage').textContent = 'This lobby is no longer publicly available. Return to the list to choose another.';
+      join.disabled = true; map.classList.add('hidden'); return;
+    }
+    $('publicLobbyDetailMessage').textContent = 'Preview of the current lobby map. Open slots and rules update when the host changes settings.';
+    join.disabled = Number(item.openSeats) <= 0;
+    join.textContent = join.disabled ? 'Lobby is full' : 'Join this lobby';
+    map.classList.toggle('hidden', !Array.isArray(item.mapPreview) || !item.mapPreview.length);
+    if (Array.isArray(item.mapPreview) && item.mapPreview.length) drawRankedMiniMap(map, item.mapPreview);
+    addPublicLobbyDetailField(fields, 'Map', publicLobbyScenarioName(item));
+    addPublicLobbyDetailField(fields, 'Players', `${item.players} human, ${item.aiPlayers} AI · ${item.maxPlayers} seats`);
+    addPublicLobbyDetailField(fields, 'Open seats', String(item.openSeats ?? 0));
+    addPublicLobbyDetailField(fields, 'Ready', `${Number(item.readyPlayers || 0)} / ${Number(item.players || 0)} humans`);
+    addPublicLobbyDetailField(fields, 'Victory target', `${Number(item.victoryPoints || 10)} VP`);
+    addPublicLobbyDetailField(fields, 'Turn timer', Number(item.timerSeconds) === 0 ? 'Off' : `${Number(item.timerSeconds || 30)} seconds`);
+    addPublicLobbyDetailField(fields, 'Dice algorithm', String(item.diceAlgorithm || 'Random').replace(/_/g,' '));
+    addPublicLobbyDetailField(fields, 'AI difficulty', Number(item.aiPlayers || 0) ? String(item.aiDifficulty || 'Easy') : 'No AI');
+    addPublicLobbyDetailField(fields, 'Access', item.friendsOnly ? 'Friends only' : 'Public');
+    addPublicLobbyDetailField(fields, 'Players in lobby', (item.playerNames || []).join(', ') || 'No players');
   }
   function setJourneyView(view) {
     journeyView = view;
     $('journeyHomeOptions')?.classList.toggle('hidden', view !== 'home');
     $('journeyPublicPanel')?.classList.toggle('hidden', view !== 'public');
+    $('journeyLobbyDetailPanel')?.classList.toggle('hidden', view !== 'detail');
     $('journeyPrivatePanel')?.classList.toggle('hidden', view !== 'private');
     $('journeySettingsPanel')?.classList.toggle('hidden', view !== 'settings');
-    $('journeyTutorialBtn')?.classList.toggle('hidden', view === 'settings');
-    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public lobbies' : view === 'private' ? 'Private lobby' : view === 'settings' ? 'Settings' : 'All Games';
-    if (view === 'public') requestPublicLobbies();
+    $('journeyBottomActions')?.classList.toggle('hidden', view !== 'home');
+    $('journeyTutorialBtn')?.classList.toggle('hidden', view !== 'home');
+    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public lobbies' : view === 'detail' ? 'Public lobby details'
+      : view === 'private' ? 'Private lobby' : view === 'settings' ? 'Settings' : 'All Games';
+    if (view === 'public' || view === 'detail') requestPublicLobbies();
+    if (view === 'detail') renderPublicLobbyDetail();
     if (view === 'settings') syncSettingsSandbox();
   }
+  function journeyBack() {
+    if (journeyView === 'detail') return setJourneyView('public');
+    if (journeyView !== 'home') return setJourneyView('home');
+    returnToGameTypeSelection('');
+  }
   function beginJourneyJoin(code) {
+    roomNotFoundReturnView = selectedPlayMode === 'journey' ? journeyView : '';
     const c = String(code || '').trim().toUpperCase();
     if (!c || !/^[A-Z0-9]{4,8}$/.test(c)) { showRoomNotFound(); return; }
     selectedPlayMode = 'unranked'; roomNotFoundVisible = false;
@@ -1550,6 +1657,7 @@
     rankedScreen?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'ranked' || roomNotFoundVisible);
     appRoot?.classList.toggle('hidden', !loggedIn || roomNotFoundVisible || !['unranked', 'casual'].includes(selectedPlayMode));
     if (typeof document !== 'undefined') document.body?.classList.toggle('casual-mode', selectedPlayMode === 'casual' || !!room?.casual);
+    if (typeof refreshTexturePackUi === 'function') refreshTexturePackUi();
     if ($('uncreatedLobbyIntro')) {
       const eyebrow = $('uncreatedLobbyIntro').querySelector('.uncreatedLobbyEyebrow');
       if (eyebrow) eyebrow.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'CASUAL · FRIENDS & AI' : 'UNRANKED PLAY';
@@ -10439,7 +10547,9 @@ function refreshLobbyJoinLinkUi() {
 
     const note = document.createElement('div');
     note.className = 'smallNote';
-    note.textContent = 'Texture packs change only this browser’s graphics. You can switch packs during a match without reloading or interrupting other players.';
+    note.textContent = isCasualTextureMode()
+      ? 'Casual Play supports Default and Simplified. Custom texture imports are disabled in this mode.'
+      : 'Texture packs change only this browser’s graphics. You can switch packs during a match without reloading or interrupting other players.';
     body.appendChild(note);
 
     const label = document.createElement('label');
@@ -10450,7 +10560,8 @@ function refreshLobbyJoinLinkUi() {
     const select = document.createElement('select');
     select.className = 'input';
     const activeId = activeTexturePackId();
-    for (const pack of listLocalTexturePacks()) {
+    const casual = isCasualTextureMode();
+    for (const pack of listLocalTexturePacks().filter(pack => !casual || pack.builtin)) {
       const option = document.createElement('option');
       option.value = pack.id;
       const count = Array.isArray(pack.assets) ? pack.assets.length : 0;
@@ -10470,7 +10581,7 @@ function refreshLobbyJoinLinkUi() {
       title: 'Change Texture Pack',
       bodyNode: body,
       actions: [
-        {
+        ...(!casual ? [{
           label: 'Import Pack',
           onClick: () => {
             closeModal();
@@ -10478,7 +10589,7 @@ function refreshLobbyJoinLinkUi() {
             try { ui.texturePackFileInput.value = ''; } catch (_) {}
             ui.texturePackFileInput.click();
           },
-        },
+        }] : []),
         { label: 'Cancel', onClick: closeModal },
         {
           label: 'Apply',
@@ -11491,7 +11602,7 @@ function refreshLobbyJoinLinkUi() {
       }
     }
     if (mode === 'ranked') clearRecentRoom();
-    if (mode === 'journey') { journeyView = 'home'; roomNotFoundVisible = false; pendingRecentRoomRejoinCode = ''; }
+    if (mode === 'journey') { journeyView = 'home'; roomNotFoundVisible = false; roomNotFoundReturnView = ''; pendingRecentRoomRejoinCode = ''; }
     if (mode === 'journey' && !room && !tutorialCompletedOnThisLaunch) {
       let seen = false; try { seen = localStorage.getItem(tutorialStorageKey()) === '1'; } catch (_) {}
       if (!seen) openWalkthrough();
@@ -11523,10 +11634,25 @@ function refreshLobbyJoinLinkUi() {
     pendingRankedMatchmaking = false;
   });
   $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
+  $('rankedBackBtn')?.addEventListener('click', () => {
+    if (room?.ranked) { setError('Leave your ranked lobby before returning to game types.'); return; }
+    stopRankedMatchmaking();
+    returnToGameTypeSelection('');
+  });
   $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('journey'));
   $('journeyPublicBtn')?.addEventListener('click', () => setJourneyView('public'));
   $('journeyPrivateBtn')?.addEventListener('click', () => setJourneyView('private'));
-  $('journeyBackBtn')?.addEventListener('click', () => journeyView === 'home' ? returnToGameTypeSelection('') : setJourneyView('home'));
+  $('journeyBackBtn')?.addEventListener('click', journeyBack);
+  $('publicLobbyDetailBackBtn')?.addEventListener('click', () => setJourneyView('public'));
+  $('publicLobbyDetailRefreshBtn')?.addEventListener('click', requestPublicLobbies);
+  $('publicLobbyDetailJoinBtn')?.addEventListener('click', () => {
+    const lobby = publicLobbyResults.find(item => item.code === selectedPublicLobbyCode);
+    if (lobby && Number(lobby.openSeats) > 0) beginJourneyJoin(lobby.code);
+  });
+  for (const id of ['publicLobbySearch','publicLobbyMapFilter','publicLobbySeatsFilter','publicLobbyTimerFilter','publicLobbySort']) {
+    $(id)?.addEventListener('input', renderPublicLobbyList);
+    $(id)?.addEventListener('change', renderPublicLobbyList);
+  }
   $('journeyHostPublicBtn')?.addEventListener('click', () => beginJourneyHost('public'));
   $('journeyHostPrivateBtn')?.addEventListener('click', () => beginJourneyHost('private'));
   $('journeyRefreshBtn')?.addEventListener('click', requestPublicLobbies);
@@ -11583,7 +11709,25 @@ function refreshLobbyJoinLinkUi() {
     try { localStorage.removeItem(MOBILE_SPLIT_RATIO_KEY); } catch (_) {}
     syncSettingsSandbox();
   });
-  $('roomNotFoundBackBtn')?.addEventListener('click', () => { roomNotFoundVisible = false; clearRoomQueryFromUrl(); returnToGameTypeSelection(''); });
+  $('roomNotFoundBackBtn')?.addEventListener('click', () => {
+    roomNotFoundVisible = false;
+    clearRoomQueryFromUrl();
+    if (roomNotFoundReturnView) {
+      const backTo = roomNotFoundReturnView;
+      roomNotFoundReturnView = '';
+      selectedPlayMode = 'journey';
+      try { sessionStorage.setItem('hexsettlers_play_mode', 'journey'); } catch (_) {}
+      setJourneyView(backTo);
+      updateAuthUi();
+      return;
+    }
+    returnToGameTypeSelection('');
+  });
+  $('walkthroughBackBtn')?.addEventListener('click', () => {
+    $('walkthroughOverlay')?.classList.add('hidden');
+    // Back closes the tour without falsely recording it as completed.
+    updateAuthUi();
+  });
   $('walkthroughSkipBtn')?.addEventListener('click', finishWalkthrough);
   $('walkthroughPrevBtn')?.addEventListener('click', () => { tutorialIndex = Math.max(0, tutorialIndex-1); updateWalkthrough(); });
   $('walkthroughNextBtn')?.addEventListener('click', () => {
@@ -11602,7 +11746,7 @@ function refreshLobbyJoinLinkUi() {
     $('walkthroughDemoAction').textContent = '✓ ' + demo[0];
   });
   // Refresh discovery without exposing private or friends-only rooms.
-  setInterval(() => { if (selectedPlayMode === 'journey' && journeyView === 'public') requestPublicLobbies(); }, 12000);
+  setInterval(() => { if (selectedPlayMode === 'journey' && (journeyView === 'public' || journeyView === 'detail')) requestPublicLobbies(); }, 12000);
   $('casualModeBtn')?.addEventListener('click', () => choosePlayMode('casual'));
   function startRankedMatchmaking() {
     rankedQueueActive = true;
@@ -17070,6 +17214,7 @@ function handleProductionGoldPrompt() {
 
   if (ui.downloadTexturePackBtn) {
     ui.downloadTexturePackBtn.addEventListener('click', () => {
+      if (isCasualTextureMode()) return;
       try {
         const aEl = document.createElement('a');
         aEl.href = TEXTURE_PACK_TEMPLATE_URL;
@@ -17085,12 +17230,13 @@ function handleProductionGoldPrompt() {
 
   if (ui.uploadTexturePackBtn && ui.texturePackFileInput) {
     ui.uploadTexturePackBtn.addEventListener('click', () => {
+      if (isCasualTextureMode()) return;
       try { ui.texturePackFileInput.value = ''; } catch (_) {}
       ui.texturePackFileInput.click();
     });
     ui.texturePackFileInput.addEventListener('change', () => {
       const file = (ui.texturePackFileInput.files && ui.texturePackFileInput.files[0]) ? ui.texturePackFileInput.files[0] : null;
-      if (!file) return;
+      if (!file || isCasualTextureMode()) return;
       setTexturePackStatus('Importing texture pack ZIP…');
       void importTexturePackZipFile(file).catch((err) => {
         setError(err && err.message ? err.message : 'Failed to import texture pack ZIP.');
@@ -17101,6 +17247,7 @@ function handleProductionGoldPrompt() {
 
   if (ui.deleteTexturePackBtn) {
     ui.deleteTexturePackBtn.addEventListener('click', () => {
+      if (isCasualTextureMode()) return;
       const active = activeTexturePackMeta();
       if (!active || !active.id || active.builtin) return;
       void deleteLocalTexturePack(active.id).then((ok) => {
