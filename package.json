@@ -12,8 +12,8 @@
     "test": "node --test",
     "test:integration": "node --test test/server.integration.test.js",
     "check": "tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js",
-    "electron:start": "electron .",
-    "electron:dist": "electron-builder"
+    "electron:start": "npm --prefix desktop run start",
+    "electron:dist": "npm --prefix desktop run dist --"
   },
   "dependencies": {
     "ws": "^8.18.0"
@@ -22,41 +22,6 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "electron": "^31.7.7",
-    "electron-builder": "^24.13.3",
     "typescript": "^5.9.3"
-  },
-  "build": {
-    "appId": "app.hexsettlers.desktop",
-    "productName": "Hex Settlers",
-    "files": [
-      "electron-main.js",
-      "package.json"
-    ],
-    "extraMetadata": {
-      "main": "electron-main.js"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "releaseType": "release"
-      }
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "mac": {
-      "target": [
-        "dmg"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Game"
-    }
   }
 }

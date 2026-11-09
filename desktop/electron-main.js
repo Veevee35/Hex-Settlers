@@ -1,6 +1,6 @@
 const { app, BrowserWindow, shell } = require('electron');
 
-const GAME_URL = 'https://hexsettlers.up.railway.app/';
+const GAME_URL = 'https://hexsettlers.org/';
 
 function createWindow() {
   const win = new BrowserWindow({

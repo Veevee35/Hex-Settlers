@@ -117,7 +117,7 @@ Training servers omit browser replay recording; normal games retain replays.
 
 ## Desktop releases
 
-The Electron wrapper opens the hosted game at `https://hexsettlers.up.railway.app/`.
+The optional desktop wrapper lives in `desktop/` and opens the hosted game at `https://hexsettlers.org/`. Electron dependencies are intentionally excluded from the Cloudflare/web-server installation. To build a desktop release, first run `npm ci --prefix desktop`.
 
 ```bash
 npm run electron:dist -- --linux AppImage
