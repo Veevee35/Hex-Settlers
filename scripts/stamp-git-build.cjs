@@ -31,6 +31,5 @@ update('public/app.js', /const ASSET_CACHE_SW_BUILD = '[^']+';/, `const ASSET_CA
 update('public/sw.js', /const CACHE_NAME = CACHE_PREFIX \+ '[^']+';/, `const CACHE_NAME = CACHE_PREFIX + '${key}';`);
 const htmlPath=path.join(root,'public/index.html');
 const before=fs.readFileSync(htmlPath,'utf8');
-fs.writeFileSync(htmlPath,before.replace(/(<div class="appVersion" aria-label="Game version">)V\d+\.\d+\.\d+(?: · [a-zA-Z0-9]+)?(<\/div>)/g, (_m,a,b)=>`${a}${versionLabel}${b}`));
-fs.writeFileSync(path.join(root,'public/build-info.json'), JSON.stringify({ revision: hash }) + '\n');
+fs.writeFileSync(htmlPath,before.replace(/(<div class="appVersion" aria-label="Game version">)V\d+\.\d+\.\d+(?: · [a-zA-Z0-9]+)?(<\/div>)/g, (_m,a,b)=>`${a}${versionLabel} · ${hash}${b}`));
 console.log(`Hex Settlers Cloudflare revision ${hash}`);

@@ -21,15 +21,14 @@ test('v34 friend-only history filter and portable replays are wired in both Game
   assert.match(js, /replayLibraryOp\('getAll'/);
 });
 
-test('v53 casual supports human invitations and keeps matchmaking history untouched', () => {
+test('v34 casual mode is AI-only on the server and has a clean uncreated lobby', () => {
   assert.ok(html.includes('id="casualModeBtn"'));
-  assert.match(js, /if \(mode === 'casual' && !room\)/);
-  assert.match(js, /send\(\{ type: 'create_room', displayName, casual: selectedPlayMode === 'casual'/);
+  assert.match(js, /if \(mode === 'casual' && !room\) prepareUncreatedLobby\(\)/);
+  assert.match(js, /send\(\{ type: 'create_room', displayName, casual: selectedPlayMode === 'casual' \}\)/);
+  assert.match(server, /if \(room\.casual && String\(userId \|\| ''\) !== room\.hostId\)/);
   assert.match(server, /room\.casual = msg\.casual === true;/);
-  assert.doesNotMatch(server, /if \(room\.casual\) addAIPlayersToRoom\(room, 4\)/);
-  assert.match(server, /room\._dryRun \|\| room\.casual/);
-  assert.doesNotMatch(server, /invitedRoom\.casual \|\| !senderInRoom/);
-  assert.doesNotMatch(css, /body\.casual-mode #joinBtn[^\n]*display:none!important/);
+  assert.match(server, /if \(room\.casual\) addAIPlayersToRoom\(room, 4\)/);
+  assert.match(css, /body\.casual-mode .*#joinBtn/);
 });
 
 test('v34 Classic 4 and Classic 5–6 expose custom map files and an adjustable settings sidebar', () => {

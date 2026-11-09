@@ -4266,6 +4266,7 @@ body:not(.in-game):not(.ranked-lobby) .layout{grid-template-columns:minmax(280px
 .lobbyPanelSplitter:hover,.lobbyPanelSplitter:focus-visible,.lobbyPanelSplitter.dragging{background:linear-gradient(90deg,transparent 25%,var(--accent) 25%,var(--accent) 75%,transparent 75%);opacity:1;outline:0}
 body.in-game .lobbyPanelSplitter,body.ranked-lobby .lobbyPanelSplitter{display:none!important}
 body.casual-mode .uncreatedLobbyIntro .uncreatedLobbyEyebrow{color:#f0ce8a}
+body.casual-mode #joinBtn,body.casual-mode #codeInput,body.casual-mode #rejoinLastBtn,body.casual-mode #lastRoomHint,body.casual-mode .roomShareControls{display:none!important}
 .historyToolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line)}
 .historyToolbar .checkRow{display:flex;align-items:center;gap:7px;white-space:nowrap;margin:0}
 .historyReplayTools,.logReplayTools{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
@@ -4514,72 +4515,3 @@ body.ranked-lobby .copyLinkValue{height:32px;min-height:32px;margin-top:0;paddin
     min-width:0;min-height:0;height:100%;max-height:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
   }
 }
-
-/* v53: Journey hub, guided first game, and server-enforced lobby access. */
-#journeyScreen {z-index:35; overflow:auto;align-items:center;justify-content:center;padding:34px 12px}
-#roomNotFoundScreen {z-index:50}
-.journeyCard {width:min(900px,96vw); max-height:calc(100dvh - 55px);overflow-y:auto;position:relative;padding:clamp(20px,3.7vw,40px)}
-.journeyCard .journeyBack {position:absolute;left:18px;top:16px}
-.journeyCard .portalEyebrow,.journeyCard h1,.journeyCard>.portalLead {text-align:center}
-.journeyOptions {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin:24px 0}
-.journeyOptions .modeChoice {text-align:left;min-height:170px}
-.journeyOptions .modeChoice:disabled {opacity:.55;cursor:not-allowed}
-.journeyPanel {margin:20px 0 8px}
-.journeyActions {display:flex;gap:10px;flex-wrap:wrap;margin-bottom:15px}
-.publicLobbyList {display:flex;flex-direction:column;gap:8px;min-height:100px;max-height:min(390px,48vh);overflow:auto}
-.publicLobbyItem {display:flex;align-items:center;justify-content:space-between;gap:15px;background:rgba(20,41,55,.76);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
-.publicLobbyItem p {margin:5px 0 0}
-.journeyTutorialReplay {display:block;margin:18px auto 0}
-.lobbyAccessControls {padding:11px;border:1px solid var(--line);border-radius:12px;background:rgba(18,44,62,.55);margin:12px 0}
-.lobbyAccessControls .label {margin:0 0 7px}
-.lobbyAccessControls .checkRow {display:flex;align-items:flex-start;gap:10px;margin:12px 0 0;white-space:normal;line-height:1.4;font-size:12px}
-.walkthroughOverlay {position:fixed;inset:0;z-index:9999;background:rgba(0,8,17,.94);display:flex;align-items:center;justify-content:center;padding:12px;overflow-y:auto}
-.walkthroughOverlay.hidden {display:none!important}
-.walkthroughCard {width:min(750px,100%);max-height:calc(100dvh - 24px);overflow-y:auto;padding:clamp(18px,3vw,36px);border-radius:24px;border:1px solid #6c7c84;background:linear-gradient(140deg,#142d3b,#091923 76%);box-shadow:0 30px 80px rgba(0,0,0,.75)}
-.walkthroughTop,.walkthroughControls {display:flex;justify-content:space-between;align-items:center;gap:12px}
-.walkthroughTop {font-size:13px;color:#e9cc8c}
-.walkthroughCard h1 {font-size:clamp(22px,4vw,34px);margin:16px 0 7px}
-.walkthroughCard .portalLead {min-height:58px;line-height:1.55}
-.walkthroughDemo {display:grid;grid-template-columns:1fr minmax(130px,35%);gap:18px;align-items:center;min-height:220px;margin:18px 0;border-radius:14px;background:rgba(9,21,35,.7);padding:17px}
-.demoHexGrid {position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;max-width:350px;justify-self:center;width:100%}
-.demoHex {aspect-ratio:1;clip-path:polygon(50% 0,94% 25%,94% 75%,50% 100%,6% 75%,6% 25%);display:grid;place-items:center;font-size:clamp(20px,3.7vw,38px);box-shadow:inset 0 0 7px #000;border-radius:10px}
-.tileWood{background:#295b40}.tileOre{background:#626f7a}.tileWheat{background:#967437}.tileSheep{background:#57925c}.tileBrick{background:#a0513d}.tileSea{background:#25678b}
-.demoBuildPoint {position:absolute;left:31%;top:32%;border:2px solid #f9d56a;background:#1d344a;color:#ffefa8;border-radius:50%;font-size:25px;width:42px;height:42px;cursor:pointer;box-shadow:0 0 15px #f9d56a}
-.demoBuildPoint.walkthroughBuildActive{animation:tutorialGlow 1.35s ease-in-out infinite}
-.demoBuildPoint.demoBuilt{background:#246542;color:white}
-@keyframes tutorialGlow{50%{box-shadow:0 0 25px #fff39d;transform:scale(1.12)}}
-.walkthroughAnnotation {font-size:14px;line-height:1.55;color:#f7deb0}
-.walkthroughControls{margin-top:18px}
-@media(max-width:720px){.journeyOptions{grid-template-columns:1fr}.journeyOptions .modeChoice{min-height:78px}.journeyCard{max-height:calc(100dvh - 20px)}.walkthroughDemo{grid-template-columns:1fr;gap:7px}.demoHexGrid{max-width:220px}.walkthroughAnnotation{text-align:center}.publicLobbyItem{flex-wrap:wrap}}
-
-/* v53 walkthrough: simulate a simple action for each practical game-mechanic stage. */
-.walkthroughAnnotationPanel{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
-.walkthroughDemoAction{max-width:100%;white-space:normal;text-align:center}
-.walkthroughSimulated{font-size:10px;line-height:1.35;color:#8ca6b7}
-@media(max-width:720px){.walkthroughAnnotationPanel{align-items:center}}
-
-/* V54 All Games and lobby tools */
-.journeyBottomActions{display:flex;justify-content:center;gap:10px;margin:16px auto 0;flex-wrap:wrap}
-.journeyBottomActions .btn{min-width:96px;padding:9px 15px;font-size:.87rem}
-.journeySettingsPanel{margin-top:16px;border:1px solid #315065;background:#0c1a25;border-radius:14px;padding:18px;max-height:68vh;overflow:auto}
-.journeySettingsHeading{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.journeySettingsHeading h2{font-size:1.13rem;margin:0}
-.settingsMockBoard{margin:16px 0;border:1px solid #42617b;background:#091822;overflow:hidden;border-radius:12px;min-height:225px}
-.settingsMockTop,.settingsMockBottom{padding:12px;text-align:center;background:#162c3e;font-size:calc(12px * var(--mock-scale,1));}
-.settingsMockStage{display:flex;align-items:stretch;justify-content:space-between;gap:8px;min-height:156px;padding:10px}
-.settingsMockLog,.settingsMockSide{border-radius:7px;background:#243848;padding:12px 8px;font-size:calc(12px * var(--mock-scale,1));flex:0 0 auto;max-width:35%}
-.settingsMockSide{width:min(var(--mock-width,30%),35%)}
-.settingsMockLog{width:25%}
-.settingsMockHexes{display:flex;flex:1;flex-wrap:wrap;gap:3px;justify-content:center;align-content:center;max-width:330px;margin:auto}
-.settingsMockHexes span{display:grid;place-items:center;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);background:#315d52;width:58px;height:62px;font-size:27px}
-.settingsMockHexes span:nth-child(3n){background:#946e3c}.settingsMockHexes span:nth-child(4n){background:#526c81}
-.settingsSandboxSliders{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}
-.settingsSandboxSliders label{display:grid;grid-template-columns:1fr auto;gap:5px;align-items:center;font-size:.82rem}
-.settingsSandboxSliders input{grid-column:1/-1;width:100%;accent-color:#56acff}
-.settingsSandboxSliders output{color:#ffca65}
-.journeySettingsActions{display:flex;gap:12px;justify-content:center;margin-top:16px}
-.lobbyCardHeading{display:flex;align-items:center;gap:8px}
-.lobbyCardHeading h2{margin-right:auto}.leaveLobbyTopBtn{font-size:.8rem;padding:7px 10px}
-#modalActions.bossProfileActions{justify-content:space-between;width:100%;display:flex}
-#modalActions.bossProfileActions button:last-child{margin-left:auto}
-@media(max-width:680px){.settingsSandboxSliders{grid-template-columns:1fr}.journeySettingsHeading{flex-direction:column;align-items:flex-start}.settingsMockHexes span{width:43px;height:45px;font-size:20px}}

@@ -5,7 +5,7 @@ import { Container, ContainerProxy, getContainer } from '@cloudflare/containers'
 export { ContainerProxy }; // Required by outboundByHost R2 bridge.
 
 const STATE_HOST = 'hex-state.internal';
-const JSON_FILES = new Set(['users.json', 'game_history.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
+const JSON_FILES = new Set(['users.json', 'game_history.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json']);
 const MAX_STATE_UPLOAD = 128 * 1024 * 1024;
 const MAX_TEXTURE_UPLOAD = 8 * 1024 * 1024;
 // HTTP uploads from the Node container should have Content-Length. If a proxy

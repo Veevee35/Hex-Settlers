@@ -3,7 +3,7 @@
 // It cannot be reached by the public Internet or by browser-originated requests.
 const path = require('node:path');
 const STATE_ENDPOINT = String(process.env.CLOUDFLARE_STATE_ENDPOINT || '').replace(/\/$/, '');
-const STATE_FILES = new Set(['users.json', 'active_rooms.json', 'game_history.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
+const STATE_FILES = new Set(['users.json', 'active_rooms.json', 'game_history.json', 'rating_policy.json', 'neural_ai_model.json']);
 const failedKeys = new Map();
 function isEnabled() { return !!STATE_ENDPOINT; }
 function isUnhealthy() { return failedKeys.size > 0; }
@@ -34,14 +34,6 @@ async function send(key, method, data) {
   console.error('[cloudflare state] Persistent write FAILED; game data may not survive a restart:', error);
   throw error;
 }
-async function getVersionState() {
-  if (!isEnabled()) return null;
-  const response = await fetch(urlFor('build-version.json'), { signal: AbortSignal.timeout(15000) });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`R2 build version read failed: ${response.status}`);
-  return response.json();
-}
-async function persistVersionState(state) { return send('build-version.json', 'PUT', JSON.stringify(state)); }
 async function persistJsonFile(filePath, text) {
   if (!STATE_FILES.has(path.basename(filePath))) return;
   return send(path.basename(filePath), 'PUT', text);
@@ -55,4 +47,4 @@ async function persistTexture(storageKey, rel, bytes) {
 async function removeTexture(storageKey, rel) {
   return send(`texture-packs/${storageKey}/${rel.replace(/\\/g, '/')}`, 'DELETE');
 }
-module.exports = { getVersionState, persistVersionState, isEnabled, isUnhealthy, persistJsonFile, persistBackup, persistTexture, removeTexture, assertKey };
+module.exports = { isEnabled, isUnhealthy, persistJsonFile, persistBackup, persistTexture, removeTexture, assertKey };
