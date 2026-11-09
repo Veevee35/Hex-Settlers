@@ -4249,6 +4249,8 @@ body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout>.panel>:not(#lobby
 body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro{
   display:block;text-align:center;padding:30px 12px 8px;
 }
+.uncreatedLobbyNav{display:flex;justify-content:flex-start;align-items:center;margin:0 0 14px;min-height:34px;}
+.uncreatedLobbyNav .btn{font-size:12px;padding:8px 12px;text-align:left;}
 .uncreatedLobbyEyebrow{font-size:11px;font-weight:800;letter-spacing:.17em;color:#d7ac55;}
 .uncreatedLobbyIntro h1{font-size:clamp(22px,3vw,34px);line-height:1.2;margin:10px 0;}
 .uncreatedLobbyIntro p{font-size:14px;line-height:1.5;color:var(--muted);margin:0 auto 14px;max-width:430px;}
