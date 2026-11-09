@@ -1,0 +1,34 @@
+/* Deliberately loaded only for the dedicated management hostname. */
+body.admin-portal{min-height:100vh;background:#081018;color:#e5edf7}
+body.admin-portal #playModeScreen,body.admin-portal #journeyScreen,
+body.admin-portal #rankedScreen,body.admin-portal #roomNotFoundScreen,
+body.admin-portal #walkthroughOverlay,body.admin-portal #app,
+body.admin-portal #accountOrb,body.admin-portal #accountMenu,
+body.admin-portal #oauthUsernameSetup,body.admin-portal #legalOverlay,
+body.admin-portal #languagePage,body.admin-portal #registerOverlay,
+body.admin-portal #loginLanguageBtn,
+body.admin-portal #landingCreateBtn,body.admin-portal #oauthLoginOptions,
+body.admin-portal #landingForgotBtn,body.admin-portal .loginSupport,
+body.admin-portal .portalLegalLinks{display:none!important}
+body.admin-portal #authLanding{z-index:20}
+body.admin-portal #authLanding .authPortalCard{max-width:480px}
+body.admin-portal #authLanding .portalLogo{width:min(200px,64%)}
+body.admin-portal #authLanding .appVersion{bottom:14px}
+#adminPortalBar{display:none;position:fixed;top:0;left:0;right:0;z-index:1110;min-height:62px;align-items:center;justify-content:space-between;gap:12px;padding:10px clamp(14px,3vw,34px);background:#0b1722;border-bottom:1px solid #30485b}
+body.admin-portal #adminPortalBar.signedIn{display:flex}
+.adminPortalBrand{font-weight:900;letter-spacing:.08em;color:#eef4fd;font-size:13px}
+.adminPortalBrand span{color:#96c6ed;font-size:13px;letter-spacing:0;font-weight:600;margin-left:7px}
+.adminPortalTools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.adminPortalTools .btn{font-size:12px}
+body.admin-portal .modal{inset:62px 0 0;align-items:stretch;padding:clamp(8px,2vw,20px)}
+body.admin-portal .modal:has(.adminDashboard) .modalBackdrop{display:none}
+body.admin-portal .modalBox:has(.adminDashboard){width:100%;max-width:1460px;max-height:100%;margin:auto;display:flex;flex-direction:column;border-radius:14px}
+body.admin-portal .modalBox:has(.adminDashboard) .modalBody{flex:1;max-height:none;overflow:auto}
+body.admin-portal .modalBox:has(.adminDashboard) .modalTitle{font-size:20px;padding:4px 6px 8px}
+body.admin-portal .modalBox:has(.adminDashboard) .modalActions{display:none}
+body.admin-portal .adminTabs{position:sticky;top:-1px;background:#0e1620;z-index:2;padding:10px 0}
+body.admin-portal #adminPortalDenied{position:fixed;inset:64px 0 0;display:grid;place-items:center;z-index:50;background:#071019;padding:25px}
+body.admin-portal #adminPortalDenied.hidden{display:none}
+.adminPortalDeniedCard{width:min(480px,100%);padding:30px;background:#101d2c;border:1px solid #30485b;border-radius:18px}
+.adminPortalDeniedCard h1{margin-top:0;font-size:26px}
+.adminPortalDeniedCard p{line-height:1.6;color:#b7c9d9}
+@media(max-width:700px){body.admin-portal .adminPortalBrand{font-size:11px}body.admin-portal .adminPortalBrand span{display:block;margin:2px 0 0}body.admin-portal .modal{padding:5px}body.admin-portal .adminTab{white-space:nowrap}body.admin-portal .adminTabs{flex-wrap:nowrap;overflow-x:auto}body.admin-portal .modalBox:has(.adminDashboard){padding:9px}}

@@ -9,12 +9,7 @@
   "assets": {
     "directory": "public",
     "binding": "ASSETS",
-    "run_worker_first": [
-      "/api/*",
-      "/health",
-      "/ws",
-      "/texture-pack-template.zip"
-    ]
+    "run_worker_first": true
   },
   "containers": [
     {

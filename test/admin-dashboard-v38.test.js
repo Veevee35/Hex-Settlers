@@ -58,7 +58,7 @@ test('admin dashboard has five tabs, self-only Manage Account, casual four-map r
   const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
   const client = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'public/styles.css'), 'utf8');
-  assert.match(html, /id="adminManagementBtn"[^>]*hidden/);
+  assert.doesNotMatch(html, /id="adminManagementBtn"/); // management moved to separate host
   assert.match(html, /id="rulesPageCategoryTabs"/);
   assert.match(html, /id="rulesPageScenarioTabs"/);
   assert.match(client, /\['classic', 'Classic 2–4'\], \['classic56', 'Classic 5–6'\]/);

@@ -40,7 +40,7 @@ function prepareFiles(state) {
   packageJson.version = version;
   packageLock.version = version;
   packageLock.packages[''].version = version;
-  const htmlFile = textFile('public/index.html', /(<div class="appVersion" aria-label="Game version">)V\d+\.\d+\.\d+(<\/div>)/g, (_all, before, after) => `${before}V${version}${after}`, 7);
+  const htmlFile = textFile('public/index.html', /(<div class="appVersion" aria-label="Game version">)V\d+\.\d+\.\d+(<\/div>)/g, (_all, before, after) => `${before}V${version}${after}`, 8);
   for (const [oldPattern, replacement] of [
     [/(styles\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(unified-theme\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],

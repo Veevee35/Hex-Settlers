@@ -25,8 +25,8 @@ test('the current version appears on both portal pages, and all assets reflect t
   const state = JSON.parse(read('build-version.json'));
   const version = `V${state.major}.${state.minor}.${state.patch}`;
   const tag = `release-v${state.major}.${state.minor}.${state.patch}`;
-  assert.equal((html.match(/class="appVersion" aria-label="Game version"/g) || []).length, 7);
-  assert.equal((html.match(new RegExp(`>${version.replace(/\./g, '\\.')}</div>`, 'g')) || []).length, 7);
+  assert.equal((html.match(/class="appVersion" aria-label="Game version"/g) || []).length, 8);
+  assert.equal((html.match(new RegExp(`>${version.replace(/\./g, '\\.')}</div>`, 'g')) || []).length, 8);
   assert.ok(html.includes(`styles.css?v=${tag}`));
   assert.ok(html.includes(`app.js?v=${tag}`));
   assert.ok(js.includes(`ASSET_CACHE_SW_BUILD = '${tag}'`));
@@ -76,7 +76,7 @@ test('version bump stamps page text, both asset URL revisions, service worker, a
   let html = fs.readFileSync(path.join(fixture, 'public/index.html'), 'utf8');
   assert.ok(html.includes(`styles.css?v=${expectedTag}`));
   assert.ok(html.includes(`app.js?v=${expectedTag}`));
-  assert.equal((html.match(new RegExp(`>${expectedLabel.replace(/\./g, '\\.')}<\/div>`, 'g')) || []).length, 7);
+  assert.equal((html.match(new RegExp(`>${expectedLabel.replace(/\./g, '\\.')}<\/div>`, 'g')) || []).length, 8);
   assert.ok(fs.readFileSync(path.join(fixture, 'public/app.js'), 'utf8').includes(`ASSET_CACHE_SW_BUILD = '${expectedTag}'`));
   assert.ok(fs.readFileSync(path.join(fixture, 'public/sw.js'), 'utf8').includes(`CACHE_NAME = CACHE_PREFIX + '${expectedTag}'`));
   assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package-lock.json'))).version, expectedLabel.slice(1));

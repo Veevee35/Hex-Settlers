@@ -5,6 +5,10 @@ import { Container, ContainerProxy, getContainer } from '@cloudflare/containers'
 export { ContainerProxy }; // Required by outboundByHost R2 bridge.
 
 const STATE_HOST = 'hex-state.internal';
+// One Worker and one authoritative game container serve both hostnames.
+// Host routing is checked before ASSETS or the backend are reached.
+import { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath } from './admin-routing.mjs';
+export { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath };
 const JSON_FILES = new Set(['users.json', 'game_history.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
 const MAX_STATE_UPLOAD = 128 * 1024 * 1024;
 const MAX_TEXTURE_UPLOAD = 8 * 1024 * 1024;
@@ -118,7 +122,8 @@ export class HexGameContainer extends Container {
       NODE_ENV: 'production', HOST: '0.0.0.0', PORT: '3000', DATA_DIR: '/data',
       HEX_TRUST_PROXY: 'true',
       HEX_PUBLIC_BASE_URL: String(env.PUBLIC_BASE_URL || ''),
-      HEX_ALLOWED_ORIGINS: String(env.PUBLIC_BASE_URL || ''),
+      HEX_ALLOWED_ORIGINS: [String(env.PUBLIC_BASE_URL || ''), `https://${ADMIN_HOST}`].filter(Boolean).join(','),
+      HEX_ADMIN_HOST: ADMIN_HOST,
       CLOUDFLARE_STATE_ENDPOINT: `http://${STATE_HOST}`,
       HEX_BUILTIN_ADMIN_ENABLED: 'true',
       HEX_ADMIN_PASSWORD: String(env.HEX_ADMIN_PASSWORD || ''),
@@ -169,9 +174,19 @@ export function sameOrigin(request) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const adminHost = isAdminHost(request);
+    const path = url.pathname;
+    // Every asset request hits this Worker first. Never expose dashboard-only
+    // assets or management APIs from the public game or workers.dev host.
+    if (!adminHost && (isAdminApiPath(path) || isPrivatePortalAsset(path))) {
+      return hardened(new Response('Not found', { status: 404 }), request);
+    }
+    if (adminHost && !isAllowedAdminPortalPath(path)) {
+      return hardened(new Response('Not found', { status: 404 }), request);
+    }
     // Worker static assets have a 25 MiB per-file cap. The downloadable 27 MiB
     // texture-pack template lives in R2 and is the only public object served there.
-    if (url.pathname === '/texture-pack-template.zip') {
+    if (!adminHost && url.pathname === '/texture-pack-template.zip') {
       const obj = await env.STATE.get('assets/texture-pack-template.zip');
       return obj ? new Response(obj.body, { headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename=texture-pack-template.zip', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
         : new Response('Template has not been uploaded to R2.', { status: 404 });
@@ -200,6 +215,9 @@ await backend.startAndWaitForPorts({
 
 return backend.fetch(new Request(request, { headers }));
     }
+    // Same underlying game UI/JS powers the administrator console, but it
+    // enters a dashboard-only mode based on this exact hostname. No redirect
+    // to the public host, so HTTP-only sessions stay isolated by hostname.
     return hardened(await env.ASSETS.fetch(request), request);
   },
 };

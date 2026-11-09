@@ -48,7 +48,8 @@ test('administrator room management stays server-authorized and surprise maps ig
   assert.match(server, /if \(!isAdminUser\(admin\)\)/);
   assert.match(server, /game\.rules\?\.randomMapAtStart !== true && room\.preview/);
   assert.match(client, /openServerManagementConsole/);
-  assert.match(client, /adminManagementBtn/);
+  assert.match(client, /ADMIN_PORTAL_HOST/);
+  assert.doesNotMatch(html, /adminManagementBtn/);
   assert.doesNotMatch(html, /id="serverManagementBtn"/);
   assert.match(html, /id="randomMapAtStartToggle"/);
 });

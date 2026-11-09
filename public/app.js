@@ -3,6 +3,41 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  const ADMIN_PORTAL_HOST = 'admin.hexsettlers.org';
+  const IS_ADMIN_PORTAL = window.location.hostname.toLowerCase() === ADMIN_PORTAL_HOST;
+  if (IS_ADMIN_PORTAL) {
+    document.body.classList.add('admin-portal');
+    document.title = 'Hex Settlers | Management';
+    const styles = document.createElement('link');
+    styles.rel = 'stylesheet';
+    styles.href = '/admin-portal.css';
+    document.head.appendChild(styles);
+    const toolbar = document.createElement('header');
+    toolbar.id = 'adminPortalBar';
+    toolbar.innerHTML = '<span class="adminPortalBrand">HEX SETTLERS <span>Management</span></span><div class="adminPortalTools"><button id="adminPortalDashboardBtn" class="btn" type="button">Dashboard</button><button id="adminPortalMyAccountBtn" class="btn" type="button">My account</button><button id="adminPortalSignOutBtn" class="btn" type="button">Sign out</button></div>';
+    document.body.appendChild(toolbar);
+    const landingTitle = $('authLanding')?.querySelector('h1');
+    if (landingTitle) landingTitle.textContent = 'Management Sign In';
+    const landingLead = $('authLanding')?.querySelector('.portalLead');
+    if (landingLead) landingLead.textContent = 'Restricted access for authorized Hex Settlers administrators.';
+    toolbar.querySelector('#adminPortalDashboardBtn').addEventListener('click', () => {
+      if (authUser?.isAdmin) openAdminManagementScreen();
+    });
+    toolbar.querySelector('#adminPortalMyAccountBtn').addEventListener('click', () => {
+      if (authUser?.isAdmin) openUserManagementScreen({ selfOnly: true });
+    });
+    toolbar.querySelector('#adminPortalSignOutBtn').addEventListener('click', () => {
+      $('accountLogoutBtn')?.click();
+    });
+    const denied = document.createElement('div');
+    denied.id = 'adminPortalDenied';
+    denied.className = 'hidden';
+    denied.innerHTML = '<div class="adminPortalDeniedCard"><h1>Restricted area</h1><p>This account does not have management privileges.</p><button id="adminPortalDeniedSignOut" class="btn primary" type="button">Sign out</button></div>';
+    denied.querySelector('button').addEventListener('click', () => $('accountLogoutBtn')?.click());
+    document.body.appendChild(denied);
+  }
+  let adminPortalOpenedFor = '';
+
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
   const ASSET_CACHE_SW_BUILD = 'release-v1.0.5';
@@ -33,7 +68,7 @@
       }, { once: true });
     } catch (_) {}
   }
-  registerAssetCacheServiceWorker();
+  if (!IS_ADMIN_PORTAL) registerAssetCacheServiceWorker();
   window.addEventListener('hexsettlers:languagechange', () => {
     try { if (typeof render === 'function') render(); } catch (_) {}
   });
@@ -1589,7 +1624,7 @@
     } else if (!user) {
       removePersistedAuthToken();
     }
-    if (authUser && ui.nameInput && (authUser.isAdmin || !String(ui.nameInput.value || '').trim())) {
+    if (authUser && ui.nameInput && ((typeof IS_ADMIN_PORTAL !== 'undefined' && IS_ADMIN_PORTAL) || !String(ui.nameInput.value || '').trim())) {
       ui.nameInput.value = authUser.displayName || authUser.username || '';
     }
     if (authUser && !authUser.needsUsernameSetup) {
@@ -1735,6 +1770,7 @@
   }
 
   function reconnectForCookieAuth() {
+    if (IS_ADMIN_PORTAL) return; // management uses HTTP sessions only, never a game WebSocket
     websocketReconnectAllowed = true;
     websocketReconnectDelayMs = 0;
     roomConnectionReady = false;
@@ -1783,6 +1819,21 @@
   function updateAuthUi() {
     const loggedIn = !!authUser;
     const needsUsername = loggedIn && authUser.needsUsernameSetup === true;
+    if (typeof IS_ADMIN_PORTAL !== 'undefined' && IS_ADMIN_PORTAL) {
+      const privileged = loggedIn && !!authUser.isAdmin && !needsUsername;
+      const denied = $('adminPortalDenied');
+      denied?.classList.toggle('hidden', !loggedIn || privileged);
+      $('adminPortalBar')?.classList.toggle('signedIn', privileged);
+      if (!privileged) {
+        adminPortalOpenedFor = '';
+        if (ui.modal?.querySelector('.adminDashboard')) forceCloseModal();
+      } else if (authUser.id !== adminPortalOpenedFor) {
+        adminPortalOpenedFor = authUser.id;
+        setTimeout(() => {
+          if (IS_ADMIN_PORTAL && authUser?.isAdmin && authUser.id === adminPortalOpenedFor) openAdminManagementScreen();
+        }, 0);
+      }
+    }
     const ready = loggedIn && !needsUsername;
     $('oauthUsernameSetup')?.classList.toggle('hidden', !needsUsername);
     if (needsUsername) {
@@ -1830,7 +1881,7 @@
     }
     if (ui.authStatus) {
       ui.authStatus.textContent = loggedIn
-        ? `Logged in as ${authUser.username}${authUser.isAdmin ? ' • Administrator' : ''}`
+        ? `Logged in as ${authUser.username}`
         : 'Not logged in.';
     }
     if (ui.authStats) {
@@ -1842,9 +1893,9 @@
     if (ui.forgotPasswordBtn) ui.forgotPasswordBtn.classList.toggle('hidden', loggedIn);
     if (ui.userManagementBtn) {
       ui.userManagementBtn.classList.toggle('hidden', !loggedIn);
-      ui.userManagementBtn.textContent = loggedIn && authUser.isAdmin ? 'User Management' : 'My Account';
+      ui.userManagementBtn.textContent = 'My Account';
     }
-    $('adminManagementBtn')?.classList.toggle('hidden', !loggedIn || !authUser?.isAdmin);
+    // Management is a separate hostname; public account menus never expose it.
     // Legacy per-feature menu items are now combined in Admin Management.
     $('serverManagementBtn')?.remove();
     $('ratingManagementBtn')?.remove();
@@ -7150,7 +7201,7 @@ function buildDirectJoinUrl(roomCode, options = {}) {
   try {
     // Use the address that actually serves this game, including LAN hosts and
     // custom ports. Link rendering must never depend on a network lookup.
-    const u = new URL(window.location.pathname || '/', window.location.origin);
+    const u = (typeof IS_ADMIN_PORTAL !== 'undefined' && IS_ADMIN_PORTAL) ? new URL('https://hexsettlers.org/') : new URL(window.location.pathname || '/', window.location.origin);
     u.searchParams.set('room', code);
     if (spectator) u.searchParams.set('spectator', '1');
     else u.searchParams.delete('spectator');
@@ -7729,7 +7780,7 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'room_closed_by_admin') {
-        returnToGameTypeSelection(msg.reason || 'This room was closed by an administrator.');
+        returnToGameTypeSelection(msg.reason || 'This room has been closed.');
         return;
       }
 
@@ -7937,11 +7988,17 @@ function refreshLobbyJoinLinkUi() {
   pendingDirectJoinAsSpectator = parseDirectJoinSpectatorFromUrl();
   selectInvitedLobbyMode();
   updateAuthUi();
-  connect();
+  if (IS_ADMIN_PORTAL) {
+    void authApi('session').then(result => {
+      if (result.user) setAuthState(result.user, null, { clearToken: true });
+    }).catch(() => { /* No management session yet; show sign-in. */ });
+  } else {
+    connect();
+  }
   handleOAuthReturnFromUrl();
   setTimeout(handleAccountActionLinkFromUrl, 0);
   // Keep the countdown clock ticking even when no state messages arrive.
-  ensureTimerUiInterval();
+  if (!IS_ADMIN_PORTAL) ensureTimerUiInterval();
 
   // Load images
   async function loadImages() {
@@ -7972,7 +8029,7 @@ function refreshLobbyJoinLinkUi() {
     await Promise.all(entries.map(([k, src]) => load(k, src)));
     return true;
   }
-  loadImages().then(render);
+  if (!IS_ADMIN_PORTAL) loadImages().then(render);
 
   // Texture-pack port images do not all use the same transparent padding.
   // Cache visible pixel bounds and center the artwork, not the PNG canvas.
@@ -8428,7 +8485,7 @@ function refreshLobbyJoinLinkUi() {
 
     const users = (Array.isArray(result.users) ? result.users : []).filter(user => adminOnly ? user.id !== result.currentUserId : (!selfOnly || user.id === result.currentUserId));
     const currentUserId = String(result.currentUserId || authUser.id || '');
-    const adminView = !!result.isAdmin && !selfOnly;
+    const adminView = typeof IS_ADMIN_PORTAL !== 'undefined' && IS_ADMIN_PORTAL && !!result.isAdmin && !selfOnly;
     const emailDeliveryConfigured = !!result.emailDeliveryConfigured;
     const emailDeliveryMode = String(result.emailDeliveryMode || 'none');
     const oauthAvailability = result.oauthAvailability || {};
@@ -8571,7 +8628,7 @@ function refreshLobbyJoinLinkUi() {
         const username = document.createElement('span');
         username.textContent = user.username || 'Unknown user';
         title.appendChild(username);
-        if (user.isAdmin) {
+        if (adminView && user.isAdmin) {
           const badge = document.createElement('span');
           badge.className = 'userManagementBadge';
           badge.textContent = 'Admin';
@@ -12019,7 +12076,6 @@ function refreshLobbyJoinLinkUi() {
     setAccountMenuOpen(false);
   });
   $('accountManageBtn')?.addEventListener('click', () => { stopRankedMatchmaking(); $('accountMenu')?.classList.add('hidden'); openUserManagementScreen({ selfOnly: true }); });
-  $('adminManagementBtn')?.addEventListener('click', () => { if (!authUser?.isAdmin) return; stopRankedMatchmaking(); setAccountMenuOpen(false); openAdminManagementScreen(); });
   $('friendsBtn')?.addEventListener('click', () => { setAccountMenuOpen(false); $('friendsOverlay')?.classList.remove('hidden'); loadFriends(); });
   $('friendsCloseBtn')?.addEventListener('click', () => $('friendsOverlay')?.classList.add('hidden'));
   $('friendRequestForm')?.addEventListener('submit', async (event) => {

@@ -10634,7 +10634,19 @@ async function handleAuthHttp(req, res, urlPath) {
   sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
 }
 
+function requestIsAdminHostname(req) {
+  const requiredHost = String(process.env.HEX_ADMIN_HOST || '').trim().toLowerCase();
+  if (!requiredHost) return true; // local development / legacy non-Cloudflare deployments
+  return forwardedHost(req, APP_CONFIG.trustProxy).toLowerCase() === requiredHost;
+}
+
 async function handleAdminHttp(req, res, urlPath) {
+  // Do not permit the public hostname (or direct container access) to call
+  // management endpoints even with a valid administrator session.
+  if (!requestIsAdminHostname(req)) {
+    sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
+    return;
+  }
   if (req.method !== 'POST') {
     sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
     return;
@@ -10963,7 +10975,7 @@ async function handleAdminHttp(req, res, urlPath) {
       const room = rooms.get(code);
       if (!room) continue;
       for (const socket of room.sockets?.values?.() || []) {
-        if (socket.readyState === WebSocket.OPEN) sendJson(socket, { type: 'room_closed_by_admin', code, reason: 'This room was closed by an administrator.' });
+        if (socket.readyState === WebSocket.OPEN) sendJson(socket, { type: 'room_closed_by_admin', code, reason: 'This room has been closed.' });
         socket._roomCode = null;
         socket._playerId = null;
       }
@@ -10998,7 +11010,7 @@ async function handleAdminHttp(req, res, urlPath) {
       if (room.sockets.get(userId) === targetSocket) room.sockets.delete(userId);
       targetSocket._roomCode = null;
       targetSocket._playerId = null;
-      if (targetSocket.readyState === WebSocket.OPEN) sendJson(targetSocket, { type: 'left_room', code, kicked: true, reason: 'You were removed from the room by an administrator.' });
+      if (targetSocket.readyState === WebSocket.OPEN) sendJson(targetSocket, { type: 'left_room', code, kicked: true, reason: 'You were removed from the room.' });
     }
     if (!(room.players || []).length && !(room.spectators || []).length) rooms.delete(code);
     else {
@@ -11299,7 +11311,8 @@ async function handleAccountHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/account/users') {
-    const sourceUsers = isAdminUser(viewer) ? (USERS_DB.users || []) : [viewer];
+    const isAdminPortalViewer = isAdminUser(viewer) && requestIsAdminHostname(req);
+    const sourceUsers = isAdminPortalViewer ? (USERS_DB.users || []) : [viewer];
     const users = sourceUsers
       .map((user) => safeManagedUser(user, { includeEmail: user.id === viewer.id }))
       .filter(Boolean)
@@ -11308,7 +11321,7 @@ async function handleAccountHttp(req, res, urlPath) {
       ok: true,
       users,
       currentUserId: viewer.id,
-      isAdmin: isAdminUser(viewer),
+      isAdmin: isAdminPortalViewer,
       emailDeliveryConfigured: isEmailDeliveryConfigured(process.env),
       emailDeliveryMode: emailDeliveryMode(process.env),
       oauthAvailability: providerAvailability(),
