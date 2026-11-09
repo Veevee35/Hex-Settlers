@@ -20,6 +20,7 @@ const { applyBuild, displayVersion } = require('./server/build-version');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
+const { PROVIDERS: OAUTH_PROVIDERS, providerAvailability, beginOAuth, finishOAuth, clearFlowCookie, safeReturnPath } = require('./server/oauth-login');
 const { parseClientMessage } = require('./server/protocol');
 const { roomExpiry, isPlayerActivity, ROOM_LIFETIMES_MS } = require('./server/room-lifecycle');
 const {
@@ -814,6 +815,43 @@ function findUserByEmail(email, { includePending = false } = {}) {
   }) || null;
 }
 
+function findUserByOAuth(provider, subject) {
+  const id = String(subject || '');
+  if (!id) return null;
+  return (USERS_DB.users || []).find(user => user && Array.isArray(user.oauthAccounts) &&
+    user.oauthAccounts.some(link => link.provider === provider && link.subject === id)) || null;
+}
+
+async function createOAuthUser(identity) {
+  const raw = String(identity.name || '').replace(/[^a-zA-Z0-9_.-]+/g, '_').replace(/^[_\.-]+|[_\.-]+$/g, '').slice(0, 24);
+  const seed = raw.length >= 3 ? raw : `${identity.provider}_player`;
+  for (let index = 0; index < 100; index++) {
+    const suffix = index ? `_${crypto.randomBytes(3).toString('hex')}` : '';
+    const username = `${seed.slice(0, 24 - suffix.length)}${suffix}`;
+    if (findUserByUsername(username) || isReservedAdminUsername(username)) continue;
+    const result = await createUser({ username, displayName: identity.name, password: crypto.randomBytes(32).toString('base64url') });
+    if (!result.ok) continue;
+    // Two near-simultaneous callbacks for the same provider identity can reach
+    // createUser() while its password hash is awaiting. Keep only one account.
+    const existingIdentity = findUserByOAuth(identity.provider, identity.subject);
+    if (existingIdentity) {
+      USERS_DB.users = USERS_DB.users.filter(user => user.id !== result.user.id);
+      return existingIdentity;
+    }
+    // OAuth accounts are passwordless until a separate explicit local-password flow is added.
+    delete result.user.pass;
+    result.user.oauthAccounts = [{ provider: identity.provider, subject: identity.subject, name: identity.name, linkedAt: now() }];
+    return result.user;
+  }
+  throw new Error('Unable to create a unique player username.');
+}
+
+function accountOauthLabels(user) {
+  return (Array.isArray(user?.oauthAccounts) ? user.oauthAccounts : [])
+    .filter(link => Object.hasOwn(OAUTH_PROVIDERS, link.provider) && link.subject)
+    .map(link => ({ provider: link.provider, label: OAUTH_PROVIDERS[link.provider], name: String(link.name || '').slice(0, 100), linkedAt: Number(link.linkedAt || 0) }));
+}
+
 function oneTimeTokenHash(token) {
   return crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
 }
@@ -850,6 +888,8 @@ function safeUserPublic(u) {
     email: managed.email,
     pendingEmail: managed.pendingEmail,
     pendingEmailExpiresAt: managed.pendingEmailExpiresAt,
+    hasPassword: managed.hasPassword,
+    oauthProviders: managed.oauthProviders,
   };
 }
 
@@ -10198,6 +10238,79 @@ async function handleTexturePackHttp(req, res, urlPath) {
   sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'GET, PUT, POST' });
 }
 
+async function handleOAuthHttp(req, res, urlPath) {
+  const secure = requestIsTls(req, APP_CONFIG.trustProxy);
+  const cookie = parseCookies(req.headers.cookie);
+  const baseUrl = publicBaseUrlForRequest(req);
+  if (urlPath === '/api/auth/oauth/providers') {
+    if (req.method !== 'GET') { sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }); return; }
+    sendHttpJson(req, res, 200, { ok: true, providers: providerAvailability() });
+    return;
+  }
+  const match = /^\/api\/auth\/oauth\/(google|github|cloudflare)\/(start|callback)$/.exec(urlPath);
+  if (!match || req.method !== 'GET') { sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' }); return; }
+  const [, provider, action] = match;
+  const params = new URL(req.url, 'http://internal.invalid').searchParams;
+  const finishRedirect = (message, succeeded = false, returnTo = '/') => {
+    const target = new URL(safeReturnPath(returnTo), baseUrl || 'http://localhost');
+    target.searchParams.set('oauth', succeeded ? 'connected' : 'error');
+    if (succeeded) target.searchParams.set('provider', provider);
+    else target.searchParams.set('oauth_message', message);
+    return target.pathname + target.search;
+  };
+  const redirect = (location, cookies = []) => {
+    res.writeHead(303, { Location: location, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) });
+    res.end();
+  };
+  if (action === 'start') {
+    if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+      sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' }); return;
+    }
+    try {
+      const intent = params.get('intent') === 'link' ? 'link' : 'login';
+      const viewer = authenticateByToken(cookie[SESSION_COOKIE_NAME]);
+      if (intent === 'link' && !viewer) { redirect(finishRedirect('Sign in to connect an account.')); return; }
+      const start = beginOAuth({ provider, intent, userId: intent === 'link' ? viewer.id : '', sessionTokenHash: intent === 'link' ? hashSessionToken(cookie[SESSION_COOKIE_NAME]) : '', baseUrl, secure, returnTo: params.get('return') || '/' });
+      redirect(start.location, [start.cookie]);
+    } catch (error) { redirect(finishRedirect(error.message || 'Sign-in could not start.')); }
+    return;
+  }
+  const cleared = clearFlowCookie(secure);
+  try {
+    const { flow, identity } = await finishOAuth({ provider, callbackUrl: req.url, cookieHeader: req.headers.cookie, baseUrl });
+    if (flow.intent === 'link') {
+      // Local sessions are SameSite=Strict and therefore deliberately absent
+      // on cross-site OAuth callbacks. The encrypted Lax flow cookie instead
+      // carries a hash binding to the existing, still-active local session.
+      const viewer = findUserById(flow.userId);
+      const stillActive = viewer && (viewer.tokens || []).some(entry =>
+        entry && entry.tokenHash && Number(entry.expiresAt || 0) > now() &&
+        timingSafeHexEqual(entry.tokenHash, String(flow.sessionTokenHash || '')));
+      if (!stillActive) throw new Error('Your session changed. Sign in again to connect this provider.');
+      const owner = findUserByOAuth(provider, identity.subject);
+      if (owner && owner.id !== viewer.id) throw new Error('This provider account is already linked to another player.');
+      viewer.oauthAccounts = Array.isArray(viewer.oauthAccounts) ? viewer.oauthAccounts : [];
+      const existing = viewer.oauthAccounts.find(link => link.provider === provider);
+      if (existing && existing.subject !== identity.subject) throw new Error('Disconnect your existing provider account before connecting a different one.');
+      if (!existing) viewer.oauthAccounts.push({ provider, subject: identity.subject, name: identity.name, linkedAt: now() });
+      await saveUsersDb();
+      redirect(finishRedirect('', true, flow.returnTo), [cleared]);
+      return;
+    }
+    let user = findUserByOAuth(provider, identity.subject);
+    // Never bind identities based on matching email or username: that can
+    // silently merge two distinct player accounts and facilitate takeovers.
+    if (!user) user = await createOAuthUser(identity);
+    user.lastLoginAt = now();
+    const token = issueAuthToken(user);
+    await saveUsersDb();
+    redirect(finishRedirect('', true, flow.returnTo), [cleared, sessionCookie(token, { secure })]);
+  } catch (error) {
+    console.warn('[oauth]', provider, 'callback failed:', error.message);
+    redirect(finishRedirect(error.message || 'Sign-in failed.'), [cleared]);
+  }
+}
+
 async function handleAuthHttp(req, res, urlPath) {
   if (req.method !== 'POST') {
     sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
@@ -10864,6 +10977,17 @@ async function handleAdminHttp(req, res, urlPath) {
       return;
     }
     const secondary = primary === first ? second : first;
+    const combinedOauth = [...(primary.oauthAccounts || [])];
+    for (const link of (secondary.oauthAccounts || [])) {
+      const sameProvider = combinedOauth.find(candidate => candidate.provider === link.provider);
+      if (sameProvider && sameProvider.subject !== link.subject) {
+        sendHttpJson(req, res, 409, { ok: false, error: `Both accounts use different ${OAUTH_PROVIDERS[link.provider] || 'external'} identities. Disconnect one before merging.` });
+        return;
+      }
+      if (!sameProvider) combinedOauth.push(link);
+    }
+    primary.oauthAccounts = combinedOauth;
+    if (!primary.pass && secondary.pass) primary.pass = secondary.pass;
     const statKeys = ['gamesPlayed', 'wins', 'losses', 'totalVP'];
     primary.stats = primary.stats && typeof primary.stats === 'object' ? primary.stats : {};
     for (const key of statKeys) primary.stats[key] = Math.max(0, Number(primary.stats[key] || 0)) + Math.max(0, Number(secondary.stats?.[key] || 0));
@@ -11058,7 +11182,23 @@ async function handleAccountHttp(req, res, urlPath) {
       isAdmin: isAdminUser(viewer),
       emailDeliveryConfigured: isEmailDeliveryConfigured(process.env),
       emailDeliveryMode: emailDeliveryMode(process.env),
+      oauthAvailability: providerAvailability(),
     });
+    return;
+  }
+
+  if (urlPath === '/api/account/unlink-oauth') {
+    const provider = String(body.provider || '');
+    const links = Array.isArray(viewer.oauthAccounts) ? viewer.oauthAccounts : [];
+    if (!Object.hasOwn(OAUTH_PROVIDERS, provider) || !links.some(link => link.provider === provider)) {
+      sendHttpJson(req, res, 404, { ok: false, error: 'That sign-in provider is not linked.' }); return;
+    }
+    if (!viewer.pass && links.length <= 1) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'Connect another provider before removing your only sign-in method.' }); return;
+    }
+    viewer.oauthAccounts = links.filter(link => link.provider !== provider);
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(viewer), message: `${OAUTH_PROVIDERS[provider]} disconnected.` });
     return;
   }
 
@@ -11094,6 +11234,7 @@ async function handleAccountHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/account/change-password') {
+    if (!viewer.pass) { sendHttpJson(req, res, 409, { ok: false, error: 'Provider-only accounts do not have a local password to change.' }); return; }
     if (!await verifyPassword(viewer, body.currentPassword)) {
       sendHttpJson(req, res, 401, { ok: false, error: 'Current password is incorrect.' });
       return;
@@ -11115,6 +11256,7 @@ async function handleAccountHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/account/request-email-link') {
+    if (!viewer.pass) { sendHttpJson(req, res, 409, { ok: false, error: 'Provider-only accounts cannot configure email/password recovery.' }); return; }
     if (!isEmailDeliveryConfigured(process.env)) {
       sendHttpJson(req, res, 503, { ok: false, error: 'Email delivery is not configured on this server.' });
       return;
@@ -11175,6 +11317,7 @@ async function handleAccountHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/account/remove-email') {
+    if (!viewer.pass) { sendHttpJson(req, res, 409, { ok: false, error: 'Provider-only accounts cannot modify password-recovery email.' }); return; }
     if (!await verifyPassword(viewer, body.currentPassword)) {
       sendHttpJson(req, res, 401, { ok: false, error: 'Current password is incorrect.' });
       return;
@@ -11257,6 +11400,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/texture-packs/')) {
       await handleTexturePackHttp(req, res, urlPath);
+      return;
+    }
+    if (urlPath.startsWith('/api/auth/oauth/')) {
+      await handleOAuthHttp(req, res, urlPath);
       return;
     }
     if (urlPath.startsWith('/api/auth/')) {

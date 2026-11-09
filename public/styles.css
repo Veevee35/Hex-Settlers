@@ -4583,3 +4583,17 @@ body.ranked-lobby .copyLinkValue{height:32px;min-height:32px;margin-top:0;paddin
 #modalActions.bossProfileActions{justify-content:space-between;width:100%;display:flex}
 #modalActions.bossProfileActions button:last-child{margin-left:auto}
 @media(max-width:680px){.settingsSandboxSliders{grid-template-columns:1fr}.journeySettingsHeading{flex-direction:column;align-items:flex-start}.settingsMockHexes span{width:43px;height:45px;font-size:20px}}
+
+
+/* Optional provider sign-in and linked-identity account controls. */
+.oauthOptions { margin-top: 14px; }
+.oauthDivider { display:flex; align-items:center; gap:12px; margin:10px 0 12px; font-size:12px; color:#aebfca; text-align:center; }
+.oauthDivider:before,.oauthDivider:after { content:""; flex:1; height:1px; background:rgba(173,195,211,.28); }
+.oauthProviderButtons { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+.oauthProviderButtons .oauthProvider { flex:1 1 100px; min-height:39px; border-color:#42657d; background:#172937; white-space:normal; text-align:center; }
+.oauthProviderButtons .oauthProvider:hover { border-color:#dfb34f; background:#233a49; }
+.oauthLinkedRow { display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.08); }
+.oauthLinkedRow strong { font-weight:700; color:#f3f6fa; }
+.oauthLinkedRow span { font-size:12px; color:#aebfca; }
+.oauthLinkedActions { display:flex; gap:8px; flex-wrap:wrap; }
+@media(max-width:600px){.oauthProviderButtons .oauthProvider { flex:1 1 100%; } }

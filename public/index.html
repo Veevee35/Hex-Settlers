@@ -27,6 +27,14 @@
         </div>
         <button id="landingLoginBtn" class="btn primary portalPrimary">Log In</button>
         <button id="landingCreateBtn" class="btn">Create Account</button>
+        <div id="oauthLoginOptions" class="oauthOptions hidden" aria-label="Other sign-in methods">
+          <div class="oauthDivider"><span>or continue with</span></div>
+          <div class="oauthProviderButtons">
+            <button type="button" class="btn oauthProvider hidden" data-oauth-provider="google" data-oauth-intent="login">Google (Gmail)</button>
+            <button type="button" class="btn oauthProvider hidden" data-oauth-provider="github" data-oauth-intent="login">GitHub</button>
+            <button type="button" class="btn oauthProvider hidden" data-oauth-provider="cloudflare" data-oauth-intent="login">Cloudflare</button>
+          </div>
+        </div>
         <button id="landingForgotBtn" class="portalTextBtn">Forgot your password?</button>
         <div id="landingError" class="error hidden" role="alert"></div>
       </div>
@@ -176,13 +184,22 @@
   <div id="registerOverlay" class="portalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
     <form id="registerForm" class="portalCard registerCard">
       <button id="registerCloseBtn" class="overlayClose" type="button" aria-label="Close">×</button>
-      <h2 id="registerTitle">Create your account</h2><p class="portalLead">A verified email is required before your first login.</p>
+      <h2 id="registerTitle">Create your account</h2><p class="portalLead">Use email and a password, or choose an available provider below to create a passwordless account.</p>
       <label class="label">Display name</label><input id="registerName" class="input" maxlength="20" autocomplete="name" required>
       <label class="label">Username</label><input id="registerUsername" class="input" maxlength="24" autocomplete="username" required>
       <label class="label">Email</label><input id="registerEmail" class="input" type="email" autocomplete="email" required>
       <label class="label">Password</label><input id="registerPassword" class="input" type="password" minlength="6" autocomplete="new-password" required>
       <label class="label">Confirm password</label><input id="registerConfirm" class="input" type="password" minlength="6" autocomplete="new-password" required>
       <button class="btn primary portalPrimary" type="submit">Create Account &amp; Send Verification</button>
+      <div id="oauthRegisterOptions" class="oauthOptions hidden" aria-label="Create an account with another provider">
+        <div class="oauthDivider"><span>or create an account with</span></div>
+        <div class="oauthProviderButtons">
+          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="google" data-oauth-intent="login">Google (Gmail)</button>
+          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="github" data-oauth-intent="login">GitHub</button>
+          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="cloudflare" data-oauth-intent="login">Cloudflare</button>
+        </div>
+        <p class="smallNote">Provider sign-up skips the email verification step. You can connect additional sign-in methods later in Manage Account.</p>
+      </div>
       <div id="registerMessage" class="hint"></div>
     </form>
   </div>

@@ -1400,6 +1400,48 @@
     updateAuthUi();
   }
 
+  const OAUTH_LABELS = { google: 'Google (Gmail)', github: 'GitHub', cloudflare: 'Cloudflare' };
+  function startOAuthProvider(provider, intent = 'login') {
+    if (!Object.hasOwn(OAUTH_LABELS, provider)) return;
+    const returnUrl = window.location.pathname + window.location.search;
+    const query = new URLSearchParams({ intent, return: returnUrl });
+    window.location.assign(`/api/auth/oauth/${provider}/start?${query.toString()}`);
+  }
+  async function setupOAuthSignIn() {
+    let availability = {};
+    try {
+      const response = await fetch('/api/auth/oauth/providers', { credentials: 'same-origin', cache: 'no-store' });
+      const json = await response.json();
+      if (response.ok && json.ok) availability = json.providers || {};
+    } catch (_) {}
+    for (const button of document.querySelectorAll('[data-oauth-provider]')) {
+      button.classList.toggle('hidden', !availability[button.dataset.oauthProvider]);
+      button.addEventListener('click', () => startOAuthProvider(button.dataset.oauthProvider, button.dataset.oauthIntent || 'login'));
+    }
+    for (const id of ['oauthLoginOptions', 'oauthRegisterOptions']) {
+      const parent = $(id);
+      parent?.classList.toggle('hidden', !Object.values(availability).some(Boolean));
+    }
+  }
+  void setupOAuthSignIn();
+
+  function handleOAuthReturnFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('oauth');
+    if (!status) return;
+    const provider = params.get('provider') || '';
+    const message = status === 'connected' ? `${OAUTH_LABELS[provider] || 'Provider'} sign-in connected.` : (params.get('oauth_message') || 'Provider sign-in was not completed.');
+    const banner = $('landingError');
+    if (banner) {
+      banner.textContent = message;
+      banner.classList.remove('hidden');
+      banner.classList.toggle('oauthSuccess', status === 'connected');
+    }
+    if (status !== 'connected') setError(message);
+    params.delete('oauth'); params.delete('provider'); params.delete('oauth_message');
+    window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}${window.location.hash}`);
+  }
+
   async function authApi(action, body = {}) {
     const response = await fetch(`/api/auth/${action}`, {
       method: 'POST',
@@ -7604,6 +7646,7 @@ function refreshLobbyJoinLinkUi() {
   selectInvitedLobbyMode();
   updateAuthUi();
   connect();
+  handleOAuthReturnFromUrl();
   setTimeout(handleAccountActionLinkFromUrl, 0);
   // Keep the countdown clock ticking even when no state messages arrive.
   ensureTimerUiInterval();
@@ -8096,6 +8139,7 @@ function refreshLobbyJoinLinkUi() {
     const adminView = !!result.isAdmin && !selfOnly;
     const emailDeliveryConfigured = !!result.emailDeliveryConfigured;
     const emailDeliveryMode = String(result.emailDeliveryMode || 'none');
+    const oauthAvailability = result.oauthAvailability || {};
     shell.innerHTML = '';
 
     const intro = document.createElement('div');
@@ -8335,6 +8379,59 @@ function refreshLobbyJoinLinkUi() {
           nameSection.append(nameHeading, nameInput, nameNote, nameButton, nameStatus);
           controls.appendChild(nameSection);
 
+          const oauthSection = document.createElement('div');
+          oauthSection.className = 'userManagementSection';
+          const oauthHeading = document.createElement('div');
+          oauthHeading.className = 'labelTiny';
+          oauthHeading.textContent = 'Linked sign-in accounts';
+          const oauthNote = document.createElement('div');
+          oauthNote.className = 'smallNote';
+          oauthNote.textContent = 'Sign in with any connected provider to use this same player profile, ratings, history, and friends. Provider email addresses are not added as recovery emails automatically.';
+          oauthSection.append(oauthHeading, oauthNote);
+          const linkedProviders = Array.isArray(user.oauthProviders) ? user.oauthProviders : [];
+          const oauthStatus = document.createElement('div');
+          oauthStatus.className = 'userManagementStatus';
+          for (const [provider, label] of Object.entries(OAUTH_LABELS)) {
+            const linked = linkedProviders.find(entry => entry.provider === provider);
+            const line = document.createElement('div');
+            line.className = 'oauthLinkedRow';
+            const info = document.createElement('div');
+            const heading = document.createElement('strong'); heading.textContent = label;
+            const sub = document.createElement('span');
+            sub.textContent = linked ? `Connected${linked.name ? ` · ${linked.name}` : ''}` : (oauthAvailability[provider] ? 'Not connected' : 'Not configured');
+            info.append(heading, document.createElement('div'), sub);
+            const buttons = document.createElement('div'); buttons.className = 'oauthLinkedActions';
+            const action = document.createElement('button'); action.type = 'button'; action.className = linked ? 'btn subtle' : 'btn';
+            action.textContent = linked ? 'Disconnect' : 'Connect';
+            action.disabled = linked ? (!user.hasPassword && linkedProviders.length < 2) : !oauthAvailability[provider];
+            action.title = action.disabled && linked ? 'Keep at least one sign-in method connected.' : '';
+            if (linked) {
+              action.addEventListener('click', async () => {
+                if (!window.confirm(`Disconnect ${label} from your player account?`)) return;
+                action.disabled = true;
+                try {
+                  const response = await accountApi('unlink-oauth', { provider });
+                  if (response.user) {
+                    Object.assign(user, response.user);
+                    setAuthState(response.user, null, { clearToken: true });
+                  }
+                  oauthStatus.className = 'userManagementStatus success';
+                  oauthStatus.textContent = response.message || 'Provider disconnected.';
+                  void openUserManagementScreen({ container, selfOnly, adminOnly, mergeOnly });
+                } catch (error) {
+                  oauthStatus.className = 'userManagementStatus error';
+                  oauthStatus.textContent = error.message || 'Could not disconnect provider.';
+                  action.disabled = false;
+                }
+              });
+            } else action.addEventListener('click', () => startOAuthProvider(provider, 'link'));
+            buttons.appendChild(action);
+            line.append(info, buttons);
+            oauthSection.appendChild(line);
+          }
+          oauthSection.appendChild(oauthStatus);
+          controls.appendChild(oauthSection);
+
           const passwordSection = document.createElement('div');
           passwordSection.className = 'userManagementSection';
           const passwordHeading = document.createElement('div');
@@ -8399,7 +8496,12 @@ function refreshLobbyJoinLinkUi() {
               changePassword.disabled = false;
             }
           });
-          controls.appendChild(passwordSection);
+          if (user.hasPassword !== false) controls.appendChild(passwordSection);
+          else {
+            const note = document.createElement('div'); note.className = 'smallNote';
+            note.textContent = 'This is a provider-only account. There is no local password to change; keep a provider connected so you can sign in.';
+            controls.appendChild(note);
+          }
 
           const emailSection = document.createElement('div');
           emailSection.className = 'userManagementSection';
@@ -8511,7 +8613,7 @@ function refreshLobbyJoinLinkUi() {
               }
             });
           }
-          controls.appendChild(emailSection);
+          if (user.hasPassword !== false) controls.appendChild(emailSection);
         } else if (adminView) {
           const adminSection = document.createElement('div');
           adminSection.className = 'userManagementSection';
