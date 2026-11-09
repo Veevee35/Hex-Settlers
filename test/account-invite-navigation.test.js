@@ -41,6 +41,10 @@ function simulatedPortal({ invitedRoom, savedMode }) {
     selectedPlayMode: savedMode || '',
     authUser: null,
     authToken: null,
+    roomNotFoundVisible: false,
+    journeyView: 'home',
+    room: null,
+    document: { body: { classList: { toggle() {} } }, querySelectorAll() { return []; } },
     ui: { nameInput: { value: '' } },
     $: (id) => elements[id],
     sessionStorage: {
