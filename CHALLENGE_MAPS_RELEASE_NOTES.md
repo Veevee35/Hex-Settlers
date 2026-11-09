@@ -8,7 +8,7 @@
 - Challenge rooms are private (never shown in public discovery), with normal room codes, invite links and friend invitations.
 - Rules are locked at the scenario's defaults except for **Balanced Bag** dice. **Expert AI** fills all seats from the moment of room creation; a human joining before game start replaces one AI, and a departing human is replaced by an AI. The lobby remains at 4/5/6/7/8 total occupants as appropriate.
 - Challenge games are **Unranked**, not Casual: games, results, and player stats are recorded in normal Unranked and Combined statistics; ranked rating remains untouched.
-- Leaderboards show each account's best victory point score for that week's map, breaking ties by more wins, then the fewest turns; they also show wins and number of games. AIs are omitted from rankings. Display is capped at the top 25 humans for each map.
+- Leaderboards show each account's best qualified winning run: **Player**, **Lowest Time**, **Lowest Turns to Win**, and **Total VP earned**. Official ranking favors fewer turns, then shorter completion time, then lower VP. Click any header to sort; official rank numbers remain stable. Early-voted endings and AI players do not qualify. Display is capped at 25 human accounts per map. See `CHALLENGE_LEADERBOARD_UPDATE.md`.
 
 ## Verification
 

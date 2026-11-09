@@ -297,11 +297,15 @@ body.uncreated-lobby #lobbyCard>.lobbyCardHeading {padding-bottom:8px;border-bot
 .challengeMapPreview { display: block; width: 100%; height: auto; margin: 10px auto; border-radius: 10px; background: #0a1928; aspect-ratio: 22 / 13; }
 .challengeMapCard h3 { margin: 14px 0 8px; font-size: .98rem; color: #eacb86; }
 .challengeMapLeaderboard { width: 100%; overflow-x: auto; }
-.challengeMapLeaderboard table { width: 100%; border-collapse: collapse; font-size: .8rem; white-space: nowrap; }
-.challengeMapLeaderboard th { text-align: left; color: #c8b991; font-weight: 600; padding: 7px 5px; border-bottom: 1px solid rgba(233,211,154,.25); }
+.challengeMapLeaderboard table { width: 100%; min-width: 465px; border-collapse: collapse; font-size: .8rem; white-space: nowrap; }
+.challengeMapLeaderboard th { text-align: left; color: #c8b991; font-weight: 600; padding: 0; border-bottom: 1px solid rgba(233,211,154,.25); }
+.challengeMapLeaderboard th .challengeLeaderboardSort { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; padding: 9px 5px; text-align: left; white-space: nowrap; }
+.challengeMapLeaderboard th .challengeLeaderboardSort:hover, .challengeMapLeaderboard th .challengeLeaderboardSort:focus-visible { color: #f6df9c; text-decoration: underline; }
+.challengeMapLeaderboard th .challengeSortActive { color: #f6df9c; }
+.challengeMapLeaderboard th .challengeLeaderboardSort:focus-visible { outline: 2px solid #f6df9c; outline-offset: -2px; }
 .challengeMapLeaderboard td { padding: 7px 5px; border-bottom: 1px solid rgba(233,211,154,.11); }
-.challengeMapLeaderboard td:nth-child(2) { overflow: hidden; max-width: 110px; text-overflow: ellipsis; }
-.challengeMapEmpty { color: #a8b8c5; font-size: .85rem; padding: 8px 0; }
+.challengeMapLeaderboard td:first-child { overflow: hidden; max-width: 140px; text-overflow: ellipsis; }
+.challengeMapEmpty, .challengeMapNoResults { color: #a8b8c5; font-size: .85rem; padding: 10px 5px; }
 .challengeLobbyNote { padding: 9px 12px; border: 1px solid rgba(233,199,124,.35); border-radius: 9px; background: rgba(176,140,64,.09); color: #e5c88a; }
 .challengeLockedSetup { position: relative; }
 #journeyChallengeBtn span + span { margin-top: 4px; font-size: .8em; opacity: .75; }

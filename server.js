@@ -72,6 +72,7 @@ const {
   seafarersExplorationPointsEnabled,
 } = require('./server/game-rules');
 const { normalizeDiceAlgorithm, rollDiceWithAlgorithm } = require('./server/dice-algorithms');
+const { buildChallengeLeaderboard } = require('./server/challenge-leaderboard');
 const { challengeWeekId, challengeRules, generateWeeklyMap } = require('./server/challenge-maps');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
@@ -9496,28 +9497,8 @@ function weeklyChallengeGeom(weekId, playerCount) {
 }
 
 function challengeLeaderboard(weekId, playerCount) {
-  const perUser = new Map();
-  for (const game of (HISTORY_DB.games || [])) {
-    if (!isValidHistoryEntry(game) || game.casual || game.ranked ||
-      game.challenge?.weekId !== weekId || game.challenge?.playerCount !== playerCount) continue;
-    for (const player of (game.players || [])) {
-      if (!player || player.isAI || String(player.id || '').startsWith('ai_')) continue;
-      const user = findUserById(String(player.id || ''));
-      if (!user) continue;
-      const score = Math.max(0, Math.floor(Number(player.vp) || 0));
-      const turns = Math.max(1, Math.floor(Number(game.turns) || 1));
-      const win = String(game.winnerId) === String(player.id);
-      const entry = perUser.get(player.id) || { id: player.id, name: user.displayName || user.username || player.name || 'Player', bestScore: 0, bestTurns: null, wins: 0, played: 0 };
-      entry.played += 1;
-      entry.wins += win ? 1 : 0;
-      if (score > entry.bestScore || (score === entry.bestScore && (entry.bestTurns == null || turns < entry.bestTurns))) {
-        entry.bestScore = score;
-        entry.bestTurns = turns;
-      }
-      perUser.set(player.id, entry);
-    }
-  }
-  return [...perUser.values()].sort((a,b) => b.bestScore - a.bestScore || b.wins - a.wins || a.bestTurns - b.bestTurns || a.name.localeCompare(b.name)).slice(0, 25);
+  const games = (HISTORY_DB.games || []).filter(isValidHistoryEntry);
+  return buildChallengeLeaderboard(games, weekId, playerCount, findUserById);
 }
 
 function challengeMapsCatalog() {

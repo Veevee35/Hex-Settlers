@@ -1291,6 +1291,7 @@
   let selectedPlayMode = (() => { try { return sessionStorage.getItem('hexsettlers_play_mode') || ''; } catch (_) { return ''; } })();
   let journeyView = 'home';
   let weeklyChallengeCatalog = null;
+  const challengeLeaderboardSort = new Map(); // Preserve sorts when the weekly catalog refreshes.
   let requestedLobbyVisibility = 'private';
   let roomNotFoundVisible = false;
   let roomNotFoundReturnView = ''; // Preserve the discovery hierarchy after a failed lobby join.
@@ -1526,28 +1527,99 @@
       const leaderboard = document.createElement('div');
       leaderboard.className = 'challengeMapLeaderboard';
       const rows = Array.isArray(map.leaderboard) ? map.leaderboard : [];
-      if (!rows.length) {
-        leaderboard.classList.add('challengeMapEmpty');
-        leaderboard.textContent = 'No completed challenges yet. Be the first to set a score.';
-      } else {
+      {
         const table = document.createElement('table');
         const header = document.createElement('thead');
-        const tr = document.createElement('tr');
-        for (const label of ['#', 'Player', 'Best VP', 'Turns', 'Wins', 'Games']) {
-          const th = document.createElement('th'); th.textContent = label; tr.appendChild(th);
-        }
-        header.appendChild(tr); table.appendChild(header);
+        const headerRow = document.createElement('tr');
         const body = document.createElement('tbody');
-        rows.forEach((entry, index) => {
-          const line = document.createElement('tr');
-          const cells = [index + 1, entry.name || 'Player', Number(entry.bestScore) || 0,
-            entry.bestTurns ?? '—', Number(entry.wins) || 0, Number(entry.played) || 0];
-          for (const cell of cells) {
-            const td = document.createElement('td'); td.textContent = String(cell); line.appendChild(td);
+        const sortId = `${catalog.weekId}:${count}`;
+        let sorting = challengeLeaderboardSort.get(sortId) || { key: 'lowestTurns', direction: 'asc' };
+        const columns = [
+          { key: 'name', label: 'Player' },
+          { key: 'lowestTimeMs', label: 'Lowest Time' },
+          { key: 'lowestTurns', label: 'Lowest Turns to Win' },
+          { key: 'totalVP', label: 'Total VP earned' },
+        ];
+        const headers = new Map();
+        const displayTime = (ms) => {
+          if (ms == null || !Number.isFinite(Number(ms)) || Number(ms) < 0) return '—';
+          const millis = Math.floor(Number(ms));
+          const seconds = Math.floor(millis / 1000);
+          const minutes = Math.floor(seconds / 60);
+          const hours = Math.floor(minutes / 60);
+          const time = `${hours ? `${hours}:${String(minutes % 60).padStart(2, '0')}` : minutes}:${String(seconds % 60).padStart(2, '0')}.${String(millis % 1000).padStart(3, '0')}`;
+          return time;
+        };
+        const rankedRows = rows.map((entry, index) => ({ entry, rank: index + 1 }));
+        const refreshRows = () => {
+          const { key, direction } = sorting;
+          const sorted = [...rankedRows].sort((a, b) => {
+            const va = a.entry[key];
+            const vb = b.entry[key];
+            let compare = 0;
+            if (key === 'name') {
+              compare = String(va || '').localeCompare(String(vb || ''));
+            } else {
+              const aMissing = va == null || !Number.isFinite(Number(va));
+              const bMissing = vb == null || !Number.isFinite(Number(vb));
+              // Unknown historic durations stay at the bottom in either direction.
+              if (aMissing !== bMissing) return aMissing ? 1 : -1;
+              if (!aMissing) compare = Number(va) - Number(vb);
+            }
+            return (direction === 'desc' ? -compare : compare) || a.rank - b.rank;
+          });
+          body.replaceChildren();
+          if (!sorted.length) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = columns.length;
+            cell.className = 'challengeMapNoResults';
+            cell.textContent = 'No completed challenge wins yet. Be the first to set a score.';
+            row.appendChild(cell);
+            body.appendChild(row);
           }
-          body.appendChild(line);
-        });
-        table.appendChild(body); leaderboard.appendChild(table);
+          for (const { entry, rank } of sorted) {
+            const line = document.createElement('tr');
+            const cells = [
+              `#${rank}  ${entry.name || 'Player'}`,
+              displayTime(entry.lowestTimeMs),
+              entry.lowestTurns == null ? '—' : String(entry.lowestTurns),
+              entry.totalVP == null ? '—' : String(entry.totalVP),
+            ];
+            for (const cell of cells) {
+              const td = document.createElement('td');
+              td.textContent = cell;
+              line.appendChild(td);
+            }
+            body.appendChild(line);
+          }
+          for (const col of columns) {
+            const { th, button } = headers.get(col.key);
+            const active = col.key === key;
+            th.setAttribute('aria-sort', active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
+            button.textContent = `${col.label} ${active ? (direction === 'asc' ? '▲' : '▼') : '↕'}`;
+            button.classList.toggle('challengeSortActive', active);
+          }
+        };
+        for (const col of columns) {
+          const th = document.createElement('th');
+          th.scope = 'col';
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'challengeLeaderboardSort';
+          button.addEventListener('click', () => {
+            sorting = { key: col.key, direction: sorting.key === col.key && sorting.direction === 'asc' ? 'desc' : 'asc' };
+            challengeLeaderboardSort.set(sortId, sorting);
+            refreshRows();
+          });
+          th.appendChild(button);
+          headerRow.appendChild(th);
+          headers.set(col.key, { th, button });
+        }
+        header.appendChild(headerRow);
+        table.append(header, body);
+        leaderboard.appendChild(table);
+        refreshRows();
       }
       card.append(head, board, rankTitle, leaderboard);
       host.appendChild(card);
