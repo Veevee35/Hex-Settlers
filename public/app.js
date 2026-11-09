@@ -1291,6 +1291,7 @@
   let selectedPlayMode = (() => { try { return sessionStorage.getItem('hexsettlers_play_mode') || ''; } catch (_) { return ''; } })();
   let journeyView = 'home';
   let weeklyChallengeCatalog = null;
+  let selectedChallengePlayerCount = 4;
   const challengeLeaderboardSort = new Map(); // Preserve sorts when the weekly catalog refreshes.
   let requestedLobbyVisibility = 'private';
   let roomNotFoundVisible = false;
@@ -1456,6 +1457,7 @@
   }
   function setJourneyView(view) {
     journeyView = view;
+    $('journeyScreen')?.classList.toggle('challengeWideLayout', view === 'challenge');
     $('journeyHomeOptions')?.classList.toggle('hidden', view !== 'home');
     $('journeyPublicPanel')?.classList.toggle('hidden', view !== 'public');
     $('journeyLobbyDetailPanel')?.classList.toggle('hidden', view !== 'detail');
@@ -1491,140 +1493,236 @@
     send({ type: 'get_challenge_maps' });
   }
 
+  function formatChallengeTime(ms) {
+    if (ms == null || !Number.isFinite(Number(ms)) || Number(ms) < 0) return '—';
+    const millis = Math.floor(Number(ms));
+    const seconds = Math.floor(millis / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    return `${hours ? `${hours}:${String(minutes % 60).padStart(2, '0')}` : minutes}:${String(seconds % 60).padStart(2, '0')}.${String(millis % 1000).padStart(3, '0')}`;
+  }
+
   function renderChallengeMaps() {
     const host = $('challengeMapsList');
-    if (!host) return;
+    const tabs = $('challengeMapTabs');
+    const spotlight = $('challengeTopPlayer');
+    if (!host || !tabs || !spotlight) return;
     host.replaceChildren();
+    tabs.replaceChildren();
+    spotlight.replaceChildren();
     const catalog = weeklyChallengeCatalog;
     if (!catalog || !Array.isArray(catalog.maps)) {
       host.textContent = 'Loading this week’s maps…';
       return;
     }
+    const maps = catalog.maps.filter(map => [4, 5, 6, 7, 8].includes(Number(map.playerCount)))
+      .sort((a, b) => Number(a.playerCount) - Number(b.playerCount));
+    if (!maps.length) {
+      host.textContent = 'No challenge maps are available for this week.';
+      return;
+    }
     if ($('challengeWeekLabel')) $('challengeWeekLabel').textContent =
       `Week of ${catalog.weekId} · New maps Monday at 1:00 AM Central · Balanced Bag · Expert AI`;
-    for (const map of catalog.maps) {
-      const count = Number(map.playerCount);
-      if (![4, 5, 6, 7, 8].includes(count)) continue;
-      const card = document.createElement('article');
-      card.className = 'challengeMapCard';
-      const head = document.createElement('div');
-      head.className = 'challengeMapCardHeading';
-      const title = document.createElement('h2');
-      title.textContent = `${count}-Player Scattered Tiles`;
-      const play = document.createElement('button');
-      play.type = 'button';
-      play.className = 'btn primary';
-      play.textContent = `Create ${count}-player lobby`;
-      play.addEventListener('click', () => beginChallengeHost(count));
-      head.append(title, play);
-      const board = document.createElement('canvas');
-      board.className = 'challengeMapPreview';
-      board.width = 440; board.height = 260;
-      board.setAttribute('role', 'img');
-      board.setAttribute('aria-label', `Weekly ${count}-player Scattered Tiles layout`);
-      const rankTitle = document.createElement('h3');
-      rankTitle.textContent = `${count}-Player Leaderboard`;
-      const leaderboard = document.createElement('div');
-      leaderboard.className = 'challengeMapLeaderboard';
-      const rows = Array.isArray(map.leaderboard) ? map.leaderboard : [];
-      {
-        const table = document.createElement('table');
-        const header = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-        const body = document.createElement('tbody');
-        const sortId = `${catalog.weekId}:${count}`;
-        let sorting = challengeLeaderboardSort.get(sortId) || { key: 'lowestTurns', direction: 'asc' };
-        const columns = [
-          { key: 'name', label: 'Player' },
-          { key: 'lowestTimeMs', label: 'Lowest Time' },
-          { key: 'lowestTurns', label: 'Lowest Turns to Win' },
-          { key: 'totalVP', label: 'Total VP earned' },
-        ];
-        const headers = new Map();
-        const displayTime = (ms) => {
-          if (ms == null || !Number.isFinite(Number(ms)) || Number(ms) < 0) return '—';
-          const millis = Math.floor(Number(ms));
-          const seconds = Math.floor(millis / 1000);
-          const minutes = Math.floor(seconds / 60);
-          const hours = Math.floor(minutes / 60);
-          const time = `${hours ? `${hours}:${String(minutes % 60).padStart(2, '0')}` : minutes}:${String(seconds % 60).padStart(2, '0')}.${String(millis % 1000).padStart(3, '0')}`;
-          return time;
-        };
-        const rankedRows = rows.map((entry, index) => ({ entry, rank: index + 1 }));
-        const refreshRows = () => {
-          const { key, direction } = sorting;
-          const sorted = [...rankedRows].sort((a, b) => {
-            const va = a.entry[key];
-            const vb = b.entry[key];
-            let compare = 0;
-            if (key === 'name') {
-              compare = String(va || '').localeCompare(String(vb || ''));
-            } else {
-              const aMissing = va == null || !Number.isFinite(Number(va));
-              const bMissing = vb == null || !Number.isFinite(Number(vb));
-              // Unknown historic durations stay at the bottom in either direction.
-              if (aMissing !== bMissing) return aMissing ? 1 : -1;
-              if (!aMissing) compare = Number(va) - Number(vb);
-            }
-            return (direction === 'desc' ? -compare : compare) || a.rank - b.rank;
-          });
-          body.replaceChildren();
-          if (!sorted.length) {
-            const row = document.createElement('tr');
-            const cell = document.createElement('td');
-            cell.colSpan = columns.length;
-            cell.className = 'challengeMapNoResults';
-            cell.textContent = 'No completed challenge wins yet. Be the first to set a score.';
-            row.appendChild(cell);
-            body.appendChild(row);
-          }
-          for (const { entry, rank } of sorted) {
-            const line = document.createElement('tr');
-            const cells = [
-              `#${rank}  ${entry.name || 'Player'}`,
-              displayTime(entry.lowestTimeMs),
-              entry.lowestTurns == null ? '—' : String(entry.lowestTurns),
-              entry.totalVP == null ? '—' : String(entry.totalVP),
-            ];
-            for (const cell of cells) {
-              const td = document.createElement('td');
-              td.textContent = cell;
-              line.appendChild(td);
-            }
-            body.appendChild(line);
-          }
-          for (const col of columns) {
-            const { th, button } = headers.get(col.key);
-            const active = col.key === key;
-            th.setAttribute('aria-sort', active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
-            button.textContent = `${col.label} ${active ? (direction === 'asc' ? '▲' : '▼') : '↕'}`;
-            button.classList.toggle('challengeSortActive', active);
-          }
-        };
-        for (const col of columns) {
-          const th = document.createElement('th');
-          th.scope = 'col';
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'challengeLeaderboardSort';
-          button.addEventListener('click', () => {
-            sorting = { key: col.key, direction: sorting.key === col.key && sorting.direction === 'asc' ? 'desc' : 'asc' };
-            challengeLeaderboardSort.set(sortId, sorting);
-            refreshRows();
-          });
-          th.appendChild(button);
-          headerRow.appendChild(th);
-          headers.set(col.key, { th, button });
-        }
-        header.appendChild(headerRow);
-        table.append(header, body);
-        leaderboard.appendChild(table);
-        refreshRows();
-      }
-      card.append(head, board, rankTitle, leaderboard);
-      host.appendChild(card);
-      drawRankedMiniMap(board, map.preview);
+
+    // A refresh retains the chosen scenario; switching tabs does not alter server scores.
+    const map = maps.find(item => Number(item.playerCount) === selectedChallengePlayerCount) || maps[0];
+    const count = Number(map.playerCount);
+    selectedChallengePlayerCount = count;
+    for (const item of maps) {
+      const playerCount = Number(item.playerCount);
+      const selected = playerCount === count;
+      const tab = document.createElement('button');
+      tab.id = `challengeMapTab-${playerCount}`;
+      tab.type = 'button';
+      tab.className = 'challengeMapTab';
+      tab.textContent = `${playerCount} Players`;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-controls', 'challengeMapsList');
+      tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+      tab.tabIndex = selected ? 0 : -1;
+      tab.classList.toggle('active', selected);
+      tab.addEventListener('click', () => {
+        if (selectedChallengePlayerCount === playerCount) return;
+        selectedChallengePlayerCount = playerCount;
+        renderChallengeMaps();
+        $(`challengeMapTab-${playerCount}`)?.focus({ preventScroll: true });
+      });
+      tab.addEventListener('keydown', event => {
+        const index = maps.findIndex(option => Number(option.playerCount) === playerCount);
+        let next = -1;
+        if (event.key === 'ArrowRight') next = (index + 1) % maps.length;
+        else if (event.key === 'ArrowLeft') next = (index - 1 + maps.length) % maps.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = maps.length - 1;
+        if (next < 0) return;
+        event.preventDefault();
+        selectedChallengePlayerCount = Number(maps[next].playerCount);
+        renderChallengeMaps();
+        $(`challengeMapTab-${selectedChallengePlayerCount}`)?.focus({ preventScroll: true });
+      });
+      tabs.appendChild(tab);
     }
+    host.setAttribute('aria-labelledby', `challengeMapTab-${count}`);
+
+    // The server's leaderboard order is the permanent official order:
+    // fewest turns, then shortest duration, then lowest VP.
+    const rows = Array.isArray(map.leaderboard) ? map.leaderboard : [];
+    const champion = rows[0];
+    const spotlightLabel = document.createElement('div');
+    spotlightLabel.className = 'challengeTopPlayerLabel';
+    spotlightLabel.textContent = `★ WEEKLY #1 · ${count}-PLAYER CHALLENGE`;
+    spotlight.appendChild(spotlightLabel);
+    const championName = document.createElement('strong');
+    championName.className = 'challengeTopPlayerName';
+    championName.textContent = champion ? String(champion.name || 'Player') : 'The top spot is open';
+    spotlight.appendChild(championName);
+    if (champion) {
+      const stats = document.createElement('div');
+      stats.className = 'challengeTopPlayerStats';
+      const metrics = [
+        { value: champion.lowestTurns == null ? '—' : String(champion.lowestTurns), label: 'Turns to win' },
+        { value: formatChallengeTime(champion.lowestTimeMs), label: 'Completion time' },
+        { value: champion.totalVP == null ? '—' : String(champion.totalVP), label: 'Total VP' },
+      ];
+      for (const metric of metrics) {
+        const tile = document.createElement('div');
+        tile.className = 'challengeTopPlayerMetric';
+        const value = document.createElement('b');
+        value.textContent = metric.value;
+        const label = document.createElement('span');
+        label.textContent = metric.label;
+        tile.append(value, label);
+        stats.appendChild(tile);
+      }
+      spotlight.appendChild(stats);
+    } else {
+      const note = document.createElement('p');
+      note.className = 'challengeTopPlayerEmpty';
+      note.textContent = 'Be the first to win this weekly map and claim the leaderboard.';
+      spotlight.appendChild(note);
+    }
+
+    const card = document.createElement('article');
+    card.className = 'challengeMapCard';
+    const head = document.createElement('div');
+    head.className = 'challengeMapCardHeading';
+    const title = document.createElement('h2');
+    title.textContent = `${count}-Player Scattered Tiles`;
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'btn primary';
+    play.textContent = `Create ${count}-player lobby`;
+    play.addEventListener('click', () => beginChallengeHost(count));
+    head.append(title, play);
+
+    const content = document.createElement('div');
+    content.className = 'challengeMapContent';
+    const mapSection = document.createElement('section');
+    mapSection.className = 'challengeMapVisualization';
+    const mapLabel = document.createElement('h3');
+    mapLabel.textContent = 'This week’s map';
+    const board = document.createElement('canvas');
+    board.className = 'challengeMapPreview';
+    board.width = 760; board.height = 450;
+    board.setAttribute('role', 'img');
+    board.setAttribute('aria-label', `Weekly ${count}-player Scattered Tiles layout`);
+    mapSection.append(mapLabel, board);
+
+    const ranking = document.createElement('section');
+    ranking.className = 'challengeMapRanking';
+    const rankTitle = document.createElement('h3');
+    rankTitle.textContent = `${count}-Player Leaderboard`;
+    const leaderboard = document.createElement('div');
+    leaderboard.className = 'challengeMapLeaderboard';
+    const table = document.createElement('table');
+    const header = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    const body = document.createElement('tbody');
+    const sortId = `${catalog.weekId}:${count}`;
+    let sorting = challengeLeaderboardSort.get(sortId) || { key: 'lowestTurns', direction: 'asc' };
+    const columns = [
+      { key: 'name', label: 'Player' },
+      { key: 'lowestTimeMs', label: 'Lowest Time' },
+      { key: 'lowestTurns', label: 'Lowest Turns to Win' },
+      { key: 'totalVP', label: 'Total VP earned' },
+    ];
+    const headers = new Map();
+    const rankedRows = rows.map((entry, index) => ({ entry, rank: index + 1 }));
+    const refreshRows = () => {
+      const { key, direction } = sorting;
+      const sorted = [...rankedRows].sort((a, b) => {
+        const va = a.entry[key];
+        const vb = b.entry[key];
+        let compare = 0;
+        if (key === 'name') {
+          compare = String(va || '').localeCompare(String(vb || ''));
+        } else {
+          const aMissing = va == null || !Number.isFinite(Number(va));
+          const bMissing = vb == null || !Number.isFinite(Number(vb));
+          // Unknown historic durations stay at the bottom in either direction.
+          if (aMissing !== bMissing) return aMissing ? 1 : -1;
+          if (!aMissing) compare = Number(va) - Number(vb);
+        }
+        return (direction === 'desc' ? -compare : compare) || a.rank - b.rank;
+      });
+      body.replaceChildren();
+      if (!sorted.length) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = columns.length;
+        cell.className = 'challengeMapNoResults';
+        cell.textContent = 'No completed challenge wins yet. Be the first to set a score.';
+        row.appendChild(cell);
+        body.appendChild(row);
+      }
+      for (const { entry, rank } of sorted) {
+        const line = document.createElement('tr');
+        line.classList.toggle('challengeLeaderRow', rank === 1);
+        const cells = [
+          `#${rank}  ${entry.name || 'Player'}`,
+          formatChallengeTime(entry.lowestTimeMs),
+          entry.lowestTurns == null ? '—' : String(entry.lowestTurns),
+          entry.totalVP == null ? '—' : String(entry.totalVP),
+        ];
+        for (const cell of cells) {
+          const td = document.createElement('td');
+          td.textContent = cell;
+          line.appendChild(td);
+        }
+        body.appendChild(line);
+      }
+      for (const col of columns) {
+        const { th, button } = headers.get(col.key);
+        const active = col.key === key;
+        th.setAttribute('aria-sort', active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
+        button.textContent = `${col.label} ${active ? (direction === 'asc' ? '▲' : '▼') : '↕'}`;
+        button.classList.toggle('challengeSortActive', active);
+      }
+    };
+    for (const col of columns) {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'challengeLeaderboardSort';
+      button.addEventListener('click', () => {
+        sorting = { key: col.key, direction: sorting.key === col.key && sorting.direction === 'asc' ? 'desc' : 'asc' };
+        challengeLeaderboardSort.set(sortId, sorting);
+        refreshRows();
+      });
+      th.appendChild(button);
+      headerRow.appendChild(th);
+      headers.set(col.key, { th, button });
+    }
+    header.appendChild(headerRow);
+    table.append(header, body);
+    leaderboard.appendChild(table);
+    ranking.append(rankTitle, leaderboard);
+    content.append(mapSection, ranking);
+    card.append(head, content);
+    host.appendChild(card);
+    refreshRows();
+    drawRankedMiniMap(board, map.preview);
   }
 
   function beginChallengeHost(playerCount) {

@@ -92,9 +92,15 @@
       <button type="button" id="journeyChallengeBtn" class="modeChoice"><strong>Challenge Maps</strong><span>New maps every week. Play with friends see who can get the highest score!</span><span>5 new Scattered Tiles maps every week to compete on.</span></button>
     </div>
     <div id="journeyChallengePanel" class="hidden journeyPanel challengeMapsPanel">
-      <p class="smallNote" id="challengeWeekLabel">Five maps · Monday at 1:00 AM Central · Balanced Bag dice · Expert AI</p>
-      <p class="smallNote">Each challenge has a private lobby, shareable link and room code. Every seat is filled by Expert AI until a friend joins. Finished games count toward Unranked and Combined stats.</p>
-      <div id="challengeMapsList" class="challengeMapsList" aria-live="polite">Loading this week's challenge maps…</div>
+      <div id="challengeMapTabs" class="challengeMapTabs" role="tablist" aria-label="Challenge map player count"></div>
+      <div class="challengeMapOverview">
+        <div class="challengeMapNotes">
+          <p class="smallNote" id="challengeWeekLabel">Five maps · Monday at 1:00 AM Central · Balanced Bag dice · Expert AI</p>
+          <p class="smallNote">Each challenge has a private lobby, shareable link and room code. Every seat is filled by Expert AI until a friend joins. Finished games count toward Unranked and Combined stats.</p>
+        </div>
+        <aside id="challengeTopPlayer" class="challengeTopPlayer" aria-label="Top player for the selected challenge" aria-live="polite"></aside>
+      </div>
+      <div id="challengeMapsList" class="challengeMapsList" role="tabpanel" tabindex="0" aria-label="Selected weekly challenge map" aria-live="polite">Loading this week's challenge maps…</div>
     </div>
     <div id="journeyPublicPanel" class="hidden journeyPanel">
       <div class="journeyActions"><button id="journeyHostPublicBtn" type="button" class="btn primary">Host public lobby</button><button id="journeyRefreshBtn" type="button" class="btn">Refresh lobbies</button></div>
