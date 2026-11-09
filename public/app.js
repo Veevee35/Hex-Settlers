@@ -1666,16 +1666,11 @@
       const lead = $('uncreatedLobbyIntro').querySelector('p');
       if (lead) lead.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Create a shareable game for up to six players, human or AI. Results never affect stats.' : 'Create a lobby to invite friends, or enter a room code to join an existing game.';
     }
-    // The shared pre-lobby page has two parents in the navigation hierarchy:
-    // Casual comes from Change Game Type, while public/private games come from All Games.
-    // It is only displayed with no room; active lobbies retain their Leave Lobby control.
-    const preLobbyBackBtn = $('preLobbyBackBtn');
-    if (preLobbyBackBtn) {
-      const destination = selectedPlayMode === 'casual' ? 'Change Game Type' : 'All Games';
-      preLobbyBackBtn.textContent = `← Back to ${destination}`;
-      preLobbyBackBtn.setAttribute('aria-label', `Back to ${destination}`);
-      preLobbyBackBtn.disabled = !!room;
-    }
+    // This screen is also used after a player leaves a public/private lobby.
+    // Its parent is All Games for unranked, but Game Types for Casual.
+    const uncreatedLobbyBack = $('uncreatedLobbyBackBtn');
+    if (uncreatedLobbyBack) uncreatedLobbyBack.textContent = selectedPlayMode === 'casual'
+      ? '← Back to Change Game Type' : '← Back to All Games';
     $('accountOrb')?.classList.toggle('hidden', !loggedIn);
     const journeyModeLabel = $('unrankedModeBtn')?.querySelector('strong');
     if (journeyModeLabel && loggedIn) {
@@ -6361,6 +6356,23 @@ function syncPostgameToState() {
     renderLobby();
     render();
     setError(reason || 'You left the room.');
+  }
+
+  // Once a player has left a public or private room, the empty lobby entry
+  // page's parent is All Games. Do not replay the first-launch tutorial here.
+  function returnToAllGamesAfterExit() {
+    if (room) return; // Never navigate away while still occupying a lobby.
+    roomNotFoundVisible = false;
+    roomNotFoundReturnView = '';
+    pendingRecentRoomRejoinCode = '';
+    pendingDirectJoinRoomCode = null;
+    pendingDirectJoinAsSpectator = false;
+    selectedPlayMode = 'journey';
+    journeyView = 'home';
+    try { sessionStorage.setItem('hexsettlers_play_mode', 'journey'); } catch (_) {}
+    clearRoomQueryFromUrl();
+    setError(null);
+    updateAuthUi();
   }
 
   // The game-type selection is the single Main Menu destination, including
@@ -11623,28 +11635,6 @@ function refreshLobbyJoinLinkUi() {
     enforceCasualMapRestrictions();
   }
 
-  function navigateBackFromUncreatedLobby() {
-    // Never abandon a connected lobby through a pre-lobby Back button.
-    if (room || !authUser) return;
-    if (selectedPlayMode === 'casual') {
-      returnToGameTypeSelection('');
-      return;
-    }
-    if (selectedPlayMode !== 'unranked') return;
-    // Public and private rooms share unranked mode. After Leave Lobby the
-    // server has already unbound the room, so go straight to All Games without
-    // replaying the first-time walkthrough or accidentally rejoining a room.
-    pendingRecentRoomRejoinCode = '';
-    pendingAutoRejoin = false;
-    roomNotFoundVisible = false;
-    roomNotFoundReturnView = '';
-    journeyView = 'home';
-    selectedPlayMode = 'journey';
-    try { sessionStorage.setItem('hexsettlers_play_mode', 'journey'); } catch (_) {}
-    setError(null);
-    updateAuthUi();
-  }
-
   function choosePlayMode(mode) {
     if (!['ranked', 'unranked', 'casual', 'journey'].includes(mode) || pendingPlayModeSwitch) return;
     if (room && (room.casual ? 'casual' : room.ranked ? 'ranked' : 'unranked') !== mode) {
@@ -11665,7 +11655,6 @@ function refreshLobbyJoinLinkUi() {
     rankedQueueActive = false;
     pendingRankedMatchmaking = false;
   });
-  $('preLobbyBackBtn')?.addEventListener('click', navigateBackFromUncreatedLobby);
   $('rankedModeBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
   $('rankedBackBtn')?.addEventListener('click', () => {
     if (room?.ranked) { setError('Leave your ranked lobby before returning to game types.'); return; }
@@ -11781,6 +11770,11 @@ function refreshLobbyJoinLinkUi() {
   // Refresh discovery without exposing private or friends-only rooms.
   setInterval(() => { if (selectedPlayMode === 'journey' && (journeyView === 'public' || journeyView === 'detail')) requestPublicLobbies(); }, 12000);
   $('casualModeBtn')?.addEventListener('click', () => choosePlayMode('casual'));
+  $('uncreatedLobbyBackBtn')?.addEventListener('click', () => {
+    if (room) return;
+    if (selectedPlayMode === 'casual') returnToGameTypeSelection('');
+    else if (selectedPlayMode === 'unranked') returnToAllGamesAfterExit();
+  });
   function startRankedMatchmaking() {
     rankedQueueActive = true;
     const status = $('rankedStatus');
