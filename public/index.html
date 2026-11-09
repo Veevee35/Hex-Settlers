@@ -8,7 +8,6 @@
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
   <link rel="stylesheet" href="styles.css?v=release-v1.0.5" />
-  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.5" />
 </head>
 <body>
   <section id="authLanding" class="portalScreen">
@@ -41,7 +40,7 @@
       </div>
       <div class="loginSupport">
         <a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Buy me a coffee on Ko-fi">
-          <span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span>
+          <img height="36" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com" />
         </a>
       </div>
     </div>
@@ -73,7 +72,7 @@
     </nav>
     <div class="loginSupport gameTypeSupport">
       <a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Buy me a coffee on Ko-fi">
-        <span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span>
+        <img height="36" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com" />
       </a>
     </div>
   </section>
@@ -81,14 +80,13 @@
   <section id="journeyScreen" class="portalScreen hidden">
   <div class="portalBackdrop"></div>
   <div class="portalCard journeyCard">
-    <button type="button" id="journeyBackBtn" class="btn journeyBack">← Back to Game Types</button>
-    <img class="portalLogo journeyLogo" src="/favicon.png" alt="Hex Settlers">
-    <p class="portalEyebrow">Choose your adventure</p>
-    <h1 id="journeyTitle">All Games</h1>
-    <p id="journeyLead" class="portalLead">Discover a game, gather your friends, or learn to play.</p>
+    <button type="button" id="journeyBackBtn" class="btn journeyBack">Back</button>
+    <p class="portalEyebrow">Start Your Journey</p>
+    <h1 id="journeyTitle">Choose your next adventure</h1>
+    <p id="journeyLead" class="portalLead">Find a game, gather your friends, or learn to play.</p>
     <div id="journeyHomeOptions" class="journeyOptions">
-      <button type="button" id="journeyPublicBtn" class="modeChoice"><strong>Public Lobbies</strong><span>Discover open games or host a public lobby.</span></button>
-      <button type="button" id="journeyPrivateBtn" class="modeChoice"><strong>Private Lobby</strong><span>Host an invite-only game or join with a code.</span></button>
+      <button type="button" id="journeyPublicBtn" class="modeChoice"><strong>Public lobbies</strong><span>Host a visible game or join a lobby that is open to you.</span></button>
+      <button type="button" id="journeyPrivateBtn" class="modeChoice"><strong>Private lobby</strong><span>Hidden from public lists. Join by invitation, room code, or link.</span></button>
       <button type="button" id="journeyChallengeBtn" class="modeChoice" disabled><strong>Challenge of the day</strong><span>Coming soon</span></button>
     </div>
     <div id="journeyPublicPanel" class="hidden journeyPanel">
@@ -146,31 +144,8 @@
     </div>
     <button id="journeyTutorialBtn" type="button" class="btn journeyTutorialReplay">Replay the walkthrough</button>
   </div>
-    <div class="appVersion" aria-label="Game version">V1.0.5</div>
-    <nav class="portalLegalLinks" aria-label="Legal information">
-      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
-      <span class="portalLegalSeparator" aria-hidden="true">·</span>
-      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
-    </nav>
-    <div class="loginSupport gameTypeSupport">
-      <a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Support Hex Settlers on Ko-fi">
-        <span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span>
-      </a>
-    </div>
 </section>
-<section id="roomNotFoundScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard journeyCard notFoundCard"><img class="portalLogo compactPortalLogo" src="/favicon.png" alt="Hex Settlers"><p class="portalEyebrow">Choose your adventure</p><h1>Lobby Not Found</h1><p class="portalLead">This lobby may have closed, expired, or become unavailable to your account.</p><button id="roomNotFoundBackBtn" type="button" class="btn primary portalPrimary">← Go Back</button></div>
-    <div class="appVersion" aria-label="Game version">V1.0.5</div>
-    <nav class="portalLegalLinks" aria-label="Legal information">
-      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
-      <span class="portalLegalSeparator" aria-hidden="true">·</span>
-      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
-    </nav>
-    <div class="loginSupport gameTypeSupport">
-      <a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Support Hex Settlers on Ko-fi">
-        <span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span>
-      </a>
-    </div>
-</section>
+<section id="roomNotFoundScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard journeyCard notFoundCard"><p class="portalEyebrow">Lobby unavailable</p><h1>Lobby not found</h1><p class="portalLead">This lobby doesn't exist, has expired, or is not available to your account.</p><button id="roomNotFoundBackBtn" type="button" class="btn primary portalPrimary">← Back</button></div></section>
 <section id="walkthroughOverlay" class="walkthroughOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="walkthroughTitle">
  <div class="walkthroughCard">
    <div class="walkthroughTop"><span id="walkthroughProgress">1 / 12</span><span class="walkthroughNav"><button type="button" id="walkthroughBackBtn" class="btn">← Back</button><button type="button" id="walkthroughSkipBtn" class="btn">Skip walkthrough</button></span></div>
@@ -243,13 +218,6 @@
       </div>
       <div id="registerMessage" class="hint"></div>
     </form>
-    <div class="appVersion" aria-label="Game version">V1.0.5</div>
-    <nav class="portalLegalLinks" aria-label="Legal information">
-      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
-      <span class="portalLegalSeparator" aria-hidden="true">·</span>
-      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
-    </nav>
-    <div class="loginSupport gameTypeSupport"><a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Support Hex Settlers on Ko-fi"><span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span></a></div>
   </div>
 
   <div id="friendsOverlay" class="portalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="friendsTitle">
@@ -268,39 +236,13 @@
     </div>
   </div>
 
-  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><button id="rankedBackBtn" class="btn portalBackBtn" type="button">← Back to Game Types</button><img class="portalLogo compactPortalLogo" src="/favicon.png" alt="Hex Settlers"><p class="portalEyebrow">Choose your adventure</p><h1>Ranked Play</h1><p class="portalLead">Join one four-player queue and compete against similarly ranked players.</p><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">After matchmaking, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div>
-    <div class="appVersion" aria-label="Game version">V1.0.5</div>
-    <nav class="portalLegalLinks" aria-label="Legal information">
-      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
-      <span class="portalLegalSeparator" aria-hidden="true">·</span>
-      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
-    </nav>
-    <div class="loginSupport gameTypeSupport">
-      <a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Support Hex Settlers on Ko-fi">
-        <span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span>
-      </a>
-    </div>
-</section>
+  <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><button id="rankedBackBtn" class="btn portalBackBtn" type="button">← Back to game types</button><p class="portalEyebrow">Competitive matchmaking</p><h1>Ranked Play</h1><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">Join one four-player queue. After a match is found, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div></section>
   <div id="app" class="hidden">
-    <div class="preLobbyAppFooter" aria-label="Game information">
-    <div class="appVersion" aria-label="Game version">V1.0.5</div>
-    <nav class="portalLegalLinks" aria-label="Legal information">
-      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
-      <span class="portalLegalSeparator" aria-hidden="true">·</span>
-      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
-    </nav>
-    <div class="loginSupport gameTypeSupport">
-      <a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Support Hex Settlers on Ko-fi">
-        <span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span>
-      </a>
-    </div>
-    </div>
     <main class="layout">
       <section class="panel">
         <div class="uncreatedLobbyIntro" id="uncreatedLobbyIntro">
           <div class="uncreatedLobbyNavigation"><button id="uncreatedLobbyBackBtn" class="btn uncreatedLobbyBackBtn" type="button">← Back to All Games</button></div>
-          <img class="portalLogo uncreatedPortalLogo" src="/favicon.png" alt="Hex Settlers">
-          <div class="uncreatedLobbyEyebrow">Choose your adventure</div>
+          <div class="uncreatedLobbyEyebrow">UNRANKED PLAY</div>
           <h1>Start a new adventure</h1>
           <p>Create a lobby to invite friends, or enter a room code to join an existing game.</p>
         </div>
@@ -425,8 +367,8 @@
                   <option value="hard">Hard</option>
                   <option value="expert">Expert</option>
                 </select>
-                <select id="aiFillSelect" class="input" style="width:200px;" aria-label="Select total lobby size including AI players"></select>
-                <button id="aiFillMaxBtn" class="btn primary" type="button" title="Fill every open player seat with AI">Fill Lobby to Max</button>
+                <select id="aiFillSelect" class="input" style="width:200px;"></select>
+
               </div>
               <div id="aiFillNote" class="smallNote">Selecting a total player count immediately adds or removes AI opponents. AI opponents take their own turns even when the timer is Off.</div>
             </div>
@@ -822,6 +764,7 @@
 	        <div class="card logOverlay hidden" id="logCard">
 	          <div class="cardTitleRow">
 	            <h2>Game Log</h2>
+            <div class="logReplayTools"><button id="logReplayExportBtn" class="btn" type="button">Download selected</button><button id="logReplayImportBtn" class="btn" type="button">Upload Game Replay</button></div>
 	            <button id="logHideBtn" class="btn hidden">Hide</button>
 	          </div>
 	          <div id="logList" class="logList"></div>

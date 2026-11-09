@@ -14,7 +14,7 @@ test('an empty lobby has a contextual Back button visible on desktop and mobile'
   assert.match(html, /id="uncreatedLobbyIntro"[\s\S]*?id="uncreatedLobbyBackBtn"/);
   assert.match(css, /body\.uncreated-lobby:not\(\.in-game\):not\(\.ranked-lobby\) #uncreatedLobbyIntro/);
   assert.match(css, /\.uncreatedLobbyNavigation\{display:flex;justify-content:flex-start/);
-  assert.match(app, /uncreatedLobbyBack\.textContent = selectedPlayMode === 'casual'[\s\S]*?'← Back to Game Types' : '← Back to All Games'/);
+  assert.match(app, /uncreatedLobbyBack\.textContent = selectedPlayMode === 'casual'[\s\S]*?'← Back to Change Game Type' : '← Back to All Games'/);
 });
 
 test('Casual Back goes to game types; unranked Back goes to All Games; active lobbies cannot use it', () => {
