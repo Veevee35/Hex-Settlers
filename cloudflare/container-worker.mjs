@@ -180,7 +180,17 @@ export default {
       headers.set('X-Forwarded-Host', url.host);
       // The one Durable Object hosts the one authoritative Node process. It is
       // not a load balancer: 2 containers would split rooms and damage state.
-      return getContainer(env.HEX_BACKEND, 'hex-settlers-primary').fetch(new Request(request, { headers }));
+     const backend = getContainer(env.HEX_BACKEND, 'hex-settlers-primary');
+
+await backend.startAndWaitForPorts({
+  ports: 3000,
+  cancellationOptions: {
+    instanceGetTimeoutMS: 30000,
+    portReadyTimeoutMS: 90000
+  }
+});
+
+return backend.fetch(new Request(request, { headers }));
     }
     return hardened(await env.ASSETS.fetch(request), request);
   },
