@@ -4,7 +4,7 @@ This build preserves all existing game rules, matchmaking, lobby logic, OAuth, d
 
 ## Pre-lobby consistency
 
-- Added a **single global pre-lobby footer** for Terms of Service, Privacy Policy, the current version, and Ko-fi. It appears on sign-in, Change Game Type, Ranked, All Games, Public Lobbies, Lobby Details, Private Lobby, Casual / empty-lobby setup, and Lobby Not Found. It remains hidden during gameplay. The original entry-screen version nodes remain in the HTML for existing Cloudflare release version stamping; they're no longer shown twice.
+- Added a **single global pre-lobby footer** for Terms of Service, Privacy Policy, the current version, and Ko-fi. It appears on sign-in, Change Game Type, Ranked, All Games, Public Lobbies, Lobby Details, Private Lobby, Casual / empty-lobby setup, and Lobby Not Found. It remains hidden during gameplay. The shared footer also stays visible over registration and pre-game tutorial/rules screens, but steps aside when a legal document is open. The original entry-screen version nodes remain in the HTML for existing Cloudflare release version stamping; they're no longer shown twice.
 - Standardized the dark navy gradient backdrop, gold eyebrow text, compact Hex Settlers emblem, typography, card borders, button styling, and padding. The pre-lobby footer adapts to desktop/mobile safe-area spacing.
 - Standardized titles: **All Games**, **Public Lobbies**, **Private Lobby**, **Lobby Details**, **Ranked Play**, **Casual Play**, and **Create or Join a Lobby**.
 - Made the All Games contextual Back button display the correct destination for Home, Public, Lobby Details, Private, and Settings while retaining its existing hierarchical behavior.
@@ -21,7 +21,7 @@ This build preserves all existing game rules, matchmaking, lobby logic, OAuth, d
 - `node --check public/app.js` passed.
 - CSS parsed without top-level errors (`tinycss2`).
 - Targeted navigation and release-stamping tests passed (25/25).
-- New shared UI shell tests passed (3/3).
+- New shared UI shell tests passed (4/4).
 - Full Node test run: 371 passed, 13 blocked by missing extracted dependencies (`ws` and the neural-AI JSON fixture); no new UI regressions were reported.
 
 ## Deployment

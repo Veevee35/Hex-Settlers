@@ -5010,3 +5010,23 @@ body.uncreated-lobby #lobbyCard .label{margin-top:10px}
   .modeChoice,.btn,.preLobbyCoffee{transition:none!important}
   .modeChoice:where(:hover,:focus-visible){transform:none!important}
 }
+
+
+/* Pre-lobby overlays and full-page panels must not cover shared navigation. */
+/* Registration and the tutorial are still pre-lobby experiences. Keep the
+   shared legal/version/support strip accessible above their backdrops. */
+body:not(.in-game) .preLobbyFooter { z-index:10010; }
+body:not(.in-game):has(#walkthroughOverlay:not(.hidden)) .preLobbyFooter,
+body:not(.in-game):has(#rulesPage:not(.hidden)) .preLobbyFooter { display:grid; }
+body:not(.in-game):has(#walkthroughOverlay:not(.hidden)) .walkthroughOverlay {
+  padding-bottom:calc(92px + var(--safe-bottom));
+}
+body:not(.in-game):has(#walkthroughOverlay:not(.hidden)) .walkthroughCard {
+  max-height:calc(100dvh - 118px - var(--safe-bottom));
+}
+body:not(.in-game):has(#rulesPage:not(.hidden)) .rulesPage {
+  padding-bottom:calc(93px + var(--safe-bottom));
+}
+/* Opening a legal document is itself the foreground action; its reader
+   should not be covered by the footer underneath it. */
+body:has(#legalOverlay:not(.hidden)) .preLobbyFooter {display:none!important;}

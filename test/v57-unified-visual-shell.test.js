@@ -44,3 +44,11 @@ test('in-game HUD layout remains independent from pre-lobby chrome', () => {
   assert.match(css, /The same materials follow the player into lobby and game controls/);
   assert.doesNotMatch(html, /id="preLobbyFooter"[^>]*class="[^"]*portalScreen/);
 });
+
+
+test('shared footer remains accessible over account creation, walkthrough and pre-game rules', () => {
+  assert.match(css, /body:not\(\.in-game\) \.preLobbyFooter \{ z-index:10010;/);
+  assert.match(css, /body:not\(\.in-game\):has\(#walkthroughOverlay:not\(\.hidden\)\) \.preLobbyFooter/);
+  assert.match(css, /body:not\(\.in-game\):has\(#rulesPage:not\(\.hidden\)\) \.preLobbyFooter/);
+  assert.match(css, /body:has\(#legalOverlay:not\(\.hidden\)\) \.preLobbyFooter/);
+});
