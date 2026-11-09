@@ -89,7 +89,12 @@
     <div id="journeyHomeOptions" class="journeyOptions">
       <button type="button" id="journeyPublicBtn" class="modeChoice"><strong>Public Lobbies</strong><span>Discover open games or host a public lobby.</span></button>
       <button type="button" id="journeyPrivateBtn" class="modeChoice"><strong>Private Lobby</strong><span>Host an invite-only game or join with a code.</span></button>
-      <button type="button" id="journeyChallengeBtn" class="modeChoice" disabled><strong>Challenge of the day</strong><span>Coming soon</span></button>
+      <button type="button" id="journeyChallengeBtn" class="modeChoice"><strong>Challenge Maps</strong><span>New maps every week. Play with friends see who can get the highest score!</span><span>5 new Scattered Tiles maps every week to compete on.</span></button>
+    </div>
+    <div id="journeyChallengePanel" class="hidden journeyPanel challengeMapsPanel">
+      <p class="smallNote" id="challengeWeekLabel">Five maps · Monday at 1:00 AM Central · Balanced Bag dice · Expert AI</p>
+      <p class="smallNote">Each challenge has a private lobby, shareable link and room code. Every seat is filled by Expert AI until a friend joins. Finished games count toward Unranked and Combined stats.</p>
+      <div id="challengeMapsList" class="challengeMapsList" aria-live="polite">Loading this week's challenge maps…</div>
     </div>
     <div id="journeyPublicPanel" class="hidden journeyPanel">
       <div class="journeyActions"><button id="journeyHostPublicBtn" type="button" class="btn primary">Host public lobby</button><button id="journeyRefreshBtn" type="button" class="btn">Refresh lobbies</button></div>
@@ -437,6 +442,7 @@
 
 
         <div id="setupCard" class="card">
+      <p id="challengeLobbyNote" class="smallNote challengeLobbyNote hidden"></p>
           <h2>Game Setup</h2>
           <div class="smallNote">Host can adjust these before starting. They lock once the game begins.</div>
           <label class="label" for="playerCountSelect">Number of Players</label>

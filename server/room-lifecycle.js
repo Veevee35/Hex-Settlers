@@ -39,7 +39,7 @@ const PLAYER_ACTIVITY_TYPES = new Set([
   'edit_preview_tile', 'edit_preview_port', 'upload_custom_map', 'set_player_color',
   'set_ai_difficulty', 'set_expert_ai_tuning', 'pause_game', 'game_action',
   'respond_leave_game', 'request_leave_game', 'ranked_scenario_vote',
-  'rematch_room', 'set_spectator_mode',
+  'rematch_room', 'set_spectator_mode', 'create_challenge_room',
 ]);
 
 function isPlayerActivity(type) { return PLAYER_ACTIVITY_TYPES.has(String(type || '')); }

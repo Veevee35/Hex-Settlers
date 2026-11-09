@@ -71,6 +71,7 @@ const {
   seafarersExplorationPointsEnabled,
 } = require('./server/game-rules');
 const { normalizeDiceAlgorithm, rollDiceWithAlgorithm } = require('./server/dice-algorithms');
+const { challengeWeekId, challengeRules, generateWeeklyMap } = require('./server/challenge-maps');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
@@ -443,7 +444,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     rules: game.rules || null,
     players: Array.isArray(game.players) ? game.players : [],
     stats: game.stats || null,
-    ranked: !!game.ranked, casual: !!game.casual,
+    ranked: !!game.ranked, casual: !!game.casual, challenge: room.challenge ? { ...room.challenge } : null,
     ratingChanges: game.ratingChanges || {},
     unrankedRatingChanges: game.unrankedRatingChanges || {},
     ratingPolicy: game.ranked ? (game.ratingPolicy || RATING_POLICY) : null,
@@ -460,7 +461,7 @@ function makeGameHistoryEntry(room, game, winnerId) {
     turns: Math.max(0, Math.floor(Number(game.turnNumber || 0))),
     winnerId: wid || (w ? w.id : ''),
     winnerName: w ? w.name : '',
-    ranked: !!game.ranked, casual: !!game.casual,
+    ranked: !!game.ranked, casual: !!game.casual, challenge: room.challenge ? { ...room.challenge } : null,
     ratingChanges: deepClone(game.ratingChanges || {}),
     unrankedRatingChanges: deepClone(game.unrankedRatingChanges || {}),
     ratingPolicy: game.ranked ? deepClone(game.ratingPolicy || RATING_POLICY) : null,
@@ -6168,6 +6169,7 @@ function startGame(room) {
   }
   game.ranked = !!room.ranked;
   game.casual = !!room.casual;
+  game.challenge = room.challenge ? { ...room.challenge } : null;
   // Lock each ranked match to the rules active at the start of that match.
   game.ratingPolicy = game.ranked ? deepClone(RATING_POLICY) : null;
 
@@ -8765,6 +8767,7 @@ function removeRoomMember(room, playerId) {
       retirePlayerFromGame(safe.game, pid);
     }
     try { if (safe.pendingLeaveRequests) delete safe.pendingLeaveRequests[pid]; } catch (_) {}
+    if (safe.challenge && (!safe.game || safe.game.phase === 'lobby')) ensureChallengeRoomInvariants(safe);
     return member || null;
   }
 
@@ -9026,7 +9029,7 @@ function loadActiveRooms() {
     const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
     for (const record of (Array.isArray(parsed && parsed.rooms) ? parsed.rooms : [])) {
       const room = restoreRoom(record, DEFAULT_RULES);
-      if (room && !roomExpiry(room, now(), false).expired) { refreshLegacyRankedBallot(room); rooms.set(room.code, room); }
+      if (room && !roomExpiry(room, now(), false).expired) { refreshLegacyRankedBallot(room); ensureChallengeRoomInvariants(room); rooms.set(room.code, room); }
     }
   } catch (error) {
     console.error('[rooms] Failed to load active_rooms.json:', error && error.message ? error.message : error);
@@ -9050,6 +9053,7 @@ function restoreRoomFromPersistence(code) {
     const restored = restoreRoom(record, DEFAULT_RULES);
     if (!restored || roomExpiry(restored, now(), false).expired) return null;
     refreshLegacyRankedBallot(restored);
+    ensureChallengeRoomInvariants(restored);
     const existing = rooms.get(normalizedCode);
     if (existing) return existing;
     rooms.set(normalizedCode, restored);
@@ -9212,10 +9216,12 @@ function createRematchRoomFrom(prevRoom) {
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'easy',
     expertAiTuning: (prevRoom && prevRoom.expertAiTuning) ? { ...prevRoom.expertAiTuning } : null,
     casual: !!(prevRoom && prevRoom.casual),
+    challenge: prevRoom?.challenge ? { weekId: challengeWeekId(), playerCount: prevRoom.challenge.playerCount } : null,
     visibility: prevRoom?.casual ? 'private' : (prevRoom?.visibility === 'public' ? 'public' : 'private'), friendsOnly: !!prevRoom?.friendsOnly, bossIds: [],
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
     pendingLeaveRequests: Object.create(null),
   };
+  if (room.challenge) ensureChallengeRoomInvariants(room);
   rooms.set(code, room);
   scheduleActiveRoomsSave();
   return room;
@@ -9234,7 +9240,7 @@ function canAccessRoom(room, userId) {
 }
 
 function visiblePublicLobbies(userId) {
-  return Array.from(rooms.values()).filter(room => room && !room.ranked && !room.casual && room.visibility === 'public'
+  return Array.from(rooms.values()).filter(room => room && !room.ranked && !room.casual && !room.challenge && room.visibility === 'public'
     && (!room.game || room.game.phase === 'lobby') && canAccessRoom(room, userId))
     .map(room => {
       // Do not generate a different map for discovery: the preview must match
@@ -9315,6 +9321,12 @@ function joinRoom(code, userId, name, options = {}) {
       if (gp && desiredName) gp.name = desiredName;
     }
     return { ok: true, room, playerId: pid, role: roomRole(room, pid) || 'player' };
+  }
+
+  // Challenge seats are always full: humans replace Expert AI before game start.
+  if (room.challenge && (!room.game || room.game.phase === 'lobby') && !(options && options.spectator)) {
+    const aiIndex = room.players.findIndex(p => isAIPlayerObj(p));
+    if (aiIndex !== -1) room.players.splice(aiIndex, 1);
   }
 
   const joinAsSpectator = !!room.ranked // A ranked roster is fixed by matchmaking. New arrivals watch only.
@@ -9467,12 +9479,75 @@ function generatePreviewGeom(rules, room = null) {
   return geom;
 }
 
+// Generated once per week and size from a stable server-side seed. Rooms and
+// the challenge catalog always receive independent clones of the same layout.
+const weeklyChallengeMapCache = new Map();
+function weeklyChallengeGeom(weekId, playerCount) {
+  const key = `${weekId}:${playerCount}`;
+  if (!weeklyChallengeMapCache.has(key)) {
+    const rules = challengeRules(playerCount);
+    const geom = generateWeeklyMap(weekId, playerCount, () => generatePreviewGeom(rules, { players: Array(playerCount).fill({ isAI: true }) }));
+    weeklyChallengeMapCache.set(key, geom);
+    if (weeklyChallengeMapCache.size > 20) weeklyChallengeMapCache.delete(weeklyChallengeMapCache.keys().next().value);
+  }
+  return deepClone(weeklyChallengeMapCache.get(key));
+}
+
+function challengeLeaderboard(weekId, playerCount) {
+  const perUser = new Map();
+  for (const game of (HISTORY_DB.games || [])) {
+    if (!isValidHistoryEntry(game) || game.casual || game.ranked ||
+      game.challenge?.weekId !== weekId || game.challenge?.playerCount !== playerCount) continue;
+    for (const player of (game.players || [])) {
+      if (!player || player.isAI || String(player.id || '').startsWith('ai_')) continue;
+      const user = findUserById(String(player.id || ''));
+      if (!user) continue;
+      const score = Math.max(0, Math.floor(Number(player.vp) || 0));
+      const turns = Math.max(1, Math.floor(Number(game.turns) || 1));
+      const win = String(game.winnerId) === String(player.id);
+      const entry = perUser.get(player.id) || { id: player.id, name: user.displayName || user.username || player.name || 'Player', bestScore: 0, bestTurns: null, wins: 0, played: 0 };
+      entry.played += 1;
+      entry.wins += win ? 1 : 0;
+      if (score > entry.bestScore || (score === entry.bestScore && (entry.bestTurns == null || turns < entry.bestTurns))) {
+        entry.bestScore = score;
+        entry.bestTurns = turns;
+      }
+      perUser.set(player.id, entry);
+    }
+  }
+  return [...perUser.values()].sort((a,b) => b.bestScore - a.bestScore || b.wins - a.wins || a.bestTurns - b.bestTurns || a.name.localeCompare(b.name)).slice(0, 25);
+}
+
+function challengeMapsCatalog() {
+  const weekId = challengeWeekId();
+  return { weekId, timezone: 'America/Chicago', maps: [4,5,6,7,8].map(playerCount => {
+    const geom = weeklyChallengeGeom(weekId, playerCount);
+    return { playerCount, leaderboard: challengeLeaderboard(weekId, playerCount),
+      preview: (geom.tiles || []).map(tile => ({
+        x: Number(tile.cx), y: Number(tile.cy), type: String(tile.type || 'sea'),
+        number: Number.isInteger(tile.number) ? tile.number : null,
+      })).filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y)) };
+  }) };
+}
+
+function ensureChallengeRoomInvariants(room) {
+  if (!room?.challenge) return;
+  const { weekId, playerCount } = room.challenge;
+  room.rules = challengeRules(playerCount);
+  room.casual = false;
+  room.ranked = false;
+  room.visibility = 'private';
+  room.aiDifficulty = 'neural_net';
+  for (const p of room.players || []) if (isAIPlayerObj(p)) p.aiDifficulty = 'neural_net';
+  if (!room.game || room.game.phase === 'lobby') addAIPlayersToRoom(room, playerCount);
+}
+
 function ensurePreview(room, force=false) {
   if (!room) return false;
   const rules = room.rules || DEFAULT_RULES;
   const key = mapPreviewKey(rules, room?.players?.length || 0);
   if (!room.preview || force || room.preview.key !== key || !room.preview.geom) {
-    room.preview = { key, geom: generatePreviewGeom(rules, room), at: now() };
+    room.preview = { key, geom: room.challenge ? weeklyChallengeGeom(room.challenge.weekId, room.challenge.playerCount) : generatePreviewGeom(rules, room), at: now() };
     return true;
   }
   return false;
@@ -9521,7 +9596,7 @@ function roomSnapshot(room) {
     // Ranked rooms keep an internal coordinator for persistence compatibility,
     // but matched players never receive host/admin ownership.
     hostId: room.ranked ? null : room.hostId,
-    ranked: !!room.ranked, casual: !!room.casual,
+    ranked: !!room.ranked, casual: !!room.casual, challenge: room.challenge || null,
     visibility: room.visibility === 'public' && !room.casual ? 'public' : 'private', friendsOnly: !!room.friendsOnly, bossIds: Array.isArray(room.bossIds) ? room.bossIds : [],
     rankedScenarioVote: room.rankedScenarioVote ? {
       options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
@@ -11836,13 +11911,19 @@ if (msg.type === 'ranked_queue_join') {
       return;
     }
 
+if (msg.type === 'get_challenge_maps') {
+      if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
+      sendJson(ws, { type: 'challenge_maps', ...challengeMapsCatalog() });
+      return;
+    }
+
 if (msg.type === 'list_public_lobbies') {
       if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
       sendJson(ws, { type: 'public_lobbies', rooms: visiblePublicLobbies(ws._userId) });
       return;
     }
 
-if (msg.type === 'create_room') {
+if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
       if (!ws._userId) {
         sendJson(ws, { type: 'error', error: 'Please log in first.' });
         return;
@@ -11854,10 +11935,17 @@ if (msg.type === 'create_room') {
         saveUsersDb();
       }
 
+      const isChallenge = msg.type === 'create_challenge_room';
+      const requestedSize = Number(msg.playerCount);
+      if (isChallenge && (!Number.isInteger(requestedSize) || requestedSize < 4 || requestedSize > 8)) {
+        sendJson(ws, { type: 'error', error: 'Choose a challenge map for 4–8 players.' }); return;
+      }
       const room = createRoom(ws._userId, desiredName);
-      room.casual = msg.casual === true;
+      if (isChallenge) room.challenge = { weekId: challengeWeekId(), playerCount: requestedSize };
+      room.casual = !isChallenge && msg.casual === true;
       room.visibility = !room.casual && msg.visibility === 'public' ? 'public' : 'private';
-      room.friendsOnly = msg.friendsOnly === true;
+      room.friendsOnly = !isChallenge && msg.friendsOnly === true;
+      if (isChallenge) ensureChallengeRoomInvariants(room);
       if (room.casual) {
         room.rules.setupTurnMs = 0;
         room.rules.playTurnMs = 0;
@@ -12023,6 +12111,16 @@ if (msg.type === 'create_room') {
       return;
     }
 
+    const challengeRestrictedMessages = new Set([
+      'set_rules', 'generate_map', 'fill_ai', 'clear_ai', 'set_ai_difficulty',
+      'set_expert_ai_tuning', 'upload_custom_map', 'download_custom_map',
+      'edit_preview_tile', 'edit_preview_port', 'set_lobby_access',
+    ]);
+    if (room.challenge && challengeRestrictedMessages.has(msg.type)) {
+      sendJson(ws, { type: 'error', error: 'Weekly Challenge Maps use fixed settings, Expert AI, and a shared map.' });
+      return;
+    }
+
     const rankedAdministrativeMessages = new Set([
       'clear_ai', 'edit_preview_port', 'edit_preview_tile', 'fill_ai', 'generate_map',
       'kick_player', 'set_ai_difficulty', 'set_expert_ai_tuning', 'set_rules', 'start_game',
@@ -12117,12 +12215,17 @@ if (msg.type === 'create_room') {
           room.hostId = successor.id;
         }
         const moved = moveRoomPlayerToSpectator(room, pid);
+        if (moved.ok && room.challenge) ensureChallengeRoomInvariants(room);
         if (!moved.ok) {
           sendJson(ws, { type: 'error', error: moved.error || 'Could not switch to spectator mode.' });
           return;
         }
       } else {
         if (roleNow === 'player') return;
+        if (room.challenge) {
+          const aiIndex = room.players.findIndex(p => isAIPlayerObj(p));
+          if (aiIndex !== -1) room.players.splice(aiIndex, 1);
+        }
         if (room.players.length >= maxPlayersForRules(room.rules || DEFAULT_RULES)) {
           sendJson(ws, { type: 'error', error: 'The active player seats are full.' });
           return;
@@ -12337,6 +12440,10 @@ if (msg.type === 'create_room') {
         newRoom.hostId = pid;
         room.rematchRoomCode = newRoom.code;
       } else if (!findRoomPlayer(newRoom, pid)) {
+        if (newRoom.challenge) {
+          const aiIndex = newRoom.players.findIndex(p => isAIPlayerObj(p));
+          if (aiIndex !== -1) newRoom.players.splice(aiIndex, 1);
+        }
         if (newRoom.players.length >= maxPlayersForRules(newRoom.rules || DEFAULT_RULES)) {
           sendJson(ws, { type: 'error', error: 'The rematch lobby is full.' });
           return;
@@ -12352,6 +12459,7 @@ if (msg.type === 'create_room') {
           texturePackName: prior.texturePackName || 'Default',
         });
       }
+      if (newRoom.challenge) ensureChallengeRoomInvariants(newRoom);
       ensurePreview(newRoom, true);
 
       // Transfer ONLY the player who clicked Rematch; leave all others on the
@@ -12927,6 +13035,7 @@ if (msg.type === 'create_room') {
     }
 
     if (msg.type === 'start_game') {
+      if (room.challenge) { ensureChallengeRoomInvariants(room); ensurePreview(room, false); }
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only host can start.' });
         return;

@@ -26,7 +26,7 @@ test('v53 casual supports human invitations and keeps matchmaking history untouc
   assert.ok(html.includes('id="casualModeBtn"'));
   assert.match(js, /if \(mode === 'casual' && !room\)/);
   assert.match(js, /send\(\{ type: 'create_room', displayName, casual: selectedPlayMode === 'casual'/);
-  assert.match(server, /room\.casual = msg\.casual === true;/);
+  assert.match(server, /room\.casual = !isChallenge && msg\.casual === true;/);
   assert.doesNotMatch(server, /if \(room\.casual\) addAIPlayersToRoom\(room, 4\)/);
   assert.match(server, /room\._dryRun \|\| room\.casual/);
   assert.doesNotMatch(server, /invitedRoom\.casual \|\| !senderInRoom/);

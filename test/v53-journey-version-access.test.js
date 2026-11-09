@@ -50,7 +50,7 @@ test('public listing filters by friend access, and direct joining checks before 
  assert.match(body,/if \(!canAccessRoom\(room, userId\)\) return \{ ok: false, error: 'Room not found\.' \}/);
  assert.match(server,/if \(msg\.type === 'set_lobby_access'\)/);
  assert.match(server,/if \(msg\.type === 'list_public_lobbies'\)/);
- assert.match(server,/if \(msg\.type === 'create_room'\)/);
+ assert.match(server,/if \(msg\.type === 'create_room' \|\| msg\.type === 'create_challenge_room'\)/);
 });
 
 test('casual supports friends and guests but never writes wins or game history',()=>{
@@ -67,7 +67,10 @@ test('Journey portal, skippable 12-step tutorial, public/private lobby controls 
   assert.ok(html.includes(`id="${id}"`), `Missing UI #${id}`);
  }
  assert.doesNotMatch(html,/id="lobbyVisibilitySelect"/);
- assert.match(html,/id="journeyChallengeBtn"[^>]*disabled/);
+ assert.doesNotMatch(html,/id="journeyChallengeBtn"[^>]*disabled/);
+ assert.match(html,/New maps every week\. Play with friends see who can get the highest score!/);
+ assert.match(html,/5 new Scattered Tiles maps every week to compete on\./);
+ assert.match(html,/id="journeyChallengePanel"/);
  assert.match(app,/const tutorialSteps = \[/);
  assert.match(app,/const TUTORIAL_PREFIX = 'hexsettlers_journey_walkthrough_v53_'/);
  assert.match(app,/choosePlayMode\('journey'\)/);

@@ -1255,6 +1255,7 @@
   let authUser = null;
   let selectedPlayMode = (() => { try { return sessionStorage.getItem('hexsettlers_play_mode') || ''; } catch (_) { return ''; } })();
   let journeyView = 'home';
+  let weeklyChallengeCatalog = null;
   let requestedLobbyVisibility = 'private';
   let roomNotFoundVisible = false;
   let roomNotFoundReturnView = ''; // Preserve the discovery hierarchy after a failed lobby join.
@@ -1423,21 +1424,24 @@
     $('journeyPublicPanel')?.classList.toggle('hidden', view !== 'public');
     $('journeyLobbyDetailPanel')?.classList.toggle('hidden', view !== 'detail');
     $('journeyPrivatePanel')?.classList.toggle('hidden', view !== 'private');
+    $('journeyChallengePanel')?.classList.toggle('hidden', view !== 'challenge');
     $('journeySettingsPanel')?.classList.toggle('hidden', view !== 'settings');
     $('journeyBottomActions')?.classList.toggle('hidden', view !== 'home');
     $('journeyTutorialBtn')?.classList.toggle('hidden', view !== 'home');
     if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public Lobbies' : view === 'detail' ? 'Public Lobby Details'
-      : view === 'private' ? 'Private Lobby' : view === 'settings' ? 'Settings' : 'All Games';
+      : view === 'private' ? 'Private Lobby' : view === 'challenge' ? 'Challenge Maps' : view === 'settings' ? 'Settings' : 'All Games';
     if ($('journeyLead')) $('journeyLead').textContent = ({
       home: 'Discover a game, gather your friends, or learn to play.',
       public: 'Browse open games or host a public lobby.',
       detail: 'Review the game and its settings before joining.',
       private: 'Host a private game or join with an invitation code.',
+      challenge: '5 new Scattered Tiles maps every week to compete on.',
       settings: 'Customize your game layout and sound before playing.',
     })[view] || 'Choose your next adventure.';
     if ($('journeyBackBtn')) $('journeyBackBtn').textContent = view === 'home' ? '← Back to Game Types'
       : view === 'detail' ? '← Back to Public Lobbies' : '← Back to All Games';
     if (view === 'public' || view === 'detail') requestPublicLobbies();
+    if (view === 'challenge') requestChallengeMaps();
     if (view === 'detail') renderPublicLobbyDetail();
     if (view === 'settings') syncSettingsSandbox();
   }
@@ -1446,6 +1450,88 @@
     if (journeyView !== 'home') return setJourneyView('home');
     returnToGameTypeSelection('');
   }
+  function requestChallengeMaps() {
+    if (!authUser) return;
+    send({ type: 'get_challenge_maps' });
+  }
+
+  function renderChallengeMaps() {
+    const host = $('challengeMapsList');
+    if (!host) return;
+    host.replaceChildren();
+    const catalog = weeklyChallengeCatalog;
+    if (!catalog || !Array.isArray(catalog.maps)) {
+      host.textContent = 'Loading this week’s maps…';
+      return;
+    }
+    if ($('challengeWeekLabel')) $('challengeWeekLabel').textContent =
+      `Week of ${catalog.weekId} · New maps Monday at 1:00 AM Central · Balanced Bag · Expert AI`;
+    for (const map of catalog.maps) {
+      const count = Number(map.playerCount);
+      if (![4, 5, 6, 7, 8].includes(count)) continue;
+      const card = document.createElement('article');
+      card.className = 'challengeMapCard';
+      const head = document.createElement('div');
+      head.className = 'challengeMapCardHeading';
+      const title = document.createElement('h2');
+      title.textContent = `${count}-Player Scattered Tiles`;
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'btn primary';
+      play.textContent = `Create ${count}-player lobby`;
+      play.addEventListener('click', () => beginChallengeHost(count));
+      head.append(title, play);
+      const board = document.createElement('canvas');
+      board.className = 'challengeMapPreview';
+      board.width = 440; board.height = 260;
+      board.setAttribute('role', 'img');
+      board.setAttribute('aria-label', `Weekly ${count}-player Scattered Tiles layout`);
+      const rankTitle = document.createElement('h3');
+      rankTitle.textContent = `${count}-Player Leaderboard`;
+      const leaderboard = document.createElement('div');
+      leaderboard.className = 'challengeMapLeaderboard';
+      const rows = Array.isArray(map.leaderboard) ? map.leaderboard : [];
+      if (!rows.length) {
+        leaderboard.classList.add('challengeMapEmpty');
+        leaderboard.textContent = 'No completed challenges yet. Be the first to set a score.';
+      } else {
+        const table = document.createElement('table');
+        const header = document.createElement('thead');
+        const tr = document.createElement('tr');
+        for (const label of ['#', 'Player', 'Best VP', 'Turns', 'Wins', 'Games']) {
+          const th = document.createElement('th'); th.textContent = label; tr.appendChild(th);
+        }
+        header.appendChild(tr); table.appendChild(header);
+        const body = document.createElement('tbody');
+        rows.forEach((entry, index) => {
+          const line = document.createElement('tr');
+          const cells = [index + 1, entry.name || 'Player', Number(entry.bestScore) || 0,
+            entry.bestTurns ?? '—', Number(entry.wins) || 0, Number(entry.played) || 0];
+          for (const cell of cells) {
+            const td = document.createElement('td'); td.textContent = String(cell); line.appendChild(td);
+          }
+          body.appendChild(line);
+        });
+        table.appendChild(body); leaderboard.appendChild(table);
+      }
+      card.append(head, board, rankTitle, leaderboard);
+      host.appendChild(card);
+      drawRankedMiniMap(board, map.preview);
+    }
+  }
+
+  function beginChallengeHost(playerCount) {
+    if (![4,5,6,7,8].includes(playerCount)) return;
+    requestedLobbyVisibility = 'private';
+    roomNotFoundReturnView = 'challenge';
+    selectedPlayMode = 'unranked';
+    roomNotFoundVisible = false;
+    try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
+    prepareUncreatedLobby(); updateAuthUi();
+    send({ type: 'create_challenge_room', playerCount,
+      displayName: authUser?.displayName || authUser?.username || 'Host' });
+  }
+
   function beginJourneyJoin(code) {
     roomNotFoundReturnView = selectedPlayMode === 'journey' ? journeyView : '';
     const c = String(code || '').trim().toUpperCase();
@@ -7312,6 +7398,12 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
 
+      if (msg.type === 'challenge_maps') {
+        weeklyChallengeCatalog = msg;
+        if (journeyView === 'challenge') renderChallengeMaps();
+        return;
+      }
+
       if (msg.type === 'player_leaderboard') {
         historyState.leaderboard = Array.isArray(msg.rows) ? msg.rows : [];
         historyState.loadingBoard = false;
@@ -11138,7 +11230,7 @@ function refreshLobbyJoinLinkUi() {
     // AI fill controls (host-only, lobby only)
     try {
       const gameStartedNow = !!(state && state.phase && state.phase !== 'lobby');
-      const canManageAI = !!(!room.ranked && myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId)) && !gameStartedNow);
+      const canManageAI = !!(!room.ranked && !room.challenge && myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId)) && !gameStartedNow);
       if (ui.aiFillRow) ui.aiFillRow.classList.toggle('hidden', !canManageAI);
 
       // AI difficulty (host-only, lobby only)
@@ -11287,8 +11379,13 @@ function refreshLobbyJoinLinkUi() {
     const gameStartedForControls = !!(state && state.phase && state.phase !== 'lobby');
     if (ui.lobbyCard) ui.lobbyCard.classList.toggle('hidden', gameStartedForControls);
     if (ui.setupCard) ui.setupCard.classList.toggle('hidden', gameStarted || !!room.ranked);
+    if (ui.setupCard) ui.setupCard.classList.toggle('challengeLockedSetup', !!room.challenge);
+    if ($('challengeLobbyNote')) {
+      $('challengeLobbyNote').classList.toggle('hidden', !room.challenge);
+      $('challengeLobbyNote').textContent = room.challenge ? `Weekly Challenge · ${room.challenge.playerCount} seats · ${room.challenge.weekId} · Fixed Scattered Tiles map · Balanced Bag · Expert AI · Unranked stats` : '';
+    }
     const accessControls = $('lobbyAccessControls');
-    if (accessControls) accessControls.classList.toggle('hidden', !!room.ranked || gameStartedForControls);
+    if (accessControls) accessControls.classList.toggle('hidden', !!room.ranked || !!room.challenge || gameStartedForControls);
     $('leaveLobbyTopBtn')?.classList.toggle('hidden', !!room.ranked || gameStartedForControls);
     if ($('lobbyFriendsOnlyToggle')) {
       $('lobbyFriendsOnlyToggle').checked = !!room.friendsOnly;
@@ -11296,7 +11393,7 @@ function refreshLobbyJoinLinkUi() {
     }
 
     const r = room.rules || { discardLimit: 7, setupTurnMs: 60000, playTurnMs: 30000, microPhaseMs: 15000 };
-    const isHost = !!(myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId))) && !gameStartedForControls;
+    const isHost = !!(myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId))) && !gameStartedForControls && !room.challenge;
 
     if (ui.discardLimitInput) {
       ui.discardLimitInput.value = r.discardLimit ?? 7;
@@ -11683,6 +11780,7 @@ function refreshLobbyJoinLinkUi() {
   $('unrankedModeBtn')?.addEventListener('click', () => choosePlayMode('journey'));
   $('journeyPublicBtn')?.addEventListener('click', () => setJourneyView('public'));
   $('journeyPrivateBtn')?.addEventListener('click', () => setJourneyView('private'));
+  $('journeyChallengeBtn')?.addEventListener('click', () => setJourneyView('challenge'));
   $('journeyBackBtn')?.addEventListener('click', journeyBack);
   $('publicLobbyDetailBackBtn')?.addEventListener('click', () => setJourneyView('public'));
   $('publicLobbyDetailRefreshBtn')?.addEventListener('click', requestPublicLobbies);
@@ -11788,6 +11886,7 @@ function refreshLobbyJoinLinkUi() {
   });
   // Refresh discovery without exposing private or friends-only rooms.
   setInterval(() => { if (selectedPlayMode === 'journey' && (journeyView === 'public' || journeyView === 'detail')) requestPublicLobbies(); }, 12000);
+  setInterval(() => { if (selectedPlayMode === 'journey' && journeyView === 'challenge') requestChallengeMaps(); }, 60000);
   $('casualModeBtn')?.addEventListener('click', () => choosePlayMode('casual'));
   $('uncreatedLobbyBackBtn')?.addEventListener('click', () => {
     if (room) return;
