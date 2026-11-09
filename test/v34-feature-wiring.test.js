@@ -8,11 +8,12 @@ const read = (file) => fs.readFileSync(path.join(root,file), 'utf8');
 const html = read('public/index.html'), js = read('public/app.js'), css = read('public/styles.css');
 const server = read('server.js'), protocol = read('server/protocol.js');
 
-test('v34 friend-only history filter and portable replays are wired in both Game Log and History', () => {
+test('friend-only history filters and portable replays stay in Game History, not the in-game sidebar', () => {
   for (const id of ['historyFriendsOnly','historyDownloadSelectedBtn','historyUploadReplayBtn',
-    'historyUploadReplayInput','logReplayExportBtn','logReplayImportBtn']) {
+    'historyUploadReplayInput']) {
     assert.ok(html.includes(`id="${id}"`), `${id} exists`);
   }
+  assert.doesNotMatch(html, /id="logReplayExportBtn"|id="logReplayImportBtn"/);
   assert.match(js, /historyState\.friendIds = new Set/);
   assert.match(js, /historyState\.friendsOnly/);
   assert.match(js, /hex-settlers-replay-pack/);

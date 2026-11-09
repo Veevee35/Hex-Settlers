@@ -24,6 +24,7 @@ function update(filename, pattern, replacement) {
   fs.writeFileSync(loc,after);
 }
 update('public/index.html', /(styles\.css\?v=)[^"\s]+/, `$1${key}`);
+update('public/index.html', /(unified-theme\.css\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(app\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(languages\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(locale-expansion\.js\?v=)[^"\s]+/, `$1${key}`);

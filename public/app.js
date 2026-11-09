@@ -152,6 +152,7 @@
     aiFillRow: $('aiFillRow'),
     aiDifficultySelect: $('aiDifficultySelect'),
     aiFillSelect: $('aiFillSelect'),
+    aiFillMaxBtn: $('aiFillMaxBtn'),
     aiFillBtn: $('aiFillBtn'),
     aiClearBtn: $('aiClearBtn'),
     errBox: $('errBox'),
@@ -1425,8 +1426,17 @@
     $('journeySettingsPanel')?.classList.toggle('hidden', view !== 'settings');
     $('journeyBottomActions')?.classList.toggle('hidden', view !== 'home');
     $('journeyTutorialBtn')?.classList.toggle('hidden', view !== 'home');
-    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public lobbies' : view === 'detail' ? 'Public lobby details'
-      : view === 'private' ? 'Private lobby' : view === 'settings' ? 'Settings' : 'All Games';
+    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public Lobbies' : view === 'detail' ? 'Public Lobby Details'
+      : view === 'private' ? 'Private Lobby' : view === 'settings' ? 'Settings' : 'All Games';
+    if ($('journeyLead')) $('journeyLead').textContent = ({
+      home: 'Discover a game, gather your friends, or learn to play.',
+      public: 'Browse open games or host a public lobby.',
+      detail: 'Review the game and its settings before joining.',
+      private: 'Host a private game or join with an invitation code.',
+      settings: 'Customize your game layout and sound before playing.',
+    })[view] || 'Choose your next adventure.';
+    if ($('journeyBackBtn')) $('journeyBackBtn').textContent = view === 'home' ? '← Back to Game Types'
+      : view === 'detail' ? '← Back to Public Lobbies' : '← Back to All Games';
     if (view === 'public' || view === 'detail') requestPublicLobbies();
     if (view === 'detail') renderPublicLobbyDetail();
     if (view === 'settings') syncSettingsSandbox();
@@ -1660,7 +1670,7 @@
     if (typeof refreshTexturePackUi === 'function') refreshTexturePackUi();
     if ($('uncreatedLobbyIntro')) {
       const eyebrow = $('uncreatedLobbyIntro').querySelector('.uncreatedLobbyEyebrow');
-      if (eyebrow) eyebrow.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'CASUAL · FRIENDS & AI' : 'UNRANKED PLAY';
+      if (eyebrow) eyebrow.textContent = 'Choose your adventure';
       const title = $('uncreatedLobbyIntro').querySelector('h1');
       if (title) title.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Play with friends or AI' : 'Start a new adventure';
       const lead = $('uncreatedLobbyIntro').querySelector('p');
@@ -1670,7 +1680,7 @@
     // Its parent is All Games for unranked, but Game Types for Casual.
     const uncreatedLobbyBack = $('uncreatedLobbyBackBtn');
     if (uncreatedLobbyBack) uncreatedLobbyBack.textContent = selectedPlayMode === 'casual'
-      ? '← Back to Change Game Type' : '← Back to All Games';
+      ? '← Back to Game Types' : '← Back to All Games';
     $('accountOrb')?.classList.toggle('hidden', !loggedIn);
     const journeyModeLabel = $('unrankedModeBtn')?.querySelector('strong');
     if (journeyModeLabel && loggedIn) {
@@ -2722,6 +2732,10 @@ function renderPostgameTab(tab) {
   const appendOverviewGrid = (section, cards) => {
     const grid = document.createElement('div');
     grid.className = 'pgOverviewPlayerGrid';
+    // Seven and eight-player matches use four cards per row on desktop.
+    if (postgameState.tab === 'summary' && cards.length >= 7 && cards.length <= 8) {
+      grid.classList.add('pgOverviewEightPlayerGrid');
+    }
     for (const card of cards) grid.appendChild(card);
     section.appendChild(grid);
     return grid;
@@ -11179,6 +11193,11 @@ function refreshLobbyJoinLinkUi() {
         const desired = matches(String(current)) ? String(current)
           : String(Math.max(start, Math.min(effectiveMaxPlayers, current)));
         ui.aiFillSelect.value = desired;
+        if (ui.aiFillMaxBtn) {
+          ui.aiFillMaxBtn.disabled = current >= effectiveMaxPlayers;
+          ui.aiFillMaxBtn.title = current >= effectiveMaxPlayers
+            ? 'All lobby seats are filled' : `Add AI until all ${effectiveMaxPlayers} seats are filled`;
+        }
       }
     } catch (_) {}
 
@@ -12011,12 +12030,24 @@ function refreshLobbyJoinLinkUi() {
     send({ type: 'set_ai_difficulty', difficulty });
   });
 
+  const canChangeLobbyAi = () => !!(room && myPlayerId && !room.ranked &&
+    (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId)) &&
+    (!state || state.phase === 'lobby'));
   if (ui.aiFillSelect) ui.aiFillSelect.addEventListener('change', () => {
-    if (!room || !myPlayerId || room.hostId !== myPlayerId || (state && state.phase !== 'lobby')) return;
+    if (!canChangeLobbyAi()) return;
     const target = Math.floor(Number(ui.aiFillSelect.value));
     if (!Number.isFinite(target) || target < 1) return;
-    // Changes to an already-selected AI count are now server-controlled on selection.
+    // The server is authoritative for the AI player count.
     send({ type: 'fill_ai', targetCount: target });
+  });
+  ui.aiFillMaxBtn?.addEventListener('click', () => {
+    if (!canChangeLobbyAi() || !ui.aiFillSelect) return;
+    const targets = Array.from(ui.aiFillSelect.options, option => Number(option.value))
+      .filter(value => Number.isFinite(value) && value >= 1);
+    if (!targets.length) return;
+    const max = Math.max(...targets);
+    if ((room.players || []).length >= max) return;
+    send({ type: 'fill_ai', targetCount: max });
   });
 
   function scenarioForResizedBoard(oldScenario, newMode) {
@@ -13265,8 +13296,6 @@ $('historyFriendsOnly')?.addEventListener('change', event => {
 });
 $('historyDownloadSelectedBtn')?.addEventListener('click', downloadChosenReplays);
 $('historyUploadReplayBtn')?.addEventListener('click', () => $('historyUploadReplayInput')?.click());
-$('logReplayExportBtn')?.addEventListener('click', () => openHistoryOverlay('games'));
-$('logReplayImportBtn')?.addEventListener('click', () => $('historyUploadReplayInput')?.click());
 $('historyUploadReplayInput')?.addEventListener('change', async event => {
   const file = event.target.files?.[0]; event.target.value = '';
   if (!file) return;
