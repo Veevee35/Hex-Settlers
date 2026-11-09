@@ -1425,8 +1425,17 @@
     $('journeySettingsPanel')?.classList.toggle('hidden', view !== 'settings');
     $('journeyBottomActions')?.classList.toggle('hidden', view !== 'home');
     $('journeyTutorialBtn')?.classList.toggle('hidden', view !== 'home');
-    if ($('journeyTitle')) $('journeyTitle').textContent = view === 'public' ? 'Public lobbies' : view === 'detail' ? 'Public lobby details'
-      : view === 'private' ? 'Private lobby' : view === 'settings' ? 'Settings' : 'All Games';
+    const journeyCopy = {
+      home: ['Choose your adventure', 'All Games', 'Find a game, invite friends, or learn to play.', '← Back to Game Types'],
+      public: ['All Games · Public', 'Public Lobbies', 'Browse public games or host a lobby of your own.', '← Back to All Games'],
+      detail: ['All Games · Public', 'Lobby Details', 'Preview the map and rules before joining a game.', '← Back to Public Lobbies'],
+      private: ['All Games · Private', 'Private Lobby', 'Host a private game or join with a room code.', '← Back to All Games'],
+      settings: ['All Games · Settings', 'Settings', 'Adjust your layout and sound preferences before playing.', '← Back to All Games'],
+    }[view] || ['Choose your adventure', 'All Games', 'Find a game, invite friends, or learn to play.', '← Back to Game Types'];
+    if ($('journeyEyebrow')) $('journeyEyebrow').textContent = journeyCopy[0];
+    if ($('journeyTitle')) $('journeyTitle').textContent = journeyCopy[1];
+    if ($('journeyLead')) $('journeyLead').textContent = journeyCopy[2];
+    if ($('journeyBackBtn')) $('journeyBackBtn').textContent = journeyCopy[3];
     if (view === 'public' || view === 'detail') requestPublicLobbies();
     if (view === 'detail') renderPublicLobbyDetail();
     if (view === 'settings') syncSettingsSandbox();
@@ -1660,11 +1669,11 @@
     if (typeof refreshTexturePackUi === 'function') refreshTexturePackUi();
     if ($('uncreatedLobbyIntro')) {
       const eyebrow = $('uncreatedLobbyIntro').querySelector('.uncreatedLobbyEyebrow');
-      if (eyebrow) eyebrow.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'CASUAL · FRIENDS & AI' : 'UNRANKED PLAY';
+      if (eyebrow) eyebrow.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'CASUAL · FRIENDS & AI' : 'UNRANKED · LOBBY SETUP';
       const title = $('uncreatedLobbyIntro').querySelector('h1');
-      if (title) title.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Play with friends or AI' : 'Start a new adventure';
+      if (title) title.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Casual Play' : 'Create or Join a Lobby';
       const lead = $('uncreatedLobbyIntro').querySelector('p');
-      if (lead) lead.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Create a shareable game for up to six players, human or AI. Results never affect stats.' : 'Create a lobby to invite friends, or enter a room code to join an existing game.';
+      if (lead) lead.textContent = (selectedPlayMode === 'casual' || room?.casual) ? 'Create a shareable lobby for up to six players, human or AI. Games never affect your stats.' : 'Create a lobby to invite friends, or join an existing game using its room code.';
     }
     // This screen is also used after a player leaves a public/private lobby.
     // Its parent is All Games for unranked, but Game Types for Casual.
@@ -1718,12 +1727,14 @@
   }
 
   async function refreshDeployedVersion() {
+    const sharedVersion = $('preLobbyVersion');
+    if (sharedVersion) sharedVersion.textContent = document.querySelector('.appVersion')?.textContent || '';
     try {
       const response = await fetch('/api/build-version', { cache:'no-store', credentials:'same-origin' });
       if (!response.ok) return;
       const info = await response.json();
       if (!/^V\d+\.\d+\.\d+$/.test(String(info.version || ''))) return;
-      document.querySelectorAll('.appVersion').forEach(node => { node.textContent = info.version; });
+      document.querySelectorAll('.appVersion, .preLobbyVersion').forEach(node => { node.textContent = info.version; });
     } catch (_) {} // Old servers and offline mode retain the bundled version.
   }
   refreshDeployedVersion();

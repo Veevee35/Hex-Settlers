@@ -4624,3 +4624,389 @@ body.casual-mode #downloadTexturePackBtn,body.casual-mode #uploadTexturePackBtn,
 @media(max-width:620px){.publicLobbyFilters{grid-template-columns:repeat(2,minmax(0,1fr))}.publicLobbyFilters label:first-child{grid-column:span 2}.publicLobbyViewAction{width:100%;text-align:right}.publicLobbyDetailFields{grid-template-columns:1fr}.publicLobbyDetailMap{margin-top:8px}}
 
 .walkthroughNav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Hex Settlers: unified interface / design system
+   Consistent pre-lobby shell and shared visual language across game, dialogs,
+   account, rules and history. Presentation only: game-board geometry and
+   layout scaling are deliberately untouched.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  --bg:#08121c;
+  --panel:#0f1c28;
+  --card:#122330;
+  --text:#eff5fa;
+  --muted:#a2b8c8;
+  --line:#2e4c60;
+  --btn:#1c3547;
+  --btn2:#112839;
+  --accent:#75bcf3;
+  --gold:#eab958;
+  --ok:#3cda90;
+  --shadow:0 16px 45px rgba(0,7,14,.42);
+  --radius:17px;
+}
+html {color-scheme:dark}
+::selection{background:rgba(234,185,88,.32);color:#fff}
+button,input,select,textarea{font:inherit}
+button{touch-action:manipulation}
+:where(button,a,input,select,textarea,[tabindex]):focus-visible {
+  outline:2px solid var(--gold);outline-offset:2px;
+}
+:where(.panel,.portalCard,.journeySettingsPanel,.accountMenu,.modalBody,.rulesPageContent,.historyBody,.rightSidebarInner,.publicLobbyList) {
+  scrollbar-color:#3b637a transparent;
+  scrollbar-width:thin;
+}
+
+/* The same deep navy backdrop and restrained brass/blue lighting on all entry
+   paths: sign-in, game type, All Games, lobby browser, casual, ranked and errors. */
+.portalScreen,.rulesPage {
+  background:#07111b;
+}
+.portalBackdrop {
+  background:
+    radial-gradient(ellipse 780px 570px at 51% 17%,rgba(232,177,76,.105),transparent 73%),
+    radial-gradient(ellipse 820px 700px at -8% -10%,rgba(67,131,175,.13),transparent 75%),
+    radial-gradient(ellipse 700px 680px at 109% 78%,rgba(39,112,106,.095),transparent 77%),
+    linear-gradient(140deg,#081622,#07111b 52%,#07151c);
+}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby){
+  background:
+    radial-gradient(ellipse 780px 570px at 51% 17%,rgba(232,177,76,.105),transparent 73%),
+    radial-gradient(ellipse 820px 700px at -8% -10%,rgba(67,131,175,.13),transparent 75%),
+    radial-gradient(ellipse 700px 680px at 109% 78%,rgba(39,112,106,.095),transparent 77%),
+    linear-gradient(140deg,#081622,#07111b 52%,#07151c);
+}
+.portalCard,.walkthroughCard,.rulesPageShell,.historyPanel,.postgamePanel,.modalBox {
+  border:1px solid rgba(117,165,195,.34);
+  background:linear-gradient(160deg,rgba(17,35,48,.985),rgba(10,23,34,.985));
+  border-radius:22px;
+  box-shadow:0 25px 80px rgba(0,5,12,.5),inset 0 1px 0 rgba(255,255,255,.035);
+}
+.portalCard {
+  padding:clamp(22px,3.4vw,40px);
+  max-height:calc(100dvh - 105px - var(--safe-bottom));
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.portalCard h1,.uncreatedLobbyIntro h1,.walkthroughCard h1 {
+  color:#fff;
+  font-size:clamp(25px,2.8vw,35px);
+  line-height:1.17;
+  letter-spacing:-.035em;
+  font-weight:800;
+  text-wrap:balance;
+}
+.portalCard h2 {letter-spacing:-.02em}
+.portalLead {
+  font-size:13px;
+  color:#abc3d3;
+  line-height:1.55;
+}
+.portalEyebrow,.uncreatedLobbyEyebrow {
+  color:var(--gold);
+  font-size:10px;
+  font-weight:850;
+  letter-spacing:.17em;
+  text-transform:uppercase;
+}
+.portalSectionLogo {
+  display:block;
+  width:90px;
+  height:90px;
+  object-fit:contain;
+  margin:0 auto 12px;
+  filter:drop-shadow(0 7px 14px rgba(0,0,0,.45));
+}
+.authPortalCard,.modePortalCard,.rankedCard,.notFoundCard{text-align:center}
+.authPortalCard {width:min(530px,100%)}
+.authPortalCard .portalLogo {width:174px;margin:-5px auto 8px}
+.modePortalCard {width:min(1060px,100%)}
+.modePortalCard .modeLogo {width:135px;margin:-5px auto 11px}
+#rankedScreen .portalCard {width:min(535px,100%)}
+#rankedScreen .rankSummary{text-align:left}
+#rankedStatus {margin:16px 0 0}
+#rankedCancelBtn:not(.hidden){width:100%;margin-top:11px}
+.journeyCard {width:min(930px,96vw)}
+.journeyCard .journeyBack {top:20px;left:20px}
+#journeyScreen .journeyCard>.portalEyebrow{margin-top:6px}
+#journeyScreen .journeyCard>.portalLead{max-width:560px;margin:0 auto 17px}
+#roomNotFoundScreen .notFoundCard{width:min(520px,96vw)}
+#roomNotFoundScreen .portalLead{margin-bottom:17px}
+
+/* Cards are consistent, clearly selectable tiles on both landing pages. */
+.modeChoices,.journeyOptions {gap:14px}
+.modeChoice {
+  background:linear-gradient(155deg,rgba(20,43,57,.97),rgba(13,27,39,.95));
+  border:1px solid rgba(102,148,176,.44);
+  border-radius:16px;
+  padding:22px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035);
+  transition:background .16s,border-color .16s,transform .16s,box-shadow .16s;
+}
+.modeChoice strong {
+  font-size:clamp(18px,1.8vw,22px);
+  letter-spacing:-.025em;
+  margin-bottom:9px;
+}
+.modeChoice span{color:#a8c4d5;font-size:13px;line-height:1.48}
+.modeChoice:where(:hover,:focus-visible):not(:disabled){
+  background:linear-gradient(155deg,#1a3b51,#102534);
+  border-color:var(--gold);
+  box-shadow:0 10px 27px rgba(0,0,0,.2),inset 0 0 0 1px rgba(234,185,88,.1);
+  transform:translateY(-2px);
+}
+.modeChoice:disabled{opacity:.48;filter:saturate(.65)}
+#playModeScreen .modeChoices {margin-top:25px}
+#journeyScreen .journeyOptions{margin:23px 0 15px}
+#journeyScreen .journeyOptions .modeChoice{min-height:142px}
+
+/* Shared site chrome. The two legacy entry-screen footers remain in markup
+   for release stamping, but only this one footer is visible. */
+#authLanding>.appVersion,#authLanding>.portalLegalLinks,
+#playModeScreen>.appVersion,#playModeScreen>.portalLegalLinks,
+#authLanding .loginSupport,#playModeScreen .gameTypeSupport {display:none!important}
+.preLobbyFooter {
+  position:fixed;
+  inset:auto 0 0;
+  z-index:910;
+  display:none;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  align-items:end;
+  gap:12px;
+  padding:26px max(12px,var(--safe-right)) calc(10px + var(--safe-bottom)) max(12px,var(--safe-left));
+  background:linear-gradient(0deg,rgba(5,14,23,.9) 0%,rgba(5,14,23,.48) 48%,transparent);
+  pointer-events:none;
+}
+body:has(.portalScreen:not(.hidden)) .preLobbyFooter,
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby):has(#app:not(.hidden)) .preLobbyFooter {
+  display:grid;
+}
+.preLobbyFooter>*{pointer-events:auto}
+.preLobbyFooterLegal {display:flex;align-items:center;gap:8px;min-width:0}
+.preLobbyFooter .portalLegalLink {
+  border-radius:8px;
+  background:transparent;
+  padding:6px 5px;
+  color:#b0c6d4;
+  font-size:11px;
+}
+.preLobbyFooterDivider{color:#748b9d}
+.preLobbyVersion{
+  justify-self:center;
+  align-self:center;
+  white-space:nowrap;
+  color:#98b5c6;
+  font:700 11px var(--sans);
+  letter-spacing:.12em;
+}
+.preLobbyCoffee{
+  justify-self:end;
+  display:inline-flex;
+  align-items:center;
+  border-radius:9px;
+  transition:filter .16s,transform .16s;
+}
+.preLobbyCoffee img {display:block;width:auto;height:33px;max-width:125px;object-fit:contain}
+.preLobbyCoffee:is(:hover,:focus-visible){filter:brightness(1.1);transform:translateY(-2px)}
+/* The language picker is another pre-lobby screen. Keep the shared footer in
+   front of that full-screen view, without covering the language controls. */
+body:not(.in-game):has(#languagePage:not(.hidden)) .preLobbyFooter {display:grid;z-index:5010}
+body:has(#languagePage:not(.hidden)) .languagePage{padding-bottom:110px}
+
+/* Unified back navigation and readable compact controls. */
+.portalBackBtn,.journeyCard .journeyBack,.uncreatedLobbyBackBtn,.overlayBackBtn {
+  width:auto;
+  min-height:35px;
+  padding:8px 12px;
+  text-align:left;
+  font-size:12px;
+  font-weight:700;
+}
+.btn,.accountMenuItem {
+  border:1px solid rgba(106,145,171,.30);
+  border-radius:11px;
+  background:linear-gradient(180deg,rgba(40,62,79,.65),rgba(20,37,51,.84));
+  color:#f0f6fc;
+  transition:background .16s,border-color .16s,filter .16s;
+}
+.btn:is(:hover,:focus-visible):not(:disabled),.accountMenuItem:is(:hover,:focus-visible){
+  border-color:rgba(151,202,230,.6);
+  background:linear-gradient(180deg,#29485c,#1c3649);
+}
+.btn.primary {
+  border-color:rgba(109,188,250,.65);
+  background:linear-gradient(180deg,#24496b,#16334b);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09);
+}
+.btn.primary:is(:hover,:focus-visible):not(:disabled){
+  border-color:#a6ddff;
+  background:linear-gradient(180deg,#30618a,#1b4567);
+}
+.input,select.input,textarea.input {
+  background:rgba(4,13,22,.64);
+  border-color:rgba(106,151,181,.34);
+  border-radius:11px;
+  color:var(--text);
+}
+.input:focus {border-color:var(--accent);box-shadow:0 0 0 3px rgba(117,188,243,.13)}
+.input::placeholder{color:#7994a6;opacity:1}
+.label,.labelTiny {color:#b3cad7}
+.card {
+  border-color:rgba(108,155,186,.3);
+  background:linear-gradient(160deg,rgba(22,42,56,.96),rgba(12,25,36,.96));
+  border-radius:16px;
+  box-shadow:0 10px 28px rgba(0,7,17,.2),inset 0 1px 0 rgba(255,255,255,.022);
+}
+.card h2,.cardTitleRow h2{font-size:13px;letter-spacing:.035em}
+
+/* Combine Casual / empty lobby hero and controls into one visual surface. */
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout {padding-top:clamp(18px,5vh,46px)}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout>.panel {
+  max-width:700px;width:min(100%,700px);gap:0;
+  padding-bottom:calc(93px + var(--safe-bottom));
+}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro {
+  border:1px solid rgba(117,165,195,.34);
+  border-bottom:0;
+  border-radius:22px 22px 0 0;
+  background:linear-gradient(160deg,rgba(17,35,48,.985),rgba(10,23,34,.985));
+  padding:22px clamp(16px,3vw,32px) 13px;
+  box-shadow:0 -12px 36px rgba(0,7,17,.14);
+}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro .uncreatedLobbyNavigation{margin-bottom:0}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro .portalSectionLogo{width:82px;height:82px;margin:0 auto 8px}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro h1{margin:9px auto 8px}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro p{max-width:520px;font-size:13px;margin:0 auto 13px}
+body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #lobbyCard {
+  border:1px solid rgba(117,165,195,.34);
+  border-top:1px solid rgba(117,165,195,.16);
+  border-radius:0 0 22px 22px;
+  padding:20px clamp(16px,3vw,32px) 27px;
+  background:linear-gradient(160deg,rgba(17,35,48,.985),rgba(10,23,34,.985));
+  box-shadow:0 23px 54px rgba(0,7,17,.32);
+}
+body.uncreated-lobby #lobbyCard .lobbyPrimaryActions{margin-top:11px}
+body.uncreated-lobby #lobbyCard .lobbyPrimaryActions .btn{min-height:42px}
+body.uncreated-lobby #lobbyCard .lobbyJoinDivider{margin:12px 0}
+body.uncreated-lobby #lobbyCard .row .btn{min-height:37px}
+body.uncreated-lobby #lobbyCard .label{margin-top:10px}
+
+/* All Games subpages use the same card hierarchy as the game-type choices. */
+.journeyPanel {margin:15px 0 10px}
+.journeyActions{margin-bottom:14px}
+.journeyPanel .btn.primary{min-height:39px}
+.publicLobbyFilters {
+  padding:13px;
+  border:1px solid rgba(111,162,190,.28);
+  border-radius:13px;
+  background:rgba(8,22,33,.52);
+}
+.publicLobbyFilters label {font-size:11px;color:#b2c8d5}
+.publicLobbyItem,.publicLobbyDetailField {
+  border-color:rgba(108,155,186,.36);
+  background:linear-gradient(160deg,rgba(20,45,60,.85),rgba(14,29,41,.86));
+}
+.publicLobbyItem:is(:hover,:focus-visible) {border-color:var(--gold);background:#183548}
+.publicLobbyViewAction {color:#b1dcff}
+.publicLobbyDetailMap {border-color:rgba(117,165,195,.35);background:#071723}
+.publicLobbyDetail .journeyActions #publicLobbyDetailBackBtn{display:none}
+.journeySettingsPanel {
+  border-color:rgba(111,162,190,.36);
+  background:rgba(10,27,40,.72);
+  border-radius:16px;
+}
+.journeyBottomActions .btn{min-height:38px}
+.journeyTutorialReplay {font-size:12px}
+
+/* The same materials follow the player into lobby and game controls. Keep HUD
+   scale, dock positioning, canvas, resizable panels and player colors intact. */
+.roomBox,.pRes,.bankRes,.lobbyAccessControls {
+  border-color:rgba(108,155,186,.32);
+  background:rgba(6,21,32,.56);
+}
+.rightSidebar {
+  border-left-color:rgba(101,149,182,.35);
+  background:rgba(8,23,34,.88);
+  box-shadow:-18px 0 55px rgba(0,5,13,.33);
+}
+.hudBar,.resourcesOverlay,.logOverlay,.hudDevOverlay {
+  border-color:rgba(112,166,200,.32);
+  background:rgba(10,26,38,.86);
+  box-shadow:0 15px 42px rgba(0,6,15,.33);
+}
+.rightSidebar #resourcesCard{background:transparent;border:0;box-shadow:none}
+.accountOrb {
+  border-color:var(--gold);
+  background:linear-gradient(155deg,#264359,#0b1d2d);
+  box-shadow:0 9px 28px rgba(0,5,13,.45),inset 0 0 0 2px rgba(234,185,88,.08);
+}
+.accountMenu {
+  border:1px solid rgba(117,165,195,.45);
+  background:linear-gradient(160deg,#172e40,#0b1a27);
+  border-radius:14px;
+  box-shadow:0 24px 58px rgba(0,5,13,.5);
+}
+.accountMenuItem{border-color:transparent;background:transparent}
+.accountMenuItem:is(:hover,:focus-visible){background:rgba(69,118,148,.25)}
+.accountMenuName{border-bottom-color:rgba(117,165,195,.24)}
+.modalBox,.historyPanel,.postgamePanel{background:linear-gradient(160deg,#142a3a,#0c1b28)}
+.modalTitle,.historyTitle {color:#fff;letter-spacing:-.015em}
+.historyTop,.historyTabs,.rulesPageHeader{border-bottom-color:rgba(106,153,185,.28)}
+.rulesPage {background:linear-gradient(145deg,#081622,#06111a)}
+.rulesPageShell {background:linear-gradient(155deg,#132b3a,#0b1c2a)}
+.rulesPageEyebrow{color:var(--gold)}
+.walkthroughOverlay {background:rgba(3,11,18,.95)}
+.walkthroughCard{background:linear-gradient(155deg,#17374b,#0a1d2a)}
+.walkthroughTop{color:#f1cb78}
+.languagePage{background:linear-gradient(145deg,#071622,#0b1d2a)}
+.languagePageInner{border:1px solid rgba(117,165,195,.34);padding:clamp(16px,3vw,32px);border-radius:20px;background:rgba(13,32,45,.92)}
+
+@media (max-width:760px){
+  #playModeScreen.portalScreen{padding:12px 12px 90px;align-items:center}
+  #playModeScreen .modePortalCard{width:min(100%,500px);max-width:none;padding:20px 17px 24px;margin:auto}
+  #playModeScreen .modeLogo{position:static;width:94px;max-width:100%;height:auto;margin:0 auto 9px}
+  #playModeScreen .portalEyebrow{margin:0 0 8px;text-align:center}
+  #playModeScreen .modePortalCard h1{margin:0 0 13px;text-align:center;min-height:0;font-size:clamp(23px,5.6vw,29px)}
+  #playModeScreen .modeChoices{grid-template-columns:1fr;gap:10px;margin-top:15px}
+  #playModeScreen .modeChoice{min-height:0;padding:15px 16px}
+  #playModeScreen .modeChoice strong{font-size:18px;margin-bottom:5px}
+  #playModeScreen .modeChoice span{font-size:12px}
+  #journeyScreen{padding:12px 12px 95px}
+  .journeyCard{width:100%;max-height:calc(100dvh - 120px);padding:19px 17px 26px}
+  .journeyCard .journeyBack{position:static;display:block;margin:0 0 9px}
+  .portalSectionLogo{width:68px;height:68px;margin-bottom:8px}
+  #journeyScreen .journeyOptions{grid-template-columns:1fr;gap:9px;margin:18px 0 12px}
+  #journeyScreen .journeyOptions .modeChoice{min-height:0;padding:15px 17px}
+  .portalCard h1,.uncreatedLobbyIntro h1{font-size:clamp(23px,5vw,30px)}
+  body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout{padding:8px 10px!important}
+  body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout>.panel{max-width:700px;padding-bottom:calc(100px + var(--safe-bottom))!important}
+  body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro{padding:15px 16px 8px}
+  body.uncreated-lobby:not(.in-game):not(.ranked-lobby) #uncreatedLobbyIntro .portalSectionLogo{width:66px;height:66px}
+  .publicLobbyFilters{padding:10px}
+}
+@media (max-width:600px){
+  .preLobbyFooter{
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:'legal legal' 'version coffee';
+    padding:17px 11px calc(9px + var(--safe-bottom));
+    gap:2px 10px;
+  }
+  .preLobbyFooterLegal{grid-area:legal;justify-content:center;gap:8px}
+  .preLobbyVersion{grid-area:version;justify-self:start;padding-left:4px}
+  .preLobbyCoffee{grid-area:coffee}
+  .preLobbyCoffee img{height:29px;width:auto}
+  #authLanding.portalScreen,#rankedScreen.portalScreen,#roomNotFoundScreen.portalScreen{padding:10px 12px 92px}
+  .portalCard{max-height:calc(100dvh - 122px - var(--safe-bottom));padding:20px 18px}
+  .authPortalCard .portalLogo{width:112px}
+  .authPortalCard .portalForm{margin-top:14px}
+  #rankedScreen .portalBackBtn{margin-bottom:10px}
+  #rankedScreen .portalSectionLogo{width:63px;height:63px}
+  #roomNotFoundScreen .portalSectionLogo{width:66px;height:66px}
+  .journeySettingsPanel{padding:12px}
+  .publicLobbyItem{padding:11px}
+}
+@media (prefers-reduced-motion:reduce){
+  .modeChoice,.btn,.preLobbyCoffee{transition:none!important}
+  .modeChoice:where(:hover,:focus-visible){transform:none!important}
+}
