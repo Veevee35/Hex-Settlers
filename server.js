@@ -21,6 +21,7 @@ const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validated
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
 const { PROVIDERS: OAUTH_PROVIDERS, providerAvailability, beginOAuth, finishOAuth, clearFlowCookie, safeReturnPath } = require('./server/oauth-login');
+const { claimOAuthUsername, finishVerifiedEmailLink, usernameAvailability } = require('./server/account-onboarding');
 const { parseClientMessage } = require('./server/protocol');
 const { roomExpiry, isPlayerActivity, ROOM_LIFETIMES_MS } = require('./server/room-lifecycle');
 const {
@@ -824,27 +825,27 @@ function findUserByOAuth(provider, subject) {
 }
 
 async function createOAuthUser(identity) {
-  const raw = String(identity.name || '').replace(/[^a-zA-Z0-9_.-]+/g, '_').replace(/^[_\.-]+|[_\.-]+$/g, '').slice(0, 24);
-  const seed = raw.length >= 3 ? raw : `${identity.provider}_player`;
-  for (let index = 0; index < 100; index++) {
-    const suffix = index ? `_${crypto.randomBytes(3).toString('hex')}` : '';
-    const username = `${seed.slice(0, 24 - suffix.length)}${suffix}`;
-    if (findUserByUsername(username) || isReservedAdminUsername(username)) continue;
-    const result = await createUser({ username, displayName: identity.name, password: crypto.randomBytes(32).toString('base64url') });
-    if (!result.ok) continue;
-    // Two near-simultaneous callbacks for the same provider identity can reach
-    // createUser() while its password hash is awaiting. Keep only one account.
-    const existingIdentity = findUserByOAuth(identity.provider, identity.subject);
-    if (existingIdentity) {
-      USERS_DB.users = USERS_DB.users.filter(user => user.id !== result.user.id);
-      return existingIdentity;
-    }
-    // OAuth accounts are passwordless until a separate explicit local-password flow is added.
-    delete result.user.pass;
-    result.user.oauthAccounts = [{ provider: identity.provider, subject: identity.subject, name: identity.name, linkedAt: now() }];
-    return result.user;
-  }
-  throw new Error('Unable to create a unique player username.');
+  // No public username is assigned until the new player chooses one. Use an
+  // unpredictable internal placeholder that is never available to other users.
+  // Unlike createUser(), this does not create and then discard a password.
+  const existing = findUserByOAuth(identity.provider, identity.subject);
+  if (existing) return existing;
+  let placeholder;
+  do { placeholder = `pending_${crypto.randomBytes(9).toString('hex')}`; }
+  while (findUserByUsername(placeholder));
+  const user = {
+    id: crypto.randomUUID(), username: placeholder,
+    displayName: cleanDisplayName(identity.name) || 'Player',
+    role: 'user', needsUsernameSetup: true,
+    oauthAccounts: [{ provider: identity.provider, subject: identity.subject, name: identity.name, linkedAt: now() }],
+    tokens: [],
+    stats: { gamesPlayed: 0, wins: 0, losses: 0, totalVP: 0, lastGameAt: 0 },
+    rankedRating: INITIAL_RANKED_RATING,
+    unrankedRating: 0, unrankedRatingVersion: UNRANKED_RATING_VERSION,
+    createdAt: now(), lastLoginAt: 0,
+  };
+  USERS_DB.users.push(user);
+  return user;
 }
 
 function accountOauthLabels(user) {
@@ -891,6 +892,7 @@ function safeUserPublic(u) {
     pendingEmailExpiresAt: managed.pendingEmailExpiresAt,
     hasPassword: managed.hasPassword,
     oauthProviders: managed.oauthProviders,
+    needsUsernameSetup: u.needsUsernameSetup === true,
   };
 }
 
@@ -10479,13 +10481,20 @@ async function handleAuthHttp(req, res, urlPath) {
       sendHttpJson(req, res, 409, { ok: false, error: 'That email is already linked to another account.' });
       return;
     }
-    user.email = email;
-    user.emailVerifiedAt = now();
-    user.requiresEmailVerification = false;
-    delete user.emailVerification;
-    delete user.passwordReset;
+    const verification = user.emailVerification;
+    let result;
+    try { result = finishVerifiedEmailLink(user, { ...verification, email }, now()); }
+    catch (error) { sendHttpJson(req, res, 409, { ok: false, error: error.message }); return; }
     await saveUsersDb();
-    sendHttpJson(req, res, 200, { ok: true, message: 'Email verified. It can now be used for password recovery.' });
+    if (result.convertedToEmailLogin) {
+      sendHttpJson(req, res, 200, {
+        ok: true, convertedToEmailLogin: true,
+        message: 'Email verified. OAuth sign-in has been disconnected. Log in using your email address (or username) and password; your ratings, stats and friends are unchanged.',
+      }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+      setTimeout(() => disconnectUserSessions(user.id, 'Your account now uses email/password. Please sign in again.'), 25);
+    } else {
+      sendHttpJson(req, res, 200, { ok: true, message: 'Email verified. You can now sign in with this email and your password.' });
+    }
     return;
   }
 
@@ -10605,8 +10614,9 @@ async function handleAuthHttp(req, res, urlPath) {
     }
     user = result.user;
   } else {
-    user = findUserByUsername(body.username);
-    if (!user || !await verifyPassword(user, body.password)) {
+    const identifier = String(body.username || body.email || '').trim();
+    user = findUserByUsername(identifier) || findUserByEmail(identifier);
+    if (!user || (identifier.includes('@') && (!user.emailVerifiedAt || normalizeEmail(user.email) !== normalizeEmail(identifier))) || !await verifyPassword(user, body.password)) {
       sendHttpJson(req, res, 401, { ok: false, error: 'Invalid username or password.' });
       return;
     }
@@ -11159,6 +11169,25 @@ async function handleAccountHttp(req, res, urlPath) {
     return;
   }
 
+  // Pending OAuth players may only finish onboarding or check name availability.
+  // They cannot start a game or manage another player account first.
+  if (urlPath === '/api/account/check-username') {
+    if (!viewer.needsUsernameSetup) { sendHttpJson(req, res, 409, { ok: false, error: 'Username setup is already complete.' }); return; }
+    sendHttpJson(req, res, 200, { ok: true, ...usernameAvailability(body.username, findUserByUsername) });
+    return;
+  }
+  if (urlPath === '/api/account/complete-oauth-username') {
+    const chosen = claimOAuthUsername(viewer, body.username, findUserByUsername);
+    if (!chosen.ok) { sendHttpJson(req, res, 409, chosen); return; }
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(viewer), message: 'Username selected. Welcome to Hex Settlers!' });
+    return;
+  }
+  if (viewer.needsUsernameSetup) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Choose your username before continuing.' });
+    return;
+  }
+
   if (urlPath === '/api/account/friends') {
     const friendIds = Array.isArray(viewer.friendIds) ? viewer.friendIds : [];
     const requestIds = Array.isArray(viewer.friendRequestIds) ? viewer.friendRequestIds : [];
@@ -11356,14 +11385,23 @@ async function handleAccountHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/account/request-email-link') {
-    if (!viewer.pass) { sendHttpJson(req, res, 409, { ok: false, error: 'Provider-only accounts cannot configure email/password recovery.' }); return; }
     if (!isEmailDeliveryConfigured(process.env)) {
       sendHttpJson(req, res, 503, { ok: false, error: 'Email delivery is not configured on this server.' });
       return;
     }
-    if (!await verifyPassword(viewer, body.currentPassword)) {
-      sendHttpJson(req, res, 401, { ok: false, error: 'Current password is incorrect.' });
-      return;
+    let pendingPassword = null;
+    if (viewer.pass) {
+      if (!await verifyPassword(viewer, body.currentPassword)) {
+        sendHttpJson(req, res, 401, { ok: false, error: 'Current password is incorrect.' });
+        return;
+      }
+    } else {
+      // OAuth users choose their first local password, but it is not enabled
+      // until they prove ownership of the direct email address.
+      const password = validatePassword(body.newPassword);
+      if (!password.ok) { sendHttpJson(req, res, 400, { ok: false, error: password.error }); return; }
+      const salt = crypto.randomBytes(16).toString('hex');
+      pendingPassword = { salt, hash: await derivePasswordHash(password.value, salt) };
     }
     const validation = validateEmailAddress(body.email);
     if (!validation.ok) {
@@ -11376,7 +11414,7 @@ async function handleAccountHttp(req, res, urlPath) {
       sendHttpJson(req, res, 409, { ok: false, error: 'That email is already linked to another account.' });
       return;
     }
-    if (normalizeEmail(viewer.email) === email && viewer.emailVerifiedAt) {
+    if (normalizeEmail(viewer.email) === email && viewer.emailVerifiedAt && !(viewer.oauthAccounts || []).length) {
       sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(viewer), message: 'That email is already verified.' });
       return;
     }
@@ -11387,6 +11425,8 @@ async function handleAccountHttp(req, res, urlPath) {
       tokenHash: oneTimeTokenHash(verificationToken),
       createdAt: now(),
       expiresAt: now() + EMAIL_VERIFICATION_TTL_MS,
+      convertToDirectLogin: !!(viewer.oauthAccounts || []).length,
+      ...(pendingPassword ? { pendingPassword } : {}),
     };
     await saveUsersDb();
     try {
@@ -11411,7 +11451,7 @@ async function handleAccountHttp(req, res, urlPath) {
     sendHttpJson(req, res, 200, {
       ok: true,
       user: safeUserPublic(viewer),
-      message: `Verification email sent to ${email}.`,
+      message: `Verification email sent to ${email}. ${viewer.emailVerification.convertToDirectLogin ? 'After verification, your OAuth providers will be disconnected and you can sign in with email/password.' : ''}`.trim(),
     });
     return;
   }
@@ -11696,8 +11736,9 @@ wss.on('connection', (ws, req) => {
         sendJson(ws, { type: 'error', error: 'Too many authentication attempts. Try again shortly.' });
         return;
       }
-      const user = findUserByUsername(msg.username);
-      if (!user) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
+      const identifier = String(msg.username || '').trim();
+      const user = findUserByUsername(identifier) || findUserByEmail(identifier);
+      if (!user || (identifier.includes('@') && (!user.emailVerifiedAt || normalizeEmail(user.email) !== normalizeEmail(identifier)))) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
       if (!await verifyPassword(user, msg.password)) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
       if (user.requiresEmailVerification && !user.emailVerifiedAt) { sendJson(ws, { type: 'error', error: 'Verify your email before logging in.' }); return; }
       if (msg.displayName || msg.name) {
@@ -11720,6 +11761,11 @@ wss.on('connection', (ws, req) => {
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token: String(msg.token || '').trim() });
       saveUsersDb();
+      return;
+    }
+
+    if (ws._userId && findUserById(ws._userId)?.needsUsernameSetup) {
+      sendJson(ws, { type: 'error', error: 'Choose your username before entering the game.' });
       return;
     }
 

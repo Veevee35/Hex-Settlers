@@ -1592,7 +1592,7 @@
     if (authUser && ui.nameInput && (authUser.isAdmin || !String(ui.nameInput.value || '').trim())) {
       ui.nameInput.value = authUser.displayName || authUser.username || '';
     }
-    if (authUser) {
+    if (authUser && !authUser.needsUsernameSetup) {
       selectInvitedLobbyMode();
       // A refresh in a recently active room bypasses the game-type portal.
       if (!pendingDirectJoinRoomCode && typeof recentRoomCodeForUser === 'function' && recentRoomCodeForUser(authUser) && selectedPlayMode !== 'ranked' && selectedPlayMode !== 'journey') {
@@ -1627,6 +1627,47 @@
     }
   }
   void setupOAuthSignIn();
+
+  // First-time provider sign-ups must complete this screen before using a
+  // lobby. Existing OAuth users with a selected username are unaffected.
+  let usernameAvailabilityRequest = 0;
+  $('oauthUsernameInput')?.addEventListener('blur', async () => {
+    if (!authUser?.needsUsernameSetup) return;
+    const username = String($('oauthUsernameInput')?.value || '').trim();
+    const status = $('oauthUsernameStatus');
+    const requestId = ++usernameAvailabilityRequest;
+    if (!username) return;
+    try {
+      const response = await accountApi('check-username', { username });
+      if (requestId !== usernameAvailabilityRequest) return;
+      status.className = response.available ? 'userManagementStatus success' : 'userManagementStatus error';
+      status.textContent = response.available ? 'Username available!' : (response.error || 'Username unavailable.');
+    } catch (_) { /* Final submit also validates on the server. */ }
+  });
+  $('oauthUsernameForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!authUser?.needsUsernameSetup) return;
+    const username = String($('oauthUsernameInput')?.value || '').trim();
+    const button = $('oauthUsernameSave');
+    const status = $('oauthUsernameStatus');
+    button.disabled = true;
+    status.className = 'userManagementStatus';
+    status.textContent = 'Saving username…';
+    try {
+      const response = await accountApi('complete-oauth-username', { username });
+      status.className = 'userManagementStatus success';
+      status.textContent = response.message || 'Username saved.';
+      setAuthState(response.user, null, { clearToken: true });
+      reconnectForCookieAuth();
+    } catch (error) {
+      status.className = 'userManagementStatus error';
+      status.textContent = error.message || 'Could not save username.';
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $('oauthUsernameSignOut')?.addEventListener('click', () => ui.logoutBtn?.click());
+
 
   function handleOAuthReturnFromUrl() {
     const params = new URLSearchParams(window.location.search);
@@ -1741,17 +1782,25 @@
 
   function updateAuthUi() {
     const loggedIn = !!authUser;
+    const needsUsername = loggedIn && authUser.needsUsernameSetup === true;
+    const ready = loggedIn && !needsUsername;
+    $('oauthUsernameSetup')?.classList.toggle('hidden', !needsUsername);
+    if (needsUsername) {
+      const provider = authUser.oauthProviders?.[0]?.provider;
+      const providerName = OAUTH_LABELS[provider] || 'OAuth';
+      if ($('oauthUsernameProvider')) $('oauthUsernameProvider').textContent = `Signed in with ${providerName}. Your username is not set yet.`;
+    }
     const landing = $('authLanding');
     const modeScreen = $('playModeScreen');
     const rankedScreen = $('rankedScreen');
     const appRoot = $('app');
     landing?.classList.toggle('hidden', loggedIn);
-    modeScreen?.classList.toggle('hidden', !loggedIn || !!selectedPlayMode || roomNotFoundVisible);
-    $('journeyScreen')?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'journey' || roomNotFoundVisible);
-    $('roomNotFoundScreen')?.classList.toggle('hidden', !loggedIn || !roomNotFoundVisible);
+    modeScreen?.classList.toggle('hidden', !ready || !!selectedPlayMode || roomNotFoundVisible);
+    $('journeyScreen')?.classList.toggle('hidden', !ready || selectedPlayMode !== 'journey' || roomNotFoundVisible);
+    $('roomNotFoundScreen')?.classList.toggle('hidden', !ready || !roomNotFoundVisible);
     if (typeof setJourneyView === 'function') setJourneyView(journeyView);
-    rankedScreen?.classList.toggle('hidden', !loggedIn || selectedPlayMode !== 'ranked' || roomNotFoundVisible);
-    appRoot?.classList.toggle('hidden', !loggedIn || roomNotFoundVisible || !['unranked', 'casual'].includes(selectedPlayMode));
+    rankedScreen?.classList.toggle('hidden', !ready || selectedPlayMode !== 'ranked' || roomNotFoundVisible);
+    appRoot?.classList.toggle('hidden', !ready || roomNotFoundVisible || !['unranked', 'casual'].includes(selectedPlayMode));
     if (typeof document !== 'undefined') document.body?.classList.toggle('casual-mode', selectedPlayMode === 'casual' || !!room?.casual);
     if (typeof refreshTexturePackUi === 'function') refreshTexturePackUi();
     if ($('uncreatedLobbyIntro')) {
@@ -1767,7 +1816,7 @@
     const uncreatedLobbyBack = $('uncreatedLobbyBackBtn');
     if (uncreatedLobbyBack) uncreatedLobbyBack.textContent = selectedPlayMode === 'casual'
       ? '← Back to Game Types' : '← Back to All Games';
-    $('accountOrb')?.classList.toggle('hidden', !loggedIn);
+    $('accountOrb')?.classList.toggle('hidden', !ready);
     const journeyModeLabel = $('unrankedModeBtn')?.querySelector('strong');
     if (journeyModeLabel && loggedIn) {
       let walked = false; try { walked = localStorage.getItem(tutorialStorageKey()) === '1'; } catch (_) {}
@@ -1804,9 +1853,9 @@
     if (ui.usernameInput) ui.usernameInput.disabled = loggedIn;
     if (ui.passwordInput) ui.passwordInput.disabled = loggedIn;
 
-    if (ui.createBtn) ui.createBtn.disabled = !loggedIn;
-    if (ui.joinBtn) ui.joinBtn.disabled = !loggedIn;
-    if (ui.rejoinLastBtn) ui.rejoinLastBtn.disabled = !loggedIn;
+    if (ui.createBtn) ui.createBtn.disabled = !ready;
+    if (ui.joinBtn) ui.joinBtn.disabled = !ready;
+    if (ui.rejoinLastBtn) ui.rejoinLastBtn.disabled = !ready;
 
     const last = (() => { try { return localStorage.getItem(LAST_ROOM_KEY) || ''; } catch (_) { return ''; } })();
     if (ui.lastRoomHint) ui.lastRoomHint.textContent = last ? `Last room: ${last}` : '';
@@ -7432,6 +7481,13 @@ function refreshLobbyJoinLinkUi() {
           updateAuthUi();
         }
 
+        if (authUser?.needsUsernameSetup) {
+          // Do not consume an invite link or auto-rejoin while the account
+          // still has only a provisional username.
+          pendingAutoRejoin = false;
+          return;
+        }
+
         if (pendingRankedMatchmaking && authUser) {
           startRankedMatchmaking();
         }
@@ -8735,7 +8791,7 @@ function refreshLobbyJoinLinkUi() {
           if (user.hasPassword !== false) controls.appendChild(passwordSection);
           else {
             const note = document.createElement('div'); note.className = 'smallNote';
-            note.textContent = 'This is a provider-only account. There is no local password to change; keep a provider connected so you can sign in.';
+            note.textContent = 'Provider sign-in is active. To switch to email/password, enter your email and create a password below. OAuth stays connected until you verify the email.';
             controls.appendChild(note);
           }
 
@@ -8743,7 +8799,7 @@ function refreshLobbyJoinLinkUi() {
           emailSection.className = 'userManagementSection';
           const emailHeading = document.createElement('div');
           emailHeading.className = 'labelTiny';
-          emailHeading.textContent = 'Recovery Email';
+          emailHeading.textContent = (user.oauthProviders || []).length ? 'Switch to Email & Password' : 'Recovery Email';
           emailSection.appendChild(emailHeading);
 
           const emailInput = document.createElement('input');
@@ -8755,16 +8811,28 @@ function refreshLobbyJoinLinkUi() {
           emailInput.disabled = !emailDeliveryConfigured;
           emailSection.appendChild(emailInput);
 
-          const emailPassword = makePasswordInput('Current password', 'current-password');
+          const emailPassword = makePasswordInput(user.hasPassword ? 'Current password' : 'Create password (6+ characters)', user.hasPassword ? 'current-password' : 'new-password');
           emailPassword.disabled = !emailDeliveryConfigured;
           emailSection.appendChild(emailPassword);
+          let emailPasswordConfirm = null;
+          if (!user.hasPassword) {
+            emailPasswordConfirm = makePasswordInput('Confirm new password', 'new-password');
+            emailPasswordConfirm.disabled = !emailDeliveryConfigured;
+            emailSection.appendChild(emailPasswordConfirm);
+          }
+          if ((user.oauthProviders || []).length) {
+            const info = document.createElement('p');
+            info.className = 'smallNote';
+            info.textContent = 'After you confirm the verification email, all OAuth providers will disconnect. Your username, stats, ratings, friends, and game history stay with this account. You will sign in with email (or username) and password.';
+            emailSection.appendChild(info);
+          }
 
           const emailButtons = document.createElement('div');
           emailButtons.className = 'row userManagementEmailButtons';
           const verifyEmail = document.createElement('button');
           verifyEmail.className = 'btn';
           verifyEmail.type = 'button';
-          verifyEmail.textContent = user.pendingEmail ? 'Resend Verification' : (user.hasEmail ? 'Change Email' : 'Link Email');
+          verifyEmail.textContent = (user.oauthProviders || []).length ? 'Verify & Switch to Email Login' : (user.pendingEmail ? 'Resend Verification' : (user.hasEmail ? 'Change Email' : 'Link Email'));
           verifyEmail.disabled = !emailDeliveryConfigured;
           emailButtons.appendChild(verifyEmail);
 
@@ -8793,20 +8861,26 @@ function refreshLobbyJoinLinkUi() {
             }
             if (!currentValue) {
               emailStatus.className = 'userManagementStatus error';
-              emailStatus.textContent = 'Enter your current password.';
+              emailStatus.textContent = user.hasPassword ? 'Enter your current password.' : 'Create a password (6+ characters).';
               emailPassword.focus();
+              return;
+            }
+            if (emailPasswordConfirm && (currentValue.length < 6 || currentValue !== emailPasswordConfirm.value)) {
+              emailStatus.className = 'userManagementStatus error';
+              emailStatus.textContent = currentValue.length < 6 ? 'Password must be at least 6 characters.' : 'Passwords do not match.';
               return;
             }
             verifyEmail.disabled = true;
             emailStatus.className = 'userManagementStatus';
             emailStatus.textContent = 'Sending verification email…';
             try {
-              const response = await accountApi('request-email-link', { email, currentPassword: currentValue });
+              const response = await accountApi('request-email-link', { email, ...(user.hasPassword ? { currentPassword: currentValue } : { newPassword: currentValue }) });
               if (response.user) {
                 Object.assign(user, response.user);
                 setAuthState(response.user, null, { clearToken: true });
               }
               emailPassword.value = '';
+              if (emailPasswordConfirm) emailPasswordConfirm.value = '';
               emailStatus.className = 'userManagementStatus success';
               emailStatus.textContent = response.message || 'Verification email sent.';
               setTimeout(renderUsers, 600);
@@ -8849,7 +8923,7 @@ function refreshLobbyJoinLinkUi() {
               }
             });
           }
-          if (user.hasPassword !== false) controls.appendChild(emailSection);
+          controls.appendChild(emailSection);
         } else if (adminView) {
           const adminSection = document.createElement('div');
           adminSection.className = 'userManagementSection';
@@ -9351,7 +9425,11 @@ function refreshLobbyJoinLinkUi() {
       removeAccountActionFromUrl('verify_email');
       status.className = 'userManagementStatus success';
       status.textContent = response.message || 'Email verified.';
-      if (authUser) {
+      if (response.convertedToEmailLogin) {
+        clearAuthLocal();
+        websocketAuthenticated = false;
+        reconnectForCookieAuth();
+      } else if (authUser) {
         try {
           const session = await authApi('session');
           if (session.user) setAuthState(session.user, null, { clearToken: true });
@@ -11622,7 +11700,7 @@ function refreshLobbyJoinLinkUi() {
     const password = String($('landingPassword')?.value || '');
     const errorBox = $('landingError');
     errorBox?.classList.add('hidden');
-    if (!username || !password) { if (errorBox) { errorBox.textContent = 'Enter your username and password.'; errorBox.classList.remove('hidden'); } return; }
+    if (!username || !password) { if (errorBox) { errorBox.textContent = 'Enter your username or email and password.'; errorBox.classList.remove('hidden'); } return; }
     try { await authenticateInBrowser('login', { username, password }); }
     catch (error) { if (errorBox) { errorBox.textContent = error.message || 'Login failed.'; errorBox.classList.remove('hidden'); } }
   }

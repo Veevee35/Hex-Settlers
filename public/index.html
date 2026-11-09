@@ -19,8 +19,8 @@
       <h1>Welcome to Hex Settlers</h1>
       <p class="portalLead">Build kingdoms, cross new seas, and compete with settlers from around the world.</p>
       <div class="portalForm">
-        <label class="label" for="landingUsername">Username</label>
-        <input id="landingUsername" class="input" maxlength="24" autocomplete="username" placeholder="Your username">
+        <label class="label" for="landingUsername">Username or email</label>
+        <input id="landingUsername" class="input" maxlength="254" autocomplete="username" placeholder="Username or verified email">
         <label class="label" for="landingPassword">Password</label>
         <div class="passwordRevealField">
           <input id="landingPassword" class="input" type="password" autocomplete="current-password" placeholder="Your password">
@@ -203,6 +203,29 @@
     </section>
   </div>
 
+  <section id="oauthUsernameSetup" class="portalScreen hidden" aria-labelledby="oauthUsernameTitle">
+    <div class="portalBackdrop"></div>
+    <form id="oauthUsernameForm" class="portalCard oauthUsernameCard">
+      <p class="portalEyebrow">ACCOUNT SETUP</p>
+      <h1 id="oauthUsernameTitle">Choose your username</h1>
+      <p class="portalLead">Your provider is connected. Choose a unique username for your player profile, friends, leaderboards and game statistics.</p>
+      <p id="oauthUsernameProvider" class="smallNote"></p>
+      <label class="label" for="oauthUsernameInput">Unique username</label>
+      <input id="oauthUsernameInput" class="input" type="text" minlength="3" maxlength="24" pattern="[a-zA-Z0-9_.-]{3,24}" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="3–24 characters">
+      <p class="smallNote">Letters, numbers, underscores, periods and hyphens. This is your permanent login and stats identifier.</p>
+      <div id="oauthUsernameStatus" class="userManagementStatus" role="status" aria-live="polite"></div>
+      <button id="oauthUsernameSave" class="btn primary portalPrimary" type="submit">Save Username &amp; Continue</button>
+      <button id="oauthUsernameSignOut" class="portalTextBtn" type="button">Sign out instead</button>
+    </form>
+    <div class="appVersion" aria-label="Game version">V1.0.5</div>
+    <nav class="portalLegalLinks" aria-label="Legal information">
+      <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
+      <span class="portalLegalSeparator" aria-hidden="true">·</span>
+      <button type="button" class="portalLegalLink" data-legal-page="privacy">Privacy Policy</button>
+    </nav>
+    <div class="loginSupport gameTypeSupport"><a href="https://ko-fi.com/L6D82A3L9Z" target="_blank" rel="noopener noreferrer" aria-label="Support Hex Settlers on Ko-fi"><span class="kofiIcon" aria-hidden="true">☕</span><span class="kofiText">Support on Ko-fi</span></a></div>
+  </section>
+
   <button id="accountOrb" class="accountOrb hidden" aria-label="Open account menu" aria-expanded="false" aria-controls="accountMenu"><span id="accountOrbInitial">?</span></button>
   <div id="accountMenu" class="accountMenu hidden">
     <div id="accountMenuName" class="accountMenuName"></div>
@@ -244,7 +267,7 @@
           <button type="button" class="btn oauthProvider hidden" data-oauth-provider="github" data-oauth-intent="login">GitHub</button>
           <button type="button" class="btn oauthProvider hidden" data-oauth-provider="cloudflare" data-oauth-intent="login">Cloudflare</button>
         </div>
-        <p class="smallNote">Provider sign-up skips the email verification step. You can connect additional sign-in methods later in Manage Account.</p>
+        <p class="smallNote">After provider sign-up, choose a unique username to track your ratings and stats. You can switch to verified email/password later in Manage Account.</p>
       </div>
       <div id="registerMessage" class="hint"></div>
     </form>
@@ -325,7 +348,7 @@
           <div id="authStatus" class="hint" style="margin-top:4px;">Not logged in.</div>
 
           <label class="label">Username</label>
-          <input id="usernameInput" class="input" maxlength="24" placeholder="username" />
+          <input id="usernameInput" class="input" maxlength="24" placeholder="Username or verified email" />
 
           <label class="label">Password</label>
           <input id="passwordInput" class="input" type="password" placeholder="password" />
