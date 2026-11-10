@@ -67,7 +67,7 @@ test('V66 mobile and desktop tutorial give separate guidance and replay ignores 
   assert.match(client, /else if \(t\.completed\) \{[\s\S]*?send\(\{ type: 'restart_tutorial_game' \}\)/);
   assert.match(client, /send\(\{ type: 'tutorial_finish' \}\)/);
   assert.match(html, /id="tutorialGuideAssist"/);
-  assert.match(html, /app\.js\?v=release-v66/);
+  assert.match(html, /app\.js\?v=release-v\d+/);
 });
 
 test('V66 protocol accepts tutorial replay and completion actions', () => {

@@ -40,7 +40,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v63';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.67';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -5602,6 +5602,16 @@ function syncPostgameToState() {
   function ensureLogDevSplitter() {
     const panes = sidebarPanes();
     if (!ui.rightSidebarInner || panes.some(p => !p)) return;
+    // Desktop splitters must only be inserted when ALL four panes belong to
+    // the desktop sidebar. Mobile deliberately moves the bank/hand pane into
+    // #mobilePinnedResources; using it as insertBefore's reference node here
+    // throws NotFoundError and aborts updateButtons() before resources, dice,
+    // End Turn, Back/Pause and Play can be refreshed.
+    if (isMobileGameSplit() || panes.some(p => p.parentNode !== ui.rightSidebarInner)) {
+      for (const handle of sidebarSectionHandles) handle.remove();
+      scheduleLogDevSplit();
+      return;
+    }
     if (!sidebarSectionHandles.length) {
       const labels = ['Resources / Game Log', 'Game Log / Development Cards', 'Development Cards / Bank Resources'];
       for (let i=0; i<3; i++) {
