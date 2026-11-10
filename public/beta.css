@@ -3,8 +3,22 @@
 .betaSessionPanel.hidden{display:none!important}.betaSessionPanel h2{font-size:15px;margin:0 0 8px;color:#f2c569}
 .betaSessionRow{display:flex;gap:6px 14px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(190,213,230,.12);font-size:13px}
 .betaSessionRow strong{min-width:170px}.betaSessionRow span{color:#accedf}.betaSessionRow small{width:100%;color:#9eb5c7}
-.betaFeedbackLaunch{position:fixed;z-index:840;right:14px;top:84px;border:1px solid #5b8199;border-radius:24px;background:#152b3b;color:#e7f1f5;font-size:12px;font-weight:800;padding:10px 14px;cursor:pointer;box-shadow:0 6px 15px rgba(0,0,0,.5)}
-.betaFeedbackLaunch:hover{border-color:#ecc778;background:#203d50}
+/* One floating, moveable, accessible insect affordance on all game and beta pages. */
+.betaFeedbackLaunch{position:fixed;z-index:1600;right:max(14px,env(safe-area-inset-right));top:calc(82px + env(safe-area-inset-top));display:grid;place-items:center;width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border:1px solid #6a8fa3;border-radius:14px;background:linear-gradient(150deg,#204252,#102734);color:#f0c974;box-shadow:0 4px 17px rgba(0,0,0,.55),inset 0 1px rgba(255,255,255,.08);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;transition:border-color .15s ease,box-shadow .15s ease,background .15s ease}
+.betaFeedbackLaunch svg{display:block;pointer-events:none}
+.betaFeedbackLaunch:hover,.betaFeedbackLaunch:focus-visible{border-color:#f0c974;background:#244759;box-shadow:0 0 0 2px rgba(232,185,78,.16),0 7px 24px #0008;outline:none}
+.betaFeedbackLaunch.is-dragging{cursor:grabbing;transition:none;border-color:#f0c974;box-shadow:0 0 0 3px rgba(232,185,78,.26),0 12px 30px #000a}
+.betaFeedbackLaunch.is-hidden{display:none!important}
+.betaFeedbackQuickMenu{position:fixed;z-index:1650;display:grid;gap:4px;width:178px;padding:7px;border:1px solid #54768b;border-radius:12px;background:#102330;box-shadow:0 14px 30px #0009}
+.betaFeedbackQuickMenu.hidden{display:none!important}
+.betaFeedbackQuickMenu button{border:0;border-radius:8px;background:none;color:#ecf3f8;text-align:left;font:600 13px system-ui;padding:10px;cursor:pointer}
+.betaFeedbackQuickMenu button:hover,.betaFeedbackQuickMenu button:focus-visible{background:#1d3e50;color:#ffe2a3}
+.betaFeedbackSettingsToggle,.betaFeedbackVisibilityOption{display:flex!important;align-items:center;gap:9px;color:#aecaD8;font-size:12px;font-weight:650;cursor:pointer}
+.betaFeedbackSettingsToggle input,.betaFeedbackVisibilityOption input{width:18px;height:18px;accent-color:#d9b567}
+.betaFeedbackVisibilityOption{margin:3px 0 0!important}
+.betaLandingVisibility{position:relative;margin:10px auto 18px;max-width:920px;text-align:right;padding-right:15px}
+.betaLandingVisibility button{border:1px solid #54778c;border-radius:9px;background:#172d3b;color:#e9f1f6;padding:8px 12px;font-size:12px;cursor:pointer}
+.betaLandingVisibility button:focus-visible{outline:2px solid #e5bf77}
 .betaFeedbackOverlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:16px;background:rgba(1,6,13,.84);overflow-y:auto}
 .betaFeedbackOverlay.hidden{display:none!important}.betaFeedbackDialog{width:min(520px,100%);border:1px solid #5685a0;border-radius:20px;background:#101f2e;color:#e5eff4;padding:24px;box-shadow:0 20px 70px #000}
 .betaFeedbackDialog h2{margin:0;color:#f2d48a}.betaFeedbackDialog p{color:#b4c6d2;font-size:13px;line-height:1.5}
@@ -16,7 +30,7 @@
 .betaScheduleForm{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end;margin-bottom:16px}.betaScheduleForm button{justify-self:start}
 .betaSessionManageRow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #30465b}
 .betaFeedbackAdminText{max-width:530px;overflow-wrap:anywhere}.betaFeedbackAdminText p{margin:4px 0}.betaFeedbackAdminText small{color:#a0b4c6}
-@media(max-width:680px){.betaFeedbackLaunch{top:72px;right:10px;padding:8px 10px;max-width:44vw}.betaScheduleForm{grid-template-columns:1fr}.betaFeedbackDialog{padding:17px}}
+@media(max-width:680px){.betaFeedbackLaunch{top:calc(76px + env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));width:42px;height:42px;min-width:42px;min-height:42px;border-radius:13px}.betaScheduleForm{grid-template-columns:1fr}.betaFeedbackDialog{padding:17px}}
 
 .betaJoinLink{margin:12px 0 0;font-size:13px;text-align:center}.betaJoinLink a{color:#f2c76d;text-decoration:underline}
 body.admin-portal .betaFeedbackLaunch,body.admin-portal .betaFeedbackOverlay{display:none!important}
@@ -26,3 +40,17 @@ body.admin-portal .betaFeedbackLaunch,body.admin-portal .betaFeedbackOverlay{dis
 /* Existing admin tables default to single-line cells; beta reports wrap by design. */
 .betaAdmin .adminStatsTable td:has(.betaFeedbackAdminText){white-space:normal;min-width:240px}
 .betaAdmin .betaFeedbackAdminText strong{white-space:normal;overflow-wrap:anywhere}
+
+.betaFeedbackEmailState{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:125px;white-space:normal}.betaFeedbackEmailState span{font-size:12px;overflow-wrap:anywhere}.betaFeedbackEmailState button{font-size:11px;padding:5px 8px}
+
+@media (prefers-reduced-motion:reduce){.betaFeedbackLaunch{transition:none}}
+@media(max-width:450px){.betaFeedbackOverlay{padding:8px}.betaFeedbackDialog{width:100%;max-height:calc(100dvh - 20px);overflow:auto;padding:15px}.betaFeedbackQuickMenu{width:166px}}
+
+/* Standalone beta landing page has no base game stylesheet. */
+.betaFeedbackDialog .input{display:block;box-sizing:border-box;width:100%;border:1px solid #47697b;border-radius:9px;background:#0b1b27;color:#e9f1f6;padding:10px;font:inherit;font-size:14px;min-width:0}
+.betaFeedbackDialog textarea.input{min-height:88px}
+.betaFeedbackDialog .btn{border:1px solid #557c91;border-radius:9px;background:#1a3546;color:#eff4f7;padding:10px 15px;cursor:pointer;font:700 13px system-ui}
+.betaFeedbackDialog .btn.primary{background:#d5a748;border-color:#e7c577;color:#091823}
+.betaFeedbackDialog .btn:disabled{opacity:.6;cursor:wait}
+.betaFeedbackDialog label{color:#dbe9f0}
+.betaFeedbackDialog label.betaFeedbackVisibilityOption{display:flex;align-items:center;flex-direction:row}

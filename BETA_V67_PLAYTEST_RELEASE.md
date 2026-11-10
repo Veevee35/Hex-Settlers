@@ -59,3 +59,15 @@ This benchmark intentionally omits the Cloudflare proxy-token handshake headers 
 ## Beta moderation and recruitment
 
 Recruit **80–150 humans**, rather than 150 simultaneous idle sockets. Start with invited testers and a Discord LFG channel. Schedule sessions at one or two specific times instead of sending visitors to empty ranked queues. Ask mods of relevant Discords/subreddits before advertising. Encourage testers to provide a *reproducible bug, their device, and their game version*; review feedback in Beta Testing. Use distinct links to compare which communities lead to completed games, not just visits.
+
+
+## Draggable insect report icon (beta UI update)
+
+- **All game screens**, including sign-in, game-type selection, All Games, public/private/casual/ranked lobbies, tutorials, active matches and the standalone `/beta.html` recruitment page, share the same compact insect icon. Its accessible name is *Report bug or suggest a feature*.
+- **Tap or click** the icon to open the report/suggestion form. **Drag** it with a mouse, stylus or finger to move it anywhere within the current viewport. The location is saved locally, separately for desktop and mobile widths, and is clamped after window resize / rotation.
+- **Right-click** the icon or **long-press for 650 ms** on touch to access *Hide icon* and *Reset position*. Do not move while holding if you intend to open this menu.
+- The icon can also be hidden/restored using **Account menu → Hide/Show feedback icon**, **All Games → Settings → Show feedback icon**, the checkbox inside the reporting form, or the link at the bottom of `/beta.html`. A keyboard recovery shortcut, **Alt+Shift+B**, toggles the icon even on the logged-out screen.
+- Visibility is stored per browser/device. It is never tied to a player account, so changing it does not affect other testers, account settings, game statistics or HUD layout preferences.
+- The control is intentionally independent of the game canvas and does not claim a game action or network request while dragging.
+
+**Cloudflare deployment:** if the Resend secret is missing, a report still saves in the R2-backed beta inbox but its email remains queued. Add `RESEND_API_KEY` and a verified `HEX_EMAIL_FROM` to the Worker actually serving your `hexsettlers.org` route. Confirm the destination mailbox `support@hexsettlers.com` exists. Test with a real message and confirm the admin Email column says *Sent*, then verify the mailbox received it. An Email *Sent* status means Resend accepted the message, not that the recipient opened it.

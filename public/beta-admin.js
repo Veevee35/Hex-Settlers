@@ -90,6 +90,10 @@
         }),preview);
         referral.append(linktools,table(['Source','Visitors','Accounts'],(data.referrals||[]).map(r=>[r.source,r.visits,r.accounts])));
         feedback.replaceChildren(el('h3','','Feedback inbox (up to 300 retained)'));
+        const mailStatus = data.feedbackEmailConfigured
+          ? `Automatic report emails enabled: ${data.feedbackEmailRecipient}. Failed deliveries are retried; use Retry email if all attempts fail.`
+          : `Email notifications are queued but NOT sending. Set RESEND_API_KEY and a verified HEX_EMAIL_FROM in Cloudflare to deliver to ${data.feedbackEmailRecipient}.`;
+        feedback.appendChild(el('p','smallNote',mailStatus));
         const feedbackRows=(data.feedback||[]).slice(0,100).map(f=>{
           const body=el('div','betaFeedbackAdminText');
           body.appendChild(el('strong','',f.description));
@@ -104,9 +108,21 @@
             catch(e){status.textContent=e.message;}
             finally{select.disabled=false;}
           });
-          return [new Date(f.createdAt).toLocaleDateString(),f.type,body,select];
+          const mail=el('div','betaFeedbackEmailState');
+          const n=f.notification;
+          const description=n?.status==='sent' ? `Sent ${new Date(n.sentAt).toLocaleString()}`
+            : n?.status==='failed' ? 'Delivery failed'
+            : n?.status==='retrying' ? `Retry scheduled (attempt ${n.attempts})`
+            : n?.status==='pending' ? (data.feedbackEmailConfigured ? 'Queued' : 'Waiting for email setup')
+            : 'Older report';
+          mail.appendChild(el('span','',description));
+          if(n && n.status==='failed')mail.appendChild(button('Retry email',async()=>{
+            try {await api('beta-feedback-email-retry',{id:f.id});status.textContent='Email retry queued.';void load();}
+            catch(error){status.textContent=error.message;}
+          }));
+          return [new Date(f.createdAt).toLocaleDateString(),f.type,body,select,mail];
         });
-        feedback.appendChild(table(['Date','Type','Report','Status'],feedbackRows));
+        feedback.appendChild(table(['Date','Type','Report','Status','Email'],feedbackRows));
         if(!feedbackRows.length)feedback.appendChild(el('p','smallNote','No reports yet.'));
         sessions.replaceChildren(el('h3','','Community Discord'));
         const discordTools=el('div','betaReferralTools');

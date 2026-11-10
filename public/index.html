@@ -7,9 +7,9 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=release-v1.0.67" />
-  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.67" />
-  <link rel="stylesheet" href="beta.css?v=release-v1.0.68">
+  <link rel="stylesheet" href="styles.css?v=release-v1.0.69" />
+  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.69" />
+  <link rel="stylesheet" href="beta.css?v=release-v1.0.69">
 </head>
 <body>
   <div id="gameBootLoader" class="gameBootLoader" aria-label="Hex Settlers loading screen">
@@ -154,6 +154,7 @@
     <div id="journeySettingsPanel" class="hidden journeySettingsPanel" aria-label="Settings preview navigation">
       <button id="journeySettingsBackBtn" type="button" class="btn">← Back to All Games</button>
       <button id="sandboxResetBtn" type="button" class="btn">Reset Layout</button>
+      <label class="betaFeedbackSettingsToggle"><input id="betaFeedbackSettingsVisible" type="checkbox" checked> Show feedback icon</label>
     </div>
     <button id="journeyTutorialBtn" type="button" class="btn journeyTutorialReplay">Replay the walkthrough</button>
   </div>
@@ -237,6 +238,7 @@
     <button id="accountPlayerStatsBtn" class="accountMenuItem">Player Stats</button>
     <button id="accountGameLogBtn" class="accountMenuItem">Game Log</button>
     <button id="accountLanguageBtn" class="accountMenuItem">🌐 <span>Language</span></button>
+    <button id="betaFeedbackMenuToggle" class="accountMenuItem" type="button" aria-pressed="true">🐞 Hide feedback icon</button>
     <button id="accountLogoutBtn" class="accountMenuItem dangerText">Log Out</button>
   </div>
 
@@ -962,7 +964,13 @@
     </div>
   </div>
 
-  <button id="betaFeedbackLaunch" class="betaFeedbackLaunch" type="button" aria-haspopup="dialog">Report bug / Suggestion</button>
+  <button id="betaFeedbackLaunch" class="betaFeedbackLaunch" type="button" aria-haspopup="dialog" aria-label="Report bug or suggest a feature. Drag to move." title="Report bug or suggestion · Drag to move · Hold for options">
+    <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 3 6.5 1.8M16 3l1.5-1.2M7.6 7.3 5 5M16.4 7.3 19 5M4 12H2M4.6 17 2 19M20 12h2M19.4 17 22 19"/><path d="M12 5a6.2 6.2 0 0 0-6.2 6.2V15a6.2 6.2 0 0 0 12.4 0v-3.8A6.2 6.2 0 0 0 12 5Z"/><path d="M6 11h12M12 11v10"/></svg>
+  </button>
+  <div id="betaFeedbackQuickMenu" class="betaFeedbackQuickMenu hidden" role="group" aria-label="Feedback icon options">
+    <button id="betaFeedbackQuickHide" type="button">Hide icon</button>
+    <button id="betaFeedbackQuickReset" type="button">Reset position</button>
+  </div>
   <section id="betaFeedbackOverlay" class="betaFeedbackOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="betaFeedbackTitle" aria-hidden="true">
     <div class="betaFeedbackDialog">
       <h2 id="betaFeedbackTitle">Hex Settlers beta feedback</h2>
@@ -971,6 +979,7 @@
         <label>Type <select id="betaFeedbackType" class="input"><option value="bug">Bug / Game issue</option><option value="ui">Interface / Mobile</option><option value="balance">AI / Game balance</option><option value="idea">Feature suggestion</option><option value="other">Other feedback</option></select></label>
         <label>Description <textarea id="betaFeedbackDescription" class="input" minlength="12" maxlength="1500" required placeholder="What happened? What were you expecting?"></textarea></label>
         <label>Steps to reproduce (optional) <textarea id="betaFeedbackSteps" class="input" maxlength="1000" placeholder="1. Open a lobby…"></textarea></label>
+        <label class="betaFeedbackVisibilityOption"><input id="betaFeedbackFormVisible" type="checkbox" checked> Show draggable bug icon on this device</label>
         <p id="betaFeedbackStatus" class="betaFeedbackStatus" role="status" aria-live="polite"></p>
         <div class="betaFeedbackActions"><button id="betaFeedbackClose" class="btn" type="button">Close</button><button class="btn primary" type="submit">Submit feedback</button></div>
       </form>
@@ -986,11 +995,11 @@
     </div>
   </div>
 
-  <script src="boot-preload.js?v=release-v1.0.67"></script>
-  <script src="locale-expansion.js?v=release-v1.0.6"></script>
-  <script src="languages.js?v=release-v1.0.6"></script>
-  <script src="beta-client.js?v=release-v1.0.68"></script>
-  <script src="beta-admin.js?v=release-v1.0.68"></script>
-  <script src="app.js?v=release-v1.0.68"></script>
+  <script src="boot-preload.js?v=release-v1.0.69"></script>
+  <script src="locale-expansion.js?v=release-v1.0.69"></script>
+  <script src="languages.js?v=release-v1.0.69"></script>
+  <script src="beta-client.js?v=release-v1.0.69"></script>
+  <script src="beta-admin.js?v=release-v1.0.69"></script>
+  <script src="app.js?v=release-v1.0.69"></script>
 </body>
 </html>

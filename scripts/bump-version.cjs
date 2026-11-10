@@ -48,15 +48,23 @@ function prepareFiles(state) {
     [/(app\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(languages\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(locale-expansion\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
+    [/(beta\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
+    [/(beta-client\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
+    [/(beta-admin\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
   ]) {
     if (!oldPattern.test(htmlFile.after)) throw new Error(`Missing client cache reference: ${oldPattern}`);
     htmlFile.after = htmlFile.after.replace(oldPattern, replacement);
   }
+  const betaHtmlPath = path.join(root,'public/beta.html');
+  let betaHtml = fs.readFileSync(betaHtmlPath,'utf8');
+  betaHtml = betaHtml.replace(/(\/beta\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`)
+    .replace(/(\/beta-client\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`);
   return [
     { dest: path.join(root, 'build-version.json'), after: `${JSON.stringify(state, null, 2)}\n` },
     { dest: path.join(root, 'package.json'), after: `${JSON.stringify(packageJson, null, 2)}\n` },
     { dest: path.join(root, 'package-lock.json'), after: `${JSON.stringify(packageLock, null, 2)}\n` },
     htmlFile,
+    { dest: betaHtmlPath, after: betaHtml },
     textFile('public/app.js', /const ASSET_CACHE_SW_BUILD = '[^']+';/, `const ASSET_CACHE_SW_BUILD = '${cacheKey}';`),
     textFile('public/sw.js', /const CACHE_NAME = CACHE_PREFIX \+ '[^']+';/, `const CACHE_NAME = CACHE_PREFIX + '${cacheKey}';`),
   ];

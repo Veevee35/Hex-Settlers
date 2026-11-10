@@ -17,6 +17,7 @@ const WebSocket = require('ws');
 const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
 const { GameAnalytics, modeForRoom, newMetrics } = require('./server/game-analytics');
 const { BetaProgram, cleanReferral } = require('./server/beta-program');
+const { BETA_FEEDBACK_RECIPIENT, BetaFeedbackEmailNotifier } = require('./server/beta-feedback-email');
 const CF_STATE = require('./cloudflare/state-sync');
 const { applyBuild, displayVersion } = require('./server/build-version');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
@@ -216,6 +217,7 @@ const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
 const GAME_ANALYTICS_PATH = path.join(DATA_DIR, 'game_analytics.json');
 const GAME_ANALYTICS = new GameAnalytics(GAME_ANALYTICS_PATH);
 const BETA = new BetaProgram(path.join(DATA_DIR, 'beta_program.json'));
+const BETA_FEEDBACK_EMAIL = new BetaFeedbackEmailNotifier(BETA);
 const BETA_BADGE_LIMIT = 150;
 function awardFoundingTester(userId) {
   const user = (USERS_DB.users || []).find(u => u.id === userId && !isAdminUser(u));
@@ -11042,7 +11044,9 @@ async function handleAdminHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/admin/beta-report') {
-    sendHttpJson(req, res, 200, { ok: true, ...BETA.report(body.range) });
+    sendHttpJson(req, res, 200, { ok: true, ...BETA.report(body.range),
+      feedbackEmailConfigured: isEmailDeliveryConfigured(process.env),
+      feedbackEmailRecipient: BETA_FEEDBACK_RECIPIENT });
     return;
   }
   if (urlPath === '/api/admin/beta-config-save') {
@@ -11057,6 +11061,16 @@ async function handleAdminHttp(req, res, urlPath) {
     try {
       const entry = BETA.setFeedbackStatus(String(body.id || ''), String(body.status || ''));
       await BETA.save();
+      sendHttpJson(req, res, 200, { ok: true, entry });
+    } catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/beta-feedback-email-retry') {
+    try {
+      const entry = BETA.retryFeedbackEmail(String(body.id || ''));
+      await BETA.save();
+      // Delivery errors are handled by the durable retry queue, not the HTTP request.
+      queueMicrotask(() => BETA_FEEDBACK_EMAIL.process().catch(e => console.error('[beta] Email queue:', e.message)));
       sendHttpJson(req, res, 200, { ok: true, entry });
     } catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); }
     return;
@@ -11883,6 +11897,8 @@ async function handleBetaHttp(req, res, urlPath) {
       if (user) awardFoundingTester(user.id);
       await BETA.save();
       sendHttpJson(req, res, 201, { ok: true, id });
+      // Save before sending; restarting the container must not lose unsent reports.
+      queueMicrotask(() => BETA_FEEDBACK_EMAIL.process().catch(e => console.error('[beta] Email queue:', e.message)));
     } catch (e) { sendHttpJson(req, res, 400, { ok: false, error: e.message }); }
     return;
   }
@@ -15538,6 +15554,9 @@ const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
 const gameAnalyticsInterval = setInterval(captureGameAnalytics, 30_000);
 // Flush beta events in batches to protect R2 and avoid gameplay-path latency.
 const betaFlushInterval = setInterval(() => BETA.save().catch(e => console.error('[beta] Snapshot failed:', e.message)), 30_000);
+// Process email failures and restart-recovered notifications without affecting game turns.
+const betaEmailInterval = setInterval(() => BETA_FEEDBACK_EMAIL.process().catch(e => console.error('[beta] Email queue:', e.message)), 60_000);
+setTimeout(() => BETA_FEEDBACK_EMAIL.process().catch(e => console.error('[beta] Email queue:', e.message)), 1_000).unref();
 const authLimiterCleanupInterval = setInterval(() => {
   betaEventLimiter.cleanup(); betaFeedbackLimiter.cleanup();
   passwordAuthLimiter.cleanup();
@@ -15554,7 +15573,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, gameAnalyticsInterval, betaFlushInterval, authLimiterCleanupInterval]) {
+  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, gameAnalyticsInterval, betaFlushInterval, betaEmailInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }
 

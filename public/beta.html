@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hex Settlers — Join the Playtest</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/beta.css?v=release-v1.0.68">
+<title>Hex Settlers — Join the Playtest</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/beta.css?v=release-v1.0.69">
 <style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;color:#e4eff6;font-family:system-ui,-apple-system,sans-serif;background:radial-gradient(ellipse at 50% 0,#1d3c4d,#09131d 62%);line-height:1.6}
 a{color:#f7cf7e}header,main,footer{width:min(920px,calc(100% - 34px));margin:auto}header{display:flex;align-items:center;gap:12px;padding:20px 0;font-weight:800}header img{height:46px;width:46px;border-radius:8px}header a{margin-left:auto}h1{font-size:clamp(32px,6vw,57px);line-height:1.06;letter-spacing:-.04em;margin:8px 0 18px}h2{color:#eed18c;font-size:22px}p{color:#b8cad8}.lead{font-size:18px;max-width:700px}.eyebrow{text-transform:uppercase;color:#f5c66b;letter-spacing:.18em;font-size:12px;font-weight:800}.hero{padding:52px 0 34px}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:25px}.cta{display:inline-block;border-radius:12px;background:#e5b75b;padding:12px 24px;color:#09131d;text-decoration:none;font-weight:900}.cta.secondary{background:#183447;color:#e8eff4;border:1px solid #56819a}.features{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0 35px}.features article,.steps{padding:20px;border:1px solid #38566b;background:#102231;border-radius:15px}.features strong{display:block;color:#f5db98;margin-bottom:5px}.features p{margin:0;font-size:14px}.steps ol{padding-left:22px}.steps li{padding:7px 0}footer{border-top:1px solid #3b576c;padding:22px 0 38px;color:#99b2c4;font-size:12px}.betaSessionPanel{width:100%;margin:25px 0}.betaSessionPanel h2{color:#eed18c}@media(max-width:680px){.features{grid-template-columns:1fr}.hero{padding:30px 0}}
@@ -12,7 +12,31 @@ a{color:#f7cf7e}header,main,footer{width:min(920px,calc(100% - 34px));margin:aut
 <div class="actions"><a class="cta" href="/">Play Hex Settlers</a><a class="cta secondary" href="#testing">How to participate</a></div></section>
 <section class="features"><article><strong>Competitive</strong><p>Test matchmaking, ranked games and fair play in full sessions.</p></article><article><strong>Casual &amp; solo</strong><p>Try AI, challenges, custom maps and private lobbies with friends.</p></article><article><strong>Mobile &amp; technical</strong><p>Help us find UI bugs, disconnects and sync problems across devices.</p></article></section>
 <section id="betaSessions" class="betaSessionPanel hidden" aria-label="Upcoming playtest times"></section>
-<section id="testing" class="steps"><h2>Join an organized test</h2><ol><li><a href="/">Create a free account</a> or log in with a supported sign-in provider.</li><li>Try the optional interactive tutorial, then play a complete match on mobile or desktop.</li><li>During scheduled sessions, join a public lobby or invite friends to a private one. Aim to finish the match.</li><li>Use the in-game <strong>Report bug / Suggestion</strong> button to describe crashes, problems, balance concerns or ideas. Include the steps that reproduce it.</li><li>Check back for new challenge maps and another playtest session. Early contributors can earn a Founding Playtester profile badge (first 150 eligible).</li></ol></section>
+<section id="testing" class="steps"><h2>Join an organized test</h2><ol><li><a href="/">Create a free account</a> or log in with a supported sign-in provider.</li><li>Try the optional interactive tutorial, then play a complete match on mobile or desktop.</li><li>During scheduled sessions, join a public lobby or invite friends to a private one. Aim to finish the match.</li><li>Tap the draggable <strong>insect icon</strong> on any game page to describe crashes, problems, balance concerns or ideas. Include the steps that reproduce it.</li><li>Check back for new challenge maps and another playtest session. Early contributors can earn a Founding Playtester profile badge (first 150 eligible).</li></ol></section>
 <p>For focused load tests, coordinated participation matters more than total registrations. If no session is listed yet, solo challenges and private games are still available.</p></main>
 <footer>Hex Settlers is an independently developed strategy game and is not affiliated with or endorsed by CATAN Studio. <a href="/privacy_policy.html">Privacy Policy</a> · <a href="/terms_of_service.html">Terms</a></footer>
-<script src="/beta-client.js?v=release-v1.0.68"></script></body></html>
+<div class="betaLandingVisibility"><button type="button" id="betaFeedbackLandingToggle" aria-pressed="true">Hide feedback icon</button></div>
+  <button id="betaFeedbackLaunch" class="betaFeedbackLaunch" type="button" aria-haspopup="dialog" aria-label="Report bug or suggest a feature. Drag to move." title="Report bug or suggestion · Drag to move · Hold for options">
+    <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 3 6.5 1.8M16 3l1.5-1.2M7.6 7.3 5 5M16.4 7.3 19 5M4 12H2M4.6 17 2 19M20 12h2M19.4 17 22 19"/><path d="M12 5a6.2 6.2 0 0 0-6.2 6.2V15a6.2 6.2 0 0 0 12.4 0v-3.8A6.2 6.2 0 0 0 12 5Z"/><path d="M6 11h12M12 11v10"/></svg>
+  </button>
+  <div id="betaFeedbackQuickMenu" class="betaFeedbackQuickMenu hidden" role="group" aria-label="Feedback icon options">
+    <button id="betaFeedbackQuickHide" type="button">Hide icon</button>
+    <button id="betaFeedbackQuickReset" type="button">Reset position</button>
+  </div>
+  <section id="betaFeedbackOverlay" class="betaFeedbackOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="betaFeedbackTitle" aria-hidden="true">
+    <div class="betaFeedbackDialog">
+      <h2 id="betaFeedbackTitle">Hex Settlers beta feedback</h2>
+      <p>Tell us what happened or what could be better. Game version, device type, and current room code are attached automatically. Do not include passwords or private information.</p>
+      <form id="betaFeedbackForm" class="betaFeedbackForm">
+        <label>Type <select id="betaFeedbackType" class="input"><option value="bug">Bug / Game issue</option><option value="ui">Interface / Mobile</option><option value="balance">AI / Game balance</option><option value="idea">Feature suggestion</option><option value="other">Other feedback</option></select></label>
+        <label>Description <textarea id="betaFeedbackDescription" class="input" minlength="12" maxlength="1500" required placeholder="What happened? What were you expecting?"></textarea></label>
+        <label>Steps to reproduce (optional) <textarea id="betaFeedbackSteps" class="input" maxlength="1000" placeholder="1. Open a lobby…"></textarea></label>
+        <label class="betaFeedbackVisibilityOption"><input id="betaFeedbackFormVisible" type="checkbox" checked> Show draggable bug icon on this device</label>
+        <p id="betaFeedbackStatus" class="betaFeedbackStatus" role="status" aria-live="polite"></p>
+        <div class="betaFeedbackActions"><button id="betaFeedbackClose" class="btn" type="button">Close</button><button class="btn primary" type="submit">Submit feedback</button></div>
+      </form>
+    </div>
+  </section>
+
+
+<script src="/beta-client.js?v=release-v1.0.69"></script></body></html>

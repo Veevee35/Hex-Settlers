@@ -118,11 +118,34 @@ class BetaProgram {
     const entry = { id: crypto.randomUUID(), createdAt: this.now(), type, description: body,
       steps: cleanText(steps, 1000), roomCode: /^[A-Z0-9]{4,8}$/.test(String(roomCode || '')) ? roomCode : '',
       build: cleanText(build, 40), device: ['desktop', 'mobile', 'tablet', 'other'].includes(device) ? device : 'other',
-      reporter: userId ? hashed(`a:${userId}`) : 'anonymous', status: 'new' };
+      reporter: userId ? hashed(`a:${userId}`) : 'anonymous', status: 'new',
+      notification: { status: 'pending', attempts: 0, nextAttemptAt: this.now() } };
     this.state.feedback.push(entry);
     this.state.feedback = this.state.feedback.slice(-MAX_FEEDBACK);
     this.count('feedback');
     return entry.id;
+  }
+  markFeedbackEmailSent(id, at = this.now()) {
+    const entry = this.state.feedback.find(f => f.id === id && f.notification);
+    if (!entry) throw new Error('Feedback notification not found.');
+    entry.notification = { status: 'sent', attempts: (entry.notification.attempts || 0) + 1, sentAt: at };
+    this.dirty = true;
+    return entry;
+  }
+  markFeedbackEmailFailure(id, attempts, nextAttemptAt) {
+    const entry = this.state.feedback.find(f => f.id === id && f.notification);
+    if (!entry) throw new Error('Feedback notification not found.');
+    entry.notification = nextAttemptAt ? { status: 'retrying', attempts, nextAttemptAt } : { status: 'failed', attempts };
+    this.dirty = true;
+    return entry;
+  }
+  retryFeedbackEmail(id) {
+    const entry = this.state.feedback.find(f => f.id === id && f.notification);
+    if (!entry) throw new Error('Feedback notification not found.');
+    if (entry.notification.status === 'sent') throw new Error('This report has already been emailed.');
+    entry.notification = { status: 'pending', attempts: 0, nextAttemptAt: this.now() };
+    this.dirty = true;
+    return entry;
   }
   setFeedbackStatus(id, status) {
     if (!['new', 'triaged', 'fixed', 'closed'].includes(status)) throw new Error('Invalid feedback status.');
