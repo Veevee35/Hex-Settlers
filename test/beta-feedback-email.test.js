@@ -20,7 +20,7 @@ function fixture(t) {
   };
 }
 
-test('all bug and suggestion emails address support@hexsettlers.com and include all report context', t => {
+test('all bug and suggestion emails address support@hexsettlers.org and include all report context', t => {
   const fx = fixture(t);
   const store = new BetaProgram(fx.path, { now: fx.now });
   for (const category of ['bug', 'ui', 'balance', 'idea', 'other']) {
@@ -60,7 +60,7 @@ test('queue remains persistent without email configuration; after setup it sends
     configured: () => configured, send: async message => { sent.push(message); } });
   await restartedNotifier.process();
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].to, 'support@hexsettlers.com');
+  assert.equal(sent[0].to, 'support@hexsettlers.org');
   await restartedNotifier.process();
   assert.equal(sent.length, 1);
   const newRestart = new BetaProgram(fx.path, { now: fx.now });
@@ -116,7 +116,7 @@ test('real email capture adapter records correctly formatted notification withou
     send: msg => sendTransactionalEmail(msg, { HEX_EMAIL_CAPTURE_PATH: fx.capture }) });
   await notifier.process();
   const [outgoing] = fs.readFileSync(fx.capture, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.equal(outgoing.to, 'support@hexsettlers.com');
+  assert.equal(outgoing.to, 'support@hexsettlers.org');
   assert.match(outgoing.text, /An issue appears when loading a saved lobby/);
   assert.equal(store.report().feedback[0].notification.status, 'sent');
 });
@@ -143,7 +143,7 @@ test('provider 403 rejection records readable failure once and does not retry fo
   const notifier = new BetaFeedbackEmailNotifier(store, { now: fx.now, configured: () => true,
     send: async () => {
       attempts++;
-      const err = new Error('Resend HTTP 403 (validation_error): The hexsettlers.com domain is not verified');
+      const err = new Error('Resend HTTP 403 (validation_error): The hexsettlers.org domain is not verified');
       err.statusCode = 403;
       throw err;
     }, logger: { warn: () => {}, error: () => {} } });
@@ -172,7 +172,7 @@ test('admin diagnostic sends to fixed support inbox without changing a report', 
   const result = await notifier.sendDiagnostic();
   assert.equal(result.provider, 'resend');
   assert.equal(result.messageId, 'diagnostic-123');
-  assert.equal(outgoing[0].to, 'support@hexsettlers.com');
+  assert.equal(outgoing[0].to, 'support@hexsettlers.org');
   assert.equal(store.state.feedback.length, 0);
 });
 

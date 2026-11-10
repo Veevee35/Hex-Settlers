@@ -4,7 +4,7 @@
 // report is mailed. Reuse the existing verified transactional sender/transport.
 const { isEmailDeliveryConfigured, sendTransactionalEmail } = require('./email-delivery');
 
-const BETA_FEEDBACK_RECIPIENT = 'support@hexsettlers.com';
+const BETA_FEEDBACK_RECIPIENT = 'support@hexsettlers.org';
 
 // Logs may include provider diagnostics; persist only an abbreviated, redacted
 // explanation and expose it strictly through authenticated administrator APIs.

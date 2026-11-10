@@ -1,6 +1,6 @@
 # Hex Settlers beta feedback → support email
 
-When a visitor submits **Report bug / Suggestion**, the game persists the report in `beta_program.json` (already synced to the Cloudflare R2 state bucket), then sends a **plain-text email to `support@hexsettlers.com`**. This applies to all feedback categories: bugs, mobile/UI problems, game balance, features, and other notes.
+When a visitor submits **Report bug / Suggestion**, the game persists the report in `beta_program.json` (already synced to the Cloudflare R2 state bucket), then sends a **plain-text email to `support@hexsettlers.org`**. This applies to all feedback categories: bugs, mobile/UI problems, game balance, features, and other notes.
 
 Each email contains the report ID, UTC timestamp, type, description, reproduction steps, optional room code, current game version, device category, and anonymous / pseudonymous reporter indicator. No account email address, session cookie, IP address, or password is included. The admin Beta Testing dashboard continues to retain the report and shows its email delivery state.
 
@@ -8,10 +8,10 @@ Each email contains the report ID, UTC timestamp, type, description, reproductio
 
 The current Cloudflare Container automatically uses the **existing Resend integration** if your Cloudflare Worker has `RESEND_API_KEY`. You do not need to configure a second email service or additional credentials for feedback notifications if account verification / password reset emails already work.
 
-1. Confirm `support@hexsettlers.com` is a working **recipient inbox**. The `.com` in this address is intentional; it is not `hexsettlers.org`.
+1. Confirm `support@hexsettlers.org` is a working **recipient inbox**. Use the `.org` address; this project does not use `hexsettlers.com`.
 2. In Cloudflare, open the **Worker serving hexsettlers.org** (staging if that is your current live deployment), **Settings → Variables and Secrets**. Add / verify **`RESEND_API_KEY`** as an encrypted secret, sourced from your Resend account. Do not place this secret in GitHub or any ZIP.
 3. Add / verify **`HEX_EMAIL_FROM`** as `Hex Settlers <no-reply@YOUR-VERIFIED-SENDING-DOMAIN>` with a domain you have verified for outbound sending in Resend. If the existing verified sender works for password recovery, keep it unchanged. The project has a legacy default (`no-reply@send.tenthson.com`); that address is usable only if its sending domain is verified in your Resend account.
-4. Redeploy, submit a test report, and view **Admin Management → Beta Testing**. The Email column should move from **Queued** to **Sent**. Confirm arrival in `support@hexsettlers.com`, including spam/junk if necessary.
+4. Redeploy, submit a test report, and view **Admin Management → Beta Testing**. The Email column should move from **Queued** to **Sent**. Confirm arrival in `support@hexsettlers.org`, including spam/junk if necessary.
 
 If email is unconfigured or temporarily unavailable, player feedback still saves successfully and is **not silently discarded**. When configured, the existing backlog is retried on the next periodic queue check; no old pre-upgrade reports are re-emailed. Delivery is retried up to six times with increasing delays. On permanent failure, the dashboard shows **Delivery failed** and offers **Retry email**. Status survives container restarts in R2 state.
 
@@ -35,4 +35,4 @@ Only application source and public privacy-policy wording changed. **No database
 - Visibility is stored per browser/device. It is never tied to a player account, so changing it does not affect other testers, account settings, game statistics or HUD layout preferences.
 - The control is intentionally independent of the game canvas and does not claim a game action or network request while dragging.
 
-**Cloudflare deployment:** if the Resend secret is missing, a report still saves in the R2-backed beta inbox but its email remains queued. Add `RESEND_API_KEY` and a verified `HEX_EMAIL_FROM` to the Worker actually serving your `hexsettlers.org` route. Confirm the destination mailbox `support@hexsettlers.com` exists. Test with a real message and confirm the admin Email column says *Sent*, then verify the mailbox received it. An Email *Sent* status means Resend accepted the message, not that the recipient opened it.
+**Cloudflare deployment:** if the Resend secret is missing, a report still saves in the R2-backed beta inbox but its email remains queued. Add `RESEND_API_KEY` and a verified `HEX_EMAIL_FROM` to the Worker actually serving your `hexsettlers.org` route. Confirm the destination mailbox `support@hexsettlers.org` exists. Test with a real message and confirm the admin Email column says *Sent*, then verify the mailbox received it. An Email *Sent* status means Resend accepted the message, not that the recipient opened it.

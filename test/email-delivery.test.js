@@ -127,11 +127,11 @@ test('email capture delivery records a message without external network access',
 });
 
 test('Resend rejection preserves HTTP status and diagnostic provider message', async () => {
-  const request = sendViaResend({ to: 'support@hexsettlers.com', subject: 'test', text: 'test' }, {
-    RESEND_API_KEY: 're_test_key', HEX_EMAIL_FROM: 'support@hexsettlers.com',
+  const request = sendViaResend({ to: 'support@hexsettlers.org', subject: 'test', text: 'test' }, {
+    RESEND_API_KEY: 're_test_key', HEX_EMAIL_FROM: 'support@hexsettlers.org',
   }, async () => new Response(JSON.stringify({
-    name: 'validation_error', message: 'The hexsettlers.com domain is not verified',
+    name: 'validation_error', message: 'The hexsettlers.org domain is not verified',
   }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
   await assert.rejects(request, err => err.statusCode === 403 &&
-    /hexsettlers.com domain is not verified/.test(err.message) && err.provider === 'resend');
+    /hexsettlers.org domain is not verified/.test(err.message) && err.provider === 'resend');
 });

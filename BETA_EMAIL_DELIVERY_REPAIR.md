@@ -2,9 +2,9 @@
 
 ## Why reports were saved but not mailed
 
-The screenshots from November 10 show **RESEND_API_KEY exists**, while `HEX_EMAIL_FROM` is set to `support@hexsettlers.com` and the beta reports show “Retry scheduled (attempt 1/3).” That proves the reporting queue is functioning and provider delivery is failing, **not why the provider rejects the email**. Previously, the provider's exact error was written only to container logs; admins saw only the retry counter.
+The original November 10 screenshots showed **RESEND_API_KEY exists**, while `HEX_EMAIL_FROM` was mistakenly set to `support@hexsettlers.com` and the beta reports show “Retry scheduled (attempt 1/3).” That proves the reporting queue is functioning and provider delivery is failing, **not why the provider rejects the email**. Previously, the provider's exact error was written only to container logs; admins saw only the retry counter.
 
-**Likely configuration cause:** The Resend account has not verified the sender domain `hexsettlers.com`. A valid Resend key alone does not verify that domain. The destination (`support@hexsettlers.com`) is independent of the sender and can remain unchanged even if the sender is switched to an address on `hexsettlers.org`, **provided that sender domain is verified by Resend**. Do not assume `.com` and `.org` are interchangeable. Also verify the `.com` recipient mailbox actually exists and receives messages.
+**Confirmed cause of the original HTTP 403:** The deployed sender was mistakenly configured as `support@hexsettlers.com`, which the API key was not authorized to send from. The project uses `hexsettlers.org`. A valid Resend key alone does not verify that domain. The destination (`support@hexsettlers.org`) is independent of the sender and can remain unchanged even if the sender is switched to an address on `hexsettlers.org`, **provided that sender domain is verified by Resend**. The `.com` address was a bug in the previous release. Confirm the `.org` recipient mailbox exists and receives messages.
 
 ## What changed
 
@@ -18,10 +18,10 @@ The screenshots from November 10 show **RESEND_API_KEY exists**, while `HEX_EMAI
 
 ## Steps to get notifications working
 
-1. Open your **Resend** dashboard → **Domains**. Check whether `hexsettlers.com` shows **Verified**. If not, either add that domain and the DNS records Resend specifies, or choose a domain you already own and have verified (for example `hexsettlers.org` *if* it is verified).
+1. Open your **Resend** dashboard → **Domains**. Check whether `hexsettlers.org` shows **Verified**. If not, add this owned domain and the DNS records Resend specifies, or choose another sender on a domain already verified in your account (for example `hexsettlers.org` *if* it is verified).
 2. Set `HEX_EMAIL_FROM` in Cloudflare to an address on that verified domain, e.g. `Hex Settlers <notifications@hexsettlers.org>` **only if** Resend has verified `hexsettlers.org`. **The sending address does not need to be the same as the receiving support address.** Keep `RESEND_API_KEY` as a Cloudflare **Secret**.
 3. Redeploy/restart the Worker and Container so its environment is refreshed. Check `Admin Management → Beta Testing` and verify the displayed **Configured sender** and **Provider: resend**.
-4. Click **Send test email to support** (at most twice per minute). If you see a Resend `403` such as `domain is not verified`, fix domain verification. If you see `401`, check the API key and permissions. If accepted, check the actual `support@hexsettlers.com` mailbox/spam folder. An accepted response means the provider took the message, not that it reached the inbox.
+4. Click **Send test email to support** (at most twice per minute). If you see a Resend `403` such as `domain is not verified`, fix domain verification. If you see `401`, check the API key and permissions. If accepted, check the actual `support@hexsettlers.org` mailbox/spam folder. An accepted response means the provider took the message, not that it reached the inbox.
 5. After the test is accepted, click **Retry now** on previously failed/retrying submissions; reports are not automatically resent in bulk on deployment. Do not re-submit the same reports.
 
 ## Security and limitations

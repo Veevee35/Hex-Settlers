@@ -11080,7 +11080,7 @@ async function handleAdminHttp(req, res, urlPath) {
     try {
       const delivery = await BETA_FEEDBACK_EMAIL.sendDiagnostic();
       sendHttpJson(req, res, 200, { ok: true, ...delivery,
-        message: 'Email provider accepted the test. Check support@hexsettlers.com and its spam folder.' });
+        message: 'Email provider accepted the test. Check support@hexsettlers.org and its spam folder.' });
     } catch (error) {
       const message = safeDeliveryError(error);
       console.warn('[beta] Admin email diagnostic failed:', message);
