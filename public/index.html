@@ -148,27 +148,9 @@
       <button id="journeyCasualBtn" class="btn" type="button">Casual</button>
       <button id="journeySettingsBtn" class="btn" type="button">Settings</button>
     </div>
-    <div id="journeySettingsPanel" class="hidden journeySettingsPanel">
-      <div class="journeySettingsHeading"><h2>Board Layout &amp; Sound</h2><button id="journeySettingsBackBtn" type="button" class="btn">Back to All Games</button></div>
-      <p class="smallNote">Preview adjustments here. These settings are saved on this device and applied to your game HUD.</p>
-      <div class="settingsMockBoard" aria-label="Mock game board preview">
-        <div class="settingsMockTop" id="settingsMockTop">Game tools · Audio · Build · Trade</div>
-        <div class="settingsMockStage">
-          <div class="settingsMockLog" id="settingsMockLog">Game Log<br><small>Your turn begins.</small></div>
-          <div class="settingsMockHexes" aria-hidden="true"><span>🌲</span><span>🌾</span><span>⛰️</span><span>🐑</span><span>🧱</span><span>🌊</span><span>🌲</span></div>
-          <div class="settingsMockSide" id="settingsMockSide">Resources<br>🌲 2 &nbsp; 🧱 1<br>Trade &amp; build</div>
-        </div>
-        <div class="settingsMockBottom" id="settingsMockBottom">Roll Dice · End Turn</div>
-      </div>
-      <div class="settingsSandboxSliders">
-        <label>Game tools size <input id="sandboxToolsScale" type="range" min="50" max="300" step="10"><output id="sandboxToolsScaleValue"></output></label>
-        <label>Turn bar size <input id="sandboxTurnScale" type="range" min="50" max="300" step="10"><output id="sandboxTurnScaleValue"></output></label>
-        <label>Game log size <input id="sandboxLogScale" type="range" min="50" max="300" step="10"><output id="sandboxLogScaleValue"></output></label>
-        <label>Resources size <input id="sandboxResourcesScale" type="range" min="50" max="300" step="10"><output id="sandboxResourcesScaleValue"></output></label>
-        <label>Right panel width <input id="sandboxRightWidth" type="range" min="340" max="760" step="20"><output id="sandboxRightWidthValue"></output></label>
-        <label>Mobile tool panels <input id="sandboxMobileRatio" type="range" min="20" max="80" step="5"><output id="sandboxMobileRatioValue"></output></label>
-      </div>
-      <div class="journeySettingsActions"><button id="sandboxAudioBtn" type="button" class="btn primary">Sound settings</button><button id="sandboxResetBtn" type="button" class="btn">Reset layout</button></div>
+    <div id="journeySettingsPanel" class="hidden journeySettingsPanel" aria-label="Settings preview navigation">
+      <button id="journeySettingsBackBtn" type="button" class="btn">← Back to All Games</button>
+      <button id="sandboxResetBtn" type="button" class="btn">Reset Layout</button>
     </div>
     <button id="journeyTutorialBtn" type="button" class="btn journeyTutorialReplay">Replay the walkthrough</button>
   </div>

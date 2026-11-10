@@ -1551,7 +1551,7 @@
   }
   function requestChallengeMaps() {
     if (!authUser) return;
-    send({ type: 'get_challenge_maps' });
+    send({ type: 'get_challenge_maps', kind: selectedChallengeKind, playerCount: selectedChallengePlayerCount });
   }
 
   function formatChallengeTime(ms) {
@@ -1611,7 +1611,9 @@
       tab.addEventListener('click', () => {
         if (selectedChallengePlayerCount === playerCount) return;
         selectedChallengePlayerCount = playerCount;
+        weeklyChallengeCatalog = null;
         renderChallengeMaps();
+        requestChallengeMaps();
         $(`challengeMapTab-${playerCount}`)?.focus({ preventScroll: true });
       });
       tab.addEventListener('keydown', event => {
@@ -1624,7 +1626,9 @@
         if (next < 0) return;
         event.preventDefault();
         selectedChallengePlayerCount = Number(maps[next].playerCount);
+        weeklyChallengeCatalog = null;
         renderChallengeMaps();
+        requestChallengeMaps();
         $(`challengeMapTab-${selectedChallengePlayerCount}`)?.focus({ preventScroll: true });
       });
       tabs.appendChild(tab);
@@ -7981,6 +7985,9 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'challenge_maps') {
+        // A slow request for an older tab must never replace the newer map.
+        if (msg.requestedKind && (msg.requestedKind !== selectedChallengeKind ||
+            Number(msg.requestedPlayerCount) !== selectedChallengePlayerCount)) return;
         weeklyChallengeCatalog = msg;
         if (journeyView === 'challenge') renderChallengeMaps();
         return;
@@ -11779,6 +11786,7 @@ function refreshLobbyJoinLinkUi() {
   // Island maps use the exact tile and token art from the live game instead.
   // Cache by resolved URL so a changed texture pack isn't silently ignored.
   const miniMapArtworkCache = new Map();
+  const miniMapPaintPending = new WeakSet();
   function miniMapArtwork(url, onReady, fallbackUrl = '') {
     if (!url) return null;
     const key = `${url}\n${fallbackUrl}`;
@@ -11837,7 +11845,16 @@ function refreshLobbyJoinLinkUi() {
     // When an image first loads, repaint only this still-mounted preview.
     // This avoids both a temporary blank map and showing stale map selections.
     const redraw = () => {
-      if (canvas.isConnected) drawRankedMiniMap(canvas, tiles, options);
+      if (!canvas.isConnected || miniMapPaintPending.has(canvas)) return;
+      miniMapPaintPending.add(canvas);
+      // requestAnimationFrame batches image-ready events into a single paint.
+      // The synchronous fallback is only for non-browser/test renderers.
+      const paint = () => {
+        miniMapPaintPending.delete(canvas);
+        if (canvas.isConnected) drawRankedMiniMap(canvas, tiles, options);
+      };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(paint);
+      else paint();
     };
     const tileArt = new Map();
     const tokenArt = new Map();
@@ -12797,7 +12814,9 @@ function refreshLobbyJoinLinkUi() {
     if (!button) return;
     selectedChallengeKind = button.dataset.period === 'daily' ? 'daily' : 'weekly';
     $('challengePeriodTabs').querySelectorAll('button').forEach(tab => tab.classList.toggle('active', tab === button));
+    weeklyChallengeCatalog = null;
     renderChallengeMaps();
+    requestChallengeMaps();
   });
   $('journeyBackBtn')?.addEventListener('click', journeyBack);
   $('publicLobbyDetailBackBtn')?.addEventListener('click', () => setJourneyView('public'));
@@ -12918,10 +12937,21 @@ function refreshLobbyJoinLinkUi() {
   });
   $('sandboxAudioBtn')?.addEventListener('click', () => setAudioPanelVisible(true));
   $('sandboxResetBtn')?.addEventListener('click', () => {
-    for (const [, , key] of sandboxControls) setToolUiScale(key, 1);
+    for (const key of ['tools_bar','turn_bar','log_panel','resources_panel','dev_panel','timer_box']) {
+      setToolUiScale(key, 1);
+    }
     setRightSidebarWidth(RIGHT_SIDEBAR_DEFAULT_WIDTH, { persist: true });
-    try { localStorage.removeItem(MOBILE_SPLIT_RATIO_KEY); } catch (_) {}
+    sidebarCuts = [.20, .57, .79];
+    try {
+      localStorage.removeItem(SIDEBAR_SPLIT_KEY);
+      localStorage.removeItem(MOBILE_SPLIT_RATIO_KEY);
+      localStorage.removeItem(MOBILE_LANDSCAPE_RATIO_KEY);
+    } catch (_) {}
+    scheduleLogDevSplit();
     syncSettingsSandbox();
+    if (settingsSandboxActive) {
+      updateButtons(); renderResources(); resizeCanvas(); render();
+    }
   });
   $('roomNotFoundBackBtn')?.addEventListener('click', () => {
     roomNotFoundVisible = false;

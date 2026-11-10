@@ -9575,12 +9575,27 @@ function challengeLeaderboard(periodId, playerCount, kind = 'weekly') {
     periodId, playerCount, findUserById, kind);
 }
 function familyForPeriod(kind, periodId) { return challengeScenario(kind, periodId); }
-function challengeMapsCatalog(userId) {
+// Store only the small, user-independent map preview after deriving it once from
+// the *same* challenge geometry as an actual match. The raw geometry contains
+// all edges, nodes and connectivity and should never be serialized for the catalog.
+const challengeCatalogPreviewCache = new Map();
+function challengeMapsCatalog(userId, requestedKind = null, requestedPlayerCount = null) {
   const weekId = challengeWeekId();
   const dayId = challengeDayId();
   const user = findUserById(userId);
+  const selective = (requestedKind === 'daily' || requestedKind === 'weekly') &&
+    [4,5,6,7,8].includes(Number(requestedPlayerCount));
+  const activeCount = Number(requestedPlayerCount);
   function mapsFor(kind, periodId) {
     return [4,5,6,7,8].map(playerCount => {
+      // Only construct the selected game map; building all ten full geometric
+      // boards on every page open caused long event-loop stalls and timeouts.
+      if (selective && (kind !== requestedKind || playerCount !== activeCount)) {
+        return { playerCount, preview: [], ports: [], leaderboard: [] };
+      }
+      const cacheKey = `${kind}:${periodId}:${playerCount}`;
+      let cached = challengeCatalogPreviewCache.get(cacheKey);
+      if (!cached) {
       const challenge = kind === 'daily' ? { kind, dayId: periodId, playerCount } : { kind, weekId: periodId, playerCount };
       const geom = challengeGeom(challenge);
       // Preview exactly the tiles the live in-game canvas draws.  The playable
@@ -9622,10 +9637,20 @@ function challengeMapsCatalog(userId) {
         return { x: mx + dx / distance * .3, y: my + dy / distance * .3,
           edgeX: mx, edgeY: my, kind: String(port.kind || 'generic') };
       }).filter(Boolean);
-      return { playerCount, leaderboard: challengeLeaderboard(periodId, playerCount, kind), preview, ports };
+      cached = { preview, ports };
+      challengeCatalogPreviewCache.set(cacheKey, cached);
+      // Keep only current and recent periods, including all five capacities.
+      while (challengeCatalogPreviewCache.size > 35) {
+        challengeCatalogPreviewCache.delete(challengeCatalogPreviewCache.keys().next().value);
+      }
+      }
+      return { playerCount, leaderboard: challengeLeaderboard(periodId, playerCount, kind),
+        preview: cached.preview, ports: cached.ports };
     });
   }
   return {
+    requestedKind: selective ? requestedKind : null,
+    requestedPlayerCount: selective ? activeCount : null,
     timezone: 'America/Chicago', weekId, dayId,
     weekly: { periodId: weekId, scenario: challengeScenario('weekly', weekId), maps: mapsFor('weekly', weekId) },
     daily: { periodId: dayId, scenario: challengeScenario('daily', dayId),
@@ -12129,7 +12154,7 @@ if (msg.type === 'get_settings_preview') {
 
 if (msg.type === 'get_challenge_maps') {
       if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
-      sendJson(ws, { type: 'challenge_maps', ...challengeMapsCatalog(ws._userId) });
+      sendJson(ws, { type: 'challenge_maps', ...challengeMapsCatalog(ws._userId, msg.kind, msg.playerCount) });
       return;
     }
 
