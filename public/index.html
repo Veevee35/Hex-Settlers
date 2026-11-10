@@ -92,11 +92,15 @@
       <button type="button" id="journeyChallengeBtn" class="modeChoice"><strong>Challenge Maps</strong><span>New maps every week. Play with friends see who can get the highest score!</span><span>5 new Scattered Tiles maps every week to compete on.</span></button>
     </div>
     <div id="journeyChallengePanel" class="hidden journeyPanel challengeMapsPanel">
+      <div id="challengePeriodTabs" class="leaderboardSubTabs challengePeriodTabs" role="tablist" aria-label="Challenge rotation">
+        <button class="hTab active" type="button" data-period="weekly">Weeklys</button>
+        <button class="hTab" type="button" data-period="daily">Dailies</button>
+      </div>
       <div id="challengeMapTabs" class="challengeMapTabs" role="tablist" aria-label="Challenge map player count"></div>
       <div class="challengeMapOverview">
         <div class="challengeMapNotes">
           <p class="smallNote" id="challengeWeekLabel">Five maps · Monday at 1:00 AM Central · Balanced Bag dice · Expert AI</p>
-          <p class="smallNote">Each challenge has a private lobby, shareable link and room code. Every seat is filled by Expert AI until a friend joins. Finished games count toward Unranked and Combined stats.</p>
+          <p class="smallNote" id="challengeRulesNote">Weeklys let friends replace Expert AI. Dailies are solo versus Expert AI and allow one attempt per account.</p>
         </div>
         <aside id="challengeTopPlayer" class="challengeTopPlayer" aria-label="Top player for the selected challenge" aria-live="polite"></aside>
       </div>
@@ -183,7 +187,7 @@
     </div>
 </section>
 <aside id="tutorialGuide" class="tutorialGuide hidden" aria-label="Live game walkthrough" aria-live="polite" data-i18n-skip="">
-  <div class="tutorialGuideHeader"><span class="tutorialGuideEyebrow">START YOUR ADVENTURE · LIVE PRACTICE</span><span id="tutorialGuideProgress">0 / 8</span></div>
+  <div class="tutorialGuideHeader" aria-label="Drag to move tutorial guide"><span class="tutorialGuideEyebrow">⠿ START YOUR ADVENTURE · DRAG TO MOVE</span><span id="tutorialGuideProgress">0 / 8</span></div>
   <h2 id="tutorialGuideTitle">Learn by playing</h2>
   <p id="tutorialGuideBody">Your tutorial is a real Classic game against one AI opponent.</p>
   <p id="tutorialGuideHint">The 19-hex, four-player Classic map has two occupied seats.</p>

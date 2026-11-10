@@ -16,13 +16,13 @@ function compareChallengeResults(a, b) {
   return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
 }
 
-function buildChallengeLeaderboard(history, weekId, playerCount, findUserById) {
+function buildChallengeLeaderboard(history, periodId, playerCount, findUserById, kind = 'weekly') {
   const bestByUser = new Map();
   const size = Number(playerCount);
   const defaultTarget = size === 4 ? 12 : 14;
   for (const game of (history || [])) {
     if (!game || game.ranked || game.casual ||
-        game.challenge?.weekId !== weekId || Number(game.challenge?.playerCount) !== size) continue;
+        (kind === 'daily' ? (game.challenge?.kind !== 'daily' || game.challenge?.dayId !== periodId) : (game.challenge?.kind === 'daily' || game.challenge?.weekId !== periodId)) || Number(game.challenge?.playerCount) !== size) continue;
 
     const id = String(game.winnerId || '');
     if (!id || id.startsWith('ai_')) continue;

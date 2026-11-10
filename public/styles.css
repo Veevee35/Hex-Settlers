@@ -4625,3 +4625,24 @@ body.casual-mode #downloadTexturePackBtn,body.casual-mode #uploadTexturePackBtn,
  .tutorialGuideActions {margin-top:8px}
  .tutorialGuideActions .btn {padding:7px 10px}
 }
+
+/* V59: independent Daily/Weekly tabs and movable guide */
+.challengePeriodTabs { margin: 0 0 14px; }
+.challengePeriodTabs .hTab { min-width:110px; }
+.tutorialGuideHeader { cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+.tutorialGuideHeader:active { cursor:grabbing; }
+.challengeExplorer { display:flex; flex-direction:column; gap:12px; }
+.challengeExplorer .challengeMapTabs { margin-bottom:4px; }
+.challengeExplorerFilters { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; padding:12px 0; }
+.challengeExplorerFilters label { display:flex; flex-direction:column; gap:4px; font-size:12px; min-width:110px; }
+.challengeExplorerFilters .checkRow { display:flex; align-items:center; flex-direction:row; gap:6px; }
+.challengeExplorerFilters input[type=search] { min-width:180px; }
+.challengeExplorerDateCustom { display:flex; gap:8px; flex-wrap:wrap; }
+.challengeExplorerTable { max-width:100%; overflow-x:auto; }
+.challengeExplorerTable table { width:100%; border-collapse:collapse; }
+.challengeExplorerTable th,.challengeExplorerTable td { padding:9px 12px; border-bottom:1px solid rgba(164,189,199,.22); text-align:left; white-space:nowrap; }
+.challengeExplorerTable th button { background:none; color:inherit; cursor:pointer; border:0; text-align:left; font-weight:700; }
+.challengeExplorerTable tr:first-child td { color:#f2d99b; }
+.challengeExplorer .historyList { width:100%; }
+.challengeExplorer .hint { margin:12px 0; }
+@media(max-width:720px) { .challengeExplorerFilters { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; } .challengeExplorerFilters input[type=search] { min-width:0;width:100%; } }

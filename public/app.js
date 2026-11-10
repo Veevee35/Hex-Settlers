@@ -1302,6 +1302,7 @@
   let journeyView = 'home';
   let weeklyChallengeCatalog = null;
   let selectedChallengePlayerCount = 4;
+  let selectedChallengeKind = 'weekly';
   const challengeLeaderboardSort = new Map(); // Preserve sorts when the weekly catalog refreshes.
   let requestedLobbyVisibility = 'private';
   let roomNotFoundVisible = false;
@@ -1340,7 +1341,7 @@
     let title = '', body = '', hint = '', target = null;
     const primary = $('tutorialGuidePrimary');
     primary.classList.add('hidden');
-    $('tutorialGuideExit').textContent = progress.completed ? 'Back to game types' : 'Exit tutorial';
+    $('tutorialGuideExit').textContent = progress.completed ? 'Back to game types' : 'Exit tutorial & unlock';
     if (phase === 'lobby') {
       title = '1. Explore a real game lobby';
       body = 'This is your actual lobby, with the live Classic map preview and normal Game Setup panel. One AI shares a two-player match on the standard four-player 19-hex board.';
@@ -1530,7 +1531,7 @@
       public: 'Browse open games or host a public lobby.',
       detail: 'Review the game and its settings before joining.',
       private: 'Host a private game or join with an invitation code.',
-      challenge: '5 new Scattered Tiles maps every week to compete on.',
+      challenge: 'Daily solo challenges and weekly multiplayer maps, with one shared scenario across all five capacities.',
       settings: 'Customize your game layout and sound before playing.',
     })[view] || 'Choose your next adventure.';
     if ($('journeyBackBtn')) $('journeyBackBtn').textContent = view === 'home' ? '← Back to Game Types'
@@ -1567,19 +1568,25 @@
     host.replaceChildren();
     tabs.replaceChildren();
     spotlight.replaceChildren();
-    const catalog = weeklyChallengeCatalog;
+    const catalog = weeklyChallengeCatalog?.[selectedChallengeKind];
     if (!catalog || !Array.isArray(catalog.maps)) {
-      host.textContent = 'Loading this week’s maps…';
+      host.textContent = 'Loading challenge maps…';
       return;
     }
     const maps = catalog.maps.filter(map => [4, 5, 6, 7, 8].includes(Number(map.playerCount)))
       .sort((a, b) => Number(a.playerCount) - Number(b.playerCount));
     if (!maps.length) {
-      host.textContent = 'No challenge maps are available for this week.';
+      host.textContent = 'No challenge maps are available for this period.';
       return;
     }
+    const kindLabel = selectedChallengeKind === 'daily' ? 'Daily' : 'Weekly';
+    const scenarioName = ({ classic:'Classic', islands:'Islands', desert:'Through the Desert', fog:'Fog Island', scattered:'Scattered Tiles' })[catalog.scenario] || 'Classic';
     if ($('challengeWeekLabel')) $('challengeWeekLabel').textContent =
-      `Week of ${catalog.weekId} · New maps Monday at 1:00 AM Central · Balanced Bag · Expert AI`;
+      `${kindLabel} · ${catalog.periodId} · ${scenarioName} · ${selectedChallengeKind === 'daily' ? 'Resets daily' : 'Resets Mondays'} at 1:00 AM Central · Balanced Bag · Expert AI`;
+    const detail = $('challengeRulesNote');
+    if (detail) detail.textContent = selectedChallengeKind === 'daily'
+      ? 'Solo challenge: one human versus Expert AI in a full lobby. One total attempt per account per day, used when the game starts. No other humans may join. Results count toward Unranked stats.'
+      : 'Weekly challenge: share a lobby link or room code. Expert AI fills empty seats until friends join. Results count toward Unranked stats.';
 
     // A refresh retains the chosen scenario; switching tabs does not alter server scores.
     const map = maps.find(item => Number(item.playerCount) === selectedChallengePlayerCount) || maps[0];
@@ -1627,7 +1634,7 @@
     const champion = rows[0];
     const spotlightLabel = document.createElement('div');
     spotlightLabel.className = 'challengeTopPlayerLabel';
-    spotlightLabel.textContent = `★ WEEKLY #1 · ${count}-PLAYER CHALLENGE`;
+    spotlightLabel.textContent = `★ ${kindLabel.toUpperCase()} #1 · ${count}-PLAYER CHALLENGE`;
     spotlight.appendChild(spotlightLabel);
     const championName = document.createElement('strong');
     championName.className = 'challengeTopPlayerName';
@@ -1655,7 +1662,7 @@
     } else {
       const note = document.createElement('p');
       note.className = 'challengeTopPlayerEmpty';
-      note.textContent = 'Be the first to win this weekly map and claim the leaderboard.';
+      note.textContent = `Be the first to win this ${selectedChallengeKind} map and claim the leaderboard.`;
       spotlight.appendChild(note);
     }
 
@@ -1664,11 +1671,13 @@
     const head = document.createElement('div');
     head.className = 'challengeMapCardHeading';
     const title = document.createElement('h2');
-    title.textContent = `${count}-Player Scattered Tiles`;
+    title.textContent = `${count}-Player ${scenarioName}`;
     const play = document.createElement('button');
     play.type = 'button';
     play.className = 'btn primary';
-    play.textContent = `Create ${count}-player lobby`;
+    play.textContent = selectedChallengeKind === 'daily' ? 'Start solo Daily Challenge' : `Create ${count}-player lobby`;
+    play.disabled = selectedChallengeKind === 'daily' && !!catalog.attempted;
+    if (play.disabled) { play.textContent = 'Daily attempt used'; play.title = 'The next Daily resets at 1 AM Central.'; }
     play.addEventListener('click', () => beginChallengeHost(count));
     head.append(title, play);
 
@@ -1677,12 +1686,12 @@
     const mapSection = document.createElement('section');
     mapSection.className = 'challengeMapVisualization';
     const mapLabel = document.createElement('h3');
-    mapLabel.textContent = 'This week’s map';
+    mapLabel.textContent = selectedChallengeKind === 'daily' ? 'Today’s fixed map' : 'This week’s fixed map';
     const board = document.createElement('canvas');
     board.className = 'challengeMapPreview';
     board.width = 760; board.height = 450;
     board.setAttribute('role', 'img');
-    board.setAttribute('aria-label', `Weekly ${count}-player Scattered Tiles layout`);
+    board.setAttribute('aria-label', `${kindLabel} ${count}-player ${scenarioName} layout`);
     mapSection.append(mapLabel, board);
 
     const ranking = document.createElement('section');
@@ -1695,7 +1704,7 @@
     const header = document.createElement('thead');
     const headerRow = document.createElement('tr');
     const body = document.createElement('tbody');
-    const sortId = `${catalog.weekId}:${count}`;
+    const sortId = `${selectedChallengeKind}:${catalog.periodId}:${count}`;
     let sorting = challengeLeaderboardSort.get(sortId) || { key: 'lowestTurns', direction: 'asc' };
     const columns = [
       { key: 'name', label: 'Player' },
@@ -1790,7 +1799,7 @@
     roomNotFoundVisible = false;
     try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
     prepareUncreatedLobby(); updateAuthUi();
-    send({ type: 'create_challenge_room', playerCount,
+    send({ type: 'create_challenge_room', playerCount, kind: selectedChallengeKind,
       displayName: authUser?.displayName || authUser?.username || 'Host' });
   }
 
@@ -2685,6 +2694,10 @@ let historyState = {
   games: [],
   leaderboard: [],
   leaderboardMode: 'combined',
+  gameMode: 'unranked',
+  challengeArchive: [], loadingChallenges: false,
+  challengeFilters: { games: { count:4, kind:'weekly', search:'', range:'all', from:'', to:'', friendsOnly:false, sortKey:'endedAt', sortDir:'desc' },
+    players: { count:4, kind:'weekly', search:'', range:'all', from:'', to:'', friendsOnly:false, sortKey:'lowestTurns', sortDir:'asc' } },
   sortKey: 'rankedRating',
   sortDir: 'desc',
   loadingGames: false,
@@ -2706,7 +2719,7 @@ let historyReplayScrubIndex = null;
 
 const HISTORY_REPLAY_ALLOWED_MESSAGES = new Set([
   'get_state', 'get_game_history', 'get_game_history_entry',
-  'get_player_leaderboard', 'get_texture_pack',
+  'get_player_leaderboard', 'get_challenge_archive', 'get_texture_pack',
   // Leaving a ranked queue must still work while viewing a saved replay.
   'ranked_queue_leave', 'leave_room',
 ]);
@@ -4156,6 +4169,7 @@ function openHistoryOverlay(tab) {
   historyState.tab = tab || 'games';
   historyState.loadingGames = true;
   historyState.loadingBoard = true;
+  historyState.loadingChallenges = true;
   setHistoryVisible(true);
   requestHistoryData();
   refreshHistoryFriends();
@@ -4176,6 +4190,7 @@ function requestHistoryData() {
   try {
     send({ type: 'get_game_history', limit: 500 });
     send({ type: 'get_player_leaderboard' });
+    send({ type: 'get_challenge_archive' });
   } catch(_) {}
 }
 
@@ -4315,8 +4330,11 @@ function renderHistory() {
   ui.historyBody.innerHTML = '';
   const filterBox = $('historyFriendsOnly');
   if (filterBox) filterBox.checked = historyState.friendsOnly;
-  $('historyDownloadSelectedBtn')?.classList.toggle('hidden', historyState.tab !== 'games');
-  $('historyUploadReplayBtn')?.classList.toggle('hidden', historyState.tab !== 'games');
+  const challengeView = historyState.tab === 'games' ? historyState.gameMode === 'challenge' : historyState.leaderboardMode === 'challenge';
+  $('historyDownloadSelectedBtn')?.classList.toggle('hidden', historyState.tab !== 'games' || challengeView);
+  $('historyUploadReplayBtn')?.classList.toggle('hidden', historyState.tab !== 'games' || challengeView);
+  const toolbarFriends = $('historyFriendsOnly')?.closest('label');
+  if (toolbarFriends) toolbarFriends.classList.toggle('hidden', challengeView);
 
   if (!authUser) {
     const d = document.createElement('div');
@@ -4330,11 +4348,233 @@ function renderHistory() {
   else renderGamesHistoryTab();
 }
 
+// Shared challenge archive explorer: identical 4–8 / Weeklys–Dailies / date /
+// friends / search controls in Game History and Player Stats.
+function renderChallengeExplorer(section) {
+  const filters = historyState.challengeFilters[section];
+  const root = document.createElement('div');
+  root.className = 'challengeExplorer';
+  ui.historyBody.appendChild(root);
+  const countTabs = document.createElement('div');
+  countTabs.className = 'challengeMapTabs';
+  countTabs.setAttribute('role', 'tablist');
+  countTabs.setAttribute('aria-label', 'Challenge capacity');
+  for (const count of [4,5,6,7,8]) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `challengeMapTab${filters.count === count ? ' active' : ''}`;
+    btn.textContent = `${count} Players`;
+    btn.setAttribute('aria-selected', String(filters.count === count));
+    btn.addEventListener('click', () => { filters.count = count; renderHistory(); });
+    countTabs.appendChild(btn);
+  }
+  root.appendChild(countTabs);
+  const periods = document.createElement('div');
+  periods.className = 'leaderboardSubTabs';
+  for (const [kind, label] of [['weekly','Weeklys'], ['daily','Dailies']]) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `hTab${filters.kind === kind ? ' active' : ''}`;
+    btn.textContent = label;
+    btn.addEventListener('click', () => { filters.kind = kind; renderHistory(); });
+    periods.appendChild(btn);
+  }
+  root.appendChild(periods);
+  const bar = document.createElement('div');
+  bar.className = 'challengeExplorerFilters';
+  const friends = document.createElement('label');
+  friends.className = 'checkRow';
+  const friendCheck = document.createElement('input');
+  friendCheck.type = 'checkbox';
+  friendCheck.checked = filters.friendsOnly;
+  friendCheck.addEventListener('change', () => { filters.friendsOnly = friendCheck.checked; renderHistory(); });
+  friends.append(friendCheck, document.createTextNode('Friends only'));
+  bar.appendChild(friends);
+  function filterControl(label, control) {
+    const wrap = document.createElement('label');
+    wrap.textContent = label;
+    wrap.appendChild(control);
+    bar.appendChild(wrap);
+    return wrap;
+  }
+  const search = document.createElement('input');
+  search.className = 'input';
+  search.type = 'search';
+  search.placeholder = 'Player or room code';
+  search.value = filters.search;
+  search.setAttribute('aria-label', 'Search challenge history');
+  search.addEventListener('input', () => {
+    const cursor = search.selectionStart;
+    filters.search = search.value;
+    renderHistory();
+    const next = ui.historyBody.querySelector('.challengeExplorerFilters input[type="search"]');
+    if (next) { next.focus(); try { next.setSelectionRange(cursor, cursor); } catch (_) {} }
+  });
+  filterControl('Search', search);
+  const range = document.createElement('select');
+  range.className = 'input';
+  for (const [val, label] of [['all','All dates'],['7','Last 7 days'],['30','Last 30 days'],['90','Last 90 days'],['custom','Custom date window']]) {
+    const option = document.createElement('option'); option.value = val; option.textContent = label;
+    range.appendChild(option);
+  }
+  range.value = filters.range;
+  range.addEventListener('change', () => { filters.range = range.value; renderHistory(); });
+  filterControl('Date window', range);
+  if (filters.range === 'custom') {
+    const dates = document.createElement('div');
+    dates.className = 'challengeExplorerDateCustom';
+    for (const [key, label] of [['from','From'],['to','Through']]) {
+      const date = document.createElement('input'); date.type = 'date'; date.className = 'input';
+      date.value = filters[key];
+      date.addEventListener('change', () => { filters[key] = date.value; renderHistory(); });
+      const pair = document.createElement('label'); pair.textContent = label; pair.appendChild(date);
+      dates.appendChild(pair);
+    }
+    bar.appendChild(dates);
+  }
+  root.appendChild(bar);
+  const result = document.createElement('div');
+  result.className = section === 'games' ? 'historyList' : 'challengeExplorerTable';
+  root.appendChild(result);
+  if (historyState.loadingChallenges) {
+    const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'Loading challenge archive…'; result.appendChild(p); return;
+  }
+  const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone:'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
+  }).formatToParts(new Date()).map(piece => [piece.type, piece.value]));
+  const today = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  const todayMs = Date.parse(`${today}T00:00:00Z`);
+  const minDate = ['7','30','90'].includes(filters.range)
+    ? new Date(todayMs - (Number(filters.range) - 1) * 86400000).toISOString().slice(0,10)
+    : filters.range === 'custom' ? filters.from : '';
+  const maxDate = filters.range === 'custom' ? filters.to : '';
+  const needle = filters.search.trim().toLowerCase();
+  const games = (historyState.challengeArchive || []).filter(game => {
+    const ch = game.challenge;
+    if (!ch || Number(ch.playerCount) !== filters.count) return false;
+    const kind = ch.kind === 'daily' ? 'daily' : 'weekly';
+    if (kind !== filters.kind) return false;
+    const period = kind === 'daily' ? ch.dayId : ch.weekId;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(period || '')) return false;
+    if (minDate && period < minDate) return false;
+    if (maxDate && period > maxDate) return false;
+    if (filters.friendsOnly && !(game.players || []).some(p => historyState.friendIds.has(String(p.id)))) return false;
+    return true;
+  });
+  if (section === 'games') {
+    const matching = games.filter(game => !needle ||
+      [game.roomCode, game.winnerName, ...(game.players || []).map(p => p.name)]
+        .some(value => String(value || '').toLowerCase().includes(needle)));
+    matching.sort((a,b) => Number(b.endedAt || 0) - Number(a.endedAt || 0));
+    if (!matching.length) {
+      const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'No challenge games match these filters.'; result.appendChild(p);
+    }
+    for (const game of matching) {
+      const card = document.createElement('div'); card.className = 'historyCard';
+      const meta = document.createElement('div'); meta.className = 'historyMeta';
+      const title = document.createElement('div'); title.className = 'historyLine1';
+      title.textContent = `${game.winnerName || 'Unknown winner'} won · ${filters.count} Players · ${filters.kind === 'daily' ? 'Daily' : 'Weekly'} ${game.challenge.dayId || game.challenge.weekId}`;
+      const detail = document.createElement('div'); detail.className = 'historyLine2';
+      detail.textContent = `${fmtDateTime(game.endedAt)} · ${mapLabelFromRules(game.rules)} · Turn ${Number(game.turns || 0) + 1} · ${game.roomCode || '—'} · ${(game.players || []).map(p => `${p.name} (${p.vp})`).join(' • ')}`;
+      meta.append(title, detail);
+      const actions = document.createElement('div'); actions.className = 'historyActions';
+      for (const [label, mode] of [['Replay','replay'],['View Summary','summary']]) {
+        const button = document.createElement('button'); button.className = `btn${mode === 'summary' ? ' primary' : ''}`;
+        button.textContent = label;
+        button.disabled = mode === 'replay' && Number(game.replaySteps || 0) < 1;
+        button.addEventListener('click', () => { historyState.openMode = mode; send({type:'get_game_history_entry', id:game.id}); });
+        actions.appendChild(button);
+      }
+      card.append(meta, actions); result.appendChild(card);
+    }
+    return;
+  }
+  const best = new Map();
+  for (const game of games) {
+    const id = String(game.winnerId || '');
+    if (!id || id.startsWith('ai_') || game.endedReason === 'vote') continue;
+    const winner = (game.players || []).find(p => String(p.id) === id);
+    if (!winner || (filters.friendsOnly && !historyState.friendIds.has(id))) continue;
+    const totalVP = Number(winner.vp);
+    const target = Number(game.rules?.victoryPointsToWin) || (filters.count === 4 ? 12 : 14);
+    if (!Number.isFinite(totalVP) || totalVP < target) continue;
+    const turns = Math.floor(Number(game.turns));
+    if (!Number.isFinite(turns) || turns < 0) continue;
+    const started = Number(game.startedAt), ended = Number(game.endedAt);
+    const elapsed = Number.isFinite(started) && Number.isFinite(ended) && started > 0 && ended >= started ? ended - started : null;
+    const candidate = { id, name:String(game.winnerName || winner.name || 'Player'), lowestTurns:turns+1, lowestTimeMs:elapsed, totalVP,
+      period: game.challenge.dayId || game.challenge.weekId };
+    if (needle && !candidate.name.toLowerCase().includes(needle)) continue;
+    const previous = best.get(id);
+    if (!previous || compareChallengeScores(candidate, previous) < 0) best.set(id, candidate);
+  }
+  const rows = [...best.values()].sort((a,b) => compareChallengeScores(a,b));
+  const ranked = new Map(rows.map((row,index) => [row.id,index+1]));
+  const key = filters.sortKey, mult = filters.sortDir === 'desc' ? -1 : 1;
+  rows.sort((a,b) => {
+    const va = a[key], vb = b[key];
+    const compare = key === 'name' || key === 'period' ? String(va || '').localeCompare(String(vb || ''))
+      : (va == null ? Infinity : Number(va)) - (vb == null ? Infinity : Number(vb));
+    return (compare * mult) || (ranked.get(a.id) - ranked.get(b.id));
+  });
+  const table = document.createElement('table');
+  const thead = document.createElement('thead'); const header = document.createElement('tr');
+  const tbody = document.createElement('tbody');
+  const cols = [['name','Player'],['lowestTimeMs','Lowest Time'],['lowestTurns','Lowest Turns to Win'],['totalVP','Total VP earned'],['period','Period']];
+  for (const [col, label] of cols) {
+    const th = document.createElement('th');
+    th.setAttribute('aria-sort', col === key ? (mult === 1 ? 'ascending' : 'descending') : 'none');
+    const button = document.createElement('button');
+    button.textContent = `${label} ${col === key ? (mult === 1 ? '▲' : '▼') : '↕'}`;
+    button.addEventListener('click', () => {
+      filters.sortDir = filters.sortKey === col && filters.sortDir === 'asc' ? 'desc' : 'asc';
+      filters.sortKey = col;
+      renderHistory();
+    });
+    th.appendChild(button); header.appendChild(th);
+  }
+  thead.appendChild(header); table.appendChild(thead);
+  for (const item of rows) {
+    const tr = document.createElement('tr');
+    for (const value of [`#${ranked.get(item.id)}  ${item.name}`, formatChallengeTime(item.lowestTimeMs), item.lowestTurns, item.totalVP, item.period]) {
+      const cell = document.createElement('td'); cell.textContent = String(value); tr.appendChild(cell);
+    }
+    tbody.appendChild(tr);
+  }
+  if (!rows.length) {
+    const tr = document.createElement('tr'); const td = document.createElement('td');
+    td.colSpan = cols.length; td.className = 'hint'; td.textContent = 'No qualifying challenge wins match these filters.';
+    tr.appendChild(td); tbody.appendChild(tr);
+  }
+  table.appendChild(tbody); result.appendChild(table);
+}
+
+function compareChallengeScores(a, b) {
+  return (a.lowestTurns - b.lowestTurns)
+    || ((a.lowestTimeMs == null ? Infinity : a.lowestTimeMs) - (b.lowestTimeMs == null ? Infinity : b.lowestTimeMs))
+    || (a.totalVP - b.totalVP)
+    || a.name.localeCompare(b.name);
+}
+
 function renderGamesHistoryTab() {
+  const subTabs = document.createElement('div');
+  subTabs.className = 'leaderboardSubTabs';
+  for (const [key, label] of [['challenge','Challenge Maps'], ['ranked','Ranked'], ['unranked','Unranked']]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `hTab${historyState.gameMode === key ? ' active' : ''}`;
+    button.textContent = label;
+    button.addEventListener('click', () => { historyState.gameMode = key; renderHistory(); });
+    subTabs.appendChild(button);
+  }
+  ui.historyBody.appendChild(subTabs);
+  if (historyState.gameMode === 'challenge') { renderChallengeExplorer('games'); return; }
   const wrap = document.createElement('div');
   wrap.className = 'historyList';
 
-  const games = (Array.isArray(historyState.games) ? historyState.games : []).filter(g => !historyState.friendsOnly || (g.players || []).some(p => historyState.friendIds.has(String(p.id))));
+  const games = (Array.isArray(historyState.games) ? historyState.games : []).filter(g =>
+    !g.challenge && (historyState.gameMode === 'ranked' ? !!g.ranked : !g.ranked) &&
+    (!historyState.friendsOnly || (g.players || []).some(p => historyState.friendIds.has(String(p.id)))));
   if (historyState.loadingGames) {
     const h = document.createElement('div');
     h.className = 'hint';
@@ -4438,7 +4678,7 @@ function setLeaderboardSort(key) {
 }
 
 function setLeaderboardMode(mode) {
-  historyState.leaderboardMode = ['ranked', 'unranked', 'combined'].includes(mode) ? mode : 'combined';
+  historyState.leaderboardMode = ['challenge', 'ranked', 'unranked', 'combined'].includes(mode) ? mode : 'combined';
   historyState.sortKey = historyState.leaderboardMode === 'unranked' ? 'unrankedRating' : 'rankedRating';
   historyState.sortDir = 'desc';
   renderHistory();
@@ -4446,10 +4686,10 @@ function setLeaderboardMode(mode) {
 
 function renderLeaderboardTab() {
   const rowsRaw = (Array.isArray(historyState.leaderboard) ? historyState.leaderboard : []).filter(r => !historyState.friendsOnly || historyState.friendIds.has(String(r.id)));
-  const mode = ['ranked', 'unranked', 'combined'].includes(historyState.leaderboardMode) ? historyState.leaderboardMode : 'combined';
+  const mode = ['challenge','ranked', 'unranked', 'combined'].includes(historyState.leaderboardMode) ? historyState.leaderboardMode : 'combined';
   const subTabs = document.createElement('div');
   subTabs.className = 'leaderboardSubTabs';
-  for (const [key, label] of [['ranked', 'Ranked Play'], ['unranked', 'Unranked Play'], ['combined', 'Combined']]) {
+  for (const [key, label] of [['challenge', 'Challenge Maps'], ['ranked', 'Ranked Play'], ['unranked', 'Unranked Play'], ['combined', 'Combined']]) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `hTab${mode === key ? ' active' : ''}`;
@@ -4458,6 +4698,7 @@ function renderLeaderboardTab() {
     subTabs.appendChild(button);
   }
   ui.historyBody.appendChild(subTabs);
+  if (mode === 'challenge') { renderChallengeExplorer('players'); return; }
   // Hide/ignore AI entries in the lobby player stats view
   const rows = rowsRaw.filter(r => {
     const id = String((r && r.id) || '');
@@ -7758,6 +7999,13 @@ function refreshLobbyJoinLinkUi() {
       if (msg.type === 'challenge_maps') {
         weeklyChallengeCatalog = msg;
         if (journeyView === 'challenge') renderChallengeMaps();
+        return;
+      }
+
+      if (msg.type === 'challenge_archive') {
+        historyState.challengeArchive = Array.isArray(msg.games) ? msg.games : [];
+        historyState.loadingChallenges = false;
+        if (historyState.active) renderHistory();
         return;
       }
 
@@ -11783,7 +12031,12 @@ function refreshLobbyJoinLinkUi() {
     if (ui.setupCard) ui.setupCard.classList.toggle('challengeLockedSetup', !!room.challenge);
     if ($('challengeLobbyNote')) {
       $('challengeLobbyNote').classList.toggle('hidden', !room.challenge);
-      $('challengeLobbyNote').textContent = room.challenge ? `Weekly Challenge · ${room.challenge.playerCount} seats · ${room.challenge.weekId} · Fixed Scattered Tiles map · Balanced Bag · Expert AI · Unranked stats` : '';
+      if (room.challenge) {
+        const kind = room.challenge.kind === 'daily' ? 'Daily' : 'Weekly';
+        const scenario = room.rules?.mapMode === 'classic' || String(room.rules?.mapMode || '').startsWith('classic')
+          ? 'Classic' : String(room.rules?.seafarersScenario || 'Islands').replace(/_?(?:56|78)(?:_[78])?$/, '').replace(/_/g,' ');
+        $('challengeLobbyNote').textContent = `${kind} Challenge · ${room.challenge.playerCount} seats · ${room.challenge.dayId || room.challenge.weekId} · ${scenario} · Balanced Bag · Expert AI · Unranked stats${kind === 'Daily' ? ' · Solo, single attempt' : ''}`;
+      } else $('challengeLobbyNote').textContent = '';
     }
     const accessControls = $('lobbyAccessControls');
     if (accessControls) accessControls.classList.toggle('hidden', !!room.ranked || !!room.challenge || !!room.tutorial || gameStartedForControls);
@@ -12179,6 +12432,13 @@ function refreshLobbyJoinLinkUi() {
   $('journeyPublicBtn')?.addEventListener('click', () => setJourneyView('public'));
   $('journeyPrivateBtn')?.addEventListener('click', () => setJourneyView('private'));
   $('journeyChallengeBtn')?.addEventListener('click', () => setJourneyView('challenge'));
+  $('challengePeriodTabs')?.addEventListener('click', event => {
+    const button = event.target.closest('button[data-period]');
+    if (!button) return;
+    selectedChallengeKind = button.dataset.period === 'daily' ? 'daily' : 'weekly';
+    $('challengePeriodTabs').querySelectorAll('button').forEach(tab => tab.classList.toggle('active', tab === button));
+    renderChallengeMaps();
+  });
   $('journeyBackBtn')?.addEventListener('click', journeyBack);
   $('publicLobbyDetailBackBtn')?.addEventListener('click', () => setJourneyView('public'));
   $('publicLobbyDetailRefreshBtn')?.addEventListener('click', requestPublicLobbies);
@@ -12260,6 +12520,39 @@ function refreshLobbyJoinLinkUi() {
     }
     returnToGameTypeSelection('');
   });
+  // Move the guide from anywhere on its header. The board remains interactive.
+  (() => {
+    const guide = $('tutorialGuide');
+    const handle = guide?.querySelector('.tutorialGuideHeader');
+    if (!guide || !handle) return;
+    let drag = null;
+    handle.setAttribute('title', 'Drag to reposition the tutorial guide');
+    function clampGuide() {
+      if (!guide.style.left) return;
+      const bounds = guide.getBoundingClientRect();
+      guide.style.left = `${Math.max(4, Math.min(window.innerWidth - bounds.width - 4, bounds.left))}px`;
+      guide.style.top = `${Math.max(4, Math.min(window.innerHeight - bounds.height - 4, bounds.top))}px`;
+    }
+    handle.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || event.target.closest('button, a, input')) return;
+      const rect = guide.getBoundingClientRect();
+      drag = { id:event.pointerId, x:event.clientX - rect.left, y:event.clientY - rect.top, w:rect.width, h:rect.height };
+      guide.style.right = 'auto';
+      guide.style.left = `${rect.left}px`;
+      guide.style.top = `${rect.top}px`;
+      handle.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    handle.addEventListener('pointermove', event => {
+      if (!drag || drag.id !== event.pointerId) return;
+      guide.style.left = `${Math.max(4, Math.min(innerWidth - drag.w - 4, event.clientX - drag.x))}px`;
+      guide.style.top = `${Math.max(4, Math.min(innerHeight - drag.h - 4, event.clientY - drag.y))}px`;
+    });
+    function stop(event) { if (drag?.id === event.pointerId) drag = null; }
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+    window.addEventListener('resize', clampGuide);
+  })();
   $('tutorialGuidePrimary')?.addEventListener('click', () => {
     if (!liveTutorialRoom()) return;
     if (state?.tutorial?.completed || tutorialUnlocked()) {
@@ -13798,6 +14091,7 @@ if (ui.historyCloseBtn) ui.historyCloseBtn.addEventListener('click', () => close
 if (ui.historyRefreshBtn) ui.historyRefreshBtn.addEventListener('click', () => {
   historyState.loadingGames = true;
   historyState.loadingBoard = true;
+  historyState.loadingChallenges = true;
   renderHistory();
   requestHistoryData();
 });

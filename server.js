@@ -73,7 +73,7 @@ const {
 } = require('./server/game-rules');
 const { normalizeDiceAlgorithm, rollDiceWithAlgorithm } = require('./server/dice-algorithms');
 const { buildChallengeLeaderboard } = require('./server/challenge-leaderboard');
-const { challengeWeekId, challengeRules, generateWeeklyMap } = require('./server/challenge-maps');
+const { challengeWeekId, challengeDayId, challengePeriodId, challengeScenario, challengeRules, generateChallengeMap } = require('./server/challenge-maps');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
@@ -509,7 +509,7 @@ function persistGameHistoryFromGame(room, game, winnerId) {
 
 function listGameHistory(limit = 200) {
   const games = (Array.isArray(HISTORY_DB.games) ? HISTORY_DB.games : []).filter(isValidHistoryEntry);
-  const lim = clamp(Math.floor(Number(limit || 200)), 1, 2000);
+  const lim = clamp(Math.floor(Number(limit || 200)), 1, HISTORY_MAX_GAMES);
   const slice = games.slice(-lim).reverse(); // most recent first
   // return metadata only
   return slice.map(g => ({
@@ -520,7 +520,8 @@ function listGameHistory(limit = 200) {
     turns: g.turns,
     winnerId: g.winnerId,
     winnerName: g.winnerName,
-    ranked: g.ranked == null ? null : !!g.ranked, casual: !!g.casual,
+    ranked: g.ranked == null ? null : !!g.ranked, casual: !!g.casual, challenge: g.challenge || null,
+    endedReason: g.snapshot?.stats?.endedReason || '',
     ratingChanges: g.ratingChanges || {},
     unrankedRatingChanges: g.unrankedRatingChanges || {},
     rules: g.rules || null,
@@ -6219,7 +6220,7 @@ function startGame(room) {
   // Generate board
   let usedPreview = false;
   try {
-    const wantKey = mapPreviewKey(game.rules || DEFAULT_RULES, game?.players?.length || 0);
+    const wantKey = room.challenge ? room.preview?.key : mapPreviewKey(game.rules || DEFAULT_RULES, game?.players?.length || 0);
     if (game.rules?.randomMapAtStart !== true && room.preview && room.preview.key === wantKey && room.preview.geom) {
       const geom = deepClone(room.preview.geom);
       if (geom && Array.isArray(geom.tiles) && geom.tiles.length) {
@@ -9230,7 +9231,7 @@ function createRematchRoomFrom(prevRoom) {
     aiDifficulty: (prevRoom && prevRoom.aiDifficulty) ? String(prevRoom.aiDifficulty) : 'easy',
     expertAiTuning: (prevRoom && prevRoom.expertAiTuning) ? { ...prevRoom.expertAiTuning } : null,
     casual: !!(prevRoom && prevRoom.casual),
-    challenge: prevRoom?.challenge ? { weekId: challengeWeekId(), playerCount: prevRoom.challenge.playerCount } : null,
+    challenge: prevRoom?.challenge ? { kind:'weekly', weekId: challengeWeekId(), playerCount: prevRoom.challenge.playerCount } : null,
     visibility: prevRoom?.casual ? 'private' : (prevRoom?.visibility === 'public' ? 'public' : 'private'), friendsOnly: !!prevRoom?.friendsOnly, bossIds: [],
     sharedTexturePacks: (prevRoom && prevRoom.sharedTexturePacks) ? { ...prevRoom.sharedTexturePacks } : Object.create(null),
     pendingLeaveRequests: Object.create(null),
@@ -9327,6 +9328,9 @@ function joinRoom(code, userId, name, options = {}) {
 
   const desiredName = (name == null) ? '' : String(name || '').slice(0, 20);
 
+  // Daily is a solo human versus Expert AI. No other account can enter,
+  // including as a spectator, via a guessed room code or invitation link.
+  if (room.challenge?.kind === 'daily' && room.hostId !== pid) return { ok: false, error: 'Daily Challenges are solo matches against Expert AI.' };
   const existing = findRoomMember(room, pid);
   if (existing) {
     if (desiredName) existing.name = desiredName;
@@ -9493,41 +9497,56 @@ function generatePreviewGeom(rules, room = null) {
   return geom;
 }
 
-// Generated once per week and size from a stable server-side seed. Rooms and
-// the challenge catalog always receive independent clones of the same layout.
-const weeklyChallengeMapCache = new Map();
-function weeklyChallengeGeom(weekId, playerCount) {
-  const key = `${weekId}:${playerCount}`;
-  if (!weeklyChallengeMapCache.has(key)) {
-    const rules = challengeRules(playerCount);
-    const geom = generateWeeklyMap(weekId, playerCount, () => generatePreviewGeom(rules, { players: Array(playerCount).fill({ isAI: true }) }));
-    weeklyChallengeMapCache.set(key, geom);
-    if (weeklyChallengeMapCache.size > 20) weeklyChallengeMapCache.delete(weeklyChallengeMapCache.keys().next().value);
+// Independent deterministic layouts per challenge period and capacity.
+const challengeMapCache = new Map();
+function challengeGeom(challenge) {
+  const kind = challenge.kind === 'daily' ? 'daily' : 'weekly';
+  const periodId = kind === 'daily' ? challenge.dayId : challenge.weekId;
+  const family = challengeScenario(kind, periodId);
+  const count = Number(challenge.playerCount);
+  const key = `${kind}:${periodId}:${count}`;
+  if (!challengeMapCache.has(key)) {
+    const geom = generateChallengeMap(kind, periodId, count, rules =>
+      generatePreviewGeom(rules, { players: Array(count).fill({ isAI: true }) }));
+    challengeMapCache.set(key, geom);
+    if (challengeMapCache.size > 90) challengeMapCache.delete(challengeMapCache.keys().next().value);
   }
-  return deepClone(weeklyChallengeMapCache.get(key));
+  return deepClone(challengeMapCache.get(key));
 }
 
-function challengeLeaderboard(weekId, playerCount) {
-  const games = (HISTORY_DB.games || []).filter(isValidHistoryEntry);
-  return buildChallengeLeaderboard(games, weekId, playerCount, findUserById);
+function challengeLeaderboard(periodId, playerCount, kind = 'weekly') {
+  return buildChallengeLeaderboard((HISTORY_DB.games || []).filter(isValidHistoryEntry),
+    periodId, playerCount, findUserById, kind);
 }
-
-function challengeMapsCatalog() {
+function challengeMapsCatalog(userId) {
   const weekId = challengeWeekId();
-  return { weekId, timezone: 'America/Chicago', maps: [4,5,6,7,8].map(playerCount => {
-    const geom = weeklyChallengeGeom(weekId, playerCount);
-    return { playerCount, leaderboard: challengeLeaderboard(weekId, playerCount),
-      preview: (geom.tiles || []).map(tile => ({
-        x: Number(tile.cx), y: Number(tile.cy), type: String(tile.type || 'sea'),
-        number: Number.isInteger(tile.number) ? tile.number : null,
-      })).filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y)) };
-  }) };
+  const dayId = challengeDayId();
+  const user = findUserById(userId);
+  function mapsFor(kind, periodId) {
+    return [4,5,6,7,8].map(playerCount => {
+      const challenge = kind === 'daily' ? { kind, dayId: periodId, playerCount } : { kind, weekId: periodId, playerCount };
+      const geom = challengeGeom(challenge);
+      return { playerCount, leaderboard: challengeLeaderboard(periodId, playerCount, kind),
+        preview: (geom.tiles || []).map(tile => ({
+          x: Number(tile.cx), y: Number(tile.cy), type: String(tile.type || 'sea'),
+          number: Number.isInteger(tile.number) ? tile.number : null,
+        })).filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y)) };
+    });
+  }
+  return {
+    timezone: 'America/Chicago', weekId, dayId,
+    weekly: { periodId: weekId, scenario: challengeScenario('weekly', weekId), maps: mapsFor('weekly', weekId) },
+    daily: { periodId: dayId, scenario: challengeScenario('daily', dayId),
+      attempted: !!user?.dailyChallengeAttempts?.[dayId], maps: mapsFor('daily', dayId) },
+  };
 }
 
 function ensureChallengeRoomInvariants(room) {
   if (!room?.challenge) return;
-  const { weekId, playerCount } = room.challenge;
-  room.rules = challengeRules(playerCount);
+  const { playerCount } = room.challenge;
+  const kind = room.challenge.kind === 'daily' ? 'daily' : 'weekly';
+  const periodId = kind === 'daily' ? room.challenge.dayId : room.challenge.weekId;
+  room.rules = challengeRules(playerCount, challengeScenario(kind, periodId));
   room.casual = false;
   room.ranked = false;
   room.visibility = 'private';
@@ -9539,9 +9558,11 @@ function ensureChallengeRoomInvariants(room) {
 function ensurePreview(room, force=false) {
   if (!room) return false;
   const rules = room.rules || DEFAULT_RULES;
-  const key = mapPreviewKey(rules, room?.players?.length || 0);
+  const key = room.challenge
+    ? `challenge:${room.challenge.kind || 'weekly'}:${room.challenge.dayId || room.challenge.weekId}:${room.challenge.playerCount}`
+    : mapPreviewKey(rules, room?.players?.length || 0);
   if (!room.preview || force || room.preview.key !== key || !room.preview.geom) {
-    room.preview = { key, geom: room.challenge ? weeklyChallengeGeom(room.challenge.weekId, room.challenge.playerCount) : generatePreviewGeom(rules, room), at: now() };
+    room.preview = { key, geom: room.challenge ? challengeGeom(room.challenge) : generatePreviewGeom(rules, room), at: now() };
     return true;
   }
   return false;
@@ -11966,7 +11987,14 @@ if (msg.type === 'ranked_queue_join') {
 
 if (msg.type === 'get_challenge_maps') {
       if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Please log in first.' }); return; }
-      sendJson(ws, { type: 'challenge_maps', ...challengeMapsCatalog() });
+      sendJson(ws, { type: 'challenge_maps', ...challengeMapsCatalog(ws._userId) });
+      return;
+    }
+
+if (msg.type === 'get_challenge_archive') {
+      if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Log in to see challenge history.' }); return; }
+      // Archive metadata only: never transmit unredacted game snapshots or private logs.
+      sendJson(ws, { type: 'challenge_archive', games: listGameHistory(HISTORY_MAX_GAMES).filter(g => !!g.challenge) });
       return;
     }
 
@@ -12024,8 +12052,22 @@ if (msg.type === 'create_tutorial_room') {
       if (isChallenge && (!Number.isInteger(requestedSize) || requestedSize < 4 || requestedSize > 8)) {
         sendJson(ws, { type: 'error', error: 'Choose a challenge map for 4–8 players.' }); return;
       }
+      const challengeKind = msg.kind === 'daily' ? 'daily' : 'weekly';
+      const dailyId = challengeDayId();
+      if (isChallenge && challengeKind === 'daily') {
+        if (findUserById(ws._userId)?.dailyChallengeAttempts?.[dailyId]) {
+          sendJson(ws, { type: 'error', error: 'Your daily challenge attempt has already been used. Try again after the 1 AM Central reset.' }); return;
+        }
+        if ([...rooms.values()].some(existing => existing?.challenge?.kind === 'daily' &&
+            existing.challenge.dayId === dailyId && existing.hostId === ws._userId &&
+            (!existing.game || existing.game.phase === 'lobby'))) {
+          sendJson(ws, { type: 'error', error: 'You already have an open Daily Challenge lobby. Return to that lobby or leave it first.' }); return;
+        }
+      }
       const room = createRoom(ws._userId, desiredName);
-      if (isChallenge) room.challenge = { weekId: challengeWeekId(), playerCount: requestedSize };
+      if (isChallenge) room.challenge = challengeKind === 'daily'
+        ? { kind: 'daily', dayId: dailyId, playerCount: requestedSize }
+        : { kind: 'weekly', weekId: challengeWeekId(), playerCount: requestedSize };
       room.casual = !isChallenge && msg.casual === true;
       room.visibility = !room.casual && msg.visibility === 'public' ? 'public' : 'private';
       room.friendsOnly = !isChallenge && msg.friendsOnly === true;
@@ -12227,7 +12269,7 @@ if (msg.type === 'create_tutorial_room') {
       'edit_preview_tile', 'edit_preview_port', 'set_lobby_access',
     ]);
     if (room.challenge && challengeRestrictedMessages.has(msg.type)) {
-      sendJson(ws, { type: 'error', error: 'Weekly Challenge Maps use fixed settings, Expert AI, and a shared map.' });
+      sendJson(ws, { type: 'error', error: 'Challenge Maps use fixed settings, Expert AI, and a shared map.' });
       return;
     }
 
@@ -12267,6 +12309,16 @@ if (msg.type === 'create_tutorial_room') {
       if (!room.tutorial && room.game && room.game.phase && room.game.phase !== 'lobby' && !gameOver && roomRole(room, pid) === 'player') {
         sendJson(ws, { type: 'error', error: 'Use Leave Game during an active match.' });
         return;
+      }
+      // Skipping the first walkthrough is a deliberate unlock. Disconnecting,
+      // closing the tab or merely refreshing does NOT unlock it.
+      if (room.tutorial && room.tutorial.ownerId === pid) {
+        const user = findUserById(pid);
+        if (user && !user.tutorialCompletedAt) {
+          user.tutorialCompletedAt = now();
+          await saveUsersDb();
+          sendJson(ws, { type: 'tutorial_complete', user: safeUserPublic(user), skipped: true });
+        }
       }
       const leavingHost = pid === room.hostId;
       removeRoomMember(room, pid);
@@ -13146,7 +13198,24 @@ if (msg.type === 'create_tutorial_room') {
 
     if (msg.type === 'start_game') {
       if (room.tutorial && (pid !== room.tutorial.ownerId || room.game?.phase && room.game.phase !== 'lobby')) { sendJson(ws, { type: 'error', error: 'Tutorial already started.' }); return; }
-      if (room.challenge) { ensureChallengeRoomInvariants(room); ensurePreview(room, false); }
+      if (room.challenge) {
+        const kind = room.challenge.kind === 'daily' ? 'daily' : 'weekly';
+        const currentId = challengePeriodId(kind);
+        const roomId = kind === 'daily' ? room.challenge.dayId : room.challenge.weekId;
+        if (roomId !== currentId) {
+          sendJson(ws, { type: 'error', error: 'This challenge has rotated. Create a lobby for the new challenge period.' }); return;
+        }
+        if (kind === 'daily') {
+          const user = findUserById(pid);
+          if (!user || user.dailyChallengeAttempts?.[currentId]) {
+            sendJson(ws, { type: 'error', error: 'Your daily challenge attempt has already been used.' }); return;
+          }
+          if (room.players.filter(p => p && !isAIPlayerObj(p)).length !== 1 || room.hostId !== pid) {
+            sendJson(ws, { type: 'error', error: 'Daily Challenges require one human and Expert AI opponents only.' }); return;
+          }
+        }
+        ensureChallengeRoomInvariants(room); ensurePreview(room, false);
+      }
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only host can start.' });
         return;
@@ -13188,7 +13257,26 @@ if (msg.type === 'create_tutorial_room') {
         sendJson(ws, { type: 'error', error: `All players must be ready before starting. Waiting for: ${names}.` });
         return;
       }
-      const ok = startGame(room);
+      // Claim the daily attempt before game initialization; roll it back if
+      // initialization fails. The account DB, not client storage, is authoritative.
+      const dailyUser = room.challenge?.kind === 'daily' ? findUserById(pid) : null;
+      const dailyId = room.challenge?.kind === 'daily' ? room.challenge.dayId : null;
+      if (dailyUser) {
+        dailyUser.dailyChallengeAttempts = dailyUser.dailyChallengeAttempts || {};
+        if (dailyUser.dailyChallengeAttempts[dailyId]) {
+          sendJson(ws, { type: 'error', error: 'Your daily challenge attempt has already been used.' }); return;
+        }
+        dailyUser.dailyChallengeAttempts[dailyId] = { roomCode: room.code, playerCount: room.challenge.playerCount, startedAt: now() };
+        // Keep the number of historical attempt markers bounded.
+        for (const old of Object.keys(dailyUser.dailyChallengeAttempts).sort().slice(0, -90)) delete dailyUser.dailyChallengeAttempts[old];
+        await saveUsersDb();
+      }
+      let ok = false;
+      try { ok = startGame(room); } catch (error) {
+        if (dailyUser) { delete dailyUser.dailyChallengeAttempts[dailyId]; await saveUsersDb(); }
+        throw error;
+      }
+      if (!ok && dailyUser) { delete dailyUser.dailyChallengeAttempts[dailyId]; await saveUsersDb(); }
       if (!ok) {
         sendJson(ws, { type: 'error', error: 'Could not start game.' });
         return;
