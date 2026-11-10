@@ -16,6 +16,7 @@ const WebSocket = require('ws');
 
 const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
 const { GameAnalytics, modeForRoom, newMetrics } = require('./server/game-analytics');
+const { BetaProgram, cleanReferral } = require('./server/beta-program');
 const CF_STATE = require('./cloudflare/state-sync');
 const { applyBuild, displayVersion } = require('./server/build-version');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
@@ -128,7 +129,6 @@ function trustedProxyRequest(req) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
-const { canAcceptConnection, isBackpressured, closeSlowClient } = require('./server/ws-admission');
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
 const HOST = APP_CONFIG.host;
@@ -147,14 +147,12 @@ const MIME = {
 };
 
 function sendJson(ws, obj) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-  // Slow clients must not accumulate unbounded pending state snapshots. A
-  // closed client can recover using the existing room reconnect flow.
-  if (isBackpressured(ws, APP_CONFIG.wsBackpressureBytes)) {
-    closeSlowClient(ws);
-    return false;
-  }
-  try { ws.send(JSON.stringify(obj)); return true; } catch (_) { return false; }
+  try {
+    // A disconnected/slow browser must not queue unlimited state packets in a
+    // shared game container and consume memory for every other lobby.
+    if (ws.bufferedAmount > 8 * 1024 * 1024) { ws.terminate(); return; }
+    ws.send(JSON.stringify(obj));
+  } catch (_) {}
 }
 
 function deepClone(obj) {
@@ -217,6 +215,16 @@ let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticat
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
 const GAME_ANALYTICS_PATH = path.join(DATA_DIR, 'game_analytics.json');
 const GAME_ANALYTICS = new GameAnalytics(GAME_ANALYTICS_PATH);
+const BETA = new BetaProgram(path.join(DATA_DIR, 'beta_program.json'));
+const BETA_BADGE_LIMIT = 150;
+function awardFoundingTester(userId) {
+  const user = (USERS_DB.users || []).find(u => u.id === userId && !isAdminUser(u));
+  if (!user || user.betaFoundingTesterAt) return false;
+  if (USERS_DB.users.filter(u => !!u.betaFoundingTesterAt).length >= BETA_BADGE_LIMIT) return false;
+  user.betaFoundingTesterAt = now();
+  saveUsersDb();
+  return true;
+}
 const HISTORY_MAX_GAMES = 5000;
 const NEURAL_AI_MODEL_PATH = path.join(DATA_DIR, 'neural_ai_model.json');
 const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH, { space: 0 });
@@ -508,6 +516,11 @@ function persistGameHistoryFromGame(room, game, winnerId) {
   try {
     if (!Array.isArray(HISTORY_DB.games)) HISTORY_DB.games = [];
     HISTORY_DB.games.push(packHistoryEntry(entry));
+    if (!room.tutorial && !AI_TRAINING_MODE) {
+      const participants = (room.players || []).filter(p => p && !p.isAI && findUserById(p.id)).map(p => p.id);
+      BETA.gameFinished(entry.id, participants);
+      for (const id of participants) awardFoundingTester(id);
+    }
     saveHistoryDb();
     game._historyEntryId = entry.id;
     game._historyPersisted = true;
@@ -907,6 +920,7 @@ function safeUserPublic(u) {
     oauthProviders: managed.oauthProviders,
     needsUsernameSetup: u.needsUsernameSetup === true,
     tutorialCompleted: !!u.tutorialCompletedAt,
+    foundingPlaytester: !!u.betaFoundingTesterAt,
   };
 }
 
@@ -6392,6 +6406,11 @@ function startGame(room) {
   recomputeLongestRoad(game);
   computeVP(game);
   room.game = game;
+  if (!room._dryRun && !AI_TRAINING_MODE) {
+    const humanIds = (room.players || []).filter(p => p && !p.isAI && findUserById(p.id)).map(p => p.id);
+    if (room.tutorial) { for (const id of humanIds) BETA.stage(id, 'tutorialStarts'); }
+    else { BETA.count('gamesStarted'); for (const id of humanIds) BETA.stage(id, 'gamesStarted'); }
+  }
   return true;
 }
 
@@ -9265,6 +9284,8 @@ function bindSocketToRoomMember(room, playerId, ws, replacementError = 'This roo
   }
 
   const prev = room.sockets.get(pid);
+  if ((!prev || prev.readyState !== WebSocket.OPEN) && room.game && !['lobby','game-over'].includes(room.game.phase) &&
+      !room._dryRun && !AI_TRAINING_MODE && (room.players || []).some(p => p.id === pid && !p.isAI)) BETA.reconnect();
   room.sockets.set(pid, ws);
   room.lastHumanActivityAt = now(); // A successful reconnect extends the lobby lease.
   ws._roomCode = room.code;
@@ -10059,6 +10080,7 @@ function cleanupRooms() {
     texturePackUploadsForRoom(room);
     const expiry = roomExpiry(room, now(), roomHasOpenSocket(room));
     if (!expiry.expired) continue;
+    if (room.game && !['lobby','game-over'].includes(room.game.phase) && !room.tutorial && !room._dryRun && !AI_TRAINING_MODE) BETA.abandoned();
     for (const socket of room.sockets?.values?.() || []) {
       if (socket.readyState === WebSocket.OPEN) {
         sendJson(socket, { type: 'room_closed_by_admin', code, reason: expiry.reason });
@@ -11019,6 +11041,41 @@ async function handleAdminHttp(req, res, urlPath) {
     return;
   }
 
+  if (urlPath === '/api/admin/beta-report') {
+    sendHttpJson(req, res, 200, { ok: true, ...BETA.report(body.range) });
+    return;
+  }
+  if (urlPath === '/api/admin/beta-config-save') {
+    try {
+      const discordInvite = BETA.setDiscordInvite(body.discordInvite);
+      await BETA.save();
+      sendHttpJson(req, res, 200, { ok: true, discordInvite });
+    } catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/beta-feedback-status') {
+    try {
+      const entry = BETA.setFeedbackStatus(String(body.id || ''), String(body.status || ''));
+      await BETA.save();
+      sendHttpJson(req, res, 200, { ok: true, entry });
+    } catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/beta-session-save') {
+    try {
+      const entry = BETA.setSession(body);
+      await BETA.save();
+      sendHttpJson(req, res, 200, { ok: true, entry });
+    } catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/beta-session-delete') {
+    const removed = BETA.removeSession(String(body.id || ''));
+    if (removed) await BETA.save();
+    sendHttpJson(req, res, removed ? 200 : 404, { ok: removed, error: removed ? undefined : 'Session not found.' });
+    return;
+  }
+
   if (urlPath === '/api/admin/game-stats') {
     const allowed = new Set(['day', 'week', 'month', 'quarter']);
     const range = allowed.has(body.range) ? body.range : 'day';
@@ -11069,7 +11126,7 @@ async function handleAdminHttp(req, res, urlPath) {
         logicalCores: os.availableParallelism?.() || os.cpus().length, samplePeriodMs: durationMs },
       memory: { rssBytes: heap.rss, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal, externalBytes: heap.external, arrayBuffersBytes: heap.arrayBuffers },
       eventLoop: { p99DelayMs: Math.round(eventLoopHistogram.percentile(99) / 1e6 * 10) / 10, maxDelayMs: Math.round(eventLoopHistogram.max / 1e6 * 10) / 10 },
-      connections: { webSocketClients: wss.clients.size, websocketLimit: APP_CONFIG.betaMaxConnections, availableSlots: Math.max(0, APP_CONFIG.betaMaxConnections - wss.clients.size), authenticatedUsers: userSockets.size, queuedPlayers, rankedQueueGroups: rankedQueues.size },
+      connections: { webSocketClients: wss.clients.size, authenticatedUsers: userSockets.size, queuedPlayers, rankedQueueGroups: rankedQueues.size },
       rooms: { total: rooms.size, waiting: waitingRooms, activeGames, finished: finishedRooms, expiredPendingCleanup: expiringRooms, pausedGames, casual: casualRooms, ranked: rankedRooms },
       persistence: { writable, files, historyGames: (HISTORY_DB.games || []).length, historyLimit: HISTORY_MAX_GAMES,
         activeRoomSavePending: !!activeRoomsSaveTimer, historyWriterAvailable: !!HISTORY_WRITER },
@@ -11480,6 +11537,7 @@ async function handleAccountHttp(req, res, urlPath) {
         createdAt: Number(target.createdAt || 0),
         rankedRating: rankedRating(target.rankedRating),
         unrankedRating: unrankedRating(target.unrankedRating),
+        foundingPlaytester: !!target.betaFoundingTesterAt,
         stats: {
           gamesPlayed: Math.max(0, Math.floor(Number(stats.gamesPlayed || 0))),
           wins: Math.max(0, Math.floor(Number(stats.wins || 0))),
@@ -11779,6 +11837,58 @@ async function registerSuccessfulBuild() {
   console.log('[build] Active version', deployedVersion);
 }
 
+
+// Multiple testers can share one public IP at a school, church, or meetup.
+// A 150-player join wave can legitimately produce 300+ visit/account pings/minute.
+const betaEventLimiter = new SlidingWindowRateLimiter({ maxAttempts: 450, windowMs: 60000 });
+const betaFeedbackLimiter = new SlidingWindowRateLimiter({ maxAttempts: 4, windowMs: 60 * 60000 });
+async function handleBetaHttp(req, res, urlPath) {
+  if (urlPath === '/api/beta/sessions' && req.method === 'GET') {
+    sendHttpJson(req, res, 200, { ok: true, sessions: BETA.upcoming(), discordInvite: BETA.state.discordInvite || '' }); return;
+  }
+  if (req.method !== 'POST') {
+    sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' }); return;
+  }
+  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' }); return;
+  }
+  const ip = clientAddress(req, APP_CONFIG.trustProxy);
+  const user = authenticateByToken(parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME]);
+  const isFeedback = urlPath === '/api/beta/feedback';
+  const limiter = isFeedback ? betaFeedbackLimiter : betaEventLimiter;
+  // Bound feedback by signed-in account, rather than silencing everyone on a
+  // shared NAT after the first four submissions. Anonymous reports use IP.
+  const attempt = limiter.consume(isFeedback ? `${ip}:${user?.id || 'anonymous'}` : ip);
+  if (!attempt.allowed) {
+    sendHttpJson(req, res, 429, { ok: false, error: 'Too many requests. Try again later.' },
+      { 'Retry-After': String(Math.ceil(attempt.retryAfterMs / 1000)) }); return;
+  }
+  let body;
+  try { body = await readJsonBody(req, 4500); }
+  catch (e) { sendHttpJson(req, res, Number(e.statusCode || 400), { ok: false, error: e.message }); return; }
+  if (urlPath === '/api/beta/event') {
+    const type = String(body.type || '');
+    if (type === 'visit') BETA.visit(body.visitor, body.referral);
+    else if (type === 'account' && user) BETA.account(user.id, body.visitor, body.referral, user.createdAt);
+    else if (type === 'client_error') BETA.clientError();
+    else { sendHttpJson(req, res, 400, { ok: false, error: 'Invalid event.' }); return; }
+    // Aggregated events are flushed on a timer, not once per request/R2 write.
+    sendHttpJson(req, res, 200, { ok: true }); return;
+  }
+  if (urlPath === '/api/beta/feedback') {
+    try {
+      const id = BETA.feedback({ userId: user?.id || null, category: body.category,
+        description: body.description, steps: body.steps, roomCode: body.roomCode,
+        build: deployedVersion, device: body.device });
+      if (user) awardFoundingTester(user.id);
+      await BETA.save();
+      sendHttpJson(req, res, 201, { ok: true, id });
+    } catch (e) { sendHttpJson(req, res, 400, { ok: false, error: e.message }); }
+    return;
+  }
+  sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
@@ -11804,7 +11914,6 @@ const server = http.createServer(async (req, res) => {
         uptimeSeconds: Math.floor(process.uptime()),
         rooms: rooms.size,
         websocketClients: wss.clients.size,
-        betaCapacity: { websocketLimit: APP_CONFIG.betaMaxConnections, availableSlots: Math.max(0, APP_CONFIG.betaMaxConnections - wss.clients.size) },
       });
       return;
     }
@@ -11818,6 +11927,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/auth/')) {
       await handleAuthHttp(req, res, urlPath);
+      return;
+    }
+    if (urlPath.startsWith('/api/beta/')) {
+      await handleBetaHttp(req, res, urlPath);
       return;
     }
     if (urlPath.startsWith('/api/account/')) {
@@ -11899,10 +12012,6 @@ server.on('upgrade', (req, socket, head) => {
   if (!trustedProxyRequest(req) || !isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
-    return;
-  }
-  if (!canAcceptConnection(wss.clients.size, APP_CONFIG.betaMaxConnections)) {
-    socket.end('HTTP/1.1 503 Service Unavailable\r\nRetry-After: 15\r\nConnection: close\r\n\r\n');
     return;
   }
   wss.handleUpgrade(req, socket, head, (ws) => {
@@ -13678,6 +13787,7 @@ if (msg.type === 'create_tutorial_room') {
       const learner = findUserById(pid);
       if (learner) {
         learner.tutorialCompletedAt = learner.tutorialCompletedAt || now();
+        BETA.stage(learner.id, 'tutorialFinishes');
         await saveUsersDb();
         sendJson(ws, { type:'tutorial_complete', user: safeUserPublic(learner) });
       }
@@ -13718,6 +13828,9 @@ if (msg.type === 'create_tutorial_room') {
   });
 
   ws.on('close', () => {
+    const activeRoom = rooms.get(ws._roomCode);
+    if (activeRoom && activeRoom.game && !['lobby', 'game-over'].includes(activeRoom.game.phase) &&
+        ws._playerId && !activeRoom._dryRun && !AI_TRAINING_MODE) BETA.disconnect();
     unregisterAuthenticatedSocket(ws);
 
     const code = ws._roomCode;
@@ -15421,8 +15534,12 @@ const wsHeartbeatInterval = setInterval(() => {
 }, WS_HEARTBEAT_INTERVAL_MS);
 
 const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
-const gameAnalyticsInterval = setInterval(captureGameAnalytics, 5 * 60_000);
+// Poll live occupancy every 30s; storage still writes five-minute peak buckets.
+const gameAnalyticsInterval = setInterval(captureGameAnalytics, 30_000);
+// Flush beta events in batches to protect R2 and avoid gameplay-path latency.
+const betaFlushInterval = setInterval(() => BETA.save().catch(e => console.error('[beta] Snapshot failed:', e.message)), 30_000);
 const authLimiterCleanupInterval = setInterval(() => {
+  betaEventLimiter.cleanup(); betaFeedbackLimiter.cleanup();
   passwordAuthLimiter.cleanup();
   adminActionLimiter.cleanup();
   accountActionLimiter.cleanup();
@@ -15437,7 +15554,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, gameAnalyticsInterval, authLimiterCleanupInterval]) {
+  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, gameAnalyticsInterval, betaFlushInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }
 
@@ -15452,12 +15569,14 @@ async function gracefulShutdown(exitCode = 0) {
   // Snapshot final activity before the container shuts down.
   try { captureGameAnalytics(); } catch (error) { console.error('[analytics] Final sample failed:', error.message); }
   await GAME_ANALYTICS.save().catch(error => console.error('[analytics] Final save failed:', error.message));
+  await BETA.save().catch(error => console.error('[beta] Final save failed:', error.message));
   await Promise.allSettled([
     ACTIVE_ROOMS_WRITER.flush(),
     USERS_WRITER.flush(),
     HISTORY_WRITER.flush(),
     NEURAL_AI_MODEL_WRITER.flush(),
     GAME_ANALYTICS.flush(),
+    BETA.flush(),
   ]);
 
   await Promise.race([

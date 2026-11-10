@@ -9,7 +9,7 @@ const STATE_HOST = 'hex-state.internal';
 // Host routing is checked before ASSETS or the backend are reached.
 import { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath } from './admin-routing.mjs';
 export { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath };
-const JSON_FILES = new Set(['users.json', 'game_history.json', 'game_analytics.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
+const JSON_FILES = new Set(['users.json', 'game_history.json', 'game_analytics.json', 'beta_program.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
 const MAX_STATE_UPLOAD = 128 * 1024 * 1024;
 const MAX_TEXTURE_UPLOAD = 8 * 1024 * 1024;
 // HTTP uploads from the Node container should have Content-Length. If a proxy
@@ -121,8 +121,6 @@ export class HexGameContainer extends Container {
     this.envVars = {
       NODE_ENV: 'production', HOST: '0.0.0.0', PORT: '3000', DATA_DIR: '/data',
       HEX_TRUST_PROXY: 'true',
-      HEX_BETA_MAX_CONNECTIONS: String(env.HEX_BETA_MAX_CONNECTIONS || '250'),
-      HEX_WS_BACKPRESSURE_BYTES: String(env.HEX_WS_BACKPRESSURE_BYTES || '4194304'),
       HEX_PUBLIC_BASE_URL: String(env.PUBLIC_BASE_URL || ''),
       HEX_ALLOWED_ORIGINS: [String(env.PUBLIC_BASE_URL || ''), `https://${ADMIN_HOST}`].filter(Boolean).join(','),
       HEX_ADMIN_HOST: ADMIN_HOST,

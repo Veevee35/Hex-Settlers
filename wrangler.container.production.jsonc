@@ -43,8 +43,6 @@
   "vars": {
     "PUBLIC_BASE_URL": "https://hexsettlers.org",
     "HEX_EMAIL_FROM": "",
-    "ALLOW_EMPTY_DATABASE": "0",
-    "HEX_BETA_MAX_CONNECTIONS": "250",
-    "HEX_WS_BACKPRESSURE_BYTES": "4194304"
+    "ALLOW_EMPTY_DATABASE": "0"
   }
 }

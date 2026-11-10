@@ -1,0 +1,28 @@
+/* Beta-only UI; intentionally independent of game-board canvas/layout. */
+.betaSessionPanel{margin:18px auto 0;width:min(780px,100%);padding:14px 16px;border:1px solid rgba(111,173,211,.35);border-radius:14px;background:rgba(14,30,42,.88);text-align:left;color:#e1edf4}
+.betaSessionPanel.hidden{display:none!important}.betaSessionPanel h2{font-size:15px;margin:0 0 8px;color:#f2c569}
+.betaSessionRow{display:flex;gap:6px 14px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(190,213,230,.12);font-size:13px}
+.betaSessionRow strong{min-width:170px}.betaSessionRow span{color:#accedf}.betaSessionRow small{width:100%;color:#9eb5c7}
+.betaFeedbackLaunch{position:fixed;z-index:840;right:14px;top:84px;border:1px solid #5b8199;border-radius:24px;background:#152b3b;color:#e7f1f5;font-size:12px;font-weight:800;padding:10px 14px;cursor:pointer;box-shadow:0 6px 15px rgba(0,0,0,.5)}
+.betaFeedbackLaunch:hover{border-color:#ecc778;background:#203d50}
+.betaFeedbackOverlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:16px;background:rgba(1,6,13,.84);overflow-y:auto}
+.betaFeedbackOverlay.hidden{display:none!important}.betaFeedbackDialog{width:min(520px,100%);border:1px solid #5685a0;border-radius:20px;background:#101f2e;color:#e5eff4;padding:24px;box-shadow:0 20px 70px #000}
+.betaFeedbackDialog h2{margin:0;color:#f2d48a}.betaFeedbackDialog p{color:#b4c6d2;font-size:13px;line-height:1.5}
+.betaFeedbackForm{display:grid;gap:12px}.betaFeedbackForm label{display:grid;gap:5px;font-size:12px;font-weight:700}.betaFeedbackForm textarea{resize:vertical;min-height:84px}
+.betaFeedbackActions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.betaFeedbackStatus{min-height:20px;color:#f5d27a}
+.betaFoundingBadge{display:inline-block;font-size:11px;border:1px solid #8d7234;background:rgba(217,171,65,.12);color:#f0d18c;border-radius:30px;padding:4px 9px;margin-top:7px}
+.betaBlock{padding:16px 0;border-top:1px solid #34495c}.betaBlock h3{margin:0 0 12px}.betaAdmin .betaField{display:grid;gap:6px;font-size:12px;font-weight:700}
+.betaReferralTools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px}.betaReferralTools .input{min-width:170px}.betaGeneratedLink{overflow-wrap:anywhere;color:#f4cb70}
+.betaScheduleForm{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end;margin-bottom:16px}.betaScheduleForm button{justify-self:start}
+.betaSessionManageRow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #30465b}
+.betaFeedbackAdminText{max-width:530px;overflow-wrap:anywhere}.betaFeedbackAdminText p{margin:4px 0}.betaFeedbackAdminText small{color:#a0b4c6}
+@media(max-width:680px){.betaFeedbackLaunch{top:72px;right:10px;padding:8px 10px;max-width:44vw}.betaScheduleForm{grid-template-columns:1fr}.betaFeedbackDialog{padding:17px}}
+
+.betaJoinLink{margin:12px 0 0;font-size:13px;text-align:center}.betaJoinLink a{color:#f2c76d;text-decoration:underline}
+body.admin-portal .betaFeedbackLaunch,body.admin-portal .betaFeedbackOverlay{display:none!important}
+
+.betaDiscordLink{display:inline-block;margin:5px 0 9px;color:#efd082;text-decoration:underline;font-size:13px}
+
+/* Existing admin tables default to single-line cells; beta reports wrap by design. */
+.betaAdmin .adminStatsTable td:has(.betaFeedbackAdminText){white-space:normal;min-width:240px}
+.betaAdmin .betaFeedbackAdminText strong{white-space:normal;overflow-wrap:anywhere}

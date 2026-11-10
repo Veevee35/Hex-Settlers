@@ -9,6 +9,7 @@
   <link rel="apple-touch-icon" href="/favicon.png">
   <link rel="stylesheet" href="styles.css?v=release-v1.0.67" />
   <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.67" />
+  <link rel="stylesheet" href="beta.css?v=release-v1.0.68">
 </head>
 <body>
   <div id="gameBootLoader" class="gameBootLoader" aria-label="Hex Settlers loading screen">
@@ -97,6 +98,8 @@
     <p class="portalEyebrow">Choose your adventure</p>
     <div class="journeyHeading"><h1 id="journeyTitle">All Games</h1>
     <p id="journeyLead" class="portalLead">Discover a game, gather your friends, or learn to play.</p></div>
+    <div id="betaSessions" class="betaSessionPanel hidden" aria-label="Scheduled beta playtests"></div>
+    <p class="betaJoinLink"><a href="/beta.html">Join organized beta playtests · Learn more</a></p>
     <div id="journeyHomeOptions" class="journeyOptions">
       <button type="button" id="journeyPublicBtn" class="modeChoice"><strong>Public Lobbies</strong><span>Discover open games or host a public lobby.</span></button>
       <button type="button" id="journeyPrivateBtn" class="modeChoice"><strong>Private Lobby</strong><span>Host an invite-only game or join with a code.</span></button>
@@ -959,6 +962,21 @@
     </div>
   </div>
 
+  <button id="betaFeedbackLaunch" class="betaFeedbackLaunch" type="button" aria-haspopup="dialog">Report bug / Suggestion</button>
+  <section id="betaFeedbackOverlay" class="betaFeedbackOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="betaFeedbackTitle" aria-hidden="true">
+    <div class="betaFeedbackDialog">
+      <h2 id="betaFeedbackTitle">Hex Settlers beta feedback</h2>
+      <p>Tell us what happened or what could be better. Game version, device type, and current room code are attached automatically. Do not include passwords or private information.</p>
+      <form id="betaFeedbackForm" class="betaFeedbackForm">
+        <label>Type <select id="betaFeedbackType" class="input"><option value="bug">Bug / Game issue</option><option value="ui">Interface / Mobile</option><option value="balance">AI / Game balance</option><option value="idea">Feature suggestion</option><option value="other">Other feedback</option></select></label>
+        <label>Description <textarea id="betaFeedbackDescription" class="input" minlength="12" maxlength="1500" required placeholder="What happened? What were you expecting?"></textarea></label>
+        <label>Steps to reproduce (optional) <textarea id="betaFeedbackSteps" class="input" maxlength="1000" placeholder="1. Open a lobby…"></textarea></label>
+        <p id="betaFeedbackStatus" class="betaFeedbackStatus" role="status" aria-live="polite"></p>
+        <div class="betaFeedbackActions"><button id="betaFeedbackClose" class="btn" type="button">Close</button><button class="btn primary" type="submit">Submit feedback</button></div>
+      </form>
+    </div>
+  </section>
+
   <div id="modal" class="modal hidden">
     <div id="modalBackdrop" class="modalBackdrop"></div>
     <div class="modalBox">
@@ -971,6 +989,8 @@
   <script src="boot-preload.js?v=release-v1.0.67"></script>
   <script src="locale-expansion.js?v=release-v1.0.6"></script>
   <script src="languages.js?v=release-v1.0.6"></script>
-  <script src="app.js?v=release-v1.0.67"></script>
+  <script src="beta-client.js?v=release-v1.0.68"></script>
+  <script src="beta-admin.js?v=release-v1.0.68"></script>
+  <script src="app.js?v=release-v1.0.68"></script>
 </body>
 </html>

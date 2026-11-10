@@ -61,8 +61,6 @@ function runtimeConfig(env = process.env) {
     host: String(env.HOST || '0.0.0.0').trim() || '0.0.0.0',
     port: integerEnv(env, 'PORT', 3000, 1, 65_535),
     wsMaxPayloadBytes: integerEnv(env, 'HEX_WS_MAX_PAYLOAD', 48 * 1024 * 1024, 1024, 64 * 1024 * 1024),
-    betaMaxConnections: integerEnv(env, 'HEX_BETA_MAX_CONNECTIONS', 250, 10, 10000),
-    wsBackpressureBytes: integerEnv(env, 'HEX_WS_BACKPRESSURE_BYTES', 4 * 1024 * 1024, 65536, 64 * 1024 * 1024),
     authAttemptsPerMinute: integerEnv(env, 'HEX_AUTH_ATTEMPTS_PER_MINUTE', 12, 2, 120),
     allowedOrigins: commaSeparatedSet(env.HEX_ALLOWED_ORIGINS),
     trustProxy: booleanEnv(env, 'HEX_TRUST_PROXY', !!env.RAILWAY_ENVIRONMENT),

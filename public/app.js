@@ -1923,6 +1923,7 @@
 
   function setAuthState(user, token, { clearToken = false } = {}) {
     authUser = user || null;
+    if (authUser && (typeof IS_ADMIN_PORTAL === 'undefined' || !IS_ADMIN_PORTAL) && typeof window !== 'undefined') window.HexBeta?.account();
     if (clearToken) {
       removePersistedAuthToken();
     } else if (typeof token === 'string' && token.trim()) {
@@ -2196,11 +2197,12 @@
     if (casual?.querySelector('span')) casual.querySelector('span').textContent = unlocked
       ? 'Play with friends or AI, up to 6 players. No stats or ratings are tracked.'
       : 'New here? Casual Play offers an optional interactive tutorial before your first game.';
+    if ((typeof IS_ADMIN_PORTAL === 'undefined' || !IS_ADMIN_PORTAL) && typeof window !== 'undefined') window.HexBeta?.setRoom(room?.code || '');
     if (typeof refreshTutorialGuide === 'function') refreshTutorialGuide();
     if (loggedIn) {
       const label = authUser.displayName || authUser.username || '?';
       if ($('accountOrbInitial')) $('accountOrbInitial').textContent = label.slice(0, 1).toUpperCase();
-      if ($('accountMenuName')) $('accountMenuName').textContent = `${label} · ${authUser.username}`;
+      if ($('accountMenuName')) $('accountMenuName').textContent = `${label} · ${authUser.username}${authUser.foundingPlaytester ? ' · ★ Founding Playtester' : ''}`;
       if (ui.nameInput) ui.nameInput.value = label;
     }
     if (ui.authStatus) {
@@ -8771,6 +8773,7 @@ function refreshLobbyJoinLinkUi() {
     username.className = 'playerProfileUsername';
     username.textContent = profile.username ? `@${profile.username}` : 'Hex Settlers player';
     identity.append(displayName, username);
+    if (profile.foundingPlaytester) identity.appendChild(adminElement('span', 'betaFoundingBadge', '★ Founding Playtester'));
     const ratingGroup = document.createElement('div');
     ratingGroup.className = 'playerProfileRatings';
     for (const [label, value] of [['RANKED RATING', rating], ['UNRANKED RATING', unranked]]) {
@@ -10105,7 +10108,7 @@ function refreshLobbyJoinLinkUi() {
     tabs.setAttribute('aria-label', 'Administrator management sections');
     const content = adminElement('section', 'adminDashboardContent');
     const options = [
-      ['stats', 'Game Stats'], ['server', 'Server Management'], ['ratings', 'Rating Management'],
+      ['stats', 'Game Stats'], ['beta', 'Beta Testing'], ['server', 'Server Management'], ['ratings', 'Rating Management'],
       ['users', 'User Account Management'], ['merge', 'Merge Accounts'],
       ['history', 'Manage Game History'],
       ['health', 'Health Monitor'],
@@ -10119,6 +10122,7 @@ function refreshLobbyJoinLinkUi() {
       });
       content.replaceChildren();
       if (key === 'stats') renderAdminGameStats(content);
+      if (key === 'beta') window.renderHexBetaAdmin?.(content, adminApi);
       if (key === 'server') void openServerManagementConsole(content);
       if (key === 'ratings') void openRatingManagementScreen(content);
       if (key === 'users') void openUserManagementScreen({ container: content, adminOnly: true });
