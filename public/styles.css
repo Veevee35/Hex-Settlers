@@ -4535,31 +4535,6 @@ body.ranked-lobby .copyLinkValue{height:32px;min-height:32px;margin-top:0;paddin
 .lobbyAccessControls {padding:11px;border:1px solid var(--line);border-radius:12px;background:rgba(18,44,62,.55);margin:12px 0}
 .lobbyAccessControls .label {margin:0 0 7px}
 .lobbyAccessControls .checkRow {display:flex;align-items:flex-start;gap:10px;margin:12px 0 0;white-space:normal;line-height:1.4;font-size:12px}
-.walkthroughOverlay {position:fixed;inset:0;z-index:9999;background:rgba(0,8,17,.94);display:flex;align-items:center;justify-content:center;padding:12px;overflow-y:auto}
-.walkthroughOverlay.hidden {display:none!important}
-.walkthroughCard {width:min(750px,100%);max-height:calc(100dvh - 24px);overflow-y:auto;padding:clamp(18px,3vw,36px);border-radius:24px;border:1px solid #6c7c84;background:linear-gradient(140deg,#142d3b,#091923 76%);box-shadow:0 30px 80px rgba(0,0,0,.75)}
-.walkthroughTop,.walkthroughControls {display:flex;justify-content:space-between;align-items:center;gap:12px}
-.walkthroughTop {font-size:13px;color:#e9cc8c}
-.walkthroughCard h1 {font-size:clamp(22px,4vw,34px);margin:16px 0 7px}
-.walkthroughCard .portalLead {min-height:58px;line-height:1.55}
-.walkthroughDemo {display:grid;grid-template-columns:1fr minmax(130px,35%);gap:18px;align-items:center;min-height:220px;margin:18px 0;border-radius:14px;background:rgba(9,21,35,.7);padding:17px}
-.demoHexGrid {position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;max-width:350px;justify-self:center;width:100%}
-.demoHex {aspect-ratio:1;clip-path:polygon(50% 0,94% 25%,94% 75%,50% 100%,6% 75%,6% 25%);display:grid;place-items:center;font-size:clamp(20px,3.7vw,38px);box-shadow:inset 0 0 7px #000;border-radius:10px}
-.tileWood{background:#295b40}.tileOre{background:#626f7a}.tileWheat{background:#967437}.tileSheep{background:#57925c}.tileBrick{background:#a0513d}.tileSea{background:#25678b}
-.demoBuildPoint {position:absolute;left:31%;top:32%;border:2px solid #f9d56a;background:#1d344a;color:#ffefa8;border-radius:50%;font-size:25px;width:42px;height:42px;cursor:pointer;box-shadow:0 0 15px #f9d56a}
-.demoBuildPoint.walkthroughBuildActive{animation:tutorialGlow 1.35s ease-in-out infinite}
-.demoBuildPoint.demoBuilt{background:#246542;color:white}
-@keyframes tutorialGlow{50%{box-shadow:0 0 25px #fff39d;transform:scale(1.12)}}
-.walkthroughAnnotation {font-size:14px;line-height:1.55;color:#f7deb0}
-.walkthroughControls{margin-top:18px}
-@media(max-width:720px){.journeyOptions{grid-template-columns:1fr}.journeyOptions .modeChoice{min-height:78px}.journeyCard{max-height:calc(100dvh - 20px)}.walkthroughDemo{grid-template-columns:1fr;gap:7px}.demoHexGrid{max-width:220px}.walkthroughAnnotation{text-align:center}.publicLobbyItem{flex-wrap:wrap}}
-
-/* v53 walkthrough: simulate a simple action for each practical game-mechanic stage. */
-.walkthroughAnnotationPanel{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
-.walkthroughDemoAction{max-width:100%;white-space:normal;text-align:center}
-.walkthroughSimulated{font-size:10px;line-height:1.35;color:#8ca6b7}
-@media(max-width:720px){.walkthroughAnnotationPanel{align-items:center}}
-
 /* V54 All Games and lobby tools */
 .journeyBottomActions{display:flex;justify-content:center;gap:10px;margin:16px auto 0;flex-wrap:wrap}
 .journeyBottomActions .btn{min-width:96px;padding:9px 15px;font-size:.87rem}
@@ -4624,3 +4599,29 @@ body.casual-mode #downloadTexturePackBtn,body.casual-mode #uploadTexturePackBtn,
 @media(max-width:620px){.publicLobbyFilters{grid-template-columns:repeat(2,minmax(0,1fr))}.publicLobbyFilters label:first-child{grid-column:span 2}.publicLobbyViewAction{width:100%;text-align:right}.publicLobbyDetailFields{grid-template-columns:1fr}.publicLobbyDetailMap{margin-top:8px}}
 
 .walkthroughNav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+
+/* Live walkthrough: a docked guide, NOT a substitute board. The real engine and
+   game canvas remain interactive underneath the instructions. */
+.modeChoice.lockedMode { opacity:.45; cursor:not-allowed; filter:grayscale(.5); }
+.modeChoice.lockedMode strong::before { content:"🔒 "; font-size:.8em; }
+.tutorialGuide { position:fixed;top:clamp(58px,8vh,88px);right:16px;width:min(355px,calc(100vw - 32px));
+  max-height:calc(100dvh - 110px);overflow-y:auto;z-index:1500;padding:19px 20px 18px;
+  border:1px solid #d3a960;border-radius:17px;background:linear-gradient(142deg,rgba(12,35,49,.98),rgba(5,15,25,.98));
+  box-shadow:0 16px 44px rgba(0,0,0,.75);color:#f3eee2;pointer-events:auto; }
+.tutorialGuide.hidden {display:none!important}
+.tutorialGuideHeader {display:flex;justify-content:space-between;gap:12px;align-items:center;color:#e9cc8c;font-size:11px;font-weight:750;letter-spacing:.07em}
+.tutorialGuide h2 {margin:12px 0 7px;color:#fff0b8;font-size:clamp(18px,2vw,23px);line-height:1.2}
+.tutorialGuide p {font-size:13px;line-height:1.55;margin:8px 0}
+#tutorialGuideHint {color:#acd1d8;font-size:12px}
+.tutorialGuideActions {display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+.tutorialGuideActions .btn {font-size:12px;flex:1;min-width:116px}
+.tutorialAttention {outline:3px solid #ffd66b!important;outline-offset:3px;animation:tutorialLivePulse 1.7s ease-in-out infinite;z-index:2;}
+@keyframes tutorialLivePulse {50%{outline-color:#fff4bd;filter:drop-shadow(0 0 8px #fbbf58)}}
+@media(max-width:720px) {
+ .tutorialGuide {top:58px;right:8px;width:min(320px,calc(100vw - 16px));padding:12px 14px;
+    max-height:min(36dvh,280px);border-radius:13px}
+ .tutorialGuide h2 {font-size:16px;margin:7px 0 4px}
+ .tutorialGuide p {font-size:11px;margin:4px 0}
+ .tutorialGuideActions {margin-top:8px}
+ .tutorialGuideActions .btn {padding:7px 10px}
+}

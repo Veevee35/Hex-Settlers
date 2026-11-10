@@ -1181,17 +1181,26 @@
 
   // Only a server-confirmed, account-matched room within five minutes can be
   // reopened automatically. The older last-room preference is manual-only.
-  function recentRoomCodeForUser(user = authUser, nowMs = Date.now()) {
-    if (!user || !user.id) return '';
+  function recentRoomSessionForUser(user = authUser, nowMs = Date.now()) {
+    if (!user || !user.id) return null;
     try {
       const saved = JSON.parse(localStorage.getItem(RECENT_ROOM_KEY) || 'null');
-      if (!saved || saved.userId !== String(user.id)) return '';
+      if (!saved || saved.userId !== String(user.id)) return null;
+      // An incomplete account may resume only its own tutorial; never an old
+      // ordinary room cached before tutorial enforcement was enabled.
+      if (user.tutorialCompleted !== true && saved.tutorial !== true) return null;
       const code = String(saved.code || '').trim().toUpperCase();
       const age = nowMs - Number(saved.lastSeenAt);
-      if (/^[A-Z0-9]{4,8}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) return code;
+      if (/^[A-Z0-9]{4,8}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) {
+        return { code, tutorial: saved.tutorial === true };
+      }
       localStorage.removeItem(RECENT_ROOM_KEY);
     } catch (_) {}
-    return '';
+    return null;
+  }
+
+  function recentRoomCodeForUser(user = authUser, nowMs = Date.now()) {
+    return recentRoomSessionForUser(user, nowMs)?.code || '';
   }
 
   function noteRecentRoom(roomSnapshot = room) {
@@ -1199,7 +1208,8 @@
     if (state?.phase === 'game-over') return;
     try {
       localStorage.setItem(RECENT_ROOM_KEY, JSON.stringify({
-        userId: String(authUser.id), code: String(roomSnapshot.code).trim().toUpperCase(), lastSeenAt: Date.now(),
+        userId: String(authUser.id), code: String(roomSnapshot.code).trim().toUpperCase(),
+        lastSeenAt: Date.now(), tutorial: !!roomSnapshot.tutorial,
       }));
     } catch (_) {}
   }
@@ -1296,64 +1306,111 @@
   let requestedLobbyVisibility = 'private';
   let roomNotFoundVisible = false;
   let roomNotFoundReturnView = ''; // Preserve the discovery hierarchy after a failed lobby join.
-  const TUTORIAL_PREFIX = 'hexsettlers_journey_walkthrough_v53_';
-  let tutorialIndex = 0;
-  let tutorialCompletedOnThisLaunch = false;
-  const tutorialDemoActions = {
-    3: ['Lay a road', 'Road placed! Connecting roads opens new settlement sites.'],
-    5: ['Roll the dice', 'You rolled an 8. Any settlement beside an 8 token collects a resource.'],
-    6: ['Open build menu', 'Build tools: Road, Settlement, City, Ship and Development Card. Valid spaces light up on the real game board.'],
-    7: ['Offer a trade', 'Trade offered: one sheep for one ore. Another player can accept or decline.'],
-    8: ['Play a Knight', 'Knight played! Move the robber to block production and steal a resource from an adjacent player.'],
-    9: ['Try desktop controls', 'Desktop: use the wheel to zoom, drag the board to pan, and resize the game panels.'],
-    10: ['Try mobile controls', 'Mobile: pinch to zoom, drag to pan and open the lower tool panels.'],
-  };
-  const tutorialSteps = [
-    ['Welcome to Hex Settlers', 'Build settlements, connect roads, trade resources, and be first to the victory-point target.', 'Pick a starting corner. The three surrounding land hexes determine which resources you can earn.'],
-    ['Explore your starting board', 'Every numbered hex produces when its number is rolled. The robber can block production on one hex.', '🌲 Wood · 🧱 Brick · 🌾 Wheat · 🐑 Sheep · ⛰️ Ore. A number token shows when that hex produces.'],
-    ['Place your first settlement', 'Your opening setup places a settlement on a legal intersection. Select a corner touching useful numbers and different resources.', 'Try it: tap the glowing ⌂ on the example board to place a settlement.'],
-    ['Build your first road', 'After placing a starting settlement, place a connected road. Roads extend toward other settlement sites; two of your own settlements must be separated by at least two edges.', 'Road = one wood + one brick. On seafaring maps, ships cross water.'],
-    ['Finish starting placements', 'Players place their second settlement and attached route in reverse turn order. The second settlement grants your starting resources.', 'Before play begins, survey open junctions, ports, and possible expansion routes.'],
-    ['Roll and gather resources', 'On your turn roll the dice. Settlements receive one resource from adjacent matching hexes; cities receive two. A seven activates the robber and discard rules.', 'Check the resource display for what you can spend this turn.'],
-    ['Use the build tools', 'Open the build panel to select Road, Settlement, City, Ship, or Development Card. The board highlights valid placement targets.', 'Costs: settlement = wood + brick + sheep + wheat; city = three ore + two wheat.'],
-    ['Trade and plan', 'Offer other players resources, accept trades, or use the bank and ports. Ports improve exchange rates for specified resources.', 'Compare the resources you need with the production numbers on your settlements.'],
-    ['Development cards and victory', 'Development cards can grant Knights, Monopoly, Road Building, Year of Plenty, or hidden Victory Points. Longest Road and Largest Army also award points.', 'Reach the victory target shown in Game Setup to win.'],
-    ['Browser controls', 'On desktop, the left panels show the log and development cards, the right side contains game tools and resources, and the board supports zoom and drag.', 'Resize panels, hide the map preview in the lobby, and inspect the build menu before taking actions.'],
-    ['Mobile controls', 'On phones or tablets, swipe and pinch the map to navigate. Open the collapsible panels for resources, game log, trade, and development cards.', 'The map-preview toggle opens the lobby board; touch-friendly action buttons sit near the bottom.'],
-    ['Ready for your journey', 'Create a Public lobby for other players to discover, or a Private lobby to share only with people you choose. Casual is untracked and supports up to six players.', 'You can replay this walkthrough whenever you want. Good luck, settler!'],
-  ];
-  function tutorialStorageKey() { return TUTORIAL_PREFIX + String(authUser?.id || authUser?.username || 'guest'); }
-  function updateWalkthrough() {
-    const item = tutorialSteps[tutorialIndex];
-    if (!item) return;
-    $('walkthroughTitle').textContent = item[0]; $('walkthroughBody').textContent = item[1];
-    $('walkthroughAnnotation').textContent = item[2];
-    $('walkthroughProgress').textContent = `${tutorialIndex + 1} / ${tutorialSteps.length}`;
-    $('walkthroughPrevBtn').disabled = tutorialIndex === 0;
-    $('walkthroughNextBtn').textContent = tutorialIndex === tutorialSteps.length - 1 ? 'Finish walkthrough' : 'Next';
-    const settlement = $('walkthroughTryBuild');
-    settlement?.classList.toggle('walkthroughBuildActive', tutorialIndex === 2);
-    settlement?.classList.toggle('hidden', tutorialIndex !== 2);
-    settlement?.classList.remove('demoBuilt');
-    const demo = $('walkthroughDemoAction');
-    if (demo) {
-      demo.classList.toggle('hidden', !tutorialDemoActions[tutorialIndex]);
-      demo.textContent = tutorialDemoActions[tutorialIndex]?.[0] || 'Try the action';
+  let tutorialContinueToAllGames = false;
+  function tutorialUnlocked() { return authUser?.tutorialCompleted === true; }
+  function liveTutorialRoom() { return !!(room && room.tutorial && room.tutorial.ownerId === myPlayerId); }
+  function beginLiveTutorial() {
+    if (!authUser || authUser.needsUsernameSetup) { setError('Log in and select a username first.'); return; }
+    if (room) { setError('Leave your current room to replay the tutorial.'); return; }
+    if (ws?.readyState !== WebSocket.OPEN || !websocketAuthenticated) {
+      setError('Connect to the game server before starting your adventure.');
+      websocketReconnectAllowed = true;
+      scheduleWebsocketReconnect(0);
+      return;
     }
-  }
-  function finishWalkthrough() {
-    $('walkthroughOverlay')?.classList.add('hidden');
-    tutorialCompletedOnThisLaunch = true;
-    try { localStorage.setItem(tutorialStorageKey(), '1'); } catch (_) {}
-    if (!room && selectedPlayMode !== 'casual' && selectedPlayMode !== 'ranked') {
-      selectedPlayMode = 'journey'; journeyView = 'home';
-      try { sessionStorage.setItem('hexsettlers_play_mode', 'journey'); } catch (_) {}
-    }
+    selectedPlayMode = 'casual';
+    try { sessionStorage.setItem('hexsettlers_play_mode', 'casual'); } catch (_) {}
+    state = null;
     updateAuthUi();
+    send({ type:'create_tutorial_room' });
   }
-  function openWalkthrough() {
-    tutorialIndex = 0; updateWalkthrough();
-    $('walkthroughOverlay')?.classList.remove('hidden');
+  function refreshTutorialGuide() {
+    const guide = $('tutorialGuide');
+    if (!guide) return;
+    const active = liveTutorialRoom();
+    guide.classList.toggle('hidden', !active);
+    document.body.classList.toggle('live-tutorial', active);
+    document.querySelectorAll('.tutorialAttention').forEach(node => node.classList.remove('tutorialAttention'));
+    if (!active) return;
+    const phase = String(state?.phase || 'lobby');
+    const progress = state?.tutorial || {};
+    const total = Math.min(8, Number(progress.settlements || 0) + Number(progress.roads || 0) + Number(progress.rolls || 0) + Number(progress.endedTurns || 0));
+    $('tutorialGuideProgress').textContent = `${total} / 8 actions`;
+    const ownTurn = state?.currentPlayerId === myPlayerId;
+    let title = '', body = '', hint = '', target = null;
+    const primary = $('tutorialGuidePrimary');
+    primary.classList.add('hidden');
+    $('tutorialGuideExit').textContent = progress.completed ? 'Back to game types' : 'Exit tutorial';
+    if (phase === 'lobby') {
+      title = '1. Explore a real game lobby';
+      body = 'This is your actual lobby, with the live Classic map preview and normal Game Setup panel. One AI shares a two-player match on the standard four-player 19-hex board.';
+      hint = 'Notice the map, player seats, victory point target, dice and timer rules. Settings are locked for consistent practice. Start when you are ready.';
+      primary.textContent = 'Begin practice game'; primary.classList.remove('hidden');
+      target = 'setupCard';
+    } else if (progress.completed || tutorialUnlocked()) {
+      title = 'Adventure complete!';
+      body = 'You placed two settlements and two roads, rolled the dice twice, and completed two normal turns using the actual game engine.';
+      hint = 'All Games, Ranked Play and Casual Play are now unlocked. Your progress is saved to your account.';
+      primary.textContent = 'Continue to All Games'; primary.classList.remove('hidden');
+    } else if (!ownTurn) {
+      if (phase.startsWith('setup')) {
+        const isRoad = phase.endsWith('-road');
+        const second = phase.startsWith('setup2');
+        title = `Watch the AI: ${second ? 'second ' : ''}${isRoad ? 'road' : 'settlement'}`;
+        body = isRoad
+          ? 'The AI must connect its opening road to the settlement it just placed. Watch which available board edge it chooses.'
+          : (second
+            ? 'Placement order reverses for the second round. The AI must still respect the two-edge settlement distance rule.'
+            : 'The AI goes first. It is choosing a legal corner on the real board, balancing resource types, number tokens, and nearby road routes.');
+      } else if (phase === 'main-await-roll') {
+        title = 'Watch the AI: roll dice';
+        body = 'The AI will roll using the normal game rules. Adjacent settlements collect resources on a matching roll, even when it is not their turn.';
+      } else if (phase === 'main-actions') {
+        title = 'Watch the AI: actions and end turn';
+        body = 'The AI may build, trade or buy development cards according to its resources. It will finish with End Turn, just like you.';
+      } else {
+        title = 'Watch the AI resolve a game event';
+        body = 'The AI is responding to a normal game prompt, such as the robber. Its action uses the same rules you will use.';
+      }
+      hint = 'Watch the highlighted live board; the AI pauses between actions. There is no turn timer during practice.';
+      target = 'board';
+    } else if (phase.endsWith('-settlement')) {
+      const second = phase.startsWith('setup2');
+      title = second ? 'Place your second settlement' : 'Your turn: place a settlement';
+      body = second ? 'Pick another legal corner at least two edges from any existing settlement. This second opening settlement grants starting resources from neighboring producing tiles.'
+        : 'Tap or click a valid intersection where hex corners meet. Look for useful numbers and several different resources.';
+      hint = 'These are real legal intersections on the board. Tap a highlighted corner to confirm your settlement placement.';
+      target = 'board';
+    } else if (phase.endsWith('-road')) {
+      title = phase.startsWith('setup2') ? 'Connect your second road' : 'Build a road from your settlement';
+      body = 'Choose an empty edge directly connected to the settlement you just built. This must be a legal opening road on the actual map.';
+      hint = 'Roads connect your settlement network. Tap a highlighted board edge to place one.';
+      target = 'board';
+    } else if (phase === 'main-await-roll') {
+      title = `Normal turn ${Math.min(2, (progress.rolls || 0) + 1)}: roll the dice`;
+      body = 'Roll the dice. Every matching numbered hex gives a resource to adjacent settlements; cities earn double. A roll of seven opens the robber step.';
+      hint = 'Use the highlighted Roll Dice control, then look at your resource icons and the game log.';
+      target = $('rollDockBtn') && !$('rollDockBtn').classList.contains('hidden') ? 'rollDockBtn' : 'rollBtn';
+    } else if (phase === 'main-actions') {
+      title = `Normal turn ${Math.min(2, (progress.endedTurns || 0) + 1)}: explore your actions`;
+      body = 'Inspect resources, build costs, and trade options. You can build or trade if you have the resources; use End Turn when you are ready.';
+      hint = 'Finish this real turn by selecting End Turn. The AI will take its next turn before your next roll.';
+      target = $('endDockBtn') && !$('endDockBtn').classList.contains('hidden') ? 'endDockBtn' : 'endBtn';
+    } else if (phase === 'discard' || phase.includes('robber') || phase.includes('pirate')) {
+      title = 'A seven: handle the robber';
+      body = 'A seven triggers special rules. Follow the game prompt to discard if necessary, move the robber, and choose a valid steal target if one is available.';
+      hint = 'Resolve the current action on the actual game board; the walkthrough continues automatically.';
+      target = 'board';
+    } else {
+      title = 'Follow the live game prompt';
+      body = state?.message || 'Complete the current game action to continue.';
+      hint = 'Use the highlighted legal targets and the game controls to proceed.';
+      target = 'board';
+    }
+    $('tutorialGuideTitle').textContent = title;
+    $('tutorialGuideBody').textContent = body;
+    $('tutorialGuideHint').textContent = hint;
+    if (target) $(target)?.classList.add('tutorialAttention');
   }
   function showRoomNotFound() {
     pendingDirectJoinRoomCode = null; pendingDirectJoinAsSpectator = false;
@@ -1798,11 +1855,21 @@
       ui.nameInput.value = authUser.displayName || authUser.username || '';
     }
     if (authUser && !authUser.needsUsernameSetup) {
-      selectInvitedLobbyMode();
-      // A refresh in a recently active room bypasses the game-type portal.
-      if (!pendingDirectJoinRoomCode && typeof recentRoomCodeForUser === 'function' && recentRoomCodeForUser(authUser) && selectedPlayMode !== 'ranked' && selectedPlayMode !== 'journey') {
-        selectedPlayMode = 'unranked';
-        try { sessionStorage.setItem('hexsettlers_play_mode', 'unranked'); } catch (_) {}
+      if (authUser.tutorialCompleted !== true && !room) {
+        selectedPlayMode = '';
+        try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
+        // Invitation links cannot bypass the first-time tutorial gate.
+        pendingDirectJoinRoomCode = null;
+        pendingDirectJoinAsSpectator = false;
+      } else {
+        selectInvitedLobbyMode();
+      }
+      // A refresh of an unfinished tutorial returns to the tutorial's own
+      // private room, not the All Games screen.
+      const recent = recentRoomSessionForUser(authUser);
+      if (!pendingDirectJoinRoomCode && recent && selectedPlayMode !== 'ranked' && selectedPlayMode !== 'journey') {
+        selectedPlayMode = recent.tutorial ? 'casual' : 'unranked';
+        try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
       }
     }
     updateAuthUi();
@@ -2038,11 +2105,31 @@
     if (uncreatedLobbyBack) uncreatedLobbyBack.textContent = selectedPlayMode === 'casual'
       ? '← Back to Game Types' : '← Back to All Games';
     $('accountOrb')?.classList.toggle('hidden', !ready);
-    const journeyModeLabel = $('unrankedModeBtn')?.querySelector('strong');
-    if (journeyModeLabel && loggedIn) {
-      let walked = false; try { walked = localStorage.getItem(tutorialStorageKey()) === '1'; } catch (_) {}
-      journeyModeLabel.textContent = walked ? 'All Games' : 'Start Your Journey';
+    // The server, not a browser flag, decides whether the first tutorial is complete.
+    const unlocked = authUser?.tutorialCompleted === true;
+    const allGames = $('unrankedModeBtn');
+    const ranked = $('rankedModeBtn');
+    const casual = $('casualModeBtn');
+    for (const btn of [allGames, ranked]) {
+      if (!btn) continue;
+      btn.disabled = ready && !unlocked;
+      btn.classList.toggle('lockedMode', ready && !unlocked);
+      btn.setAttribute('aria-disabled', ready && !unlocked ? 'true' : 'false');
+      btn.title = ready && !unlocked ? 'Complete Start Your Adventure to unlock' : '';
     }
+    const allGamesTitle = allGames?.querySelector('strong');
+    if (allGamesTitle) allGamesTitle.textContent = 'All Games';
+    if (allGames?.querySelector('span')) allGames.querySelector('span').textContent = unlocked
+      ? 'Browse public games, host private lobbies, and play Challenge Maps.'
+      : 'Locked until you finish Start Your Adventure.';
+    if (ranked?.querySelector('span')) ranked.querySelector('span').textContent = unlocked
+      ? 'Match automatically with similarly ranked players.'
+      : 'Locked until you finish Start Your Adventure.';
+    if (casual?.querySelector('strong')) casual.querySelector('strong').textContent = unlocked ? 'Casual Play' : 'Start Your Adventure';
+    if (casual?.querySelector('span')) casual.querySelector('span').textContent = unlocked
+      ? 'Play with friends or AI, up to 6 players. No stats or ratings are tracked.'
+      : 'Learn on a real Classic map against one AI. Place your starting settlements, then play two full turns.';
+    if (typeof refreshTutorialGuide === 'function') refreshTutorialGuide();
     if (loggedIn) {
       const label = authUser.displayName || authUser.username || '?';
       if ($('accountOrbInitial')) $('accountOrbInitial').textContent = label.slice(0, 1).toUpperCase();
@@ -7748,12 +7835,12 @@ function refreshLobbyJoinLinkUi() {
           // Preserve socket recovery for a room already held in memory, but
           // never restore a stale localStorage code on a fresh page load.
           const existingRoom = room?.code ? String(room.code).trim().toUpperCase() : '';
-          const recent = recentRoomCodeForUser(authUser);
-          const code = existingRoom || (['ranked','journey'].includes(selectedPlayMode) ? '' : recent);
+          const recent = recentRoomSessionForUser(authUser);
+          const code = existingRoom || (['ranked','journey'].includes(selectedPlayMode) ? '' : recent?.code || '');
           if (code) {
             pendingRecentRoomRejoinCode = existingRoom ? '' : code;
-            selectedPlayMode = 'unranked';
-            try { sessionStorage.setItem('hexsettlers_play_mode', 'unranked'); } catch (_) {}
+            selectedPlayMode = (room?.tutorial || (!existingRoom && recent?.tutorial)) ? 'casual' : 'unranked';
+            try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
             updateAuthUi();
             send({ type: 'rejoin_room', code, displayName: (ui.nameInput?.value || '').trim() });
           } else if (selectedPlayMode === 'unranked' && !room) {
@@ -7856,6 +7943,13 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
 
+      if (msg.type === 'tutorial_complete') {
+        if (msg.user && authUser?.id === msg.user.id) authUser = msg.user;
+        updateAuthUi();
+        refreshTutorialGuide();
+        return;
+      }
+
       if (msg.type === 'joined') {
         if (msg.room?.ranked) {
           rankedQueueActive = false;
@@ -7891,7 +7985,7 @@ function refreshLobbyJoinLinkUi() {
         ui.roomCode.textContent = room.code;
         refreshLobbyJoinLinkUi();
         try { localStorage.setItem(LAST_ROOM_KEY, room.code); } catch (_) {}
-        noteRecentRoom(room);
+        if (!room?.tutorial) noteRecentRoom(room);
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !isHost);
         setError(null);
@@ -7912,7 +8006,7 @@ function refreshLobbyJoinLinkUi() {
         ui.roomCode.textContent = room.code;
         refreshLobbyJoinLinkUi();
         try { localStorage.setItem(LAST_ROOM_KEY, room.code); } catch (_) {}
-        noteRecentRoom(room);
+        if (!room?.tutorial) noteRecentRoom(room);
         updateAuthUi();
         ui.startBtn.classList.toggle('hidden', !(myPlayerId && room.hostId === myPlayerId));
         renderLobby();
@@ -7940,6 +8034,7 @@ function refreshLobbyJoinLinkUi() {
         if (ui.pgRematchBtn) { ui.pgRematchBtn.disabled = false; ui.pgRematchBtn.textContent = 'Rematch'; }
         if (returnToModeSelection) {
           returnToGameTypeSelection(msg.kicked ? (msg.reason || 'You were removed from the room.') : '');
+          if (tutorialContinueToAllGames) { tutorialContinueToAllGames = false; returnToAllGamesAfterExit(); }
         } else if (returnToRankedReady) {
           handleLocalRoomExit('');
           returnToRankedReadyScreen();
@@ -8079,6 +8174,7 @@ function refreshLobbyJoinLinkUi() {
         // not need to rebuild the hidden lobby and texture controls every time.
         if (!prevState || prevState.phase !== state.phase || state.phase === 'lobby') renderLobby();
         render();
+        refreshTutorialGuide();
         syncPostgameToState();
         return;
       }
@@ -11690,15 +11786,15 @@ function refreshLobbyJoinLinkUi() {
       $('challengeLobbyNote').textContent = room.challenge ? `Weekly Challenge · ${room.challenge.playerCount} seats · ${room.challenge.weekId} · Fixed Scattered Tiles map · Balanced Bag · Expert AI · Unranked stats` : '';
     }
     const accessControls = $('lobbyAccessControls');
-    if (accessControls) accessControls.classList.toggle('hidden', !!room.ranked || !!room.challenge || gameStartedForControls);
-    $('leaveLobbyTopBtn')?.classList.toggle('hidden', !!room.ranked || gameStartedForControls);
+    if (accessControls) accessControls.classList.toggle('hidden', !!room.ranked || !!room.challenge || !!room.tutorial || gameStartedForControls);
+    $('leaveLobbyTopBtn')?.classList.toggle('hidden', !!room.ranked || !!room.tutorial || gameStartedForControls);
     if ($('lobbyFriendsOnlyToggle')) {
       $('lobbyFriendsOnlyToggle').checked = !!room.friendsOnly;
       $('lobbyFriendsOnlyToggle').disabled = room.hostId !== myPlayerId || gameStartedForControls;
     }
 
     const r = room.rules || { discardLimit: 7, setupTurnMs: 60000, playTurnMs: 30000, microPhaseMs: 15000 };
-    const isHost = !!(myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId))) && !gameStartedForControls && !room.challenge;
+    const isHost = !!(myPlayerId && (room.hostId === myPlayerId || room.bossIds?.includes(myPlayerId))) && !gameStartedForControls && !room.challenge && !room.tutorial;
 
     if (ui.discardLimitInput) {
       ui.discardLimitInput.value = r.discardLimit ?? 7;
@@ -12046,10 +12142,6 @@ function refreshLobbyJoinLinkUi() {
     }
     if (mode === 'ranked') clearRecentRoom();
     if (mode === 'journey') { journeyView = 'home'; roomNotFoundVisible = false; roomNotFoundReturnView = ''; pendingRecentRoomRejoinCode = ''; }
-    if (mode === 'journey' && !room && !tutorialCompletedOnThisLaunch) {
-      let seen = false; try { seen = localStorage.getItem(tutorialStorageKey()) === '1'; } catch (_) {}
-      if (!seen) openWalkthrough();
-    }
     selectedPlayMode = mode;
     try { sessionStorage.setItem('hexsettlers_play_mode', mode); } catch (_) {}
     updateAuthUi();
@@ -12058,6 +12150,7 @@ function refreshLobbyJoinLinkUi() {
 
   function choosePlayMode(mode) {
     if (!['ranked', 'unranked', 'casual', 'journey'].includes(mode) || pendingPlayModeSwitch) return;
+    if (!tutorialUnlocked()) { if (mode === 'casual') beginLiveTutorial(); else setError('Complete Start Your Adventure to unlock this game type.'); return; }
     if (room && (room.casual ? 'casual' : room.ranked ? 'ranked' : 'unranked') !== mode) {
       if (!roomConnectionReady || ws?.readyState !== WebSocket.OPEN) {
         setError('Reconnect to your current lobby before changing game types.');
@@ -12102,7 +12195,7 @@ function refreshLobbyJoinLinkUi() {
   $('journeyRefreshBtn')?.addEventListener('click', requestPublicLobbies);
   $('journeyPrivateJoinBtn')?.addEventListener('click', () => beginJourneyJoin($('journeyPrivateCode')?.value));
   $('journeyPrivateCode')?.addEventListener('keydown', e => { if (e.key === 'Enter') beginJourneyJoin(e.target.value); });
-  $('journeyTutorialBtn')?.addEventListener('click', openWalkthrough);
+  $('journeyTutorialBtn')?.addEventListener('click', beginLiveTutorial);
   $('journeyRankedBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
   $('journeyCasualBtn')?.addEventListener('click', () => choosePlayMode('casual'));
   $('journeySettingsBtn')?.addEventListener('click', () => setJourneyView('settings'));
@@ -12167,27 +12260,20 @@ function refreshLobbyJoinLinkUi() {
     }
     returnToGameTypeSelection('');
   });
-  $('walkthroughBackBtn')?.addEventListener('click', () => {
-    $('walkthroughOverlay')?.classList.add('hidden');
-    // Back closes the tour without falsely recording it as completed.
-    updateAuthUi();
+  $('tutorialGuidePrimary')?.addEventListener('click', () => {
+    if (!liveTutorialRoom()) return;
+    if (state?.tutorial?.completed || tutorialUnlocked()) {
+      tutorialContinueToAllGames = true;
+      returnToModeSelectionAfterLeave = true;
+      send({ type: 'leave_room' });
+    } else if (!state || state.phase === 'lobby') {
+      send({ type: 'start_game' });
+    }
   });
-  $('walkthroughSkipBtn')?.addEventListener('click', finishWalkthrough);
-  $('walkthroughPrevBtn')?.addEventListener('click', () => { tutorialIndex = Math.max(0, tutorialIndex-1); updateWalkthrough(); });
-  $('walkthroughNextBtn')?.addEventListener('click', () => {
-    if (tutorialIndex === tutorialSteps.length - 1) { finishWalkthrough(); return; }
-    tutorialIndex += 1; updateWalkthrough();
-  });
-  $('walkthroughTryBuild')?.addEventListener('click', event => {
-    if (tutorialIndex !== 2) return;
-    event.currentTarget.classList.add('demoBuilt');
-    $('walkthroughAnnotation').textContent = 'Settlement placed! Now connect it to your next build site with a road.';
-  });
-  $('walkthroughDemoAction')?.addEventListener('click', () => {
-    const demo = tutorialDemoActions[tutorialIndex];
-    if (!demo) return;
-    $('walkthroughAnnotation').textContent = demo[1];
-    $('walkthroughDemoAction').textContent = '✓ ' + demo[0];
+  $('tutorialGuideExit')?.addEventListener('click', () => {
+    if (!liveTutorialRoom()) return;
+    returnToModeSelectionAfterLeave = true;
+    send({ type: 'leave_room' });
   });
   // Refresh discovery without exposing private or friends-only rooms.
   setInterval(() => { if (selectedPlayMode === 'journey' && (journeyView === 'public' || journeyView === 'detail')) requestPublicLobbies(); }, 12000);

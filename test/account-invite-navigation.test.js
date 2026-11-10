@@ -44,6 +44,7 @@ function simulatedPortal({ invitedRoom, savedMode }) {
     roomNotFoundVisible: false,
     journeyView: 'home',
     room: null,
+    recentRoomSessionForUser: () => null,
     document: { body: { classList: { toggle() {} } }, querySelectorAll() { return []; } },
     ui: { nameInput: { value: '' } },
     $: (id) => elements[id],
@@ -66,7 +67,7 @@ function simulatedPortal({ invitedRoom, savedMode }) {
 
 test('direct invite bypasses saved ranked selection after login and shows lobby', () => {
   const { context, elements, persisted } = simulatedPortal({ invitedRoom: 'ABCD', savedMode: 'ranked' });
-  vm.runInContext('setAuthState({ id: "u1", username: "tester", displayName: "Player" }, null)', context);
+  vm.runInContext('setAuthState({ id: "u1", username: "tester", displayName: "Player", tutorialCompleted: true }, null)', context);
   assert.equal(context.selectedPlayMode, 'unranked');
   assert.equal(persisted.get('hexsettlers_play_mode'), 'unranked');
   assert.equal(elements.app.classList.contains('hidden'), false);
@@ -77,13 +78,13 @@ test('direct invite bypasses saved ranked selection after login and shows lobby'
 
 test('without an invitation, ranked/unranked selection remains unchanged', () => {
   const ranked = simulatedPortal({ invitedRoom: null, savedMode: 'ranked' });
-  vm.runInContext('setAuthState({ id: "u1", username: "tester" }, null)', ranked.context);
+  vm.runInContext('setAuthState({ id: "u1", username: "tester", tutorialCompleted: true }, null)', ranked.context);
   assert.equal(ranked.context.selectedPlayMode, 'ranked');
   assert.equal(ranked.elements.rankedScreen.classList.contains('hidden'), false);
   assert.equal(ranked.elements.app.classList.contains('hidden'), true);
 
   const choosing = simulatedPortal({ invitedRoom: null, savedMode: '' });
-  vm.runInContext('setAuthState({ id: "u1", username: "tester" }, null)', choosing.context);
+  vm.runInContext('setAuthState({ id: "u1", username: "tester", tutorialCompleted: true }, null)', choosing.context);
   assert.equal(choosing.elements.playModeScreen.classList.contains('hidden'), false);
 });
 

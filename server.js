@@ -894,6 +894,7 @@ function safeUserPublic(u) {
     hasPassword: managed.hasPassword,
     oauthProviders: managed.oauthProviders,
     needsUsernameSetup: u.needsUsernameSetup === true,
+    tutorialCompleted: !!u.tutorialCompletedAt,
   };
 }
 
@@ -6200,6 +6201,16 @@ function startGame(room) {
     order[i] = order[j];
     order[j] = tmp;
   }
+  if (room.tutorial) {
+    // The AI demonstrates a complete opening placement before the new player acts.
+    order.sort((a, b) => Number(!room.players.find(p => p.id === a)?.isAI) - Number(!room.players.find(p => p.id === b)?.isAI));
+    game.tutorial = {
+      ownerId: room.tutorial.ownerId,
+      settlements: 0, roads: 0, rolls: 0, endedTurns: 0,
+      completed: false,
+    };
+    game.ai = { nextAt: now() + 2600 };
+  }
   game.turnOrder = order;
   game.currentPlayerId = order[0] || null;
   game.phase = 'setup1-settlement';
@@ -9580,6 +9591,7 @@ function roomSnapshot(room) {
     // but matched players never receive host/admin ownership.
     hostId: room.ranked ? null : room.hostId,
     ranked: !!room.ranked, casual: !!room.casual, challenge: room.challenge || null,
+    tutorial: room.tutorial ? { ownerId: room.tutorial.ownerId, version: 1 } : null,
     visibility: room.visibility === 'public' && !room.casual ? 'public' : 'private', friendsOnly: !!room.friendsOnly, bossIds: Array.isArray(room.bossIds) ? room.bossIds : [],
     rankedScenarioVote: room.rankedScenarioVote ? {
       options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
@@ -11947,6 +11959,7 @@ if (msg.type === 'ranked_queue_join') {
       if (ws._roomCode) { sendJson(ws, { type: 'error', error: 'Leave your current room before entering matchmaking.' }); return; }
       const user = findUserById(ws._userId);
       if (!user) { sendJson(ws, { type: 'error', error: 'Account not found.' }); return; }
+      if (!user.tutorialCompletedAt) { sendJson(ws, { type: 'error', error: 'Finish Start Your Adventure to unlock Ranked Play.' }); return; }
       enqueueRankedPlayer(ws, user);
       return;
     }
@@ -11963,12 +11976,43 @@ if (msg.type === 'list_public_lobbies') {
       return;
     }
 
-if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
+if (msg.type === 'create_tutorial_room') {
+      if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Log in before starting the tutorial.' }); return; }
+      if (ws._roomCode) { sendJson(ws, { type: 'error', error: 'Leave your current lobby before starting the tutorial.' }); return; }
+      const user = findUserById(ws._userId);
+      if (!user || user.needsUsernameSetup) { sendJson(ws, { type: 'error', error: 'Complete account setup first.' }); return; }
+      const displayName = authenticatedDisplayName(user, user.displayName || user.username, 'Settler');
+      const room = createRoom(ws._userId, displayName);
+      room.tutorial = { ownerId: ws._userId, version: 1 };
+      room.casual = true; // Real game engine, but never counted in leaderboards or stats.
+      room.visibility = 'private';
+      room.rules = {
+        ...DEFAULT_RULES,
+        mapMode: 'classic', playerCount: 2, customMap: false,
+        setupTurnMs: 0, playTurnMs: 0, microPhaseMs: 0, microMs: 0,
+        victoryPointsToWin: 10, randomMapAtStart: false,
+      };
+      room.aiDifficulty = 'easy';
+      room.players[0].ready = true;
+      addAIPlayersToRoom(room, 2);
+      bindSocketToRoomMember(room, ws._userId, ws, 'Tutorial session moved to another tab.');
+      ensurePreview(room, true);
+      await scheduleActiveRoomsSave({ throwOnError: true });
+      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true, role: 'player' });
+      sendRoomStateToSocket(room, ws, ws._userId);
+      return;
+    }
+
+    if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
       if (!ws._userId) {
         sendJson(ws, { type: 'error', error: 'Please log in first.' });
         return;
       }
       const user = findUserById(ws._userId);
+      if (!user?.tutorialCompletedAt) {
+        sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before entering other games.' });
+        return;
+      }
       const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Host');
       if (user && desiredName) {
         setUserDisplayName(user, desiredName);
@@ -12013,12 +12057,17 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
       }
       const code = String(msg.code || '').toUpperCase().trim();
       const user = findUserById(ws._userId);
+      if (!user?.tutorialCompletedAt) {
+        sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before joining another lobby.' });
+        return;
+      }
       const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Player');
       if (user && desiredName) {
         setUserDisplayName(user, desiredName);
         saveUsersDb();
       }
 
+      if (rooms.get(code)?.tutorial) { sendJson(ws, { type: 'error', error: 'Tutorials are private practice sessions.' }); return; }
       const result = joinRoom(code, ws._userId, desiredName, { spectator: !!msg.spectator });
       if (!result.ok) {
         sendJson(ws, { type: 'error', error: result.error });
@@ -12057,6 +12106,10 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
 
         // A rejoin must restore an existing membership, never create a new
         // seat just because a stale code happens to belong to another lobby.
+        if (!user?.tutorialCompletedAt && !roomByCodeWithPersistence(code)?.tutorial) {
+          sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before rejoining another lobby.' });
+          return;
+        }
         const jr = rejoinRoom(code, ws._userId);
         if (!jr.ok) {
           sendJson(ws, { type: 'error', error: jr.error });
@@ -12074,6 +12127,9 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
       }
 
       // Legacy behavior (older clients): requires explicit playerId
+      if (!findUserById(ws._userId)?.tutorialCompletedAt && !roomByCodeWithPersistence(code)?.tutorial) {
+        sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure first.' }); return;
+      }
       const result = rejoinRoom(code, msg.playerId);
       if (!result.ok) {
         sendJson(ws, { type: 'error', error: result.error });
@@ -12151,6 +12207,20 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
       return;
     }
 
+    if (!room.tutorial && !findUserById(ws._userId)?.tutorialCompletedAt &&
+        new Set(['game_action', 'start_game', 'set_ready', 'set_rules', 'fill_ai', 'rematch_room']).has(msg.type)) {
+      sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before playing other games.' });
+      return;
+    }
+
+    if (room.tutorial && !new Set([
+      'get_state', 'start_game', 'game_action', 'query_build_options', 'leave_room',
+      'client_ping', 'query_ship_move_targets'
+    ]).has(msg.type)) {
+      sendJson(ws, { type: 'error', error: 'This is a guided practice match. Lobby settings are fixed.' });
+      return;
+    }
+
     const challengeRestrictedMessages = new Set([
       'set_rules', 'generate_map', 'fill_ai', 'clear_ai', 'set_ai_difficulty',
       'set_expert_ai_tuning', 'upload_custom_map', 'download_custom_map',
@@ -12190,11 +12260,11 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
       // an ordinary Leave Room request, this also lets the unranked host leave
       // during setup without trapping them or destroying their friends' lobby.
       const switchMode = ['ranked', 'unranked', 'casual', 'journey'].includes(msg.switchMode) ? msg.switchMode : null;
-      if (switchMode && (room.ranked || (room.game && room.game.phase !== 'lobby' && !gameOver))) {
+      if (switchMode && !room.tutorial && (room.ranked || (room.game && room.game.phase !== 'lobby' && !gameOver))) {
         sendJson(ws, { type: 'error', error: 'You cannot change game types during an active match.' });
         return;
       }
-      if (room.game && room.game.phase && room.game.phase !== 'lobby' && !gameOver && roomRole(room, pid) === 'player') {
+      if (!room.tutorial && room.game && room.game.phase && room.game.phase !== 'lobby' && !gameOver && roomRole(room, pid) === 'player') {
         sendJson(ws, { type: 'error', error: 'Use Leave Game during an active match.' });
         return;
       }
@@ -12213,7 +12283,7 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
       // A solo AI-only lobby must be actually removed from persistence, not
       // left running with bots when its one human switches game types.
       const remainingHumans = room.players.filter((player) => player && !player.isAI);
-      if (!remainingHumans.length && (!room.game || room.game.phase === 'lobby')) {
+      if (!remainingHumans.length && (!room.game || room.game.phase === 'lobby' || room.tutorial)) {
         for (const memberSocket of room.sockets.values()) {
           memberSocket._roomCode = null;
           memberSocket._playerId = null;
@@ -13075,6 +13145,7 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
     }
 
     if (msg.type === 'start_game') {
+      if (room.tutorial && (pid !== room.tutorial.ownerId || room.game?.phase && room.game.phase !== 'lobby')) { sendJson(ws, { type: 'error', error: 'Tutorial already started.' }); return; }
       if (room.challenge) { ensureChallengeRoomInvariants(room); ensurePreview(room, false); }
       if (pid !== room.hostId) {
         sendJson(ws, { type: 'error', error: 'Only host can start.' });
@@ -13241,12 +13312,32 @@ if (msg.type === 'create_room' || msg.type === 'create_challenge_room') {
     }
 
     if (msg.type === 'game_action') {
+      if (room.tutorial && pid !== room.tutorial.ownerId) { sendJson(ws, { type: 'error', error: 'Only the tutorial player can practice.' }); return; }
+      if (room.game?.tutorial?.completed) { sendJson(ws, { type: 'error', error: 'Practice complete. Continue to All Games.' }); return; }
       if (!room.game) {
         sendJson(ws, { type: 'error', error: 'No active game.' });
         return;
       }
       const result = applyAction(room, pid, msg.action);
       if (!result.ok) sendJson(ws, { type: 'error', error: result.error });
+      if (result.ok && room.tutorial && room.game?.tutorial && pid === room.tutorial.ownerId) {
+        const progress = room.game.tutorial;
+        const action = String(msg.action?.kind || '');
+        if (action === 'place_settlement') progress.settlements++;
+        if (action === 'place_road') progress.roads++;
+        if (action === 'roll_dice') progress.rolls++;
+        if (action === 'end_turn') progress.endedTurns++;
+        if (!progress.completed && progress.settlements >= 2 && progress.roads >= 2 &&
+            progress.rolls >= 2 && progress.endedTurns >= 2) {
+          progress.completed = true;
+          const learner = findUserById(pid);
+          if (learner) {
+            learner.tutorialCompletedAt = learner.tutorialCompletedAt || now();
+            await saveUsersDb();
+            sendJson(ws, { type: 'tutorial_complete', user: safeUserPublic(learner) });
+          }
+        }
+      }
       broadcastState(room);
       return;
     }
@@ -13590,6 +13681,7 @@ function handleTimeout(room) {
 // auto-ends turns. It also auto-responds to any blocking prompts.
 function handleAI(room) {
   const game = room && room.game;
+  if (room?.tutorial && game?.tutorial?.completed) return false;
   if (!game) return false;
   if (game.paused) return false;
   if (!Array.isArray(game.players) || !game.players.some(p => p && p.isAI)) return false;
@@ -13611,6 +13703,11 @@ function handleAI(room) {
   const aiFastMode = String(process.env.AI_FAST || '').toLowerCase() === '1';
 
   const delay = (msMin, msMax) => {
+    // Instructional matches remain observable rather than completing AI phases instantly.
+    if (room.tutorial) {
+      game.ai.nextAt = now() + Math.max(1900, Math.floor(msMax || msMin || 0));
+      return;
+    }
     if (aiFastMode) {
       game.ai.nextAt = now();
       return;

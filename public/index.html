@@ -61,7 +61,7 @@
       <div id="playModeNotice" class="playModeNotice hidden" role="status"></div>
       <div class="modeChoices">
         <button id="rankedModeBtn" class="modeChoice"><strong>Ranked Play</strong><span>Match automatically with similarly ranked players.</span></button>
-        <button id="unrankedModeBtn" class="modeChoice"><strong>Start Your Journey</strong><span>Learn the mechanics, browse public games, or create a private lobby.</span></button>
+        <button id="unrankedModeBtn" class="modeChoice"><strong>All Games</strong><span>Learn the mechanics, browse public games, or create a private lobby.</span></button>
         <button id="casualModeBtn" class="modeChoice"><strong>Casual Play</strong><span>Play with friends or AI, up to 6 players. No stats or ratings are tracked.</span></button>
       </div>
     </div>
@@ -182,21 +182,16 @@
       </a>
     </div>
 </section>
-<section id="walkthroughOverlay" class="walkthroughOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="walkthroughTitle">
- <div class="walkthroughCard">
-   <div class="walkthroughTop"><span id="walkthroughProgress">1 / 12</span><span class="walkthroughNav"><button type="button" id="walkthroughBackBtn" class="btn">← Back</button><button type="button" id="walkthroughSkipBtn" class="btn">Skip walkthrough</button></span></div>
-   <h1 id="walkthroughTitle">Welcome to Hex Settlers</h1>
-   <p id="walkthroughBody" class="portalLead"></p>
-   <div class="walkthroughDemo" aria-label="Annotated tutorial illustration">
-      <div class="demoHexGrid" id="demoHexGrid">
-        <div class="demoHex tileWood">🌲</div><div class="demoHex tileOre">⛰️</div><div class="demoHex tileWheat">🌾</div><div class="demoHex tileSheep">🐑</div><div class="demoHex tileBrick">🧱</div><div class="demoHex tileSea">🌊</div>
-        <button type="button" id="walkthroughTryBuild" class="demoBuildPoint" title="Place a settlement" aria-label="Place a settlement">⌂</button>
-      </div>
-      <div class="walkthroughAnnotationPanel"><div class="walkthroughAnnotation" id="walkthroughAnnotation">Choose a starting settlement at a corner where three hexes meet.</div><button type="button" id="walkthroughDemoAction" class="btn primary walkthroughDemoAction hidden">Try the action</button><small class="walkthroughSimulated">Guided example — no live game actions.</small></div>
-   </div>
-   <div class="walkthroughControls"><button type="button" id="walkthroughPrevBtn" class="btn">Previous</button><button type="button" id="walkthroughNextBtn" class="btn primary">Next</button></div>
- </div>
-</section>
+<aside id="tutorialGuide" class="tutorialGuide hidden" aria-label="Live game walkthrough" aria-live="polite" data-i18n-skip="">
+  <div class="tutorialGuideHeader"><span class="tutorialGuideEyebrow">START YOUR ADVENTURE · LIVE PRACTICE</span><span id="tutorialGuideProgress">0 / 8</span></div>
+  <h2 id="tutorialGuideTitle">Learn by playing</h2>
+  <p id="tutorialGuideBody">Your tutorial is a real Classic game against one AI opponent.</p>
+  <p id="tutorialGuideHint">The 19-hex, four-player Classic map has two occupied seats.</p>
+  <div class="tutorialGuideActions">
+    <button type="button" id="tutorialGuidePrimary" class="btn primary hidden">Begin practice game</button>
+    <button type="button" id="tutorialGuideExit" class="btn">Exit tutorial</button>
+  </div>
+</aside>
 
 <div id="legalOverlay" class="portalOverlay legalOverlay hidden" aria-hidden="true">
     <section id="legalDialog" class="portalCard legalDialog" role="dialog" aria-modal="true" aria-labelledby="legalDialogTitle" tabindex="-1">

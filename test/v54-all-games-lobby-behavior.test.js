@@ -81,7 +81,8 @@ test('All Games settings, host delegation, lobby leave, and fixed lobby access h
   }
   assert.doesNotMatch(html,/id="lobbyVisibilitySelect"/);
   assert.match(app,/\('unrankedModeBtn'\)\?\.addEventListener\('click', \(\) => choosePlayMode\('journey'\)\)/);
-  assert.match(app,/journeyModeLabel\.textContent = walked \? 'All Games' : 'Start Your Journey'/);
+  assert.match(app,/allGamesTitle\.textContent = 'All Games'/);
+  assert.match(app,/casual\.querySelector\('strong'\)\.textContent = unlocked \? 'Casual Play' : 'Start Your Adventure'/);
   assert.match(app,/send\(\{ type: 'leave_room', switchMode: mode \}\)/);
   assert.match(app,/setToolUiScale\(scaleKey, pct \/ 100\)/);
   assert.match(app,/send\(\{ type: 'set_room_boss', userId: profile\.id, enabled: !alreadyBoss \}\)/);

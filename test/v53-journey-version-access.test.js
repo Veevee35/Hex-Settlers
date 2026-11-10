@@ -62,8 +62,8 @@ test('casual supports friends and guests but never writes wins or game history',
  assert.match(app,/send\(\{ type: 'create_room', displayName, casual: selectedPlayMode === 'casual'/);
 });
 
-test('Journey portal, skippable 12-step tutorial, public/private lobby controls and 404 view exist',()=>{
- for(const id of ['journeyScreen','journeyPublicBtn','journeyPrivateBtn','journeyChallengeBtn','journeyHostPublicBtn','journeyHostPrivateBtn','journeyPrivateCode','publicLobbyList','walkthroughOverlay','walkthroughSkipBtn','roomNotFoundScreen','roomNotFoundBackBtn','lobbyFriendsOnlyToggle']) {
+test('Journey portal, live engine tutorial, public/private lobby controls and 404 view exist',()=>{
+ for(const id of ['journeyScreen','journeyPublicBtn','journeyPrivateBtn','journeyChallengeBtn','journeyHostPublicBtn','journeyHostPrivateBtn','journeyPrivateCode','publicLobbyList','tutorialGuide','tutorialGuidePrimary','tutorialGuideExit','roomNotFoundScreen','roomNotFoundBackBtn','lobbyFriendsOnlyToggle']) {
   assert.ok(html.includes(`id="${id}"`), `Missing UI #${id}`);
  }
  assert.doesNotMatch(html,/id="lobbyVisibilitySelect"/);
@@ -71,8 +71,9 @@ test('Journey portal, skippable 12-step tutorial, public/private lobby controls 
  assert.match(html,/New maps every week\. Play with friends see who can get the highest score!/);
  assert.match(html,/5 new Scattered Tiles maps every week to compete on\./);
  assert.match(html,/id="journeyChallengePanel"/);
- assert.match(app,/const tutorialSteps = \[/);
- assert.match(app,/const TUTORIAL_PREFIX = 'hexsettlers_journey_walkthrough_v53_'/);
+ assert.match(app,/function beginLiveTutorial\(\)/);
+ assert.match(app,/send\(\{ type:'create_tutorial_room' \}\)/);
+ assert.doesNotMatch(html,/id="walkthroughOverlay"/);
  assert.match(app,/choosePlayMode\('journey'\)/);
  assert.match(app,/showRoomNotFound\(\)/);
 });
