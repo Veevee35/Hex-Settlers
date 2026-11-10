@@ -6,7 +6,7 @@ const endpoint = String(process.env.CLOUDFLARE_STATE_ENDPOINT || '');
 const dir = process.env.DATA_DIR || '/data';
 if (!endpoint) throw new Error('CLOUDFLARE_STATE_ENDPOINT is required in Cloudflare Containers');
 await mkdir(dir, { recursive: true, mode: 0o700 });
-const stateNames = ['users.json', 'game_history.json', 'game_analytics.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'training_runs.json', 'training_candidate.json', 'training_previous_candidate.json', 'training_previous_live.json', 'training_report.json'];
+const stateNames = ['users.json', 'game_history.json', 'game_analytics.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json'];
 let userBackup = false;
 for (const name of stateNames) {
   const result = await fetch(`${endpoint}/state/${name}`, { signal: AbortSignal.timeout(60000) });

@@ -9,7 +9,7 @@ const STATE_HOST = 'hex-state.internal';
 // Host routing is checked before ASSETS or the backend are reached.
 import { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath } from './admin-routing.mjs';
 export { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath };
-const JSON_FILES = new Set(['users.json', 'game_history.json', 'game_analytics.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json', 'training_runs.json', 'training_candidate.json', 'training_previous_candidate.json', 'training_previous_live.json', 'training_report.json']);
+const JSON_FILES = new Set(['users.json', 'game_history.json', 'game_analytics.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
 const MAX_STATE_UPLOAD = 128 * 1024 * 1024;
 const MAX_TEXTURE_UPLOAD = 8 * 1024 * 1024;
 // HTTP uploads from the Node container should have Content-Length. If a proxy
@@ -127,7 +127,6 @@ export class HexGameContainer extends Container {
       CLOUDFLARE_STATE_ENDPOINT: `http://${STATE_HOST}`,
       HEX_BUILTIN_ADMIN_ENABLED: 'true',
       HEX_ADMIN_PASSWORD: String(env.HEX_ADMIN_PASSWORD || ''),
-      HEX_TRAINING_MAX_CONCURRENCY: String(env.HEX_TRAINING_MAX_CONCURRENCY || '2'),
       HEX_UPSTREAM_SHARED_SECRET: String(env.GAME_GATE_SECRET || ''),
       HEX_EMAIL_MODE: env.RESEND_API_KEY ? 'resend' : 'disabled',
       OAUTH_STATE_SECRET: String(env.OAUTH_STATE_SECRET || ''),

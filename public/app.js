@@ -40,7 +40,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.6';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.67';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -10098,192 +10098,6 @@ function refreshLobbyJoinLinkUi() {
     }, 20_000);
   }
 
-  function renderAdminTrainingLab(container) {
-    container.replaceChildren();
-    const shell = adminElement('div', 'trainingLab');
-    const header = adminElement('div', 'trainingLabHeader');
-    const title = adminElement('div');
-    title.append(adminElement('h2', '', 'Expert AI Training Lab'), adminElement('p', 'smallNote',
-      'Real matches run in an isolated loopback copy of the game engine. Train a candidate neural model, stress-test simulated matches, inspect checkpoints, and manually promote tested weights. Live lobbies and player statistics are not used.'));
-    header.append(title);
-    shell.append(header);
-
-    const warning = adminElement('p', 'trainingLabWarning',
-      'Capacity: this deployment uses ONE Cloudflare game container. Up to 1,000 virtual game/server slots can be requested, but simultaneous matches are capped to the safe capacity displayed below. These are not 1,000 separate Cloudflare Containers. Large experiments run in batches.');
-    shell.append(warning);
-    const stats = adminElement('div', 'trainingLabStats'); shell.append(stats);
-    const progressCard = adminElement('section', 'trainingLabPanel');
-    progressCard.appendChild(adminElement('h3', '', 'Current run'));
-    const progressCaption = adminElement('div', 'trainingLabProgressHead', 'No job running');
-    const progressTrack = adminElement('div', 'trainingLabProgressTrack');
-    const progressFill = adminElement('div', 'trainingLabProgressFill'); progressFill.style.width = '0%';
-    progressTrack.append(progressFill);
-    const currentNote = adminElement('div', 'trainingLabLog', 'Start an experiment to see live progress.');
-    progressCard.append(progressCaption, progressTrack, currentNote); shell.append(progressCard);
-
-    const formPanel = adminElement('section', 'trainingLabPanel');
-    formPanel.appendChild(adminElement('h3', '', 'Create a batch experiment'));
-    const form = adminElement('form', 'trainingLabForm'); form.noValidate = true;
-    const fields = adminElement('div', 'trainingLabFields');
-    const field = (name, control, description) => {
-      const label = adminElement('label', 'trainingLabField');
-      label.append(adminElement('span','',name),control);
-      if (description) label.append(adminElement('small','',description));
-      fields.append(label); return control;
-    };
-    const selector = (options, initial) => {
-      const select = adminElement('select', 'input');
-      for (const [value, label] of options) { const option = document.createElement('option'); option.value = value; option.textContent = label; select.append(option); }
-      select.value = initial; return select;
-    };
-    const number = (initial, min, max) => { const el = adminElement('input','input'); el.type = 'number'; el.value = String(initial); el.min = String(min); el.max = String(max); el.step = '1'; el.inputMode = 'numeric'; return el; };
-    const purpose = field('Experiment type', selector([['train','Neural self-play training'],['stress','Isolated server stress test (no learning)']], 'train'), 'Both run complete games using the real rules engine.');
-    const source = field('Starting model', selector([['candidate','Saved training candidate'],['live','Current live AI weights']], 'candidate'), 'Choose live for the first run; candidate to continue learning.');
-    const mapSet = field('Scenario curriculum', selector([['standard','All standard scenarios'],['all','All including custom test boards']], 'standard'), 'Scenarios rotate evenly across games.');
-    const gamesPerBatch = field('Games per batch', number(100,1,10000), 'Size of each requested experiment batch.');
-    const batches = field('Number of batches', number(10,1,1000), 'Total games = games per batch × batches.');
-    const servers = field('Virtual game/server slots', number(8,1,1000), '1–1,000 requested; actual concurrent games use the capacity limit.');
-    const checkpointSize = field('Save checkpoint every N games', number(25,1,1000), 'Completed batches persist the candidate to Cloudflare R2.');
-    const planned = adminElement('div', 'trainingLabPlanned');
-    const updatePlan = () => {
-      const games = Number(gamesPerBatch.value) * Number(batches.value);
-      const slots = Number(servers.value);
-      const capacity = Number(lastData?.limits?.maxConcurrentGames || 2);
-      planned.textContent = `${games.toLocaleString()} requested games · ${slots.toLocaleString()} virtual slots · up to ${Math.min(slots,capacity).toLocaleString()} concurrent real games in this container. Max 100,000 games per run.`;
-    };
-    for (const el of [gamesPerBatch,batches,servers]) el.addEventListener('input', updatePlan);
-    const toolbar = adminElement('div', 'trainingLabActions');
-    const start = adminElement('button', 'btn primary', 'Start batch run'); start.type = 'submit';
-    const stop = adminElement('button', 'btn danger', 'Stop current run'); stop.type = 'button';
-    const refresh = adminElement('button', 'btn', 'Refresh'); refresh.type = 'button';
-    toolbar.append(start, stop, refresh);
-    form.append(fields, planned, toolbar); formPanel.append(form); shell.append(formPanel);
-
-    const candidatePanel = adminElement('section', 'trainingLabPanel');
-    candidatePanel.appendChild(adminElement('h3','','Neural model workflow'));
-    candidatePanel.appendChild(adminElement('p','smallNote',
-      '1. Train on isolated self-play games. 2. Review game completion, turns, winning margin and scenario coverage. 3. Continue training from the saved candidate, or explicitly promote it to the live AI. Self-play metrics do not by themselves prove the candidate beats the incumbent; validate separately before promotion.'));
-    const compare = adminElement('div','trainingLabCompare');
-    const tools = adminElement('div','trainingLabActions');
-    const promote = adminElement('button','btn primary','Promote candidate to live AI'); promote.type='button';
-    const restore = adminElement('button','btn','Restore previous candidate'); restore.type='button';
-    const rollback = adminElement('button','btn danger','Rollback live model'); rollback.type='button';
-    const exportModel = adminElement('button','btn','Download candidate model'); exportModel.type='button';
-    const download = adminElement('button','btn','Download last complete report'); download.type='button';
-    tools.append(promote,restore,rollback,exportModel,download);
-    candidatePanel.append(compare,tools); shell.append(candidatePanel);
-
-    const historyPanel = adminElement('section','trainingLabPanel'); historyPanel.appendChild(adminElement('h3','','Experiment history'));
-    const historyScroll = adminElement('div','adminStatsTableScroll');
-    historyPanel.append(historyScroll); shell.append(historyPanel);
-    const notice = adminElement('div', 'trainingLabNotice'); notice.setAttribute('role','status'); shell.append(notice);
-    container.append(shell);
-    let lastData = null, busy = false, pollHandle = null;
-    const activeTab = () => shell.isConnected && !!container.closest('.adminDashboard')?.querySelector('.adminTabs [data-tab="training"].active');
-    const metric = (label, value, subtitle='') => {
-      const cell = adminElement('div','adminStatsMetric'); cell.append(adminElement('div','adminStatsMetricLabel',label),adminElement('strong','',String(value)));
-      if (subtitle) cell.append(adminElement('small','',subtitle)); return cell;
-    };
-    const fmt = value => Number(value || 0).toLocaleString();
-    const display = data => {
-      lastData = data;
-      stats.replaceChildren(
-        metric('Live neural training games',fmt(data.live?.trainedGames),`Model ${data.live?.fingerprint || '—'}`),
-        metric('Saved candidate games', data.candidate ? fmt(data.candidate.trainedGames) : 'None', data.candidate ? `Model ${data.candidate.fingerprint}` : 'Start from the live model'),
-        metric('Max real games in parallel',fmt(data.limits?.maxConcurrentGames), 'Per current container, capacity-limited'),
-        metric('Virtual slots supported',fmt(data.limits?.maxVirtualServers), 'Logical rooms, not Cloudflare instances')
-      );
-      compare.textContent = data.candidate
-        ? `Live: ${fmt(data.live.trainedGames)} games (${data.live.fingerprint}) · Candidate: ${fmt(data.candidate.trainedGames)} games (${data.candidate.fingerprint}) · Difference in recorded games: ${fmt(data.candidate.trainedGames - data.live.trainedGames)}. Weights do not change in live play until promotion.`
-        : 'No saved candidate model yet. Select “Current live AI weights” for your first training run.';
-      if (data.active) {
-        const a = data.active, c = a.config || {};
-        progressCaption.textContent = `${a.status.toUpperCase()} · ${fmt(a.completed)}/${fmt(c.games)} games · ${Number(a.pct||0).toFixed(1)}%`;
-        progressFill.style.width = `${Math.max(0,Math.min(100,Number(a.pct||0)))}%`;
-        currentNote.textContent = `${c.purpose === 'stress' ? 'Load test' : 'Learning'} · ${c.parallel} concurrent real games · ${c.servers} virtual slots · Map: ${a.lastMap || 'initializing'} · Retries: ${a.failures || 0} · Last: ${a.lastLog || 'starting game server'}`;
-      } else {
-        const previous = data.jobs?.[0];
-        progressCaption.textContent = previous ? `Last run: ${previous.status.toUpperCase()} · ${fmt(previous.completed)}/${fmt(previous.config?.games)} games` : 'No job running';
-        progressFill.style.width = `${Number(previous?.pct||0)}%`;
-        currentNote.textContent = previous?.error || previous?.lastLog || 'Ready to start a batch experiment.';
-      }
-      stop.disabled = !data.active || data.active.status === 'cancelling';
-      start.disabled = !!data.active || busy;
-      promote.disabled = !data.candidate || !!data.active;
-      restore.disabled = !data.previousCandidate || !!data.active;
-      rollback.disabled = !data.previousLiveAvailable || !!data.active;
-      exportModel.disabled = !data.candidate;
-      source.querySelector('[value="candidate"]').disabled = !data.candidate;
-      if (!data.candidate && source.value === 'candidate') source.value = 'live';
-      updatePlan();
-      const table = document.createElement('table'); table.className = 'adminStatsTable';
-      const headings = document.createElement('tr');
-      for (const h of ['Started','Status','Mode','Completed','Parallel','Avg winning turn','Avg margin','P95 game time']) headings.append(adminElement('th','',h));
-      table.append(headings);
-      for (const job of data.jobs || []) {
-        const tr = document.createElement('tr'); const summary = job.summary || {};
-        const values = [new Date(job.startedAt).toLocaleString(),job.status,
-          `${job.config.purpose} / ${job.config.mapSet}`,`${fmt(job.completed)}/${fmt(job.config.games)}`,
-          fmt(job.config.parallel),summary.averageWinningTurn ? Number(summary.averageWinningTurn).toFixed(1) : '—',
-          summary.averageWinningMargin != null ? Number(summary.averageWinningMargin).toFixed(2) : '—',
-          summary.p95GameMs ? `${(summary.p95GameMs/1000).toFixed(1)}s` : '—'];
-        for (const value of values) tr.append(adminElement('td','',value)); table.append(tr);
-      }
-      historyScroll.replaceChildren(table);
-    };
-    const fetchStatus = async (quiet = false) => {
-      if (!activeTab() || busy) return;
-      try { const data = await adminApi('training-status'); display(data); if (!quiet) notice.textContent='Training laboratory is connected.'; }
-      catch (error) { notice.textContent=error.message; }
-    };
-    const execute = async (name, payload = {}) => {
-      if (busy) return; busy=true; start.disabled=true;
-      notice.textContent = 'Sending action…';
-      try { const data = await adminApi(name,payload); if (data.live) display(data); notice.textContent='Action accepted.'; }
-      catch (error) { notice.textContent = error.message; }
-      finally { busy=false; await fetchStatus(true); }
-    };
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      if (!window.confirm(`Run ${Number(gamesPerBatch.value)*Number(batches.value)} isolated real matches? This can use significant compute and Cloudflare container resources.`)) return;
-      void execute('training-start', { purpose:purpose.value, source:source.value, mapSet:mapSet.value,
-        gamesPerBatch:Number(gamesPerBatch.value), batches:Number(batches.value),
-        servers:Number(servers.value),checkpointSize:Number(checkpointSize.value) });
-    });
-    stop.addEventListener('click', () => { if (window.confirm('Stop the current run? Last saved training checkpoint will be retained.')) void execute('training-stop'); });
-    refresh.addEventListener('click', () => void fetchStatus());
-    promote.addEventListener('click', () => {
-      const confirmed = window.prompt('This replaces the live Expert neural model. Type PROMOTE MODEL to confirm:');
-      if (confirmed === 'PROMOTE MODEL') void execute('training-promote',{ confirm:confirmed });
-    });
-    restore.addEventListener('click', () => { if (window.confirm('Replace the candidate with the previous saved candidate?')) void execute('training-restore-candidate'); });
-    rollback.addEventListener('click', () => {
-      const phrase = window.prompt('Restore the previous live model? This replaces the current live neural weights. Type ROLLBACK MODEL:');
-      if (phrase === 'ROLLBACK MODEL') void execute('training-rollback-live',{ confirm:phrase });
-    });
-    exportModel.addEventListener('click', async () => {
-      try {
-        const data = await adminApi('training-model');
-        const blob = new Blob([JSON.stringify(data.model,null,2)],{type:'application/json'});
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a'); link.href=url; link.download='hex-expert-ai-training-candidate.json';
-        document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url),1000);
-      } catch (error) { notice.textContent=error.message; }
-    });
-    download.addEventListener('click', async () => {
-      try {
-        const response = await adminApi('training-report');
-        if (!response.report) throw new Error('No completed report has been saved.');
-        const blob = new Blob([JSON.stringify(response.report,null,2)],{type:'application/json'});
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a'); link.href=url; link.download=`hex-training-${response.report.runId || 'latest'}.json`;
-        document.body.append(link);link.click();link.remove();setTimeout(() => URL.revokeObjectURL(url),1000);
-      } catch (error) { notice.textContent=error.message; }
-    });
-    void fetchStatus();
-    pollHandle = setInterval(() => { if (!activeTab()) { clearInterval(pollHandle); return; } void fetchStatus(true); }, 5000);
-  }
-
   function openAdminManagementScreen() {
     if (!authUser?.isAdmin) { setError('Administrator access required.'); return; }
     const dashboard = adminElement('div', 'adminDashboard');
@@ -10291,7 +10105,7 @@ function refreshLobbyJoinLinkUi() {
     tabs.setAttribute('aria-label', 'Administrator management sections');
     const content = adminElement('section', 'adminDashboardContent');
     const options = [
-      ['stats', 'Game Stats'], ['training', 'Expert AI Training'], ['server', 'Server Management'], ['ratings', 'Rating Management'],
+      ['stats', 'Game Stats'], ['server', 'Server Management'], ['ratings', 'Rating Management'],
       ['users', 'User Account Management'], ['merge', 'Merge Accounts'],
       ['history', 'Manage Game History'],
       ['health', 'Health Monitor'],
@@ -10305,7 +10119,6 @@ function refreshLobbyJoinLinkUi() {
       });
       content.replaceChildren();
       if (key === 'stats') renderAdminGameStats(content);
-      if (key === 'training') renderAdminTrainingLab(content);
       if (key === 'server') void openServerManagementConsole(content);
       if (key === 'ratings') void openRatingManagementScreen(content);
       if (key === 'users') void openUserManagementScreen({ container: content, adminOnly: true });

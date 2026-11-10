@@ -3,7 +3,7 @@
 // It cannot be reached by the public Internet or by browser-originated requests.
 const path = require('node:path');
 const STATE_ENDPOINT = String(process.env.CLOUDFLARE_STATE_ENDPOINT || '').replace(/\/$/, '');
-const STATE_FILES = new Set(['users.json', 'active_rooms.json', 'game_history.json', 'game_analytics.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json', 'training_runs.json', 'training_candidate.json', 'training_previous_candidate.json', 'training_previous_live.json', 'training_report.json']);
+const STATE_FILES = new Set(['users.json', 'active_rooms.json', 'game_history.json', 'game_analytics.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
 const failedKeys = new Map();
 function isEnabled() { return !!STATE_ENDPOINT; }
 function isUnhealthy() { return failedKeys.size > 0; }

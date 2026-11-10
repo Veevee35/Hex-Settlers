@@ -15,7 +15,6 @@ const { atomicWriteJson } = require('../server/persistence');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT, 'neural_ai_model.json'));
 const TOTAL_GAMES = Math.max(1, Math.floor(Number(process.env.SIMS || 500)));
-const TRAINING_PURPOSE = process.env.TRAINING_PURPOSE === 'stress' ? 'stress' : 'train';
 const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 25)));
 const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 5)));
 const CURRICULUM_OFFSET = Math.max(0, Math.floor(Number(process.env.CURRICULUM_OFFSET || 0)));
@@ -98,11 +97,6 @@ async function startTrainingServer(dataDir) {
       NODE_ENV: 'test',
       AI_FAST: '1',
       AI_TRAINING: '1',
-      AI_DISABLE_NEURAL_UPDATES: TRAINING_PURPOSE === 'stress' ? '1' : '0',
-      CLOUDFLARE_STATE_ENDPOINT: '', // Never write isolated training data into production R2.
-      HEX_UPSTREAM_SHARED_SECRET: '',
-      HEX_TRUST_PROXY: 'false',
-      HEX_ADMIN_PASSWORD: '',
       HEX_BUILTIN_ADMIN_ENABLED: '0',
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -262,7 +256,6 @@ function paintTrainingTestBuilder(peer, state, item) {
 }
 
 async function runOneGame(port, token, item) {
-  const startedAt = Date.now();
   const peer = await Peer.connect(port);
   try {
     peer.send({ type: 'auth_token', token });
@@ -327,7 +320,6 @@ async function runOneGame(port, token, item) {
       highestOpponentVp: Math.max(0, ...opponentVp),
       winnerMargin: Number(winner.vp) - Math.max(0, ...opponentVp),
       goldProductionCards: goldProductionCards(state),
-      elapsedMs: Date.now() - startedAt,
     };
   } finally {
     peer.close();
@@ -419,7 +411,7 @@ async function main() {
 
       latestModelPath = path.join(batchDir, 'neural_ai_model.json');
       const batchModel = readModel(latestModelPath);
-      const expected = Number(startingModel.trainedGames || 0) + (TRAINING_PURPOSE === 'train' ? results.length : 0);
+      const expected = Number(startingModel.trainedGames || 0) + results.length;
       if (Number(batchModel.trainedGames || 0) !== expected) {
         throw new Error(`Model trainedGames=${batchModel.trainedGames}; expected ${expected} after batch ${batchNo}`);
       }
@@ -431,14 +423,14 @@ async function main() {
     fs.copyFileSync(latestModelPath, MODEL_PATH);
     const finalModel = readModel(MODEL_PATH);
     const report = {
-      mode: TRAINING_PURPOSE === 'stress' ? 'real_game_load_test' : 'neural_net_self_play',
+      mode: 'neural_net_self_play',
       requestedGames: TOTAL_GAMES,
       completedGames: results.length,
       batchSize: BATCH_SIZE,
       concurrency: CONCURRENCY,
       curriculumOffset: CURRICULUM_OFFSET,
       victoryPointsToWin: VP_TO_WIN_OVERRIDE || 'scenario-defaults',
-      trainingObjective: TRAINING_PURPOSE === 'stress' ? 'unchanged-model-load-test' : TRAINING_OBJECTIVE,
+      trainingObjective: TRAINING_OBJECTIVE,
       mapSet: MAP_SET,
       mapsCovered: MAPS.map((map) => map.id),
       startingTrainedGames: Number(startingModel.trainedGames || 0),
