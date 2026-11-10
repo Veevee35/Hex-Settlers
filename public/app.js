@@ -10446,8 +10446,9 @@ function refreshLobbyJoinLinkUi() {
 
       const badge = document.createElement('div');
       badge.className = 'badge';
-      if (roleLabel === 'spectator') { badge.classList.add('spectatorNoColor'); badge.style.background = 'none'; }
-      else badge.style.background = p.color;
+      // Only player seats are present in this list. Spectator entries are
+      // rendered separately and intentionally have no player-color badge.
+      badge.style.background = p.color || 'transparent';
 
       const name = document.createElement('div');
       name.textContent = p.name + (p.id === room.hostId ? ' (host)' : '');
@@ -15164,8 +15165,9 @@ if (ui.moveShipBtn) {
 
         const badge = document.createElement('div');
         badge.className = 'badge';
-        if (roleLabel === 'spectator') { badge.classList.add('spectatorNoColor'); badge.style.background = 'none'; }
-      else badge.style.background = p.color;
+          // A spectator viewing this resource list still sees the active
+        // players' colors; spectator badges are handled in the room roster.
+        badge.style.background = p.color || 'transparent';
         main.appendChild(badge);
         if (colorblindMode) {
           try {
