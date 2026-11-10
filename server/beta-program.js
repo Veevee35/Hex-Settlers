@@ -132,10 +132,11 @@ class BetaProgram {
     this.dirty = true;
     return entry;
   }
-  markFeedbackEmailFailure(id, attempts, nextAttemptAt) {
+  markFeedbackEmailFailure(id, attempts, nextAttemptAt, reason = '', at = this.now()) {
     const entry = this.state.feedback.find(f => f.id === id && f.notification);
     if (!entry) throw new Error('Feedback notification not found.');
-    entry.notification = nextAttemptAt ? { status: 'retrying', attempts, nextAttemptAt } : { status: 'failed', attempts };
+    const details = { attempts, lastError: cleanText(reason, 360), lastErrorAt: at };
+    entry.notification = nextAttemptAt ? { ...details, status: 'retrying', nextAttemptAt } : { ...details, status: 'failed' };
     this.dirty = true;
     return entry;
   }

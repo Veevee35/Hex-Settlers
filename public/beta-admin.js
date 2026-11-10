@@ -94,6 +94,17 @@
           ? `Automatic report emails enabled: ${data.feedbackEmailRecipient}. Failed deliveries are retried; use Retry email if all attempts fail.`
           : `Email notifications are queued but NOT sending. Set RESEND_API_KEY and a verified HEX_EMAIL_FROM in Cloudflare to deliver to ${data.feedbackEmailRecipient}.`;
         feedback.appendChild(el('p','smallNote',mailStatus));
+        feedback.appendChild(el('p','smallNote',`Configured sender: ${data.feedbackEmailSender || 'Not set'} · Provider: ${data.feedbackEmailProvider || 'none'}. The sender domain must be verified in Resend.`));
+        const diagnostic = el('div','betaReferralTools');
+        const diagnosticResult = el('span','smallNote','Use this to check the provider without creating a fake bug report.');
+        diagnostic.append(button('Send test email to support',async()=>{
+          diagnosticResult.textContent='Testing email delivery…';
+          try {
+            const result=await api('beta-email-test',{});
+            diagnosticResult.textContent=`Accepted by ${result.provider || 'provider'}. Check the support inbox and spam folder.`;
+          } catch (err) { diagnosticResult.textContent=`Delivery error: ${err.message}`; }
+        }),diagnosticResult);
+        feedback.appendChild(diagnostic);
         const feedbackRows=(data.feedback||[]).slice(0,100).map(f=>{
           const body=el('div','betaFeedbackAdminText');
           body.appendChild(el('strong','',f.description));
@@ -116,7 +127,8 @@
             : n?.status==='pending' ? (data.feedbackEmailConfigured ? 'Queued' : 'Waiting for email setup')
             : 'Older report';
           mail.appendChild(el('span','',description));
-          if(n && n.status==='failed')mail.appendChild(button('Retry email',async()=>{
+          if(n?.lastError)mail.appendChild(el('div','smallNote',`Last error: ${n.lastError}`));
+          if(n && (n.status==='failed' || n.status==='retrying'))mail.appendChild(button('Retry now',async()=>{
             try {await api('beta-feedback-email-retry',{id:f.id});status.textContent='Email retry queued.';void load();}
             catch(error){status.textContent=error.message;}
           }));

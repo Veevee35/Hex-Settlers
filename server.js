@@ -17,7 +17,7 @@ const WebSocket = require('ws');
 const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
 const { GameAnalytics, modeForRoom, newMetrics } = require('./server/game-analytics');
 const { BetaProgram, cleanReferral } = require('./server/beta-program');
-const { BETA_FEEDBACK_RECIPIENT, BetaFeedbackEmailNotifier } = require('./server/beta-feedback-email');
+const { BETA_FEEDBACK_RECIPIENT, BetaFeedbackEmailNotifier, safeDeliveryError } = require('./server/beta-feedback-email');
 const CF_STATE = require('./cloudflare/state-sync');
 const { applyBuild, displayVersion } = require('./server/build-version');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
@@ -51,6 +51,7 @@ const {
   escapeHtml,
   isEmailDeliveryConfigured,
   emailDeliveryMode,
+  fromAddress,
   normalizeEmail,
   sendTransactionalEmail,
   validateEmailAddress,
@@ -10117,6 +10118,9 @@ const adminActionLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 60,
   windowMs: 60_000,
 });
+// A dedicated limiter prevents accidental repeated provider sends from the
+// admin diagnostic, without restricting normal reporting and admin analytics.
+const betaEmailTestLimiter = new SlidingWindowRateLimiter({ maxAttempts: 2, windowMs: 60_000 });
 const accountActionLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 30,
   windowMs: 60_000,
@@ -11046,6 +11050,8 @@ async function handleAdminHttp(req, res, urlPath) {
   if (urlPath === '/api/admin/beta-report') {
     sendHttpJson(req, res, 200, { ok: true, ...BETA.report(body.range),
       feedbackEmailConfigured: isEmailDeliveryConfigured(process.env),
+      feedbackEmailProvider: emailDeliveryMode(process.env),
+      feedbackEmailSender: fromAddress(process.env),
       feedbackEmailRecipient: BETA_FEEDBACK_RECIPIENT });
     return;
   }
@@ -11063,6 +11069,24 @@ async function handleAdminHttp(req, res, urlPath) {
       await BETA.save();
       sendHttpJson(req, res, 200, { ok: true, entry });
     } catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/beta-email-test') {
+    const testLimit = betaEmailTestLimiter.consume(admin.id);
+    if (!testLimit.allowed) {
+      sendHttpJson(req, res, 429, { ok: false, error: 'Please wait before sending another diagnostic email.' });
+      return;
+    }
+    try {
+      const delivery = await BETA_FEEDBACK_EMAIL.sendDiagnostic();
+      sendHttpJson(req, res, 200, { ok: true, ...delivery,
+        message: 'Email provider accepted the test. Check support@hexsettlers.com and its spam folder.' });
+    } catch (error) {
+      const message = safeDeliveryError(error);
+      console.warn('[beta] Admin email diagnostic failed:', message);
+      sendHttpJson(req, res, isEmailDeliveryConfigured(process.env) ? 502 : 503,
+        { ok: false, error: message });
+    }
     return;
   }
   if (urlPath === '/api/admin/beta-feedback-email-retry') {
@@ -15561,6 +15585,7 @@ const authLimiterCleanupInterval = setInterval(() => {
   betaEventLimiter.cleanup(); betaFeedbackLimiter.cleanup();
   passwordAuthLimiter.cleanup();
   adminActionLimiter.cleanup();
+  betaEmailTestLimiter.cleanup();
   accountActionLimiter.cleanup();
   passwordResetRequestLimiter.cleanup();
 }, 60_000);

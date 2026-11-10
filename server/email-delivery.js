@@ -430,7 +430,14 @@ async function sendViaResend(message, env = process.env, fetchImpl = fetch) {
   }
   let payload = null;
   try { payload = await response.json(); } catch (_) {}
-  if (!response.ok) throw new Error((payload && payload.message) || `Resend returned HTTP ${response.status}.`);
+  if (!response.ok) {
+    const providerMessage = typeof payload?.message === 'string' ? payload.message : '';
+    const providerCode = typeof payload?.name === 'string' ? payload.name : '';
+    const error = new Error(`Resend HTTP ${response.status}${providerCode ? ` (${providerCode})` : ''}: ${providerMessage || response.statusText || 'Request rejected'}`);
+    error.statusCode = response.status;
+    error.provider = 'resend';
+    throw error;
+  }
   return { ok: true, provider: 'resend', id: payload && payload.id };
 }
 
@@ -492,6 +499,7 @@ async function sendTransactionalEmail(message, env = process.env) {
 
 module.exports = {
   emailDeliveryMode,
+  fromAddress,
   escapeHtml,
   isEmailDeliveryConfigured,
   isPublicMailAddress,

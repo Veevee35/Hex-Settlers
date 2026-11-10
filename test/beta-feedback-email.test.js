@@ -133,3 +133,50 @@ test('reports submitted before the feature upgrade are never mailed retroactivel
   await notifier.process();
   assert.equal(called, false);
 });
+
+test('provider 403 rejection records readable failure once and does not retry forever', async t => {
+  const fx = fixture(t);
+  const store = new BetaProgram(fx.path, { now: fx.now });
+  const id = store.feedback({ category: 'bug', description: 'The game freezes after the pirate move' });
+  await store.save();
+  let attempts = 0;
+  const notifier = new BetaFeedbackEmailNotifier(store, { now: fx.now, configured: () => true,
+    send: async () => {
+      attempts++;
+      const err = new Error('Resend HTTP 403 (validation_error): The hexsettlers.com domain is not verified');
+      err.statusCode = 403;
+      throw err;
+    }, logger: { warn: () => {}, error: () => {} } });
+  await notifier.process();
+  const state = store.state.feedback[0].notification;
+  assert.equal(state.status, 'failed');
+  assert.equal(state.attempts, 1);
+  assert.match(state.lastError, /domain is not verified/);
+  await notifier.process();
+  assert.equal(attempts, 1);
+  const reloaded = new BetaProgram(fx.path, { now: fx.now });
+  assert.match(reloaded.state.feedback[0].notification.lastError, /domain is not verified/);
+  reloaded.retryFeedbackEmail(id);
+  const accepted = new BetaFeedbackEmailNotifier(reloaded, { now: fx.now, configured: () => true,
+    send: async () => ({ ok: true, provider: 'resend', id: 'test-message' }) });
+  await accepted.process();
+  assert.equal(reloaded.state.feedback[0].notification.status, 'sent');
+});
+
+test('admin diagnostic sends to fixed support inbox without changing a report', async t => {
+  const fx = fixture(t);
+  const store = new BetaProgram(fx.path, { now: fx.now });
+  const outgoing = [];
+  const notifier = new BetaFeedbackEmailNotifier(store, { now: fx.now, configured: () => true,
+    send: async msg => { outgoing.push(msg); return { provider: 'resend', id: 'diagnostic-123' }; } });
+  const result = await notifier.sendDiagnostic();
+  assert.equal(result.provider, 'resend');
+  assert.equal(result.messageId, 'diagnostic-123');
+  assert.equal(outgoing[0].to, 'support@hexsettlers.com');
+  assert.equal(store.state.feedback.length, 0);
+});
+
+test('provider diagnostic redacts API tokens before persistence', () => {
+  const { safeDeliveryError } = require('../server/beta-feedback-email');
+  assert.doesNotMatch(safeDeliveryError(new Error('Bearer supersecret re_abcdefghijklmnopqrstuvwxyz was invalid')), /supersecret|re_abcdefghijklmn/);
+});

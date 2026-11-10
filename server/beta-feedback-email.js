@@ -5,6 +5,22 @@
 const { isEmailDeliveryConfigured, sendTransactionalEmail } = require('./email-delivery');
 
 const BETA_FEEDBACK_RECIPIENT = 'support@hexsettlers.com';
+
+// Logs may include provider diagnostics; persist only an abbreviated, redacted
+// explanation and expose it strictly through authenticated administrator APIs.
+function safeDeliveryError(error) {
+  let detail = String(error?.message || error || 'Email provider did not accept the message.');
+  detail = detail.replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+    .replace(/\b(?:re|rk)_[A-Za-z0-9_-]{12,}\b/g, '[redacted]')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 330);
+  return detail || 'Email provider did not accept the message.';
+}
+
+function permanentDeliveryError(error) {
+  // Configuration and validation errors need an admin correction; retrying
+  // them every few minutes cannot succeed until the credentials/domain change.
+  return [400, 401, 402, 403, 404, 422].includes(Number(error?.statusCode));
+}
 const MAX_DELIVERY_ATTEMPTS = 6;
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000, 3 * 60 * 60_000, 12 * 60 * 60_000];
 const CATEGORY_LABELS = Object.freeze({
@@ -63,6 +79,16 @@ class BetaFeedbackEmailNotifier {
     return this.inflight;
   }
 
+  async sendDiagnostic() {
+    if (!this.configured()) throw new Error('Outgoing email is not configured in the running game container.');
+    const result = await this.send({
+      to: BETA_FEEDBACK_RECIPIENT,
+      subject: '[Hex Settlers Beta] Email delivery test',
+      text: 'This is an administrator-requested delivery test from Hex Settlers. If this arrives, the email provider accepted a test message. This does not submit or resend any player feedback.',
+    });
+    return { provider: result?.provider || 'email', messageId: result?.id || null };
+  }
+
   async processDue() {
     if (!this.configured()) return { sent: 0, reason: 'email-not-configured' };
     let sent = 0;
@@ -75,7 +101,10 @@ class BetaFeedbackEmailNotifier {
       } catch (error) {
         const attempts = (Number(mail.attempts) || 0) + 1;
         const exhausted = attempts >= MAX_DELIVERY_ATTEMPTS;
-        this.beta.markFeedbackEmailFailure(report.id, attempts, exhausted ? 0 : this.now() + RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)]);
+        const permanent = permanentDeliveryError(error);
+        this.beta.markFeedbackEmailFailure(report.id, attempts,
+          exhausted || permanent ? 0 : this.now() + RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)],
+          safeDeliveryError(error), this.now());
         this.logger.warn('[beta] Feedback notification failed:', report.id, error && error.message || String(error));
         try { await this.beta.save(); }
         catch (saveError) { this.logger.error('[beta] Could not persist notification retry:', saveError.message); }
@@ -92,4 +121,4 @@ class BetaFeedbackEmailNotifier {
   }
 }
 
-module.exports = { BETA_FEEDBACK_RECIPIENT, feedbackEmailMessage, BetaFeedbackEmailNotifier, MAX_DELIVERY_ATTEMPTS };
+module.exports = { BETA_FEEDBACK_RECIPIENT, feedbackEmailMessage, BetaFeedbackEmailNotifier, MAX_DELIVERY_ATTEMPTS, safeDeliveryError, permanentDeliveryError };
