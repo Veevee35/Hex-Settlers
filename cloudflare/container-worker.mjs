@@ -9,7 +9,7 @@ const STATE_HOST = 'hex-state.internal';
 // Host routing is checked before ASSETS or the backend are reached.
 import { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath } from './admin-routing.mjs';
 export { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath };
-const JSON_FILES = new Set(['users.json', 'game_history.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
+const JSON_FILES = new Set(['users.json', 'game_history.json', 'game_analytics.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
 const MAX_STATE_UPLOAD = 128 * 1024 * 1024;
 const MAX_TEXTURE_UPLOAD = 8 * 1024 * 1024;
 // HTTP uploads from the Node container should have Content-Length. If a proxy

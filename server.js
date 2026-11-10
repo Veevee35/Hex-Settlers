@@ -15,6 +15,7 @@ const { monitorEventLoopDelay } = require('perf_hooks');
 const WebSocket = require('ws');
 
 const { CoalescingJsonFileWriter, JsonFileWriter } = require('./server/persistence');
+const { GameAnalytics, modeForRoom, newMetrics } = require('./server/game-analytics');
 const CF_STATE = require('./cloudflare/state-sync');
 const { applyBuild, displayVersion } = require('./server/build-version');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
@@ -206,6 +207,8 @@ let userSockets = new Map(); // userId -> Set<ws>; multiple tabs may authenticat
 // Completed games are stored on disk in game_history.json (DATA_DIR).
 // Each entry includes a compact metadata header + a postgame snapshot (stats + players + rules) for viewing later.
 const HISTORY_DB_PATH = path.join(DATA_DIR, 'game_history.json');
+const GAME_ANALYTICS_PATH = path.join(DATA_DIR, 'game_analytics.json');
+const GAME_ANALYTICS = new GameAnalytics(GAME_ANALYTICS_PATH);
 const HISTORY_MAX_GAMES = 5000;
 const NEURAL_AI_MODEL_PATH = path.join(DATA_DIR, 'neural_ai_model.json');
 const HISTORY_WRITER = new JsonFileWriter(HISTORY_DB_PATH, { space: 0 });
@@ -8808,6 +8811,58 @@ function sendToRoomMember(room, playerId, payload) {
 
 const rooms = new Map(); // code -> room
 const rankedQueues = new Map(); // one server-owned four-player ranked queue
+
+// Live metrics include real connection state, not stale room membership. Users
+// with multiple tabs count once, and AI seats never inflate human activity.
+function liveGameMetrics() {
+  const metrics = newMetrics();
+  const details = [];
+  metrics.onlineAccounts = userSockets.size;
+  metrics.webSockets = typeof wss === 'undefined' ? 0 : wss.clients.size;
+  const uniquePlaying = new Set();
+  for (const room of rooms.values()) {
+    const phase = String(room.game?.phase || 'lobby');
+    const mode = modeForRoom(room);
+    const humans = (room.players || []).filter(p => p && !p.isAI);
+    const ai = (room.players || []).filter(p => p && p.isAI);
+    const spectators = (room.spectators || []).filter(p => p && !p.isAI);
+    const isConnected = id => room.sockets?.get(id)?.readyState === WebSocket.OPEN;
+    const connected = humans.filter(p => isConnected(p.id));
+    const watching = spectators.filter(p => isConnected(p.id));
+    metrics.totalRooms++;
+    metrics.aiSeats += ai.length;
+    metrics.connectedPlayers += connected.length;
+    metrics.spectators += watching.length;
+    for (const p of connected) uniquePlaying.add(String(p.id));
+    if (phase === 'lobby') metrics.waitingLobbies++;
+    else if (phase === 'game-over') metrics.finishedRooms++;
+    else { metrics.activeGames++; if (room.game?.paused) metrics.pausedGames++; }
+    if (String(room.visibility || '').toLowerCase() === 'public') metrics.publicLobbies++;
+    else metrics.privateLobbies++;
+    const bucket = { ranked: 'rankedRooms', unranked: 'unrankedRooms', casual: 'casualRooms', daily: 'dailyRooms', weekly: 'weeklyRooms' }[mode];
+    metrics[bucket]++;
+    details.push({ code: String(room.code || ''), mode, phase, paused: !!room.game?.paused,
+      visibility: String(room.visibility || 'private'), capacity: Number(room.rules?.playerCount || room.players?.length || 0),
+      humans: humans.length, connected: connected.length, ai: ai.length,
+      spectators: watching.length, createdAt: Number(room.createdAt || 0), lastActiveAt: Number(room.lastActiveAt || 0),
+      map: String(room.rules?.mapMode || 'classic'), scenario: String(room.rules?.seafarersScenario || ''),
+      players: humans.map(p => ({ name: String(p.name || '').slice(0, 60), online: isConnected(p.id) })),
+    });
+  }
+  metrics.playingHumans = uniquePlaying.size;
+  for (const queue of rankedQueues.values()) metrics.rankedQueue += queue.filter(q => q.ws?.readyState === WebSocket.OPEN).length;
+  details.sort((a, b) => Number(b.connected > 0) - Number(a.connected > 0) || b.lastActiveAt - a.lastActiveAt);
+  return { metrics, details };
+}
+function captureGameAnalytics() {
+  const at = Date.now();
+  const { metrics } = liveGameMetrics();
+  GAME_ANALYTICS.markOnline(userSockets.keys(), at);
+  if (GAME_ANALYTICS.capture(metrics, at)) {
+    GAME_ANALYTICS.save().catch(error => console.error('[analytics] Failed to persist telemetry:', error.message));
+  }
+}
+
 const RANKED_PLAYER_COUNT = 4;
 const RANKED_SCENARIO_VOTE_MS = (process.env.NODE_ENV === 'test' && process.env.RANKED_BALLOT_TEST_MS)
   ? Math.max(800, Math.min(30_000, Math.floor(Number(process.env.RANKED_BALLOT_TEST_MS) || 30_000)))
@@ -9528,8 +9583,12 @@ function challengeMapsCatalog(userId) {
       const geom = challengeGeom(challenge);
       return { playerCount, leaderboard: challengeLeaderboard(periodId, playerCount, kind),
         preview: (geom.tiles || []).map(tile => ({
-          x: Number(tile.cx), y: Number(tile.cy), type: String(tile.type || 'sea'),
-          number: Number.isInteger(tile.number) ? tile.number : null,
+          x: Number(tile.cx), y: Number(tile.cy),
+          // Challenge previews must show the *unexplored* face of fog tiles.
+          // Never leak the saved hidden resource or its number before exploration.
+          type: tile.fog && !tile.revealed ? 'unexplored' : String(tile.type || 'sea'),
+          fog: !!(tile.fog && !tile.revealed),
+          number: tile.fog && !tile.revealed ? null : (Number.isInteger(tile.number) ? tile.number : null),
         })).filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y)) };
     });
   }
@@ -9889,6 +9948,8 @@ function activateAuthenticatedSocket(ws, user) {
   ws._userId = user.id;
   ws._username = user.username;
   ws._authed = true;
+  // A login lasting less than one sample still counts toward daily unique activity.
+  GAME_ANALYTICS.markUser(user.id);
   return true;
 }
 
@@ -10790,6 +10851,22 @@ async function handleAdminHttp(req, res, urlPath) {
       sendHttpJson(req, res, 500, { ok: false, error: 'Could not save imported history; server storage may be unavailable.' }); return;
     }
     sendHttpJson(req, res, 200, { ok: true, added: result.added, skipped: result.skipped, backup, message: `Imported ${result.added} game(s), skipped ${result.skipped} duplicate(s). Backup: ${backup}. Ratings remain unchanged until manually rebuilt.` });
+    return;
+  }
+
+  if (urlPath === '/api/admin/game-stats') {
+    const allowed = new Set(['day', 'week', 'month', 'quarter']);
+    const range = allowed.has(body.range) ? body.range : 'day';
+    const at = Date.now();
+    const { metrics, details } = liveGameMetrics();
+    GAME_ANALYTICS.markOnline(userSockets.keys(), at);
+    const report = GAME_ANALYTICS.report({ range, at, live: metrics,
+      games: (HISTORY_DB.games || []).filter(isValidHistoryEntry), users: USERS_DB.users || [] });
+    // Only the admin receives room and account activity details.
+    sendHttpJson(req, res, 200, { ok: true, ...report, rooms: details,
+      notes: ['Concurrency is measured every five minutes (hourly after seven days).',
+        'Unique active accounts are measured from authenticated game connections since telemetry began.',
+        'Completed game trends use the retained game archive (up to 5,000 games); casual games are deliberately excluded.'] });
     return;
   }
 
@@ -15145,6 +15222,7 @@ const wsHeartbeatInterval = setInterval(() => {
 }, WS_HEARTBEAT_INTERVAL_MS);
 
 const roomCleanupInterval = setInterval(cleanupRooms, 60_000);
+const gameAnalyticsInterval = setInterval(captureGameAnalytics, 5 * 60_000);
 const authLimiterCleanupInterval = setInterval(() => {
   passwordAuthLimiter.cleanup();
   adminActionLimiter.cleanup();
@@ -15160,7 +15238,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, authLimiterCleanupInterval]) {
+  for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, gameAnalyticsInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }
 
@@ -15172,11 +15250,15 @@ async function gracefulShutdown(exitCode = 0) {
   saveUsersDb();
   saveHistoryDb();
   saveNeuralAiModel();
+  // Snapshot final activity before the container shuts down.
+  try { captureGameAnalytics(); } catch (error) { console.error('[analytics] Final sample failed:', error.message); }
+  await GAME_ANALYTICS.save().catch(error => console.error('[analytics] Final save failed:', error.message));
   await Promise.allSettled([
     ACTIVE_ROOMS_WRITER.flush(),
     USERS_WRITER.flush(),
     HISTORY_WRITER.flush(),
     NEURAL_AI_MODEL_WRITER.flush(),
+    GAME_ANALYTICS.flush(),
   ]);
 
   await Promise.race([
@@ -15209,6 +15291,7 @@ wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 
 ensureBuiltInAdminAccount().then(() => {
   server.listen(PORT, HOST, () => {
+    captureGameAnalytics();
     console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${PORT} (instance ${SERVER_INSTANCE_ID})`);
     buildVersionReady = registerSuccessfulBuild().catch(err => { console.error('[build] Version storage unavailable:', err.message); });
   });

@@ -389,3 +389,23 @@ body.uncreated-lobby #lobbyCard>.lobbyCardHeading {padding-bottom:8px;border-bot
 .challengeLockedSetup { position: relative; }
 #journeyChallengeBtn span + span { margin-top: 4px; font-size: .8em; opacity: .75; }
 
+
+/* Challenge Maps header: no logo, left-anchored title, right-anchored description. */
+#journeyScreen.challengeWideLayout .journeyLogo,
+#journeyScreen.challengeWideLayout .portalEyebrow { display:none; }
+#journeyScreen.challengeWideLayout .journeyHeading {
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+  gap:12px 24px; min-height:46px; padding-left:clamp(170px, 14vw, 235px);
+}
+#journeyScreen.challengeWideLayout .journeyHeading h1 {
+  flex:0 1 auto; margin:0; text-align:left; white-space:nowrap;
+}
+#journeyScreen.challengeWideLayout .journeyHeading .portalLead {
+  flex:1 1 340px; width:auto; max-width:760px; margin:0; text-align:right;
+}
+#journeyScreen.challengeWideLayout .challengeMapsPanel { margin-top:12px; }
+@media (max-width:850px) {
+  #journeyScreen.challengeWideLayout .journeyHeading {padding:42px 0 0; align-items:flex-start;}
+  #journeyScreen.challengeWideLayout .journeyHeading h1 {white-space:normal;}
+  #journeyScreen.challengeWideLayout .journeyHeading .portalLead {flex-basis:100%;text-align:left;}
+}

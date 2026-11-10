@@ -9803,6 +9803,219 @@ function refreshLobbyJoinLinkUi() {
     }, 5000);
   }
 
+  // --- Administrator game analytics: live occupancy + durable time series. ---
+  function statsSvg(tag, attrs = {}, text = '') {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+    if (text !== '') node.textContent = text;
+    return node;
+  }
+  function renderGameStatsChart(host, title, data, metrics, { dateAxis = false } = {}) {
+    host.replaceChildren();
+    const panel = adminElement('section', 'adminStatsChartPanel');
+    panel.appendChild(adminElement('h3', '', title));
+    const legend = adminElement('div', 'adminStatsLegend');
+    for (const metric of metrics) {
+      const item = adminElement('span', '', metric.label);
+      item.style.setProperty('--metric-color', metric.color);
+      legend.appendChild(item);
+    }
+    panel.appendChild(legend);
+    if (data.length < 2) {
+      panel.appendChild(adminElement('p', 'smallNote', 'Not enough data yet. Historical activity accumulates automatically after deployment.'));
+      host.appendChild(panel); return;
+    }
+    const svg = statsSvg('svg', { viewBox:'0 0 780 250', role:'img',
+      'aria-label': title + ', showing ' + metrics.map(m => m.label).join(', '), preserveAspectRatio:'none' });
+    const WIDTH = 780, HEIGHT = 250, L = 43, R = 14, T = 12, B = 36;
+    const xStart = L, xSpan = WIDTH - L - R, ySpan = HEIGHT - T - B;
+    const values = data.flatMap(row => metrics.map(metric => Number(row[metric.key]) || 0));
+    const maxValue = Math.max(1, ...values);
+    const maxY = maxValue <= 5 ? Math.ceil(maxValue) : Math.ceil(maxValue / 5) * 5;
+    for (let i = 0; i <= 4; i++) {
+      const y = T + i * ySpan / 4;
+      svg.appendChild(statsSvg('line', { x1:L, x2:WIDTH-R, y1:y, y2:y, stroke:'rgba(169,190,209,.19)' }));
+      svg.appendChild(statsSvg('text', { x:L-8, y:y+4, fill:'#9cb3c7', 'font-size':12, 'text-anchor':'end' }, String(Math.round(maxY*(4-i)/4))));
+    }
+    const xOf = i => xStart + (data.length === 1 ? 0 : i*xSpan/(data.length-1));
+    const yOf = v => T + ySpan - Math.max(0,Number(v)||0)/maxY*ySpan;
+    for (let i = 0; i < 5; i++) {
+      const n = Math.min(data.length-1, Math.round(i * (data.length-1)/4));
+      const value = data[n];
+      const label = dateAxis ? String(value.day || '').slice(5) : new Date(value.at).toLocaleString(undefined, {
+        timeZone:'America/Chicago', month:'short', day:'numeric', hour:'numeric', minute:'2-digit',
+      });
+      svg.appendChild(statsSvg('text', { x:xOf(n), y:HEIGHT-12, fill:'#aabed0',
+        'font-size':11, 'text-anchor': i === 0 ? 'start' : i === 4 ? 'end' : 'middle' }, label));
+    }
+    for (const metric of metrics) {
+      const d = data.map((row,i) => `${i ? 'L' : 'M'}${xOf(i).toFixed(2)},${yOf(row[metric.key]).toFixed(2)}`).join(' ');
+      svg.appendChild(statsSvg('path', { d, fill:'none', stroke:metric.color, 'stroke-width':2.5,
+        'stroke-linecap':'round', 'stroke-linejoin':'round', 'vector-effect':'non-scaling-stroke' }));
+      if (data.length <= 40) for (let i = 0; i < data.length; i++) {
+        const point = statsSvg('circle', { cx:xOf(i), cy:yOf(data[i][metric.key]), r:3.5, fill:metric.color });
+        point.appendChild(statsSvg('title', {}, `${metric.label}: ${data[i][metric.key]} (${dateAxis ? data[i].day : new Date(data[i].at).toLocaleString()})`));
+        svg.appendChild(point);
+      }
+    }
+    panel.appendChild(svg); host.appendChild(panel);
+  }
+
+  function renderAdminGameStats(container) {
+    container.replaceChildren();
+    const shell = adminElement('div', 'adminStats');
+    const top = adminElement('div', 'adminStatsTop');
+    const title = adminElement('div', 'adminStatsHeading');
+    title.append(adminElement('h2', '', 'Game Stats'),
+      adminElement('p', 'smallNote', 'Live players, lobby health, and game activity over time. All times displayed in Central Time.'));
+    const buttons = adminElement('div', 'adminStatsControls');
+    const period = document.createElement('select');
+    period.className = 'input'; period.setAttribute('aria-label', 'Game analytics time range');
+    for (const [key,label] of [['day','Last 24 hours'],['week','Last 7 days'],['month','Last 30 days'],['quarter','Last 90 days']]) {
+      const option = document.createElement('option'); option.value = key; option.textContent = label; period.appendChild(option);
+    }
+    const refreshButton = adminElement('button', 'btn', 'Refresh now'); refreshButton.type = 'button';
+    buttons.append(period, refreshButton); top.append(title, buttons);
+    const status = adminElement('div', 'adminStatsStatus', 'Loading analytics…'); status.setAttribute('role', 'status');
+    const liveTitle = adminElement('h3', 'adminStatsSectionTitle', 'Right now');
+    const liveMetrics = adminElement('div', 'adminStatsMetrics');
+    const periodTitle = adminElement('h3', 'adminStatsSectionTitle', 'Selected period');
+    const rangeMetrics = adminElement('div', 'adminStatsMetrics');
+    const charts = adminElement('div', 'adminStatsCharts');
+    const breakdown = adminElement('div', 'adminStatsBreakdown');
+    const lobbySection = adminElement('section', 'adminStatsLobbySection');
+    const foot = adminElement('div', 'adminStatsFoot');
+    shell.append(top,status,liveTitle,liveMetrics,periodTitle,rangeMetrics,charts,breakdown,lobbySection,foot);
+    container.appendChild(shell);
+    const fmt = value => Number(value || 0).toLocaleString();
+    const metricCard = (name, value, subtitle) => {
+      const card = adminElement('div', 'adminStatsMetric');
+      card.append(adminElement('div', 'adminStatsMetricLabel', name),adminElement('strong', '', String(value)));
+      if (subtitle) card.append(adminElement('small', '', subtitle));
+      return card;
+    };
+    let busy = false;
+    let generation = 0;
+    let pendingRefresh = false;
+    let visible = true;
+    const isOpen = () => visible && container.isConnected &&
+      !!container.closest('.adminDashboard')?.querySelector('.adminTabs [data-tab="stats"].active');
+    async function refresh() {
+      if (!isOpen()) return;
+      if (busy) { pendingRefresh = true; return; }
+      busy = true; const request = ++generation;
+      refreshButton.disabled = true;
+      try {
+        const data = await adminApi('game-stats', { range:period.value });
+        if (!isOpen() || request !== generation) return;
+        const live = data.live || {}, history = data.history || {}, peaks = data.peaks || {};
+        const time = new Date(data.sampledAt).toLocaleString(undefined, {timeZone:'America/Chicago'});
+        status.textContent = `Updated ${time} CT · ${data.series.length-1} historical readings · Collecting since ${new Date(data.startedCollectingAt).toLocaleString()}`;
+        liveMetrics.replaceChildren(); rangeMetrics.replaceChildren(); charts.replaceChildren(); breakdown.replaceChildren(); lobbySection.replaceChildren(); foot.replaceChildren();
+        for (const [label,value,hint] of [
+          ['Online accounts', fmt(live.onlineAccounts), 'Unique authenticated accounts'],
+          ['WebSocket connections', fmt(live.webSockets), 'Includes multiple tabs'],
+          ['Playing humans', fmt(live.playingHumans), 'Connected, distinct player accounts'],
+          ['Spectators', fmt(live.spectators), 'Connected viewers in rooms'],
+          ['AI seats', fmt(live.aiSeats), 'Computer-controlled seats'],
+          ['Active games', fmt(live.activeGames), 'Currently in progress'],
+          ['Waiting lobbies', fmt(live.waitingLobbies), 'Awaiting game start'],
+          ['Paused games', fmt(live.pausedGames), 'Still counted as active'],
+          ['Ranked queue', fmt(live.rankedQueue), 'Players waiting for matchmaking'],
+          ['Public / private', `${fmt(live.publicLobbies)} / ${fmt(live.privateLobbies)}`, 'All retained rooms'],
+        ]) liveMetrics.appendChild(metricCard(label,value,hint));
+        for (const [label,value,hint] of [
+          ['Unique active accounts', fmt(data.uniqueAccounts), 'Logged in during the selected period'],
+          ['Peak online accounts', fmt(peaks.onlineAccounts), 'Highest sampled concurrency'],
+          ['Peak active games', fmt(peaks.activeGames), 'Highest sampled concurrent games'],
+          ['Completed games', fmt(history.completed), 'From retained game history'],
+          ['Game participants', fmt(history.uniqueParticipants), 'Distinct archived participant IDs'],
+          ['Average game length', history.averageMinutes === null ? '—' : `${history.averageMinutes} min`, 'Completed games only'],
+          ['Average turns', history.averageTurns === null ? '—' : String(history.averageTurns), 'Completed games only'],
+          ['Total VP scored', fmt(history.totalVictoryPoints), 'Completed games only'],
+          ['New accounts', fmt(data.newAccounts), `${fmt(data.registeredAccounts)} registered total`],
+        ]) rangeMetrics.appendChild(metricCard(label,value,hint));
+        const m = (key,label,color) => ({key,label,color});
+        const connected = adminElement('div', 'adminStatsChartGrid');
+        renderGameStatsChart(connected, 'Concurrent users and occupied seats', data.series || [], [
+          m('onlineAccounts','Online accounts','#71bbff'),m('playingHumans','Active players','#f3be65'),
+          m('spectators','Spectators','#bf91fd'),m('aiSeats','AI seats','#70dbaf'),
+        ]);
+        renderGameStatsChart(connected, 'Live games, waiting lobbies and queue', data.series || [], [
+          m('activeGames','Active games','#f0ba62'),m('waitingLobbies','Waiting lobbies','#77c8fb'),
+          m('pausedGames','Paused','#ec8885'),m('rankedQueue','Ranked queue','#c89cff'),
+        ]);
+        renderGameStatsChart(connected, 'Daily active users, registrations and wins', data.daily || [], [
+          m('activeUsers','Active accounts','#71bbff'),m('completedGames','Completed games','#f3be65'),
+          m('newAccounts','New accounts','#70dbaf'),
+        ], {dateAxis:true});
+        renderGameStatsChart(connected, 'Live rooms by game mode', data.series || [], [
+          m('rankedRooms','Ranked','#f2b45e'),m('unrankedRooms','Unranked','#71bbff'),
+          m('casualRooms','Casual','#6edaab'),m('dailyRooms','Dailies','#e58b94'),
+          m('weeklyRooms','Weeklys','#c599ff'),
+        ]);
+        charts.appendChild(connected);
+        const byMode = adminElement('section', 'adminStatsBreakdownPanel');
+        byMode.appendChild(adminElement('h3', '', 'Game modes: live rooms vs. completed games'));
+        const tbl = document.createElement('table'); tbl.className = 'adminStatsTable';
+        const header = document.createElement('tr');
+        for (const cell of ['Mode','Live rooms','Completed games']) header.appendChild(adminElement('th','',cell));
+        tbl.appendChild(header);
+        for (const [label, liveKey, archiveKey] of [
+          ['Ranked','rankedRooms','ranked'],['Unranked','unrankedRooms','unranked'],
+          ['Casual','casualRooms','casual'],['Daily challenge','dailyRooms','daily'],['Weekly challenge','weeklyRooms','weekly'],
+        ]) { const tr = document.createElement('tr'); for (const value of [label,fmt(live[liveKey]),fmt(history.byMode?.[archiveKey])]) tr.appendChild(adminElement('td','',value)); tbl.appendChild(tr); }
+        byMode.appendChild(tbl); breakdown.appendChild(byMode);
+        const scenarios = adminElement('section','adminStatsBreakdownPanel');
+        scenarios.appendChild(adminElement('h3','','Most-played scenarios (completed games)'));
+        if (!history.topScenarios?.length) scenarios.appendChild(adminElement('p','smallNote','No completed games in this date range.'));
+        else for (const item of history.topScenarios) {
+          const row = adminElement('div','adminStatsScenarioRow');
+          row.append(adminElement('span','',item.name),adminElement('strong','',fmt(item.games)));
+          scenarios.appendChild(row);
+        }
+        breakdown.appendChild(scenarios);
+        const lobbyHead = adminElement('div','adminStatsLobbyHeading');
+        lobbyHead.append(adminElement('h3','','Current lobbies and games'),
+          adminElement('span','smallNote',`${fmt(data.rooms?.length)} rooms · sorted by connected activity`));
+        lobbySection.appendChild(lobbyHead);
+        const scroll = adminElement('div','adminStatsTableScroll');
+        const lobbyTable = document.createElement('table'); lobbyTable.className = 'adminStatsTable';
+        const th = document.createElement('tr');
+        for (const label of ['Room','Mode','State','People','AI','Spectators','Visibility','Map','Last activity']) th.appendChild(adminElement('th','',label));
+        lobbyTable.appendChild(th);
+        if (!data.rooms?.length) {
+          const tr = document.createElement('tr'); const td = adminElement('td','','No open lobbies or games at this time.');td.colSpan=9;tr.appendChild(td);lobbyTable.appendChild(tr);
+        }
+        for (const room of (data.rooms || []).slice(0,100)) {
+          const tr = document.createElement('tr');
+          const cells = [room.code, room.mode, room.paused ? `${room.phase} · paused` : room.phase,
+            `${room.connected}/${room.humans} online`, String(room.ai), String(room.spectators),
+            room.visibility, room.scenario ? room.scenario.replaceAll('_',' ') : room.map,
+            room.lastActiveAt ? new Date(room.lastActiveAt).toLocaleTimeString(undefined, {timeZone:'America/Chicago'}) : '—'];
+          for (const value of cells) tr.appendChild(adminElement('td','',value));
+          const playerNames = (room.players || []).map(p => `${p.name}${p.online ? ' (online)' : ' (offline)'}`).join(', ');
+          if (playerNames) tr.title = playerNames;
+          lobbyTable.appendChild(tr);
+        }
+        scroll.appendChild(lobbyTable);lobbySection.appendChild(scroll);
+        if ((data.rooms||[]).length > 100) lobbySection.appendChild(adminElement('p','smallNote','Showing the first 100 of the current rooms.'));
+        for (const note of data.notes || []) foot.appendChild(adminElement('p','smallNote',note));
+      } catch (error) { if (isOpen()) status.textContent = `Analytics unavailable: ${error.message}`; }
+      finally {
+        busy = false; refreshButton.disabled = false;
+        if (pendingRefresh) { pendingRefresh = false; void refresh(); }
+      }
+    }
+    refreshButton.addEventListener('click', refresh);
+    period.addEventListener('change', () => { void refresh(); });
+    void refresh();
+    const interval = setInterval(() => {
+      if (!isOpen()) { visible = false; clearInterval(interval); }
+      else void refresh();
+    }, 20_000);
+  }
+
   function openAdminManagementScreen() {
     if (!authUser?.isAdmin) { setError('Administrator access required.'); return; }
     const dashboard = adminElement('div', 'adminDashboard');
@@ -9810,7 +10023,7 @@ function refreshLobbyJoinLinkUi() {
     tabs.setAttribute('aria-label', 'Administrator management sections');
     const content = adminElement('section', 'adminDashboardContent');
     const options = [
-      ['server', 'Server Management'], ['ratings', 'Rating Management'],
+      ['stats', 'Game Stats'], ['server', 'Server Management'], ['ratings', 'Rating Management'],
       ['users', 'User Account Management'], ['merge', 'Merge Accounts'],
       ['history', 'Manage Game History'],
       ['health', 'Health Monitor'],
@@ -9823,6 +10036,7 @@ function refreshLobbyJoinLinkUi() {
         button.setAttribute('aria-selected', active ? 'true' : 'false');
       });
       content.replaceChildren();
+      if (key === 'stats') renderAdminGameStats(content);
       if (key === 'server') void openServerManagementConsole(content);
       if (key === 'ratings') void openRatingManagementScreen(content);
       if (key === 'users') void openUserManagementScreen({ container: content, adminOnly: true });
@@ -9839,7 +10053,7 @@ function refreshLobbyJoinLinkUi() {
     }
     dashboard.append(tabs, content);
     openModal({ title: 'Admin Management', bodyNode: dashboard, actions: [{ label: 'Close', onClick: closeModal }] });
-    selectTab('server');
+    selectTab('stats');
   }
 
   function removeAccountActionFromUrl(parameter) {
@@ -11590,13 +11804,27 @@ function refreshLobbyJoinLinkUi() {
         else context.lineTo(x, y);
       }
       context.closePath();
-      context.fillStyle = palette[tile.type] || '#738497';
+      // Use the same face-down appearance as the live game; reject accidental
+      // hidden terrain/number fields even if a cached catalog is outdated.
+      const faceDown = tile.fog === true || tile.type === 'unexplored' || tile.type === 'fog';
+      context.fillStyle = faceDown ? palette.unexplored : (palette[tile.type] || '#738497');
       context.fill();
+      if (faceDown) {
+        context.save();
+        context.clip();
+        context.strokeStyle = 'rgba(224, 237, 247, .22)';
+        context.lineWidth = Math.max(.8, scale * .045);
+        for (let dx = -scale; dx < scale * 1.5; dx += scale * .28) {
+          context.beginPath(); context.moveTo(cx + dx, cy - scale); context.lineTo(cx + dx + scale, cy + scale);
+          context.stroke();
+        }
+        context.restore();
+      }
       context.lineWidth = Math.max(.75, scale * .055);
       context.strokeStyle = 'rgba(5, 15, 24, .82)';
       context.stroke();
       // Readable number tokens help players judge the dice distribution.
-      if (scale >= 14 && Number.isInteger(tile.number) && tile.number >= 2 && tile.number <= 12) {
+      if (!faceDown && scale >= 14 && Number.isInteger(tile.number) && tile.number >= 2 && tile.number <= 12) {
         const tokenRadius = Math.min(11, Math.max(5.5, scale * .31));
         context.beginPath();
         context.arc(cx, cy, tokenRadius, 0, Math.PI * 2);

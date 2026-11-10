@@ -32,3 +32,42 @@ body.admin-portal #adminPortalDenied.hidden{display:none}
 .adminPortalDeniedCard h1{margin-top:0;font-size:26px}
 .adminPortalDeniedCard p{line-height:1.6;color:#b7c9d9}
 @media(max-width:700px){body.admin-portal .adminPortalBrand{font-size:11px}body.admin-portal .adminPortalBrand span{display:block;margin:2px 0 0}body.admin-portal .modal{padding:5px}body.admin-portal .adminTab{white-space:nowrap}body.admin-portal .adminTabs{flex-wrap:nowrap;overflow-x:auto}body.admin-portal .modalBox:has(.adminDashboard){padding:9px}}
+
+/* V60: game analytics dashboard */
+.adminStats{min-width:0;color:#e1edf7;display:grid;gap:14px;padding:1px 0 20px}
+.adminStatsTop{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.adminStatsHeading h2{font-size:23px;letter-spacing:-.035em;color:#f7e4b1;margin:0 0 5px}
+.adminStatsHeading .smallNote{margin:0;font-size:12px;max-width:740px}
+.adminStatsControls{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.adminStatsControls select{width:auto;min-width:155px;height:40px;color:#e7f5ff}
+.adminStatsStatus{font-size:12px;color:#9cc1db;border-bottom:1px solid rgba(112,156,182,.2);padding-bottom:10px}
+.adminStatsSectionTitle{color:#f3c77e;font-size:15px;margin:8px 0 0;letter-spacing:.012em}
+.adminStatsMetrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px}
+.adminStatsMetric{min-height:105px;border-radius:11px;border:1px solid #34495b;background:linear-gradient(155deg,#152838,#0d1927);padding:13px;min-width:0}
+.adminStatsMetricLabel{font-size:11px;color:#9bb8ce;font-weight:650;margin-bottom:10px}
+.adminStatsMetric strong{display:block;font-size:clamp(19px,1.7vw,27px);font-weight:850;color:#fff4cf;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.2}
+.adminStatsMetric small{display:block;color:#8fa9be;font-size:10px;margin-top:9px;line-height:1.35}
+.adminStatsChartGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.adminStatsChartPanel{min-width:0;background:#101d2c;border:1px solid #30485b;border-radius:12px;padding:16px}
+.adminStatsChartPanel h3,.adminStatsBreakdownPanel h3{font-size:14px;color:#e8c989;margin:0 0 12px}
+.adminStatsLegend{display:flex;gap:6px 13px;flex-wrap:wrap;font-size:11px;color:#c0cfda;margin-bottom:12px}
+.adminStatsLegend span{display:inline-flex;align-items:center;gap:6px}
+.adminStatsLegend span::before{content:"";display:inline-block;height:9px;width:9px;border-radius:50%;background:var(--metric-color)}
+.adminStatsChartPanel svg{width:100%;height:225px;overflow:visible;display:block}
+.adminStatsBreakdown{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.adminStatsBreakdownPanel{background:#101d2c;border:1px solid #30485b;border-radius:12px;padding:16px;min-width:0}
+.adminStatsScenarioRow{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid rgba(118,149,178,.18);font-size:12px;text-transform:capitalize}
+.adminStatsScenarioRow strong{color:#ffe0a7;font-variant-numeric:tabular-nums}
+.adminStatsLobbySection{background:#101d2c;border:1px solid #30485b;padding:15px;border-radius:12px;min-width:0}
+.adminStatsLobbyHeading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:13px}
+.adminStatsLobbyHeading h3{margin:0;font-size:15px;color:#e8c989}
+.adminStatsTableScroll{overflow:auto;width:100%;max-height:480px}
+.adminStatsTable{width:100%;min-width:560px;border-collapse:collapse;font-size:12px;text-align:left}
+.adminStatsTable th{position:sticky;top:0;color:#f0c987;background:#182839;font-size:11px;padding:11px 8px;white-space:nowrap}
+.adminStatsTable td{padding:11px 8px;border-bottom:1px solid rgba(111,155,178,.2);white-space:nowrap;color:#d4e5f3}
+.adminStatsTable tr:hover td{background:rgba(117,170,203,.06)}
+.adminStatsFoot{font-size:11px;color:#92aebf;line-height:1.45;border-top:1px solid rgba(114,151,172,.16);padding-top:10px}
+.adminStatsFoot p{margin:3px 0}
+@media(max-width:1200px){.adminStatsMetrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:800px){.adminStatsChartGrid,.adminStatsBreakdown{grid-template-columns:1fr}.adminStatsChartPanel svg{height:190px}}
+@media(max-width:560px){.adminStatsMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.adminStatsMetric{padding:10px}.adminStatsMetric strong{font-size:21px}.adminStatsTop{align-items:flex-start}}
