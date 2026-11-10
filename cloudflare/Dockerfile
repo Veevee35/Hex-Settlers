@@ -6,6 +6,7 @@ RUN npm ci --omit=dev --ignore-scripts && mkdir -p /data && chown node:node /dat
 COPY --chown=node:node server.js ./server.js
 COPY --chown=node:node server/ ./server/
 COPY --chown=node:node scripts/bump-version.cjs ./scripts/bump-version.cjs
+COPY --chown=node:node scripts/train_neural_ai_all_maps.js ./scripts/train_neural_ai_all_maps.js
 COPY --chown=node:node build-version.json ./build-version.json
 COPY --chown=node:node cloudflare/state-sync.js ./cloudflare/state-sync.js
 COPY --chown=node:node cloudflare/bootstrap.mjs ./cloudflare/bootstrap.mjs

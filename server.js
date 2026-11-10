@@ -80,6 +80,8 @@ const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
 const { FEATURE_NAMES: NEURAL_FEATURE_NAMES, FEATURE_VERSION: NEURAL_FEATURE_VERSION, TRAINING_OBJECTIVE: NEURAL_TRAINING_OBJECTIVE, opponentFeatures, upgradeNeuralModel, victoryTrainingTarget } = require('./server/neural-objective');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
+const { TrainingLab } = require('./server/training-lab');
+const { atomicWriteJson } = require('./server/persistence');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { normalizeBankTradeAction, validateBankTradeAvailability } = require('./server/bank-trade');
 const { validatePlayerTradeSides } = require('./server/player-trade');
@@ -1207,6 +1209,17 @@ loadHistoryDb();
 migrateUnrankedRatingsFromHistory();
 
 loadNeuralAiModel();
+
+const TRAINING_LAB = new TrainingLab({
+  dataDir: DATA_DIR, projectRoot: __dirname, getLiveModel: () => NEURAL_AI_MODEL,
+  promote: async (model) => {
+    const previous = NEURAL_AI_MODEL;
+    await atomicWriteJson(path.join(DATA_DIR, 'training_previous_live.json'), previous);
+    NEURAL_AI_MODEL = upgradeNeuralModel(structuredClone(model));
+    try { await NEURAL_AI_MODEL_WRITER.write(NEURAL_AI_MODEL); }
+    catch (error) { NEURAL_AI_MODEL = previous; throw error; }
+  },
+});
 
 // Repair any inflated user stats caused by older builds (stats should match *valid* history).
 rebuildUserStatsFromHistory();
@@ -3619,6 +3632,7 @@ function trainNeuralExample(prm, features, rawTarget, learningRate) {
 }
 
 function trainNeuralAiFromFinishedGame(game) {
+  if (process.env.AI_DISABLE_NEURAL_UPDATES === '1') return;
   try {
     if (!game || game._dryRun || game._neuralTrained) return;
     if (String(game.phase || '').toLowerCase() !== 'game-over') return;
@@ -10915,6 +10929,45 @@ async function handleAdminHttp(req, res, urlPath) {
   }
 
 
+  // Admin-only training laboratory. Requests are POST-only and protected by the
+  // same authenticated, hostname-isolated management gateway as all admin APIs.
+  if (urlPath === '/api/admin/training-status') {
+    sendHttpJson(req, res, 200, TRAINING_LAB.status()); return;
+  }
+  if (urlPath === '/api/admin/training-start') {
+    try { const result = await TRAINING_LAB.start(body); sendHttpJson(req, res, 200, result); }
+    catch (error) { sendHttpJson(req, res, 409, { ok:false, error:error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/training-stop') {
+    try { sendHttpJson(req, res, 200, await TRAINING_LAB.stop()); }
+    catch (error) { sendHttpJson(req, res, 409, { ok:false, error:error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/training-promote') {
+    try { sendHttpJson(req, res, 200, await TRAINING_LAB.promote(body.confirm)); }
+    catch (error) { sendHttpJson(req, res, 409, { ok:false, error:error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/training-restore-candidate') {
+    try { sendHttpJson(req, res, 200, await TRAINING_LAB.restorePreviousCandidate()); }
+    catch (error) { sendHttpJson(req, res, 409, { ok:false, error:error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/training-model') {
+    try { sendHttpJson(req, res, 200, TRAINING_LAB.exportCandidate()); }
+    catch (error) { sendHttpJson(req, res, 404, { ok:false, error:error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/training-rollback-live') {
+    try { sendHttpJson(req, res, 200, await TRAINING_LAB.rollbackLive(body.confirm)); }
+    catch (error) { sendHttpJson(req, res, 409, { ok:false, error:error.message }); }
+    return;
+  }
+  if (urlPath === '/api/admin/training-report') {
+    sendHttpJson(req, res, 200, TRAINING_LAB.report()); return;
+  }
+
   if (urlPath === '/api/admin/history-list') {
     sendHttpJson(req, res, 200, { ok: true, games: listGameHistory(HISTORY_MAX_GAMES), total: (HISTORY_DB.games || []).length, limit: HISTORY_MAX_GAMES });
     return;
@@ -15424,6 +15477,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
+  await TRAINING_LAB.shutdown().catch(error => console.error('[training] Shutdown failed:', error));
   for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, gameAnalyticsInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }

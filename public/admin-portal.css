@@ -71,3 +71,27 @@ body.admin-portal #adminPortalDenied.hidden{display:none}
 @media(max-width:1200px){.adminStatsMetrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){.adminStatsChartGrid,.adminStatsBreakdown{grid-template-columns:1fr}.adminStatsChartPanel svg{height:190px}}
 @media(max-width:560px){.adminStatsMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.adminStatsMetric{padding:10px}.adminStatsMetric strong{font-size:21px}.adminStatsTop{align-items:flex-start}}
+/* V68: authenticated expert AI laboratory */
+.trainingLab{display:grid;gap:15px;color:#d8e8f6;min-width:0;padding-bottom:30px}
+.trainingLabHeader h2{font-size:24px;color:#ffda89;margin:0 0 7px}
+.trainingLabHeader .smallNote{max-width:1050px;line-height:1.5;margin:0}
+.trainingLabWarning{margin:0;border-left:3px solid #e7b85e;background:#312815;padding:14px 16px;color:#ffdea0;font-size:12px;line-height:1.65;border-radius:8px}
+.trainingLabStats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.trainingLabPanel{min-width:0;padding:18px;background:linear-gradient(155deg,#122230,#0d1825);border:1px solid #30485b;border-radius:12px}
+.trainingLabPanel h3{margin:0 0 14px;color:#f1c984;font-size:15px}
+.trainingLabPanel>.smallNote{line-height:1.65;margin:0 0 15px}
+.trainingLabProgressHead{display:flex;gap:8px;flex-wrap:wrap;font-weight:800;font-size:13px;color:#e9f2fb;margin-bottom:12px}
+.trainingLabProgressTrack{height:15px;border-radius:100px;overflow:hidden;background:#07121e;border:1px solid #42607a}
+.trainingLabProgressFill{height:100%;border-radius:100px;background:linear-gradient(90deg,#4e9dcc,#d8ad57);transition:width .35s ease}
+.trainingLabLog{margin-top:11px;word-break:break-word;line-height:1.55;font-size:12px;color:#a8c4d8}
+.trainingLabFields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.trainingLabField{display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:750;color:#e6f2fa;min-width:0}
+.trainingLabField .input{width:100%;min-width:0;height:40px;color:#e6f5fc}
+.trainingLabField small{font-size:10px;line-height:1.45;font-weight:400;color:#9fb7ca}
+.trainingLabPlanned{margin:15px 0 0;color:#ffd38b;font-size:12px;line-height:1.5}
+.trainingLabActions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
+.trainingLabActions .btn{white-space:normal;min-height:39px}
+.trainingLabCompare{padding:12px;background:#0a1723;border:1px solid #284052;border-radius:8px;font-size:12px;color:#bbd0df;line-height:1.6}
+.trainingLabNotice{font-size:12px;color:#a9d7ed;min-height:22px}
+@media(max-width:980px){.trainingLabStats{grid-template-columns:repeat(2,minmax(0,1fr))}.trainingLabFields{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:550px){.trainingLabFields{grid-template-columns:1fr}.trainingLabPanel{padding:12px}.trainingLabStats{grid-template-columns:1fr 1fr}.trainingLabStats .adminStatsMetric{padding:10px}}
