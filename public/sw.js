@@ -1,6 +1,6 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'release-v1.0.6';
+const CACHE_NAME = CACHE_PREFIX + 'release-v63';
 const PRECACHE_URLS = [
   "/assets/sfx/dev_card.wav",
   "/assets/sfx/dice_roll.wav",
@@ -69,7 +69,7 @@ self.addEventListener('install', (event) => {
     // Precache best-effort so one bad fetch does not fail SW install.
     await Promise.allSettled(PRECACHE_URLS.map(async (url) => {
       try {
-        const req = new Request(url, { cache: 'reload' });
+        const req = new Request(url, { cache: 'default' });
         const res = await fetch(req);
         if (res && res.ok) await cache.put(url, res.clone());
       } catch (err) {

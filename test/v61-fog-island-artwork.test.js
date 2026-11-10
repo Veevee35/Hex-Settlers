@@ -40,7 +40,7 @@ function prepare() {
 }
 
 test('Fog Island challenges use live-game textures and never reveal hidden tiles or numbers', () => {
-  assert.match(app, /drawRankedMiniMap\(board, map\.preview, \{ gameArtwork: catalog\.scenario === 'fog' \}\)/);
+  assert.match(app, /drawRankedMiniMap\(board, map\.preview, \{ gameArtwork: true, ports: map\.ports \|\| \[\] \}\)/);
   assert.ok(fs.existsSync(path.join(root, 'public/texture pack/Resource Hexes/Unexplored.png')));
   const ctx = prepare();
   const tiles = [

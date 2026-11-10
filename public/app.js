@@ -40,7 +40,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.6';
+  const ASSET_CACHE_SW_BUILD = 'release-v63';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -8506,23 +8506,33 @@ function refreshLobbyJoinLinkUi() {
 
   // Load images
   async function loadImages() {
-    const load = (k, src) => new Promise((resolve) => {
-      const img = new Image();
+    const load = async (k, src) => {
       const fallback = String(src || '');
       const primary = resolveLegacyTextureUrl(fallback) || fallback;
-      let triedFallback = false;
-      img.onload = () => { images[k] = img; resolve(); };
-      img.onerror = () => {
-        if (!triedFallback && fallback && primary !== fallback) {
-          triedFallback = true;
-          img.src = fallback;
-          return;
-        }
-        images[k] = null;
-        resolve();
-      };
-      img.src = primary || fallback;
-    });
+      // Reuse images that the startup screen has already requested. Keep a
+      // standalone path for admin and environments without the boot loader.
+      if (typeof window.hexSettlersBootLoadImage === 'function') {
+        const shared = window.hexSettlersBootLoadImage;
+        images[k] = (await shared(primary || fallback)) ||
+          (primary !== fallback ? await shared(fallback) : null);
+        return;
+      }
+      await new Promise(resolve => {
+        const img = new Image();
+        let triedFallback = false;
+        img.onload = () => { images[k] = img; resolve(); };
+        img.onerror = () => {
+          if (!triedFallback && fallback && primary !== fallback) {
+            triedFallback = true;
+            img.src = fallback;
+            return;
+          }
+          images[k] = null;
+          resolve();
+        };
+        img.src = primary || fallback;
+      });
+    };
     const entries = [
       ...Object.entries(TILE_IMG),
       ...Object.entries(DEV_IMG).map(([k, v]) => [`dev_${k}`, v]),
@@ -8533,7 +8543,10 @@ function refreshLobbyJoinLinkUi() {
     await Promise.all(entries.map(([k, src]) => load(k, src)));
     return true;
   }
-  if (!IS_ADMIN_PORTAL) loadImages().then(render);
+  if (!IS_ADMIN_PORTAL) loadImages().then(() => {
+    render();
+    window.dispatchEvent(new Event('hexsettlers:game-images-ready'));
+  });
 
   // Texture-pack port images do not all use the same transparent padding.
   // Cache visible pixel bounds and center the artwork, not the PNG canvas.

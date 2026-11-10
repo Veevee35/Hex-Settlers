@@ -7,10 +7,21 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=release-v1.0.6" />
-  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.6" />
+  <link rel="stylesheet" href="styles.css?v=release-v63" />
+  <link rel="stylesheet" href="unified-theme.css?v=release-v63" />
 </head>
 <body>
+  <div id="gameBootLoader" class="gameBootLoader" aria-label="Hex Settlers loading screen">
+    <div class="gameBootCard">
+      <img class="gameBootLogo" src="/favicon.png" alt="" aria-hidden="true" />
+      <div class="gameBootEyebrow">HEX SETTLERS</div>
+      <h1>Preparing your next game</h1>
+      <p id="gameBootStatus" aria-live="polite">Preparing the interface…</p>
+      <div id="gameBootProgressTrack" class="gameBootProgressTrack" role="progressbar" aria-label="Game assets loaded" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="gameBootProgressFill" class="gameBootProgressFill"></div></div>
+      <div class="gameBootProgressMeta"><span id="gameBootDetail">Loading assets…</span><strong id="gameBootProgressValue">0%</strong></div>
+      <button type="button" id="gameBootContinue" class="btn" hidden>Enter with remaining assets loading</button>
+    </div>
+  </div>
   <section id="authLanding" class="portalScreen">
     <button id="loginLanguageBtn" class="btn portalLanguageButton" type="button">🌐 <span>Language</span></button>
     <div class="portalBackdrop"></div>
@@ -974,8 +985,9 @@
     </div>
   </div>
 
+  <script src="boot-preload.js?v=release-v63"></script>
   <script src="locale-expansion.js?v=release-v1.0.6"></script>
   <script src="languages.js?v=release-v1.0.6"></script>
-  <script src="app.js?v=release-v1.0.6"></script>
+  <script src="app.js?v=release-v63"></script>
 </body>
 </html>

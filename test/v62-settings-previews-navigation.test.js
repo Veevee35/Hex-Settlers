@@ -20,7 +20,7 @@ test('tutorial is opt-in through Casual and no longer blocks other game modes on
 
 test('daily and weekly preview renderer shows artwork and port icons; fog stays masked', () => {
   assert.match(app, /drawRankedMiniMap\(board, map\.preview, \{ gameArtwork: true, ports: map\.ports \|\| \[\] \}\)/);
-  assert.match(server, /const trimOuterSea = familyForPeriod\(kind, periodId\) !== 'classic' && playerCount <= 6/);
+  assert.match(server, /const trimOuterSea = rulesHideOuterSeaBorder\(rules\)/);
   assert.match(server, /geom\.tileNeighbors\?\.\[tile\.id\]/);
   assert.match(server, /number: tile\.fog && !tile\.revealed \? null/);
   const start = app.indexOf('  // Canvas mini-maps normally use');

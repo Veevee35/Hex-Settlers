@@ -9583,11 +9583,14 @@ function challengeMapsCatalog(userId) {
     return [4,5,6,7,8].map(playerCount => {
       const challenge = kind === 'daily' ? { kind, dayId: periodId, playerCount } : { kind, weekId: periodId, playerCount };
       const geom = challengeGeom(challenge);
-      // Use the same visible perimeter as the live Seafarers renderer for 4–6 players.
-      // The final ring of open ocean is a logical navigation boundary, not artwork.
-      const trimOuterSea = familyForPeriod(kind, periodId) !== 'classic' && playerCount <= 6;
+      // Preview exactly the tiles the live in-game canvas draws.  The playable
+      // Seafarers border rule is scenario-specific: scattered/test-builder maps
+      // keep their outside sea tiles while normal Seafarers hide navigation-only
+      // boundary sea tiles.  Never infer a trim from capacity or map family.
+      const rules = challengeRules(playerCount, familyForPeriod(kind, periodId));
+      const trimOuterSea = rulesHideOuterSeaBorder(rules);
       const isHiddenOuterSea = tile => trimOuterSea && tile.type === 'sea' &&
-        (geom.tileNeighbors?.[tile.id] || []).length < 6;
+        Array.isArray(geom.tileNeighbors?.[tile.id]) && geom.tileNeighbors[tile.id].length < 6;
       const preview = (geom.tiles || []).filter(tile => !isHiddenOuterSea(tile)).map(tile => ({
         x: Number(tile.cx), y: Number(tile.cy),
         type: tile.fog && !tile.revealed ? 'unexplored' : String(tile.type || 'sea'),

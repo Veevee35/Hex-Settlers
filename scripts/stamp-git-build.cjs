@@ -25,6 +25,7 @@ function update(filename, pattern, replacement) {
 }
 update('public/index.html', /(styles\.css\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(unified-theme\.css\?v=)[^"\s]+/, `$1${key}`);
+update('public/index.html', /(boot-preload\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(app\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(languages\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(locale-expansion\.js\?v=)[^"\s]+/, `$1${key}`);

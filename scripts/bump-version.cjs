@@ -44,6 +44,7 @@ function prepareFiles(state) {
   for (const [oldPattern, replacement] of [
     [/(styles\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(unified-theme\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
+    [/(boot-preload\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(app\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(languages\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(locale-expansion\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
