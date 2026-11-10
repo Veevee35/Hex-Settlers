@@ -40,7 +40,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.5';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.6';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1188,7 +1188,6 @@
       if (!saved || saved.userId !== String(user.id)) return null;
       // An incomplete account may resume only its own tutorial; never an old
       // ordinary room cached before tutorial enforcement was enabled.
-      if (user.tutorialCompleted !== true && saved.tutorial !== true) return null;
       const code = String(saved.code || '').trim().toUpperCase();
       const age = nowMs - Number(saved.lastSeenAt);
       if (/^[A-Z0-9]{4,8}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) {
@@ -1307,6 +1306,10 @@
   let requestedLobbyVisibility = 'private';
   let roomNotFoundVisible = false;
   let roomNotFoundReturnView = ''; // Preserve the discovery hierarchy after a failed lobby join.
+  let settingsSandboxActive = false;
+  let settingsSandboxPending = false;
+  let settingsPanelOriginalParent = null;
+  let settingsPanelOriginalNext = null;
   let tutorialContinueToAllGames = false;
   function tutorialUnlocked() { return authUser?.tutorialCompleted === true; }
   function liveTutorialRoom() { return !!(room && room.tutorial && room.tutorial.ownerId === myPlayerId); }
@@ -1341,7 +1344,7 @@
     let title = '', body = '', hint = '', target = null;
     const primary = $('tutorialGuidePrimary');
     primary.classList.add('hidden');
-    $('tutorialGuideExit').textContent = progress.completed ? 'Back to game types' : 'Exit tutorial & unlock';
+    $('tutorialGuideExit').textContent = progress.completed ? 'Back to game types' : 'Exit tutorial';
     if (phase === 'lobby') {
       title = '1. Explore a real game lobby';
       body = 'This is your actual lobby, with the live Classic map preview and normal Game Setup panel. One AI shares a two-player match on the standard four-player 19-hex board.';
@@ -1351,7 +1354,7 @@
     } else if (progress.completed || tutorialUnlocked()) {
       title = 'Adventure complete!';
       body = 'You placed two settlements and two roads, rolled the dice twice, and completed two normal turns using the actual game engine.';
-      hint = 'All Games, Ranked Play and Casual Play are now unlocked. Your progress is saved to your account.';
+      hint = 'Tutorial complete. Your progress is saved; all game modes were already available without completing the walkthrough.';
       primary.textContent = 'Continue to All Games'; primary.classList.remove('hidden');
     } else if (!ownTurn) {
       if (phase.startsWith('setup')) {
@@ -1790,7 +1793,7 @@
     refreshRows();
     // Fog Island previews should match the actual game board, not the flat
     // ranked ballot palette (or the old placeholder hatched hexes).
-    drawRankedMiniMap(board, map.preview, { gameArtwork: catalog.scenario === 'fog' });
+    drawRankedMiniMap(board, map.preview, { gameArtwork: true, ports: map.ports || [] });
   }
 
   function beginChallengeHost(playerCount) {
@@ -1866,15 +1869,7 @@
       ui.nameInput.value = authUser.displayName || authUser.username || '';
     }
     if (authUser && !authUser.needsUsernameSetup) {
-      if (authUser.tutorialCompleted !== true && !room) {
-        selectedPlayMode = '';
-        try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
-        // Invitation links cannot bypass the first-time tutorial gate.
-        pendingDirectJoinRoomCode = null;
-        pendingDirectJoinAsSpectator = false;
-      } else {
-        selectInvitedLobbyMode();
-      }
+      selectInvitedLobbyMode();
       // A refresh of an unfinished tutorial returns to the tutorial's own
       // private room, not the All Games screen.
       const recent = recentRoomSessionForUser(authUser);
@@ -2116,30 +2111,25 @@
     if (uncreatedLobbyBack) uncreatedLobbyBack.textContent = selectedPlayMode === 'casual'
       ? '← Back to Game Types' : '← Back to All Games';
     $('accountOrb')?.classList.toggle('hidden', !ready);
-    // The server, not a browser flag, decides whether the first tutorial is complete.
+    // The tutorial is optional. Every signed-in account can access every game type.
     const unlocked = authUser?.tutorialCompleted === true;
     const allGames = $('unrankedModeBtn');
     const ranked = $('rankedModeBtn');
     const casual = $('casualModeBtn');
     for (const btn of [allGames, ranked]) {
       if (!btn) continue;
-      btn.disabled = ready && !unlocked;
-      btn.classList.toggle('lockedMode', ready && !unlocked);
-      btn.setAttribute('aria-disabled', ready && !unlocked ? 'true' : 'false');
-      btn.title = ready && !unlocked ? 'Complete Start Your Adventure to unlock' : '';
+      btn.disabled = false;
+      btn.classList.remove('lockedMode');
+      btn.setAttribute('aria-disabled', 'false');
+      btn.title = '';
     }
-    const allGamesTitle = allGames?.querySelector('strong');
-    if (allGamesTitle) allGamesTitle.textContent = 'All Games';
-    if (allGames?.querySelector('span')) allGames.querySelector('span').textContent = unlocked
-      ? 'Browse public games, host private lobbies, and play Challenge Maps.'
-      : 'Locked until you finish Start Your Adventure.';
-    if (ranked?.querySelector('span')) ranked.querySelector('span').textContent = unlocked
-      ? 'Match automatically with similarly ranked players.'
-      : 'Locked until you finish Start Your Adventure.';
-    if (casual?.querySelector('strong')) casual.querySelector('strong').textContent = unlocked ? 'Casual Play' : 'Start Your Adventure';
+    if (allGames?.querySelector('strong')) allGames.querySelector('strong').textContent = 'All Games';
+    if (allGames?.querySelector('span')) allGames.querySelector('span').textContent = 'Browse public games, host private lobbies, and play Challenge Maps.';
+    if (ranked?.querySelector('span')) ranked.querySelector('span').textContent = 'Match automatically with similarly ranked players.';
+    if (casual?.querySelector('strong')) casual.querySelector('strong').textContent = 'Casual Play';
     if (casual?.querySelector('span')) casual.querySelector('span').textContent = unlocked
       ? 'Play with friends or AI, up to 6 players. No stats or ratings are tracked.'
-      : 'Learn on a real Classic map against one AI. Place your starting settlements, then play two full turns.';
+      : 'New here? Casual Play offers an optional interactive tutorial before your first game.';
     if (typeof refreshTutorialGuide === 'function') refreshTutorialGuide();
     if (loggedIn) {
       const label = authUser.displayName || authUser.username || '?';
@@ -5473,148 +5463,135 @@ function syncPostgameToState() {
   }
   selectGamePanelTab('resources');
 
-  // v31: adjustable desktop Game Log / Development Cards height split.
-  // Keep the dev header and cost note anchored while the card list clips/scrolls
-  // inside the available remainder. Store a fraction, not pixels, for resizes.
-  const LOG_DEV_SPLIT_KEY = 'hexsettlers_log_dev_split_v31';
-  const LOG_DEV_DEFAULT_SHARE = 0.52;
-  let logDevSplitShare = LOG_DEV_DEFAULT_SHARE;
+  // V62: four independently resizable dock sections. Ratios represent
+  // boundary positions, so any one section may collapse all the way to zero.
+  // Each handle is constrained only by its adjacent handles, not an arbitrary
+  // minimum height, and every position is persisted per browser.
+  const SIDEBAR_SPLIT_KEY = 'hexsettlers_sidebar_sections_v62';
+  let sidebarCuts = [.20, .57, .79];
   try {
-    const saved = Number(localStorage.getItem(LOG_DEV_SPLIT_KEY));
-    if (Number.isFinite(saved) && saved >= 0.05 && saved <= 0.95) logDevSplitShare = saved;
+    const stored = JSON.parse(localStorage.getItem(SIDEBAR_SPLIT_KEY) || 'null');
+    if (Array.isArray(stored) && stored.length === 3 && stored.every(v => Number.isFinite(v) && v >= 0 && v <= 1) &&
+        stored[0] <= stored[1] && stored[1] <= stored[2]) sidebarCuts = stored;
   } catch (_) {}
+  let sidebarSectionHandles = [];
   let logDevSplitter = null;
   let logDevResizeObserver = null;
   let logDevSplitFrame = 0;
-
+  const sidebarPanes = () => [ui.resourcesCard, ui.logCard, ui.devCard, ui.rightSidebarResourcesDock];
   function isDesktopLogDevSplitActive() {
+    const panes = sidebarPanes();
     return !!(rightSidebarDock.isDocked && !isMobileGameSplit() &&
       !document.body.classList.contains('gamePanelsCollapsed') &&
-      ui.rightSidebarInner && ui.logCard && ui.devCard && logDevSplitter);
+      ui.rightSidebarInner && panes.every(p => p && p.parentNode === ui.rightSidebarInner) &&
+      sidebarSectionHandles.length === 3 && sidebarSectionHandles.every(p => p.parentNode === ui.rightSidebarInner));
   }
-
   function logDevAvailableHeight() {
     const inner = ui.rightSidebarInner;
     if (!inner) return 0;
-    const style = window.getComputedStyle(inner);
-    const size = (value) => Number.parseFloat(value) || 0;
-    const children = [...inner.children].filter(child => window.getComputedStyle(child).display !== 'none');
-    const gaps = Math.max(0, children.length - 1) * size(style.rowGap || style.gap);
-    const fixed = children.reduce((sum, child) => {
-      return sum + ((child === ui.logCard || child === ui.devCard) ? 0 : child.getBoundingClientRect().height);
-    }, 0);
-    return Math.max(0, inner.clientHeight - size(style.paddingTop) - size(style.paddingBottom) - gaps - fixed);
+    const css = getComputedStyle(inner);
+    const v = (s) => Number.parseFloat(s) || 0;
+    const children = [...inner.children].filter(node => getComputedStyle(node).display !== 'none');
+    const gap = Math.max(0, children.length - 1) * v(css.rowGap || css.gap);
+    const fixed = children.filter(node => !sidebarPanes().includes(node))
+      .reduce((total, node) => total + node.getBoundingClientRect().height, 0);
+    return Math.max(0, inner.clientHeight - v(css.paddingTop) - v(css.paddingBottom) - gap - fixed);
   }
-
   function applyLogDevSplit() {
     logDevSplitFrame = 0;
-    if (!ui.logCard || !ui.devCard) return;
+    const panes = sidebarPanes();
     if (!isDesktopLogDevSplitActive()) {
-      ui.logCard.style.removeProperty('flex');
-      ui.devCard.style.removeProperty('flex');
+      for (const pane of panes) if (pane) { pane.style.removeProperty('flex'); pane.style.removeProperty('height'); }
       return;
     }
-    const available = logDevAvailableHeight();
-    if (available < 30) return;
-    // The maximum divider position still leaves the dev header, cost note,
-    // and the tops of the cards available below the log.
-    const minLog = Math.min(110, available * 0.4);
-    const devHeading = ui.devCard.querySelector('.devHeaderRow');
-    const devCost = ui.devCard.querySelector('.panelScaleContent > .smallNote');
-    const devTopHeight = (devHeading?.getBoundingClientRect().height || 0) +
-      (devCost?.getBoundingClientRect().height || 0);
-    // At larger text scales, keep the cost visible and reveal the top of the
-    // first card instead of allowing the draggable log to cover the entire hand.
-    const minDev = Math.min(Math.max(118, devTopHeight + 34), available * 0.55);
-    const logHeight = Math.max(minLog, Math.min(available - minDev, available * logDevSplitShare));
-    ui.logCard.style.flex = `0 0 ${Math.round(logHeight)}px`;
-    ui.devCard.style.flex = '1 1 0px';
-    const actualShare = logHeight / available;
-    logDevSplitter.setAttribute('aria-valuenow', String(Math.round(actualShare * 100)));
-    logDevSplitter.setAttribute('aria-valuetext', `Game Log ${Math.round(actualShare * 100)}%, Development Cards ${Math.round((1 - actualShare) * 100)}%`);
+    const total = logDevAvailableHeight();
+    if (!total) return;
+    const shares = [sidebarCuts[0], sidebarCuts[1]-sidebarCuts[0],
+      sidebarCuts[2]-sidebarCuts[1], 1-sidebarCuts[2]];
+    let used = 0;
+    for (let i=0; i<panes.length; i++) {
+      const height = i === panes.length-1 ? Math.max(0,total-used) : Math.max(0, Math.round(total*shares[i]));
+      used += height;
+      panes[i].style.flex = `0 0 ${height}px`;
+      panes[i].style.height = `${height}px`;
+    }
+    sidebarSectionHandles.forEach((handle, i) => {
+      handle.setAttribute('aria-valuemin', String(Math.round(100*(i ? sidebarCuts[i-1] : 0))));
+      handle.setAttribute('aria-valuemax', String(Math.round(100*(i<2 ? sidebarCuts[i+1] : 1))));
+      handle.setAttribute('aria-valuenow', String(Math.round(sidebarCuts[i]*100)));
+    });
   }
-
   function scheduleLogDevSplit() {
-    if (logDevSplitFrame) return;
-    logDevSplitFrame = requestAnimationFrame(applyLogDevSplit);
+    if (!logDevSplitFrame) logDevSplitFrame = requestAnimationFrame(applyLogDevSplit);
   }
-
-  function setLogDevSplitShare(next, { persist = false } = {}) {
+  function setSidebarCut(index, next, persist = false) {
     if (!Number.isFinite(next)) return;
-    logDevSplitShare = Math.max(0.05, Math.min(0.95, next));
+    sidebarCuts[index] = Math.max(index ? sidebarCuts[index-1] : 0,
+      Math.min(index < 2 ? sidebarCuts[index+1] : 1, next));
     if (persist) {
-      try { localStorage.setItem(LOG_DEV_SPLIT_KEY, String(logDevSplitShare)); } catch (_) {}
+      try { localStorage.setItem(SIDEBAR_SPLIT_KEY, JSON.stringify(sidebarCuts)); } catch (_) {}
     }
     scheduleLogDevSplit();
   }
-
   function ensureLogDevSplitter() {
-    if (!ui.rightSidebarInner || !ui.devCard || !ui.logCard) return;
-    if (!logDevSplitter) {
-      const separator = document.createElement('div');
-      separator.id = 'sidebarLogDevSplitter';
-      separator.className = 'sidebarLogDevSplitter';
-      separator.tabIndex = 0;
-      separator.setAttribute('role', 'separator');
-      separator.setAttribute('aria-label', 'Resize Game Log and Development Cards');
-      separator.setAttribute('aria-orientation', 'horizontal');
-      separator.setAttribute('aria-controls', 'logCard devCard');
-      separator.setAttribute('aria-valuemin', '5');
-      separator.setAttribute('aria-valuemax', '95');
-      separator.title = 'Drag to resize Game Log and Development Cards. Use arrow keys for fine adjustments.';
-      let activePointer = null;
-      let initialY = 0;
-      let initialShare = 0;
-      let availableOnStart = 0;
-      separator.addEventListener('pointerdown', (event) => {
-        if (!isDesktopLogDevSplitActive() || (event.button !== undefined && event.button !== 0)) return;
-        activePointer = event.pointerId;
-        initialY = event.clientY;
-        initialShare = logDevSplitShare;
-        availableOnStart = logDevAvailableHeight();
-        separator.classList.add('dragging');
-        separator.setPointerCapture?.(event.pointerId);
-        event.preventDefault();
-      });
-      separator.addEventListener('pointermove', event => {
-        if (activePointer !== event.pointerId || !availableOnStart) return;
-        setLogDevSplitShare(initialShare + (event.clientY - initialY) / availableOnStart);
-      });
-      const finish = event => {
-        if (activePointer === null || (event.pointerId !== undefined && activePointer !== event.pointerId)) return;
-        const pointerId = activePointer;
-        activePointer = null;
-        separator.classList.remove('dragging');
-        try { if (separator.hasPointerCapture?.(pointerId)) separator.releasePointerCapture(pointerId); } catch (_) {}
-        setLogDevSplitShare(logDevSplitShare, { persist: true });
-      };
-      separator.addEventListener('pointerup', finish);
-      separator.addEventListener('pointercancel', finish);
-      separator.addEventListener('keydown', event => {
-        if (!isDesktopLogDevSplitActive()) return;
-        let next;
-        if (event.key === 'ArrowDown') next = logDevSplitShare + (event.shiftKey ? 0.1 : 0.02);
-        else if (event.key === 'ArrowUp') next = logDevSplitShare - (event.shiftKey ? 0.1 : 0.02);
-        else if (event.key === 'Home') next = 0.05;
-        else if (event.key === 'End') next = 0.95;
-        else return;
-        event.preventDefault();
-        setLogDevSplitShare(next, { persist: true });
-      });
-      logDevSplitter = separator;
+    const panes = sidebarPanes();
+    if (!ui.rightSidebarInner || panes.some(p => !p)) return;
+    if (!sidebarSectionHandles.length) {
+      const labels = ['Resources / Game Log', 'Game Log / Development Cards', 'Development Cards / Bank Resources'];
+      for (let i=0; i<3; i++) {
+        const handle = document.createElement('div');
+        handle.id = ['sidebarResourcesLogSplitter', 'sidebarLogDevSplitter', 'sidebarDevBankSplitter'][i];
+        handle.className = 'sidebarLogDevSplitter sidebarSectionSplitter';
+        handle.tabIndex = 0;
+        handle.setAttribute('role', 'separator');
+        handle.setAttribute('aria-label', `Resize ${labels[i]}`);
+        handle.setAttribute('aria-orientation', 'horizontal');
+        handle.setAttribute('aria-controls', `${panes[i].id} ${panes[i+1].id}`);
+        handle.title = `Drag to resize ${labels[i]}. Home/End move to adjacent slider; arrow keys fine-tune.`;
+        let pointer = null, startY = 0, initial = 0, available = 0;
+        handle.addEventListener('pointerdown', event => {
+          if (!isDesktopLogDevSplitActive() || (event.button != null && event.button !== 0)) return;
+          pointer = event.pointerId; startY = event.clientY;
+          initial = sidebarCuts[i]; available = logDevAvailableHeight();
+          handle.classList.add('dragging');
+          handle.setPointerCapture?.(pointer);
+          event.preventDefault();
+        });
+        handle.addEventListener('pointermove', event => {
+          if (pointer !== event.pointerId || !available) return;
+          setSidebarCut(i, initial + (event.clientY-startY)/available);
+        });
+        const finish = event => {
+          if (pointer === null || (event.pointerId != null && pointer !== event.pointerId)) return;
+          const id = pointer; pointer = null; handle.classList.remove('dragging');
+          try { if (handle.hasPointerCapture?.(id)) handle.releasePointerCapture(id); } catch (_) {}
+          setSidebarCut(i, sidebarCuts[i], true);
+        };
+        handle.addEventListener('pointerup', finish);
+        handle.addEventListener('pointercancel', finish);
+        handle.addEventListener('keydown', event => {
+          let next;
+          if (event.key === 'ArrowDown') next = sidebarCuts[i] + (event.shiftKey ? .10 : .015);
+          else if (event.key === 'ArrowUp') next = sidebarCuts[i] - (event.shiftKey ? .10 : .015);
+          else if (event.key === 'Home') next = i ? sidebarCuts[i-1] : 0;
+          else if (event.key === 'End') next = i<2 ? sidebarCuts[i+1] : 1;
+          else return;
+          event.preventDefault(); setSidebarCut(i, next, true);
+        });
+        sidebarSectionHandles.push(handle);
+      }
+      logDevSplitter = sidebarSectionHandles[1];
     }
-    if (logDevSplitter.parentNode !== ui.rightSidebarInner || logDevSplitter.nextSibling !== ui.devCard) {
-      ui.rightSidebarInner.insertBefore(logDevSplitter, ui.devCard);
-    }
+    // Ensure exact alternating order, even after mobile/desktop layout changes.
+    sidebarSectionHandles.forEach((handle, i) => ui.rightSidebarInner.insertBefore(handle, panes[i+1]));
     if (!logDevResizeObserver && typeof ResizeObserver === 'function') {
       logDevResizeObserver = new ResizeObserver(scheduleLogDevSplit);
       logDevResizeObserver.observe(ui.rightSidebarInner);
-      if (ui.resourcesCard) logDevResizeObserver.observe(ui.resourcesCard);
-      if (ui.rightSidebarResourcesDock) logDevResizeObserver.observe(ui.rightSidebarResourcesDock);
     }
     scheduleLogDevSplit();
   }
   window.addEventListener('resize', scheduleLogDevSplit);
+
 
   function syncRightSidebarDock(inGame) {
     const boardWrap = document.querySelector('section.boardWrap');
@@ -5690,7 +5667,7 @@ function syncPostgameToState() {
       return;
     }
 
-    if (logDevSplitter) logDevSplitter.remove();
+    for (const handle of sidebarSectionHandles) handle.remove();
     scheduleLogDevSplit();
     syncFloatingResourcesPanel(false);
     ui.rightSidebar.classList.add('hidden');
@@ -7998,6 +7975,11 @@ function refreshLobbyJoinLinkUi() {
         return;
       }
 
+      if (msg.type === 'settings_preview') {
+        installSettingsSandbox(msg);
+        return;
+      }
+
       if (msg.type === 'challenge_maps') {
         weeklyChallengeCatalog = msg;
         if (journeyView === 'challenge') renderChallengeMaps();
@@ -8368,6 +8350,7 @@ function refreshLobbyJoinLinkUi() {
       }
 
       if (msg.type === 'state') {
+        if (settingsSandboxActive) return;
         if (historyReplay.active) {
           historyReplay.liveState = msg.state;
           return;
@@ -8432,6 +8415,11 @@ function refreshLobbyJoinLinkUi() {
   }
 
   function send(obj) {
+    if (settingsSandboxActive && !['client_ping','get_settings_preview'].includes(String(obj?.type || ''))) {
+      // The Settings view is a local render of a server-generated Classic board.
+      // Never send room, gameplay, replay, or setup mutations for this preview.
+      return;
+    }
     if (!ws || ws.readyState !== 1) return;
     if (historyReplay.active && !HISTORY_REPLAY_ALLOWED_MESSAGES.has(obj && obj.type)) {
       setError('Exit the replay before changing the live game.');
@@ -10438,7 +10426,8 @@ function refreshLobbyJoinLinkUi() {
 
       const badge = document.createElement('div');
       badge.className = 'badge';
-      badge.style.background = p.color;
+      if (roleLabel === 'spectator') { badge.classList.add('spectatorNoColor'); badge.style.background = 'none'; }
+      else badge.style.background = p.color;
 
       const name = document.createElement('div');
       name.textContent = p.name + (p.id === room.hostId ? ' (host)' : '');
@@ -11817,10 +11806,12 @@ function refreshLobbyJoinLinkUi() {
     const visible = tiles.filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y));
     if (!visible.length) return;
     const halfWidth = Math.sqrt(3) / 2;
-    const minX = Math.min(...visible.map(tile => tile.x - halfWidth));
-    const maxX = Math.max(...visible.map(tile => tile.x + halfWidth));
-    const minY = Math.min(...visible.map(tile => tile.y - 1));
-    const maxY = Math.max(...visible.map(tile => tile.y + 1));
+    const ports = Array.isArray(options.ports) ? options.ports.filter(port =>
+      Number.isFinite(port.x) && Number.isFinite(port.y)) : [];
+    const minX = Math.min(...visible.map(tile => tile.x - halfWidth), ...ports.map(port => port.x - .23));
+    const maxX = Math.max(...visible.map(tile => tile.x + halfWidth), ...ports.map(port => port.x + .23));
+    const minY = Math.min(...visible.map(tile => tile.y - 1), ...ports.map(port => port.y - .23));
+    const maxY = Math.max(...visible.map(tile => tile.y + 1), ...ports.map(port => port.y + .23));
     const scale = Math.min((width - 18) / (maxX - minX), (height - 16) / (maxY - minY));
     const offX = (width - (maxX - minX) * scale) / 2;
     const offY = (height - (maxY - minY) * scale) / 2;
@@ -11837,6 +11828,16 @@ function refreshLobbyJoinLinkUi() {
     };
     const tileArt = new Map();
     const tokenArt = new Map();
+    const portArt = new Map();
+    if (useArtwork && ports.length) {
+      for (const port of ports) {
+        const kind = PORT_IMG[port.kind] ? port.kind : 'generic';
+        if (!portArt.has(kind)) {
+          const src = PORT_IMG[kind];
+          portArt.set(kind, miniMapArtwork(resolveLegacyTextureUrl(src) || src, redraw, src));
+        }
+      }
+    }
     if (useArtwork) {
       for (const tile of visible) {
         const hidden = (tile.fog === true && tile.revealed !== true) || tile.type === 'unexplored' || tile.type === 'fog';
@@ -11906,6 +11907,31 @@ function refreshLobbyJoinLinkUi() {
           context.fillText(String(tile.number), cx, cy + .4);
         }
       }
+    }
+
+    // Draw harbors above the terrain as on the real game board. They remain
+    // legible even when the adjacent outer navigation-water ring is trimmed.
+    for (const port of ports) {
+      const px = offX + (port.x - minX) * scale;
+      const py = offY + (port.y - minY) * scale;
+      const mx = offX + ((Number.isFinite(port.edgeX) ? port.edgeX : port.x) - minX) * scale;
+      const my = offY + ((Number.isFinite(port.edgeY) ? port.edgeY : port.y) - minY) * scale;
+      const radius = Math.max(6, scale * .24);
+      context.save();
+      context.strokeStyle = 'rgba(245,245,238,.55)';
+      context.lineWidth = Math.max(1, scale * .035);
+      context.beginPath(); context.moveTo(mx, my); context.lineTo(px, py); context.stroke();
+      context.beginPath(); context.arc(px, py, radius, 0, Math.PI * 2);
+      context.fillStyle = 'rgba(4,13,22,.83)'; context.fill();
+      context.strokeStyle = 'rgba(245,245,238,.8)'; context.stroke();
+      const art = portArt.get(PORT_IMG[port.kind] ? port.kind : 'generic');
+      if (art) context.drawImage(art, px - radius * .9, py - radius * .9, radius * 1.8, radius * 1.8);
+      else {
+        context.fillStyle = '#f8ecd4'; context.textAlign = 'center'; context.textBaseline = 'middle';
+        context.font = `bold ${Math.max(7, radius*.8)}px system-ui`;
+        context.fillText(port.kind === 'generic' ? '3:1' : '2:1', px, py);
+      }
+      context.restore();
     }
   }
 
@@ -12041,7 +12067,8 @@ function refreshLobbyJoinLinkUi() {
       tag.className = 'playerTag';
       const badge = document.createElement('div');
       badge.className = 'badge';
-      badge.style.background = p.color;
+      if (roleLabel === 'spectator') { badge.classList.add('spectatorNoColor'); badge.style.background = 'none'; }
+      else badge.style.background = p.color;
       const name = document.createElement('div');
       let label = p.name;
       if (p.isAI) label += ` (AI · ${aiDifficultyDisplayName(p.aiDifficulty || room.aiDifficulty)})`;
@@ -12699,9 +12726,31 @@ function refreshLobbyJoinLinkUi() {
     enforceCasualMapRestrictions();
   }
 
+  function casualTutorialOfferKey() {
+    return `hexsettlers_casual_tutorial_offered_${String(authUser?.id || 'guest')}`;
+  }
+  function shouldOfferCasualTutorial() {
+    if (tutorialUnlocked() || !authUser?.id) return false;
+    try { return localStorage.getItem(casualTutorialOfferKey()) !== '1'; } catch (_) { return false; }
+  }
+  function markCasualTutorialOffered() {
+    try { localStorage.setItem(casualTutorialOfferKey(), '1'); } catch (_) {}
+  }
+  function showOptionalCasualTutorial() {
+    markCasualTutorialOffered();
+    const content = document.createElement('div');
+    const intro = document.createElement('p');
+    intro.textContent = 'New to Hex Settlers? You can play a guided practice match first, or go straight into Casual Play. The tutorial is never required.';
+    content.appendChild(intro);
+    openModal({ title: 'Welcome to Casual Play', bodyNode: content, actions: [
+      { label: 'Start optional tutorial', primary: true, onClick: () => { forceCloseModal(); beginLiveTutorial(); } },
+      { label: 'Skip and play Casual', onClick: () => { forceCloseModal(); activatePlayMode('casual'); } },
+    ] });
+  }
+
   function choosePlayMode(mode) {
     if (!['ranked', 'unranked', 'casual', 'journey'].includes(mode) || pendingPlayModeSwitch) return;
-    if (!tutorialUnlocked()) { if (mode === 'casual') beginLiveTutorial(); else setError('Complete Start Your Adventure to unlock this game type.'); return; }
+    if (mode === 'casual' && shouldOfferCasualTutorial() && !room) { showOptionalCasualTutorial(); return; }
     if (room && (room.casual ? 'casual' : room.ranked ? 'ranked' : 'unranked') !== mode) {
       if (!roomConnectionReady || ws?.readyState !== WebSocket.OPEN) {
         setError('Reconnect to your current lobby before changing game types.');
@@ -12756,8 +12805,64 @@ function refreshLobbyJoinLinkUi() {
   $('journeyTutorialBtn')?.addEventListener('click', beginLiveTutorial);
   $('journeyRankedBtn')?.addEventListener('click', () => choosePlayMode('ranked'));
   $('journeyCasualBtn')?.addEventListener('click', () => choosePlayMode('casual'));
-  $('journeySettingsBtn')?.addEventListener('click', () => setJourneyView('settings'));
-  $('journeySettingsBackBtn')?.addEventListener('click', () => { setAudioPanelVisible(false); setJourneyView('home'); });
+  function beginSettingsSandbox() {
+    if (room || settingsSandboxActive) { setError('Leave your active lobby before opening Settings.'); return; }
+    if (!ws || ws.readyState !== WebSocket.OPEN || !websocketAuthenticated) {
+      setError('Connect to the game server to load the Classic settings preview.'); return;
+    }
+    settingsSandboxPending = true;
+    send({ type: 'get_settings_preview' });
+  }
+  function installSettingsSandbox(payload) {
+    if (!settingsSandboxPending || !payload?.state?.geom?.tiles) return;
+    settingsSandboxPending = false;
+    settingsSandboxActive = true;
+    selectedPlayMode = 'unranked'; // Use the actual production game HUD, not a mock iframe.
+    room = payload.room;
+    state = payload.state;
+    myPlayerId = authUser?.id || null;
+    isHost = false;
+    roomConnectionReady = true; // Only client-side; no real room binding exists.
+    const panel = $('journeySettingsPanel');
+    if (panel) {
+      settingsPanelOriginalParent = panel.parentNode;
+      settingsPanelOriginalNext = panel.nextSibling;
+      $('app')?.appendChild(panel);
+      panel.classList.remove('hidden');
+    }
+    setJourneyView('settings');
+    document.body.classList.add('settings-sandbox');
+    updateAuthUi();
+    syncSettingsSandbox();
+    resetViewportForRoomChange();
+    ensureStructureSpritesReady();
+    updateButtons();
+    renderResources();
+    render();
+    requestAnimationFrame(() => { resizeCanvas(); render(); });
+  }
+  function endSettingsSandbox() {
+    settingsSandboxPending = false;
+    if (!settingsSandboxActive) { setJourneyView('home'); return; }
+    setAudioPanelVisible(false);
+    settingsSandboxActive = false;
+    document.body.classList.remove('settings-sandbox');
+    const panel = $('journeySettingsPanel');
+    if (panel && settingsPanelOriginalParent) {
+      if (settingsPanelOriginalNext && settingsPanelOriginalNext.parentNode === settingsPanelOriginalParent)
+        settingsPanelOriginalParent.insertBefore(panel, settingsPanelOriginalNext);
+      else settingsPanelOriginalParent.appendChild(panel);
+    }
+    room = null; state = null; myPlayerId = null;
+    isHost = false; roomConnectionReady = false;
+    selectedPlayMode = 'journey';
+    try { sessionStorage.setItem('hexsettlers_play_mode', 'journey'); } catch (_) {}
+    resetViewportForRoomChange();
+    setJourneyView('home');
+    updateButtons(); updateAuthUi();
+  }
+  $('journeySettingsBtn')?.addEventListener('click', beginSettingsSandbox);
+  $('journeySettingsBackBtn')?.addEventListener('click', endSettingsSandbox);
   const sandboxControls = [
     ['sandboxToolsScale', 'sandboxToolsScaleValue', 'tools_bar', 'settingsMockTop'],
     ['sandboxTurnScale', 'sandboxTurnScaleValue', 'turn_bar', 'settingsMockBottom'],
@@ -12785,6 +12890,7 @@ function refreshLobbyJoinLinkUi() {
     setToolUiScale(scaleKey, pct / 100);
     $(valueId).textContent = `${pct}%`;
     $(sampleId)?.style.setProperty('--mock-scale', String(pct / 100));
+    if (settingsSandboxActive) { updateButtons(); render(); }
   });
   $('sandboxRightWidth')?.addEventListener('input', event => {
     const width = Number(event.target.value);
@@ -13636,6 +13742,7 @@ function refreshLobbyJoinLinkUi() {
   }
 
   function sendGameAction(action) {
+    if (settingsSandboxActive) return false;
     if (!action) return;
     setError(null);
     if (amRoomSpectator()) {
@@ -15014,7 +15121,8 @@ if (ui.moveShipBtn) {
 
         const badge = document.createElement('div');
         badge.className = 'badge';
-        badge.style.background = p.color;
+        if (roleLabel === 'spectator') { badge.classList.add('spectatorNoColor'); badge.style.background = 'none'; }
+      else badge.style.background = p.color;
         main.appendChild(badge);
         if (colorblindMode) {
           try {
@@ -16461,7 +16569,14 @@ function handleDiscardPrompt() {
 
       const left = document.createElement('div');
       left.className = 'discardLabel';
-      left.textContent = `${label} (have ${avail[k] || 0})`;
+      const icon = document.createElement('img');
+      icon.className = 'discardResourceIcon';
+      icon.src = getTextureAssetUrl(`Ports/${k}.png`);
+      icon.alt = '';
+      left.appendChild(icon);
+      const labelText = document.createElement('span');
+      labelText.textContent = `${label} (have ${avail[k] || 0})`;
+      left.appendChild(labelText);
       row.appendChild(left);
 
       const controls = document.createElement('div');

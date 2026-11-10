@@ -2,7 +2,7 @@
 
 const CLIENT_MESSAGE_TYPES = Object.freeze([
   'auth_login', 'auth_register', 'auth_set_display_name', 'auth_token',
-  'chat', 'clear_ai', 'client_ping', 'create_room', 'create_tutorial_room', 'create_challenge_room', 'get_challenge_maps', 'get_challenge_archive', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'fill_ai',
+  'chat', 'clear_ai', 'client_ping', 'create_room', 'create_tutorial_room', 'create_challenge_room', 'get_settings_preview', 'get_challenge_maps', 'get_challenge_archive', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'fill_ai',
   'game_action', 'generate_map', 'get_game_history', 'get_game_history_entry',
   'get_player_leaderboard', 'get_state', 'get_texture_pack', 'join_room', 'list_public_lobbies',
   'kick_player', 'leave_room', 'pause_game', 'query_build_options',

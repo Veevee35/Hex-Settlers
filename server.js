@@ -8758,12 +8758,13 @@ function moveRoomPlayerToSpectator(room, playerId) {
 
   const existingSpectator = findRoomSpectator(safe, pid);
   if (existingSpectator) {
-    Object.assign(existingSpectator, member, { isSpectator: true });
+    Object.assign(existingSpectator, member, { isSpectator: true, color: null });
     return { ok: true, changed: true, spectator: existingSpectator };
   }
 
   const spectator = {
     ...member,
+    color: null,
     isSpectator: true,
     texturePackId: String((member && member.texturePackId) || 'default'),
     texturePackName: String((member && member.texturePackName) || 'Default'),
@@ -9411,7 +9412,7 @@ function joinRoom(code, userId, name, options = {}) {
     const spectator = {
       id: pid,
       name: (desiredName || 'Spectator').slice(0, 20),
-      color: '#93a4b8',
+      color: null,
       joinedAt: now(),
       isSpectator: true,
       texturePackId: 'default',
@@ -9573,6 +9574,7 @@ function challengeLeaderboard(periodId, playerCount, kind = 'weekly') {
   return buildChallengeLeaderboard((HISTORY_DB.games || []).filter(isValidHistoryEntry),
     periodId, playerCount, findUserById, kind);
 }
+function familyForPeriod(kind, periodId) { return challengeScenario(kind, periodId); }
 function challengeMapsCatalog(userId) {
   const weekId = challengeWeekId();
   const dayId = challengeDayId();
@@ -9581,15 +9583,43 @@ function challengeMapsCatalog(userId) {
     return [4,5,6,7,8].map(playerCount => {
       const challenge = kind === 'daily' ? { kind, dayId: periodId, playerCount } : { kind, weekId: periodId, playerCount };
       const geom = challengeGeom(challenge);
-      return { playerCount, leaderboard: challengeLeaderboard(periodId, playerCount, kind),
-        preview: (geom.tiles || []).map(tile => ({
-          x: Number(tile.cx), y: Number(tile.cy),
-          // Challenge previews must show the *unexplored* face of fog tiles.
-          // Never leak the saved hidden resource or its number before exploration.
-          type: tile.fog && !tile.revealed ? 'unexplored' : String(tile.type || 'sea'),
-          fog: !!(tile.fog && !tile.revealed),
-          number: tile.fog && !tile.revealed ? null : (Number.isInteger(tile.number) ? tile.number : null),
-        })).filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y)) };
+      // Use the same visible perimeter as the live Seafarers renderer for 4–6 players.
+      // The final ring of open ocean is a logical navigation boundary, not artwork.
+      const trimOuterSea = familyForPeriod(kind, periodId) !== 'classic' && playerCount <= 6;
+      const isHiddenOuterSea = tile => trimOuterSea && tile.type === 'sea' &&
+        (geom.tileNeighbors?.[tile.id] || []).length < 6;
+      const preview = (geom.tiles || []).filter(tile => !isHiddenOuterSea(tile)).map(tile => ({
+        x: Number(tile.cx), y: Number(tile.cy),
+        type: tile.fog && !tile.revealed ? 'unexplored' : String(tile.type || 'sea'),
+        fog: !!(tile.fog && !tile.revealed),
+        number: tile.fog && !tile.revealed ? null : (Number.isInteger(tile.number) ? tile.number : null),
+      })).filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y));
+      // Port coordinates are reconstructed from the authoritative edge and coastline,
+      // matching the live board's outward-facing harbor placement algorithm.
+      const ports = (geom.ports || []).map(port => {
+        const edge = geom.edges?.[port.edgeId];
+        const a = edge && geom.nodes?.[edge.a];
+        const z = edge && geom.nodes?.[edge.b];
+        if (!a || !z) return null;
+        const mx = (a.x + z.x) / 2, my = (a.y + z.y) / 2;
+        const land = geom.tiles?.[port.landTileId];
+        const sea = geom.tiles?.[port.seaTileId];
+        let dx = 0, dy = 0;
+        if (land && sea) { dx = sea.cx - land.cx; dy = sea.cy - land.cy; }
+        else if (land) { dx = mx - land.cx; dy = my - land.cy; }
+        else if (sea) { dx = sea.cx - mx; dy = sea.cy - my; }
+        else {
+          const center = (geom.tiles || []).reduce((sum, tile) => ({ x: sum.x + tile.cx, y: sum.y + tile.cy }), { x: 0, y: 0 });
+          const length = Math.max(1, geom.tiles?.length || 0);
+          const nx = -(z.y - a.y), ny = z.x - a.x;
+          const sign = (nx * (mx - center.x / length) + ny * (my - center.y / length)) >= 0 ? 1 : -1;
+          dx = nx * sign; dy = ny * sign;
+        }
+        const distance = Math.hypot(dx, dy) || 1;
+        return { x: mx + dx / distance * .3, y: my + dy / distance * .3,
+          edgeX: mx, edgeY: my, kind: String(port.kind || 'generic') };
+      }).filter(Boolean);
+      return { playerCount, leaderboard: challengeLeaderboard(periodId, playerCount, kind), preview, ports };
     });
   }
   return {
@@ -9690,7 +9720,7 @@ function roomSnapshot(room) {
       texturePackId: String((p && p.texturePackId) || 'default'),
       texturePackName: String((p && p.texturePackName) || 'Default'),
     })),
-    spectators: room.spectators.map(p => ({ id: p.id, name: p.name, color: p.color, isSpectator: true, texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
+    spectators: room.spectators.map(p => ({ id: p.id, name: p.name, color: null, isSpectator: true, texturePackId: String((p && p.texturePackId) || 'default'), texturePackName: String((p && p.texturePackName) || 'Default') })),
     maxPlayers: maxPlayersForRules(room.rules || DEFAULT_RULES),
     gamePhase: room.game ? room.game.phase : 'lobby',
     rules: room.ranked && !room.rankedScenarioVote?.selectedId ? null : (room.rules || { ...DEFAULT_RULES }),
@@ -12057,8 +12087,40 @@ if (msg.type === 'ranked_queue_join') {
       if (ws._roomCode) { sendJson(ws, { type: 'error', error: 'Leave your current room before entering matchmaking.' }); return; }
       const user = findUserById(ws._userId);
       if (!user) { sendJson(ws, { type: 'error', error: 'Account not found.' }); return; }
-      if (!user.tutorialCompletedAt) { sendJson(ws, { type: 'error', error: 'Finish Start Your Adventure to unlock Ranked Play.' }); return; }
       enqueueRankedPlayer(ws, user);
+      return;
+    }
+
+// A read-only, nonpersistent practice board for the All Games Settings screen.
+// This is NOT a lobby/game: it has no room code, no seats, no timer or stat writes.
+if (msg.type === 'get_settings_preview') {
+      if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Log in to preview game settings.' }); return; }
+      if (ws._roomCode) { sendJson(ws, { type: 'error', error: 'Leave your game before opening the settings preview.' }); return; }
+      const playerId = ws._userId;
+      const user = findUserById(playerId);
+      if (!user || user.needsUsernameSetup) { sendJson(ws, { type: 'error', error: 'Complete account setup first.' }); return; }
+      const demoPlayers = [
+        { id: playerId, name: user.displayName || user.username || 'You', color: COLORS[0], ready: true },
+        ...[1,2,3].map(i => ({ id: `settings-ai-${i}`, name: `AI ${i}`, color: COLORS[i], ready: true, isAI: true, aiDifficulty: 'easy' })),
+      ];
+      const demoRules = { ...DEFAULT_RULES, mapMode: 'classic', playerCount: 4,
+        victoryPointsToWin: 10, setupTurnMs: 0, playTurnMs: 0, microPhaseMs: 0,
+        randomMapAtStart: false, customMap: false };
+      const demoRoom = { code: '', hostId: null, ranked: false, casual: true,
+        rules: demoRules, aiDifficulty: 'easy', players: demoPlayers, spectators: [], chat: [] };
+      const game = newEmptyGame(demoRoom);
+      game.geom = generatePreviewGeom(demoRules, demoRoom);
+      game.phase = 'main-actions';
+      game.turnOrder = demoPlayers.map(p => p.id);
+      game.currentPlayerId = demoPlayers[1].id; // Never show this as the user's playable turn.
+      game.turnNumber = 1;
+      game.message = 'Settings preview • gameplay disabled';
+      game.devDeck = Array.from({length:25}, (_, i) => `preview-${i}`);
+      pushLog(game, 'Settings preview: Classic 4-player game board. Game actions are disabled.', 'system');
+      sendJson(ws, { type:'settings_preview',
+        state: sanitizeStateFor(game, playerId),
+        room: { code:'', players: demoPlayers, spectators:[], hostId:null, ranked:false,
+          casual:true, aiDifficulty:'easy', rules:demoRules, isSettingsPreview:true } });
       return;
     }
 
@@ -12114,10 +12176,6 @@ if (msg.type === 'create_tutorial_room') {
         return;
       }
       const user = findUserById(ws._userId);
-      if (!user?.tutorialCompletedAt) {
-        sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before entering other games.' });
-        return;
-      }
       const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Host');
       if (user && desiredName) {
         setUserDisplayName(user, desiredName);
@@ -12176,10 +12234,6 @@ if (msg.type === 'create_tutorial_room') {
       }
       const code = String(msg.code || '').toUpperCase().trim();
       const user = findUserById(ws._userId);
-      if (!user?.tutorialCompletedAt) {
-        sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before joining another lobby.' });
-        return;
-      }
       const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Player');
       if (user && desiredName) {
         setUserDisplayName(user, desiredName);
@@ -12225,10 +12279,6 @@ if (msg.type === 'create_tutorial_room') {
 
         // A rejoin must restore an existing membership, never create a new
         // seat just because a stale code happens to belong to another lobby.
-        if (!user?.tutorialCompletedAt && !roomByCodeWithPersistence(code)?.tutorial) {
-          sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before rejoining another lobby.' });
-          return;
-        }
         const jr = rejoinRoom(code, ws._userId);
         if (!jr.ok) {
           sendJson(ws, { type: 'error', error: jr.error });
@@ -12246,9 +12296,6 @@ if (msg.type === 'create_tutorial_room') {
       }
 
       // Legacy behavior (older clients): requires explicit playerId
-      if (!findUserById(ws._userId)?.tutorialCompletedAt && !roomByCodeWithPersistence(code)?.tutorial) {
-        sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure first.' }); return;
-      }
       const result = rejoinRoom(code, msg.playerId);
       if (!result.ok) {
         sendJson(ws, { type: 'error', error: result.error });
@@ -12326,11 +12373,6 @@ if (msg.type === 'create_tutorial_room') {
       return;
     }
 
-    if (!room.tutorial && !findUserById(ws._userId)?.tutorialCompletedAt &&
-        new Set(['game_action', 'start_game', 'set_ready', 'set_rules', 'fill_ai', 'rematch_room']).has(msg.type)) {
-      sendJson(ws, { type: 'error', error: 'Complete Start Your Adventure before playing other games.' });
-      return;
-    }
 
     if (room.tutorial && !new Set([
       'get_state', 'start_game', 'game_action', 'query_build_options', 'leave_room',
@@ -12475,10 +12517,7 @@ if (msg.type === 'create_tutorial_room') {
           return;
         }
         room.spectators = room.spectators.filter(p => p && p.id !== pid);
-        let desiredColor = String(spec.color || '').trim();
-        if (!desiredColor || room.players.some(p => p && String(p.color || '').toLowerCase() === desiredColor.toLowerCase())) {
-          desiredColor = pickAvailableColor(room);
-        }
+        const desiredColor = pickAvailableColor(room);
         room.players.push({
           id: spec.id,
           name: spec.name,
