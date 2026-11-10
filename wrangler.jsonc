@@ -43,6 +43,8 @@
   "vars": {
     "PUBLIC_BASE_URL": "https://hex-settlers-cloudflare-staging.bt616923.workers.dev",
     "HEX_EMAIL_FROM": "",
-    "ALLOW_EMPTY_DATABASE": "0"
+    "ALLOW_EMPTY_DATABASE": "0",
+    "HEX_BETA_MAX_CONNECTIONS": "250",
+    "HEX_WS_BACKPRESSURE_BYTES": "4194304"
   }
 }

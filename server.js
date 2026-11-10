@@ -128,6 +128,7 @@ function trustedProxyRequest(req) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
+const { canAcceptConnection, isBackpressured, closeSlowClient } = require('./server/ws-admission');
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
 const HOST = APP_CONFIG.host;
@@ -146,7 +147,14 @@ const MIME = {
 };
 
 function sendJson(ws, obj) {
-  try { ws.send(JSON.stringify(obj)); } catch (_) {}
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  // Slow clients must not accumulate unbounded pending state snapshots. A
+  // closed client can recover using the existing room reconnect flow.
+  if (isBackpressured(ws, APP_CONFIG.wsBackpressureBytes)) {
+    closeSlowClient(ws);
+    return false;
+  }
+  try { ws.send(JSON.stringify(obj)); return true; } catch (_) { return false; }
 }
 
 function deepClone(obj) {
@@ -11061,7 +11069,7 @@ async function handleAdminHttp(req, res, urlPath) {
         logicalCores: os.availableParallelism?.() || os.cpus().length, samplePeriodMs: durationMs },
       memory: { rssBytes: heap.rss, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal, externalBytes: heap.external, arrayBuffersBytes: heap.arrayBuffers },
       eventLoop: { p99DelayMs: Math.round(eventLoopHistogram.percentile(99) / 1e6 * 10) / 10, maxDelayMs: Math.round(eventLoopHistogram.max / 1e6 * 10) / 10 },
-      connections: { webSocketClients: wss.clients.size, authenticatedUsers: userSockets.size, queuedPlayers, rankedQueueGroups: rankedQueues.size },
+      connections: { webSocketClients: wss.clients.size, websocketLimit: APP_CONFIG.betaMaxConnections, availableSlots: Math.max(0, APP_CONFIG.betaMaxConnections - wss.clients.size), authenticatedUsers: userSockets.size, queuedPlayers, rankedQueueGroups: rankedQueues.size },
       rooms: { total: rooms.size, waiting: waitingRooms, activeGames, finished: finishedRooms, expiredPendingCleanup: expiringRooms, pausedGames, casual: casualRooms, ranked: rankedRooms },
       persistence: { writable, files, historyGames: (HISTORY_DB.games || []).length, historyLimit: HISTORY_MAX_GAMES,
         activeRoomSavePending: !!activeRoomsSaveTimer, historyWriterAvailable: !!HISTORY_WRITER },
@@ -11796,6 +11804,7 @@ const server = http.createServer(async (req, res) => {
         uptimeSeconds: Math.floor(process.uptime()),
         rooms: rooms.size,
         websocketClients: wss.clients.size,
+        betaCapacity: { websocketLimit: APP_CONFIG.betaMaxConnections, availableSlots: Math.max(0, APP_CONFIG.betaMaxConnections - wss.clients.size) },
       });
       return;
     }
@@ -11890,6 +11899,10 @@ server.on('upgrade', (req, socket, head) => {
   if (!trustedProxyRequest(req) || !isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
+    return;
+  }
+  if (!canAcceptConnection(wss.clients.size, APP_CONFIG.betaMaxConnections)) {
+    socket.end('HTTP/1.1 503 Service Unavailable\r\nRetry-After: 15\r\nConnection: close\r\n\r\n');
     return;
   }
   wss.handleUpgrade(req, socket, head, (ws) => {

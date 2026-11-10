@@ -121,6 +121,8 @@ export class HexGameContainer extends Container {
     this.envVars = {
       NODE_ENV: 'production', HOST: '0.0.0.0', PORT: '3000', DATA_DIR: '/data',
       HEX_TRUST_PROXY: 'true',
+      HEX_BETA_MAX_CONNECTIONS: String(env.HEX_BETA_MAX_CONNECTIONS || '250'),
+      HEX_WS_BACKPRESSURE_BYTES: String(env.HEX_WS_BACKPRESSURE_BYTES || '4194304'),
       HEX_PUBLIC_BASE_URL: String(env.PUBLIC_BASE_URL || ''),
       HEX_ALLOWED_ORIGINS: [String(env.PUBLIC_BASE_URL || ''), `https://${ADMIN_HOST}`].filter(Boolean).join(','),
       HEX_ADMIN_HOST: ADMIN_HOST,
