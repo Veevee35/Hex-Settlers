@@ -1325,92 +1325,154 @@
     selectedPlayMode = 'casual';
     try { sessionStorage.setItem('hexsettlers_play_mode', 'casual'); } catch (_) {}
     state = null;
+    tutorialUiTipIndex = 0;
     updateAuthUi();
     send({ type:'create_tutorial_room' });
   }
+  // Keep desktop and touch tutorials independent: the same live game and
+  // server-tracked milestones, but different controls, focus and HUD advice.
+  let tutorialUiTipIndex = 0;
+  const tutorialMobile = () => isMobileGameSplit();
   function refreshTutorialGuide() {
     const guide = $('tutorialGuide');
     if (!guide) return;
     const active = liveTutorialRoom();
     guide.classList.toggle('hidden', !active);
     document.body.classList.toggle('live-tutorial', active);
+    document.body.classList.toggle('live-tutorial-mobile', active && tutorialMobile());
     document.querySelectorAll('.tutorialAttention').forEach(node => node.classList.remove('tutorialAttention'));
-    if (!active) return;
-    const phase = String(state?.phase || 'lobby');
+    if (!active) { tutorialUiTipIndex = 0; return; }
+
     const progress = state?.tutorial || {};
-    const total = Math.min(8, Number(progress.settlements || 0) + Number(progress.roads || 0) + Number(progress.rolls || 0) + Number(progress.endedTurns || 0));
-    $('tutorialGuideProgress').textContent = `${total} / 8 actions`;
+    const goals = progress.goals || {};
+    const phase = String(state?.phase || 'lobby');
+    const mobile = tutorialMobile();
     const ownTurn = state?.currentPlayerId === myPlayerId;
-    let title = '', body = '', hint = '', target = null;
+    const allBuilt = ['city','development','road','ship','settlement','bankTrade','playerTrade'].every(k => goals[k]);
+    const readySettings = allBuilt && progress.aiRolledSeven && progress.discardedForSeven && progress.playerRolledSeven && progress.robberResolved;
+    const count = Number(progress.settlements >= 2 && progress.roads >= 2) + Number((progress.rolls || 0) >= 1)
+      + ['city','development','road','ship','settlement','bankTrade','playerTrade'].filter(k => !!goals[k]).length
+      + Number(progress.aiRolledSeven && progress.discardedForSeven)
+      + Number(progress.playerRolledSeven && progress.robberResolved)
+      + Number(readySettings) + Number(!!progress.completed);
+    $('tutorialGuideProgress').textContent = `${count} / 13 lessons`;
     const primary = $('tutorialGuidePrimary');
-    primary.classList.add('hidden');
-    $('tutorialGuideExit').textContent = progress.completed ? 'Back to game types' : 'Exit tutorial';
+    const assist = $('tutorialGuideAssist');
+    if (primary) primary.classList.add('hidden');
+    if (assist) assist.classList.add('hidden');
+    $('tutorialGuideExit').textContent = progress.completed ? 'Back to All Games' : 'Exit tutorial';
+    let title = '', body = '', hint = '', target = null;
+    const setPrimary = label => { primary.textContent = label; primary.classList.remove('hidden'); };
+    const setAssist = (label, kind) => { if (assist) { assist.textContent = label; assist.dataset.kind = kind; assist.classList.remove('hidden'); } };
+    const mobileTip = (touch, mouse) => mobile ? touch : mouse;
+
     if (phase === 'lobby') {
-      title = '1. Explore a real game lobby';
-      body = 'This is your actual lobby, with the live Classic map preview and normal Game Setup panel. One AI shares a two-player match on the standard four-player 19-hex board.';
-      hint = 'Notice the map, player seats, victory point target, dice and timer rules. Settings are locked for consistent practice. Start when you are ready.';
-      primary.textContent = 'Begin practice game'; primary.classList.remove('hidden');
-      target = 'setupCard';
-    } else if (progress.completed || tutorialUnlocked()) {
-      title = 'Adventure complete!';
-      body = 'You placed two settlements and two roads, rolled the dice twice, and completed two normal turns using the actual game engine.';
-      hint = 'Tutorial complete. Your progress is saved; all game modes were already available without completing the walkthrough.';
-      primary.textContent = 'Continue to All Games'; primary.classList.remove('hidden');
-    } else if (!ownTurn) {
-      if (phase.startsWith('setup')) {
-        const isRoad = phase.endsWith('-road');
-        const second = phase.startsWith('setup2');
-        title = `Watch the AI: ${second ? 'second ' : ''}${isRoad ? 'road' : 'settlement'}`;
-        body = isRoad
-          ? 'The AI must connect its opening road to the settlement it just placed. Watch which available board edge it chooses.'
-          : (second
-            ? 'Placement order reverses for the second round. The AI must still respect the two-edge settlement distance rule.'
-            : 'The AI goes first. It is choosing a legal corner on the real board, balancing resource types, number tokens, and nearby road routes.');
-      } else if (phase === 'main-await-roll') {
-        title = 'Watch the AI: roll dice';
-        body = 'The AI will roll using the normal game rules. Adjacent settlements collect resources on a matching roll, even when it is not their turn.';
-      } else if (phase === 'main-actions') {
-        title = 'Watch the AI: actions and end turn';
-        body = 'The AI may build, trade or buy development cards according to its resources. It will finish with End Turn, just like you.';
-      } else {
-        title = 'Watch the AI resolve a game event';
-        body = 'The AI is responding to a normal game prompt, such as the robber. Its action uses the same rules you will use.';
-      }
-      hint = 'Watch the highlighted live board; the AI pauses between actions. There is no turn timer during practice.';
-      target = 'board';
-    } else if (phase.endsWith('-settlement')) {
+      tutorialUiTipIndex = 0;
+      title = '1. Learn the lobby and game rules';
+      body = 'This private practice room uses the real Seafarers board and a patient AI. The sea makes ship building possible. Check the map preview, starting players, turn order, victory point goal and game setup controls.';
+      hint = mobileTip('Tap the map icon to preview the board, then return to the lobby and begin practice.', 'Explore the map preview, rules and player list. This training match has no timer and never affects your rating.');
+      setPrimary('Begin practice game'); target = 'setupCard';
+    } else if (progress.completed) {
+      title = 'Training complete — play again any time';
+      body = 'You practiced building, both trades, development cards, both sides of a seven, and game settings. Nothing from training affects your match statistics.';
+      hint = 'Restart creates a fresh board, full starting resources and a new step-by-step practice. You can repeat as often as you want.';
+      setPrimary('Restart practice game');
+    } else if (phase.startsWith('setup')) {
+      const road = phase.endsWith('-road');
       const second = phase.startsWith('setup2');
-      title = second ? 'Place your second settlement' : 'Your turn: place a settlement';
-      body = second ? 'Pick another legal corner at least two edges from any existing settlement. This second opening settlement grants starting resources from neighboring producing tiles.'
-        : 'Tap or click a valid intersection where hex corners meet. Look for useful numbers and several different resources.';
-      hint = 'These are real legal intersections on the board. Tap a highlighted corner to confirm your settlement placement.';
+      if (ownTurn) {
+        title = road ? (second ? '4. Connect your second route' : '3. Build your first route')
+          : (second ? '4. Choose your second starting settlement' : '2. Place your starting settlement');
+        body = road
+          ? 'Choose a legal edge touching your most recent settlement. Roads connect your land network, while ships travel along sea edges. The highlighted route places an actual game piece.'
+          : 'A settlement belongs on a hex corner. Numbers closer to six and eight produce more often; diversify brick, lumber, wool, grain and ore. Consider the coast for future ships. The second placement gives starting resources.';
+        hint = mobileTip('Pinch to zoom and drag the map. Tap a glowing corner or edge, then confirm the build prompt.', 'Use the scroll wheel to zoom and drag to pan. Click a highlighted corner for a settlement or an edge for a route.');
+      } else {
+        title = road ? 'Watch how the AI connects a route' : 'Watch the AI choose an opening location';
+        body = 'The AI places its opening pieces under the same settlement-distance and network rules you use. Setup reverses direction for the second round.';
+        hint = mobileTip('Drag or pinch the board while you watch.', 'Pan around the board while waiting. The AI deliberately pauses so you can see its choice.');
+      }
       target = 'board';
-    } else if (phase.endsWith('-road')) {
-      title = phase.startsWith('setup2') ? 'Connect your second road' : 'Build a road from your settlement';
-      body = 'Choose an empty edge directly connected to the settlement you just built. This must be a legal opening road on the actual map.';
-      hint = 'Roads connect your settlement network. Tap a highlighted board edge to place one.';
+    } else if (!progress.starterKitGranted || ((progress.rolls || 0) === 0 && ownTurn && phase === 'main-await-roll')) {
+      title = '5. Roll dice and collect production';
+      body = 'Each numbered terrain tile pays out when its number is rolled. A settlement earns one card and a city earns two. Practice supplies now cover a city, development card, road, ship and settlement, plus trades.';
+      hint = mobileTip('Use Roll Dice at the bottom of the board; watch the resource counters after production.', 'Click Roll Dice, then inspect your resource inventory and Game Log.');
+      target = $('rollDockBtn') && !$('rollDockBtn').classList.contains('hidden') ? 'rollDockBtn' : 'rollBtn';
+    } else if (phase === 'discard' && state?.discard?.required?.[myPlayerId] && !state?.discard?.done?.[myPlayerId]) {
+      title = '11. A seven: you must discard';
+      body = 'An opponent rolled seven while you held more than the discard limit. Choose exactly half of your resource cards (rounded down) in the discard dialog. The robber or pirate acts after every required player discards.';
+      hint = mobileTip('Tap resource icons in the discard sheet to select the exact amount, then confirm.', 'Use the resource counters in the discard modal and submit the required total.');
+      target = 'board';
+    } else if (phase === 'pirate-or-robber' || phase === 'robber-move' || phase === 'pirate-move' || phase === 'robber-steal' || phase === 'pirate-steal') {
+      title = ownTurn ? '12. You rolled seven: move and steal' : 'Watch the AI resolve its seven';
+      body = 'Seven produces no resources. After discards, move the robber to a land hex to block production, or the pirate to water to interfere with ships. You may steal one random resource from a valid neighboring opponent.';
+      hint = mobileTip('Tap a valid land or water hex, then tap a player if prompted to steal.', 'Click a legal land or sea hex, then choose a steal target if available.');
+      target = 'board';
+    } else if (!ownTurn) {
+      title = 'Watch the AI take its turn';
+      body = allBuilt && !progress.aiRolledSeven
+        ? 'Next, the AI will roll a scripted seven so you can practice discarding as the other player. Keep an eye on your hand and the discard prompt.'
+        : 'The AI rolls, collects resources, builds and finishes a turn. You can pan, inspect the game log and learn from the actions while it plays.';
+      hint = mobileTip('Use Resources and Game Log tabs to follow the action.', 'Read the Game Log and other player resource totals while you wait.');
       target = 'board';
     } else if (phase === 'main-await-roll') {
-      title = `Normal turn ${Math.min(2, (progress.rolls || 0) + 1)}: roll the dice`;
-      body = 'Roll the dice. Every matching numbered hex gives a resource to adjacent settlements; cities earn double. A roll of seven opens the robber step.';
-      hint = 'Use the highlighted Roll Dice control, then look at your resource icons and the game log.';
+      title = allBuilt && progress.discardedForSeven ? '12. Roll your own seven' : 'Roll for another round';
+      body = allBuilt && progress.discardedForSeven
+        ? 'This next roll is deliberately seven. You will practice the other side of the event as the roller: move the robber or pirate and steal where permitted.'
+        : 'Every round starts by rolling. Cards are produced even on other players’ turns when your settlements touch the matching number.';
+      hint = mobileTip('Tap the dice control in the bottom corner.', 'Click Roll Dice to begin your turn.');
       target = $('rollDockBtn') && !$('rollDockBtn').classList.contains('hidden') ? 'rollDockBtn' : 'rollBtn';
+    } else if (readySettings) {
+      const tips = mobile ? [
+        ['13. Mobile: board and bottom controls', 'Practice pinch-zoom, one-finger panning, and the movable turn timer. Find the dice and End Turn controls at the bottom corners.', 'Move or resize the game board and turn clock to where they feel comfortable.'],
+        ['13. Mobile: resources and game tabs', 'Use the Resources, Game Log and Dev Cards tabs below the map. Adjust the panel divider and tap the +, − and A controls for independent scaling.', 'Switch the bottom tabs now. Your chosen sizes are saved on this device.'],
+        ['13. Mobile: audio and personal preferences', 'Open Sound Settings from the game controls and change individual sound-effect volumes. You can also adjust UI scaling and move panels while in-game.', 'Try the Sound Settings control, then choose Finish Training.'],
+      ] : [
+        ['13. Desktop: board and HUD controls', 'Zoom with the mouse wheel and drag the board. Adjust the turn timer and use the +, − and A controls on the game tools, Resources, Log and Dev Cards.', 'Try moving and resizing a panel. Your layout settings save to this browser.'],
+        ['13. Desktop: sidebar dividers', 'Drag each divider between Resources, Game Log, Development Cards and Bank Resources. The panels remain independently scrollable and can collapse for more board space.', 'Move a divider to compare the resources and game log.'],
+        ['13. Desktop: audio and saved layout', 'Open Sound Settings in the HUD to adjust individual effects. Your scaling, panels and sound choices persist on this device; All Games → Settings also opens this same HUD in preview mode.', 'Try Sound Settings, then select Finish Training.'],
+      ];
+      const tip = tips[Math.min(tutorialUiTipIndex, tips.length - 1)];
+      [title, body, hint] = tip;
+      setPrimary(tutorialUiTipIndex < tips.length - 1 ? 'Next UI tip' : 'Finish training');
+      target = tutorialUiTipIndex === 2 ? 'audioBtn' : (mobile ? 'mobilePanelTabs' : 'rightSidebarResourcesDock');
     } else if (phase === 'main-actions') {
-      title = `Normal turn ${Math.min(2, (progress.endedTurns || 0) + 1)}: explore your actions`;
-      body = 'Inspect resources, build costs, and trade options. You can build or trade if you have the resources; use End Turn when you are ready.';
-      hint = 'Finish this real turn by selecting End Turn. The AI will take its next turn before your next roll.';
-      target = $('endDockBtn') && !$('endDockBtn').classList.contains('hidden') ? 'endDockBtn' : 'endBtn';
-    } else if (phase === 'discard' || phase.includes('robber') || phase.includes('pirate')) {
-      title = 'A seven: handle the robber';
-      body = 'A seven triggers special rules. Follow the game prompt to discard if necessary, move the robber, and choose a valid steal target if one is available.';
-      hint = 'Resolve the current action on the actual game board; the walkthrough continues automatically.';
-      target = 'board';
+      const lessons = [
+        ['city','6. Upgrade a settlement to a city','A city costs 2 grain + 3 ore and replaces one of your settlements. It earns two resource cards for every matching adjacent number. Select Upgrade City and a settlement you own.','buildCityBtn'],
+        ['development','7. Buy a development card','A development card costs 1 wool + 1 grain + 1 ore. Knights move the robber or pirate, while other cards add useful abilities. Non-victory cards cannot be played on the turn you buy them.','buyDevBtn'],
+        ['road','8. Build another road','Roads cost 1 brick + 1 lumber and extend your network on land. Choose Build Road, then select an edge connected to your existing route. Longer networks can earn Longest Road.','buildRoadBtn'],
+        ['ship','9. Build a ship','Ships cost 1 lumber + 1 wool. They must touch sea and connect to a coastal settlement or existing ship. They work like sea routes rather than land roads.','buildShipBtn'],
+        ['settlement','10. Expand to another settlement','A new settlement costs brick, lumber, wool and grain. It needs a connected road or ship route and cannot be adjacent to another settlement. Pick a legal empty corner.','buildSettlementBtn'],
+        ['bankTrade','11. Trade with the bank','Open Bank Trade and exchange a group of resources for another type. The default rate is 4:1, reduced to 3:1 or 2:1 when you own a matching port.','bankTradeBtn'],
+        ['playerTrade','12. Trade with another player','Open Player Trade, offer a resource, and request a different resource from the AI. When the AI accepts, finish the trade in the offer dialog. Humans can negotiate and reject offers.','playerTradeBtn'],
+      ];
+      const lesson = lessons.find(item => !goals[item[0]]);
+      if (lesson) {
+        [title, body, hint, target] = [lesson[1], lesson[2], mobileTip('Use the bottom build/trade controls. Tap a valid target on the map when prompted.', 'Use the highlighted action, then click the relevant corner, edge or trade selection.'), lesson[3]];
+        if (lesson[0] === 'ship' || lesson[0] === 'settlement') setAssist('Prepare a practice route', lesson[0]);
+      } else if (!progress.aiRolledSeven || !progress.discardedForSeven) {
+        title = '11. End turn and experience an opponent’s seven';
+        body = 'You have bought, built and traded. Press End Turn. The AI will demonstrate a seven while you hold enough resources to trigger the discard prompt.';
+        hint = 'The AI takes over briefly; you will return to your own turn for another seven afterward.';
+        target = $('endDockBtn') && !$('endDockBtn').classList.contains('hidden') ? 'endDockBtn' : 'endBtn';
+      } else if (!progress.playerRolledSeven || !progress.robberResolved) {
+        title = '12. Finish resolving your seven';
+        body = 'Follow any outstanding robber, pirate or steal prompt, then end your turn to begin another roll if necessary.';
+        hint = 'Your next eligible roll will be a seven until you have demonstrated the robber action.';
+        target = 'board';
+      } else {
+        title = 'Practice complete: review the controls';
+        body = 'Great work. You have practiced every required mechanic. Move around the HUD and review the saved controls.';
+        hint = 'The UI settings walkthrough is next.';
+      }
     } else {
-      title = 'Follow the live game prompt';
-      body = state?.message || 'Complete the current game action to continue.';
-      hint = 'Use the highlighted legal targets and the game controls to proceed.';
+      title = 'Follow the current game prompt';
+      body = state?.message || 'Use the highlighted legal targets to finish this action.';
+      hint = mobileTip('Tap the prompted tile, resource or player.', 'Click the prompted tile, resource or player.');
       target = 'board';
     }
+    guide.classList.toggle('tutorialGuideMobile', mobile);
+    guide.querySelector('.tutorialGuideEyebrow').textContent = mobile ? '⠿ MOBILE PRACTICE · DRAG TO MOVE' : '⠿ DESKTOP PRACTICE · DRAG TO MOVE';
     $('tutorialGuideTitle').textContent = title;
     $('tutorialGuideBody').textContent = body;
     $('tutorialGuideHint').textContent = hint;
@@ -13003,14 +13065,25 @@ function refreshLobbyJoinLinkUi() {
   })();
   $('tutorialGuidePrimary')?.addEventListener('click', () => {
     if (!liveTutorialRoom()) return;
-    if (state?.tutorial?.completed || tutorialUnlocked()) {
-      tutorialContinueToAllGames = true;
-      returnToModeSelectionAfterLeave = true;
-      send({ type: 'leave_room' });
-    } else if (!state || state.phase === 'lobby') {
+    const t = state?.tutorial || {};
+    if (state?.phase === 'lobby') {
+      tutorialUiTipIndex = 0;
       send({ type: 'start_game' });
+    } else if (t.completed) {
+      tutorialUiTipIndex = 0;
+      send({ type: 'restart_tutorial_game' });
+    } else if (t.aiRolledSeven && t.discardedForSeven && t.playerRolledSeven && t.robberResolved &&
+               ['city','development','road','ship','settlement','bankTrade','playerTrade'].every(k => t.goals?.[k])) {
+      if (tutorialUiTipIndex < 2) { tutorialUiTipIndex++; refreshTutorialGuide(); }
+      else send({ type: 'tutorial_finish' });
     }
   });
+  $('tutorialGuideAssist')?.addEventListener('click', () => {
+    if (!liveTutorialRoom() || state?.phase !== 'main-actions') return;
+    const kind = $('tutorialGuideAssist').dataset.kind;
+    if (kind === 'ship' || kind === 'settlement') send({ type: 'tutorial_prepare_routes', kind });
+  });
+  window.addEventListener('resize', () => { if (liveTutorialRoom()) refreshTutorialGuide(); });
   $('tutorialGuideExit')?.addEventListener('click', () => {
     if (!liveTutorialRoom()) return;
     returnToModeSelectionAfterLeave = true;

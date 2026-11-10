@@ -4808,3 +4808,13 @@ body.settings-sandbox #app #leaveGameBtn {pointer-events:none!important;opacity:
   color:#b0cada; font-size:12px; font-variant-numeric:tabular-nums; text-align:left; }
 .gameBootProgressMeta strong {color:#f2d99d;}
 #gameBootContinue:not([hidden]) {display:block; margin:22px auto 0;}
+
+/* V66: The mobile walkthrough is a distinct, compact touch-first guide. */
+.tutorialGuideMobile { width:min(360px,calc(100vw - 20px)); max-height:min(57vh,480px); overflow-y:auto; overscroll-behavior:contain; }
+.tutorialGuideMobile .tutorialGuideHeader {font-size:10px;}
+.tutorialGuideMobile .tutorialGuideActions .btn {min-width:96px;}
+@media (max-width:900px), (pointer:coarse) and (max-width:1180px) {
+  body.live-tutorial-mobile .tutorialGuide {left:8px;right:auto;top:clamp(48px,6vh,76px);max-height:42vh;width:min(350px,calc(100vw - 16px));z-index:400;}
+  body.live-tutorial-mobile .tutorialGuide h2 {font-size:16px;}
+  body.live-tutorial-mobile .tutorialGuideActions {position:sticky;bottom:0;background:#101b25;padding:6px 0;}
+}

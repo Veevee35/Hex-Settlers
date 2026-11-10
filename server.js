@@ -2514,6 +2514,8 @@ function buildGeometryFromAxials(axials) {
   };
 }
 
+const tutorialGuide = require('./server/tutorial-guide');
+
 const BUILD_COSTS = {
   road: { brick: 1, lumber: 1 },
   ship: { lumber: 1, wool: 1 },
@@ -6160,6 +6162,102 @@ function pushChat(room, fromId, text) {
   return msg;
 }
 
+
+// Training-only inventory is never recorded in ranked/unranked statistics.
+// Keep a visible bank ledger: allocations consume its inventory and do not
+// manufacture extra resources in any ordinary match.
+function tutorialTopUp(game, pid, minimums) {
+  if (!game?.tutorial) return;
+  const player = playerById(game, pid);
+  if (!player) return;
+  for (const kind of RESOURCE_KINDS) {
+    const current = Math.max(0, Number(player.resources?.[kind] || 0));
+    const wanted = Math.max(0, Number(minimums[kind] || 0));
+    const needed = Math.max(0, wanted - current);
+    if (needed > 0) grantFromBankStats(game, pid, player.resources, kind, needed, 'tutorial');
+  }
+}
+function prepareTutorialStarterKit(game) {
+  const t = game?.tutorial;
+  if (!t || t.starterKitGranted || game.phase !== 'main-await-roll') return;
+  t.starterKitGranted = true;
+  // Covers city, development card, road, ship and settlement, with spare
+  // resource cards to practice both bank trade and discarding on a seven.
+  tutorialTopUp(game, t.ownerId, { brick: 7, lumber: 8, wool: 7, grain: 8, ore: 8 });
+  for (const p of game.players) if (p.isAI) tutorialTopUp(game, p.id, { brick: 5, lumber: 5, wool: 5, grain: 5, ore: 5 });
+  pushLog(game, 'Practice supplies issued. Build one of every structure, buy a development card, and try both kinds of trades.', 'system');
+}
+// Replenish practice materials after builds without altering normal games.
+function replenishTutorialMaterials(game) {
+  if (!game?.tutorial?.starterKitGranted || tutorialGuide.goalsComplete(game.tutorial)) return;
+  tutorialTopUp(game, game.tutorial.ownerId, { brick: 5, lumber: 5, wool: 5, grain: 5, ore: 5 });
+}
+
+
+function prepareTutorialRoute(game, playerId, kind) {
+  if (!game?.tutorial || game.phase !== 'main-actions') return { ok:false, error:'Finish rolling before preparing a practice route.' };
+  if (kind !== 'ship' && kind !== 'settlement') return { ok:false, error:'Unknown practice route.' };
+  const tiles = game.geom?.tiles || [];
+  const nodes = game.geom?.nodes || [];
+  const edges = game.geom?.edges || [];
+  const owner = nodeId => nodes[nodeId]?.building?.owner === playerId;
+  const touchesLand = nodeId => (game.geom.nodeAdjTiles?.[nodeId] || []).some(id => tiles[id]?.type !== 'sea');
+  const seaEdges = nodeId => (game.geom.nodeEdges?.[nodeId] || []).filter(id => {
+    const e = edges[id];
+    return e && !e.roadOwner && !e.shipOwner && edgeTouchesSeaAfterOuterSeaTrim(game, id) && !edgeTouchesPirate(game, id);
+  });
+  if (kind === 'ship') {
+    for (let i = 0; i < nodes.length; i++) {
+      if (owner(i) && seaEdges(i).length) return { ok:true, changed:false };
+    }
+    // A special training harbor is only placed when opening settlements are
+    // inland. This is explicitly a free demo fixture, never a build goal.
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].building || !touchesLand(i) || !settlementDistanceOk(game, i) || !seaEdges(i).length) continue;
+      if (countPiecesOnBoard(game, playerId).settlements >= PIECE_LIMITS.settlements - 1) break;
+      nodes[i].building = { owner: playerId, type: 'settlement' };
+      computeVP(game);
+      pushLog(game, 'Practice helper added a free coastal training harbor. Build a ship on a connected sea edge.', 'system');
+      return { ok:true, changed:true };
+    }
+    return { ok:false, error:'No available training harbor on this board. Restart practice for a fresh map.' };
+  }
+
+  const canSettle = nodeId => !!nodes[nodeId] && !nodes[nodeId].building && touchesLand(nodeId) && settlementDistanceOk(game,nodeId);
+  for (let i = 0; i < nodes.length; i++) {
+    if (canSettle(i) && (game.geom.nodeEdges?.[i] || []).some(eid => edges[eid]?.roadOwner === playerId || edges[eid]?.shipOwner === playerId))
+      return { ok:true, changed:false };
+  }
+  // Connect a *real* network route, not an isolated disconnected shortcut.
+  // BFS from existing buildings and road/ship endpoints, with at most three
+  // legal land edges. The player still purchases and places the settlement.
+  const queue = [];
+  const seen = new Set();
+  for (let i = 0; i < nodes.length; i++) {
+    const touchingOwnedEdge = (game.geom.nodeEdges?.[i] || []).some(id => edges[id]?.roadOwner === playerId || edges[id]?.shipOwner === playerId);
+    if (owner(i) || touchingOwnedEdge) { seen.add(i); queue.push({ nid:i, path:[] }); }
+  }
+  for (let qi = 0; qi < queue.length; qi++) {
+    const { nid, path } = queue[qi];
+    if (path.length && canSettle(nid) && countPiecesOnBoard(game,playerId).roads + path.length <= PIECE_LIMITS.roads) {
+      for (const id of path) edges[id].roadOwner = playerId;
+      recomputeLongestRoad(game);
+      pushLog(game, 'Practice helper added a short connected access road. Purchase the settlement at its empty endpoint.', 'system');
+      return { ok:true, changed:true };
+    }
+    if (path.length >= 3) continue;
+    for (const eid of (game.geom.nodeEdges?.[nid] || [])) {
+      const edge = edges[eid];
+      if (!edge || edge.roadOwner || edge.shipOwner || !edgeTouchesLandAfterOuterSeaTrim(game,eid)) continue;
+      const next = edge.a === nid ? edge.b : edge.a;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push({ nid:next, path:[...path,eid] });
+    }
+  }
+  return { ok:false, error:'No connected practice settlement route is free. Try another coastal location.' };
+}
+
 function startGame(room) {
   if (room.game && room.game.phase !== 'lobby') return false;
   if (room.ranked) {
@@ -6208,11 +6306,7 @@ function startGame(room) {
   if (room.tutorial) {
     // The AI demonstrates a complete opening placement before the new player acts.
     order.sort((a, b) => Number(!room.players.find(p => p.id === a)?.isAI) - Number(!room.players.find(p => p.id === b)?.isAI));
-    game.tutorial = {
-      ownerId: room.tutorial.ownerId,
-      settlements: 0, roads: 0, rolls: 0, endedTurns: 0,
-      completed: false,
-    };
+    game.tutorial = tutorialGuide.newProgress(room.tutorial.ownerId);
     game.ai = { nextAt: now() + 2600 };
   }
   game.turnOrder = order;
@@ -7563,7 +7657,7 @@ if (kind === 'choose_production_gold') {
   if (kind === 'roll_dice') {
     if (game.phase !== 'main-await-roll') return { ok: false, error: 'Already rolled.' };
 
-    const { d1, d2, roll } = rollDiceWithAlgorithm(game);
+    const { d1, d2, roll } = tutorialGuide.chooseTutorialDice(game, playerId) || rollDiceWithAlgorithm(game);
     game.lastRoll = { d1, d2, roll };
     game.diceStats = game.diceStats || emptyDiceStats();
     game.diceStats[roll] = (game.diceStats[roll] || 0) + 1;
@@ -8322,6 +8416,10 @@ if (kind === 'pirate_steal') {
     if (game.phase !== 'main-actions') return { ok: false, error: 'Cannot end turn right now.' };
     if (!isPlayersTurn(game, playerId)) return { ok: false, error: 'Not your turn.' };
 
+    // Guarantee a real discard prompt when the tutorial AI rolls its scripted seven.
+    if (game.tutorial && playerId === game.tutorial.ownerId && tutorialGuide.goalsComplete(game.tutorial) && !game.tutorial.discardedForSeven) {
+      tutorialTopUp(game, playerId, { brick: 3, lumber: 3, wool: 3, grain: 3, ore: 3 });
+    }
     // Any unanswered trade offer expires when the turn ends (keeps the game moving)
     game.pendingTrade = null;
 
@@ -8412,6 +8510,7 @@ function applyAction(room, playerId, action) {
   const captureReplay = !!(game && !AI_TRAINING_MODE && !room._dryRun && game.phase !== 'lobby');
   if (captureReplay) ensureReplay(game);
   const result = applyActionCore(room, playerId, action);
+  if (room?.tutorial && result?.ok) prepareTutorialStarterKit(room.game);
   if (captureReplay && result && result.ok) {
     recordReplayStep(game, { actorId: playerId, action });
     if (game.phase === 'game-over' && game.winnerId) {
@@ -9729,7 +9828,7 @@ function roomSnapshot(room) {
     // but matched players never receive host/admin ownership.
     hostId: room.ranked ? null : room.hostId,
     ranked: !!room.ranked, casual: !!room.casual, challenge: room.challenge || null,
-    tutorial: room.tutorial ? { ownerId: room.tutorial.ownerId, version: 1 } : null,
+    tutorial: room.tutorial ? { ownerId: room.tutorial.ownerId, version: room.tutorial.version || 1 } : null,
     visibility: room.visibility === 'public' && !room.casual ? 'public' : 'private', friendsOnly: !!room.friendsOnly, bossIds: Array.isArray(room.bossIds) ? room.bossIds : [],
     rankedScenarioVote: room.rankedScenarioVote ? {
       options: Array.isArray(room.rankedScenarioVote.options) ? room.rankedScenarioVote.options : [],
@@ -12178,12 +12277,12 @@ if (msg.type === 'create_tutorial_room') {
       if (!user || user.needsUsernameSetup) { sendJson(ws, { type: 'error', error: 'Complete account setup first.' }); return; }
       const displayName = authenticatedDisplayName(user, user.displayName || user.username, 'Settler');
       const room = createRoom(ws._userId, displayName);
-      room.tutorial = { ownerId: ws._userId, version: 1 };
+      room.tutorial = { ownerId: ws._userId, version: 2 };
       room.casual = true; // Real game engine, but never counted in leaderboards or stats.
       room.visibility = 'private';
       room.rules = {
         ...DEFAULT_RULES,
-        mapMode: 'classic', playerCount: 2, customMap: false,
+        mapMode: 'seafarers', seafarersScenario: 'heading_for_new_shores', playerCount: 2, customMap: false,
         setupTurnMs: 0, playTurnMs: 0, microPhaseMs: 0, microMs: 0,
         victoryPointsToWin: 10, randomMapAtStart: false,
       };
@@ -12404,7 +12503,8 @@ if (msg.type === 'create_tutorial_room') {
 
     if (room.tutorial && !new Set([
       'get_state', 'start_game', 'game_action', 'query_build_options', 'leave_room',
-      'client_ping', 'query_ship_move_targets'
+      'client_ping', 'query_ship_move_targets', 'restart_tutorial_game',
+      'tutorial_finish', 'tutorial_prepare_routes'
     ]).has(msg.type)) {
       sendJson(ws, { type: 'error', error: 'This is a guided practice match. Lobby settings are fixed.' });
       return;
@@ -12457,16 +12557,8 @@ if (msg.type === 'create_tutorial_room') {
         sendJson(ws, { type: 'error', error: 'Use Leave Game during an active match.' });
         return;
       }
-      // Skipping the first walkthrough is a deliberate unlock. Disconnecting,
-      // closing the tab or merely refreshing does NOT unlock it.
-      if (room.tutorial && room.tutorial.ownerId === pid) {
-        const user = findUserById(pid);
-        if (user && !user.tutorialCompletedAt) {
-          user.tutorialCompletedAt = now();
-          await saveUsersDb();
-          sendJson(ws, { type: 'tutorial_complete', user: safeUserPublic(user), skipped: true });
-        }
-      }
+      // Practice is optional. Leaving an unfinished walkthrough does not mark
+      // the account as having completed it; normal modes are already unlocked.
       const leavingHost = pid === room.hostId;
       removeRoomMember(room, pid);
       if (leavingHost) {
@@ -13543,6 +13635,43 @@ if (msg.type === 'create_tutorial_room') {
       return;
     }
 
+    if (msg.type === 'tutorial_prepare_routes') {
+      if (!room.tutorial || room.tutorial.ownerId !== pid || !room.game?.tutorial) {
+        sendJson(ws, { type:'error', error:'Only the practice player can prepare a training route.' }); return;
+      }
+      const result = prepareTutorialRoute(room.game, pid, msg.kind);
+      if (!result.ok) sendJson(ws, { type:'error', error:result.error });
+      else if (!result.changed) sendJson(ws, { type:'notice', message:'A legal route is already available. Choose an empty highlighted edge or corner.' });
+      if (result.ok) broadcastState(room);
+      return;
+    }
+    if (msg.type === 'restart_tutorial_game') {
+      if (!room.tutorial || room.tutorial.ownerId !== pid) { sendJson(ws, { type:'error', error:'Only the tutorial owner can restart practice.' }); return; }
+      room.game = null;
+      // Each restart uses a fresh practice board and tutorial checklist.
+      ensurePreview(room, true);
+      if (!startGame(room)) { sendJson(ws, { type:'error', error:'Could not restart practice.' }); return; }
+      broadcastRoom(room);
+      broadcastState(room);
+      return;
+    }
+    if (msg.type === 'tutorial_finish') {
+      const t = room.game?.tutorial;
+      if (!room.tutorial || room.tutorial.ownerId !== pid || !t || !tutorialGuide.readyForSettings(t)) {
+        sendJson(ws, { type:'error', error:'Complete the practice mechanics before finishing.' }); return;
+      }
+      t.settingsReviewed = true;
+      t.completed = true;
+      const learner = findUserById(pid);
+      if (learner) {
+        learner.tutorialCompletedAt = learner.tutorialCompletedAt || now();
+        await saveUsersDb();
+        sendJson(ws, { type:'tutorial_complete', user: safeUserPublic(learner) });
+      }
+      broadcastState(room);
+      return;
+    }
+
     if (msg.type === 'game_action') {
       if (room.tutorial && pid !== room.tutorial.ownerId) { sendJson(ws, { type: 'error', error: 'Only the tutorial player can practice.' }); return; }
       if (room.game?.tutorial?.completed) { sendJson(ws, { type: 'error', error: 'Practice complete. Continue to All Games.' }); return; }
@@ -13550,25 +13679,15 @@ if (msg.type === 'create_tutorial_room') {
         sendJson(ws, { type: 'error', error: 'No active game.' });
         return;
       }
+      const beforePhase = room.game.phase;
       const result = applyAction(room, pid, msg.action);
       if (!result.ok) sendJson(ws, { type: 'error', error: result.error });
       if (result.ok && room.tutorial && room.game?.tutorial && pid === room.tutorial.ownerId) {
         const progress = room.game.tutorial;
-        const action = String(msg.action?.kind || '');
-        if (action === 'place_settlement') progress.settlements++;
-        if (action === 'place_road') progress.roads++;
-        if (action === 'roll_dice') progress.rolls++;
-        if (action === 'end_turn') progress.endedTurns++;
-        if (!progress.completed && progress.settlements >= 2 && progress.roads >= 2 &&
-            progress.rolls >= 2 && progress.endedTurns >= 2) {
-          progress.completed = true;
-          const learner = findUserById(pid);
-          if (learner) {
-            learner.tutorialCompletedAt = learner.tutorialCompletedAt || now();
-            await saveUsersDb();
-            sendJson(ws, { type: 'tutorial_complete', user: safeUserPublic(learner) });
-          }
-        }
+        if (!progress.goals) progress.goals = tutorialGuide.newProgress(pid).goals;
+        tutorialGuide.recordPlayerAction(progress, String(msg.action?.kind || ''), beforePhase, room.game.phase, room.game.lastRoll);
+        prepareTutorialStarterKit(room.game);
+        replenishTutorialMaterials(room.game);
       }
       broadcastState(room);
       return;
@@ -14796,7 +14915,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
       const p = playerById(game, pid);
       if (!p || !p.isAI) continue;
       const diff = getAIDifficulty(pid);
-      const accept = wouldAcceptTrade(pid, game.pendingTrade, diff);
+      const accept = room.tutorial ? true : wouldAcceptTrade(pid, game.pendingTrade, diff);
       const r = applyAction(room, pid, { kind: 'respond_trade', tradeId: game.pendingTrade.id, accept });
       if (r && r.ok) { delay(120, 220); return true; }
     }
