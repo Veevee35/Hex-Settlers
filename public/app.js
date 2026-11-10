@@ -1788,7 +1788,9 @@
     card.append(head, content);
     host.appendChild(card);
     refreshRows();
-    drawRankedMiniMap(board, map.preview);
+    // Fog Island previews should match the actual game board, not the flat
+    // ranked ballot palette (or the old placeholder hatched hexes).
+    drawRankedMiniMap(board, map.preview, { gameArtwork: catalog.scenario === 'fog' });
   }
 
   function beginChallengeHost(playerCount) {
@@ -11771,19 +11773,54 @@ function refreshLobbyJoinLinkUi() {
     rankedBallotClockTimer = null;
   }
 
-  function drawRankedMiniMap(canvas, tiles) {
+  // Canvas mini-maps normally use a small, flat-color palette. Challenge Fog
+  // Island maps use the exact tile and token art from the live game instead.
+  // Cache by resolved URL so a changed texture pack isn't silently ignored.
+  const miniMapArtworkCache = new Map();
+  function miniMapArtwork(url, onReady, fallbackUrl = '') {
+    if (!url) return null;
+    const key = `${url}\n${fallbackUrl}`;
+    let record = miniMapArtworkCache.get(key);
+    if (!record) {
+      const img = new Image();
+      let triedFallback = false;
+      record = { img: null, state: 'loading', listeners: new Set() };
+      miniMapArtworkCache.set(key, record);
+      img.onload = () => {
+        record.img = img;
+        record.state = 'ready';
+        for (const callback of record.listeners) callback();
+        record.listeners.clear();
+      };
+      img.onerror = () => {
+        if (!triedFallback && fallbackUrl && fallbackUrl !== url) {
+          triedFallback = true;
+          img.src = fallbackUrl;
+          return;
+        }
+        record.state = 'error';
+        record.listeners.clear();
+      };
+      img.src = url;
+    }
+    if (record.state === 'ready') return record.img;
+    if (record.state === 'loading' && onReady) record.listeners.add(onReady);
+    return null;
+  }
+
+  function drawRankedMiniMap(canvas, tiles, options = {}) {
     if (!canvas || !Array.isArray(tiles) || !tiles.length) return;
     const context = canvas.getContext('2d');
     if (!context) return;
     const width = canvas.width, height = canvas.height;
     context.clearRect(0, 0, width, height);
-    const visible = tiles.filter((tile) => Number.isFinite(tile.x) && Number.isFinite(tile.y));
+    const visible = tiles.filter(tile => Number.isFinite(tile.x) && Number.isFinite(tile.y));
     if (!visible.length) return;
     const halfWidth = Math.sqrt(3) / 2;
-    const minX = Math.min(...visible.map((tile) => tile.x - halfWidth));
-    const maxX = Math.max(...visible.map((tile) => tile.x + halfWidth));
-    const minY = Math.min(...visible.map((tile) => tile.y - 1));
-    const maxY = Math.max(...visible.map((tile) => tile.y + 1));
+    const minX = Math.min(...visible.map(tile => tile.x - halfWidth));
+    const maxX = Math.max(...visible.map(tile => tile.x + halfWidth));
+    const minY = Math.min(...visible.map(tile => tile.y - 1));
+    const maxY = Math.max(...visible.map(tile => tile.y + 1));
     const scale = Math.min((width - 18) / (maxX - minX), (height - 16) / (maxY - minY));
     const offX = (width - (maxX - minX) * scale) / 2;
     const offY = (height - (maxY - minY) * scale) / 2;
@@ -11792,6 +11829,28 @@ function refreshLobbyJoinLinkUi() {
       hills: '#bd754b', mountains: '#9298a6', desert: '#e7c98e',
       gold: '#daa43d', unexplored: '#687480', fog: '#687480',
     };
+    const useArtwork = options.gameArtwork === true;
+    // When an image first loads, repaint only this still-mounted preview.
+    // This avoids both a temporary blank map and showing stale map selections.
+    const redraw = () => {
+      if (canvas.isConnected) drawRankedMiniMap(canvas, tiles, options);
+    };
+    const tileArt = new Map();
+    const tokenArt = new Map();
+    if (useArtwork) {
+      for (const tile of visible) {
+        const hidden = (tile.fog === true && tile.revealed !== true) || tile.type === 'unexplored' || tile.type === 'fog';
+        const kind = hidden ? 'unexplored' : String(tile.type || 'sea');
+        if (!tileArt.has(kind) && TILE_IMG[kind]) {
+          const url = resolveLegacyTextureUrl(TILE_IMG[kind]) || TILE_IMG[kind];
+          tileArt.set(kind, miniMapArtwork(url, redraw, TILE_IMG[kind]));
+        }
+        if (!hidden && Number.isInteger(tile.number) && NUM_TOKEN_IMG[tile.number] && !tokenArt.has(tile.number)) {
+          const src = NUM_TOKEN_IMG[tile.number];
+          tokenArt.set(tile.number, miniMapArtwork(resolveLegacyTextureUrl(src) || src, redraw, src));
+        }
+      }
+    }
     for (const tile of visible) {
       const cx = offX + (tile.x - minX) * scale;
       const cy = offY + (tile.y - minY) * scale;
@@ -11804,37 +11863,48 @@ function refreshLobbyJoinLinkUi() {
         else context.lineTo(x, y);
       }
       context.closePath();
-      // Use the same face-down appearance as the live game; reject accidental
-      // hidden terrain/number fields even if a cached catalog is outdated.
-      const faceDown = tile.fog === true || tile.type === 'unexplored' || tile.type === 'fog';
-      context.fillStyle = faceDown ? palette.unexplored : (palette[tile.type] || '#738497');
-      context.fill();
-      if (faceDown) {
+      // The payload is intentionally masked by the server; still reject
+      // hidden terrain/number fields if an older catalog is cached.
+      const faceDown = (tile.fog === true && tile.revealed !== true) || tile.type === 'unexplored' || tile.type === 'fog';
+      const kind = faceDown ? 'unexplored' : String(tile.type || 'sea');
+      const art = useArtwork ? tileArt.get(kind) : null;
+      if (art) {
         context.save();
         context.clip();
-        context.strokeStyle = 'rgba(224, 237, 247, .22)';
-        context.lineWidth = Math.max(.8, scale * .045);
-        for (let dx = -scale; dx < scale * 1.5; dx += scale * .28) {
-          context.beginPath(); context.moveTo(cx + dx, cy - scale); context.lineTo(cx + dx + scale, cy + scale);
-          context.stroke();
-        }
+        context.drawImage(art, cx - halfWidth * scale, cy - scale, 2 * halfWidth * scale, 2 * scale);
         context.restore();
+      } else {
+        context.fillStyle = faceDown ? palette.unexplored : (palette[kind] || '#738497');
+        context.fill();
+        // On slow connections the fog is still readable while its artwork loads.
+        // In particular, no more cross-hatching that resembles an empty tile.
+        if (faceDown) {
+          context.fillStyle = '#f2f1eb';
+          context.font = `bold ${Math.max(12, scale * .85)}px system-ui`;
+          context.textAlign = 'center';
+          context.textBaseline = 'middle';
+          context.fillText('?', cx, cy);
+        }
       }
-      context.lineWidth = Math.max(.75, scale * .055);
-      context.strokeStyle = 'rgba(5, 15, 24, .82)';
+      context.lineWidth = Math.max(.75, scale * (useArtwork ? .025 : .055));
+      context.strokeStyle = useArtwork ? 'rgba(5,15,24,.4)' : 'rgba(5,15,24,.82)';
       context.stroke();
-      // Readable number tokens help players judge the dice distribution.
       if (!faceDown && scale >= 14 && Number.isInteger(tile.number) && tile.number >= 2 && tile.number <= 12) {
         const tokenRadius = Math.min(11, Math.max(5.5, scale * .31));
-        context.beginPath();
-        context.arc(cx, cy, tokenRadius, 0, Math.PI * 2);
-        context.fillStyle = '#f7ecd8';
-        context.fill();
-        context.fillStyle = (tile.number === 6 || tile.number === 8) ? '#9a292a' : '#283036';
-        context.font = `bold ${Math.max(8, tokenRadius * 1.3)}px system-ui`;
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
-        context.fillText(String(tile.number), cx, cy + .4);
+        const numberImage = useArtwork ? tokenArt.get(tile.number) : null;
+        if (numberImage) {
+          context.drawImage(numberImage, cx - tokenRadius, cy - tokenRadius, tokenRadius * 2, tokenRadius * 2);
+        } else {
+          context.beginPath();
+          context.arc(cx, cy, tokenRadius, 0, Math.PI * 2);
+          context.fillStyle = '#f7ecd8';
+          context.fill();
+          context.fillStyle = (tile.number === 6 || tile.number === 8) ? '#9a292a' : '#283036';
+          context.font = `bold ${Math.max(8, tokenRadius * 1.3)}px system-ui`;
+          context.textAlign = 'center';
+          context.textBaseline = 'middle';
+          context.fillText(String(tile.number), cx, cy + .4);
+        }
       }
     }
   }

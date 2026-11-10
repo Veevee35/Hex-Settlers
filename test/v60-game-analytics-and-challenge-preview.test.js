@@ -49,7 +49,7 @@ test('the fog challenge catalog masks tiles and the client never draws numbers o
   const server = text('server.js'), app = text('public/app.js');
   assert.match(server,/type: tile\.fog && !tile\.revealed \? 'unexplored' : String\(tile\.type \|\| 'sea'\)/);
   assert.match(server,/number: tile\.fog && !tile\.revealed \? null/);
-  assert.match(app,/const faceDown = tile\.fog === true \|\| tile\.type === 'unexplored'/);
+  assert.match(app,/const faceDown = \(tile\.fog === true && tile\.revealed !== true\) \|\| tile\.type === 'unexplored'/);
   assert.match(app,/if \(!faceDown && scale >= 14/);
 });
 
