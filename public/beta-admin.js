@@ -92,7 +92,7 @@
         feedback.replaceChildren(el('h3','','Feedback inbox (up to 300 retained)'));
         const mailStatus = data.feedbackEmailConfigured
           ? `Automatic report emails enabled: ${data.feedbackEmailRecipient}. Failed deliveries are retried; use Retry email if all attempts fail.`
-          : `Email notifications are queued but NOT sending. Set RESEND_API_KEY and a verified HEX_EMAIL_FROM in Cloudflare to deliver to ${data.feedbackEmailRecipient}.`;
+          : `Email notifications are queued but NOT sending. Set the RESEND_API_KEY secret in Cloudflare and verify hexsettlers.org in Resend to deliver to ${data.feedbackEmailRecipient}.`;
         feedback.appendChild(el('p','smallNote',mailStatus));
         feedback.appendChild(el('p','smallNote',`Configured sender: ${data.feedbackEmailSender || 'Not set'} · Provider: ${data.feedbackEmailProvider || 'none'}. The sender domain must be verified in Resend.`));
         const diagnostic = el('div','betaReferralTools');

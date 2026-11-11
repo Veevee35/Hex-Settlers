@@ -56,7 +56,7 @@ Copy `.env.example` into your hosting environment; the server does not load `.en
 | `HEX_ADMIN_PASSWORD` | unset | Required as a private Cloudflare secret to provision/synchronize the built-in administrator; never stored in the source |
 | `HEX_ADMIN_FORCE_PASSWORD_SYNC` | `false` | One-restart override that forces the environment password onto the built-in administrator |
 | `HEX_PUBLIC_BASE_URL` | inferred from request | Public origin used in verification and password-reset links |
-| `HEX_EMAIL_FROM` | `Hex Settlers <no-reply@send.tenthson.com>` | Sender identity for account email; use a verified sending domain you control |
+| `HEX_EMAIL_FROM` | `no-reply@hexsettlers.org` | Fixed in Wrangler and enforced in server code; does not require dashboard edits |
 | `HEX_EMAIL_MODE` | `none` | Use `resend` for the recommended free HTTPS delivery; `cloudflare`, `direct`, and `smtp` are optional overrides |
 | `RESEND_API_KEY` | unset | Private sending-only Resend API key stored in Cloudflare secrets |
 | `RESEND_TIMEOUT_MS` | `15000` | Timeout for a Resend API request |

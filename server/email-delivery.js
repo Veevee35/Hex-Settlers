@@ -83,15 +83,13 @@ function isEmailDeliveryConfigured(env = process.env) {
   return emailDeliveryMode(env) !== 'none';
 }
 
-function fromAddress(env = process.env) {
-  const defaultSender = 'Hex Settlers <no-reply@send.tenthson.com>';
-  const configured = String(env.HEX_EMAIL_FROM || env.SMTP_FROM || defaultSender).trim();
-  // Migrate the original documented Resend sender without requiring an
-  // immediate Railway variable change during deployment.
-  if (/^(?:Hex Settlers\s*)?<account@send\.tenthson\.com>$/i.test(configured) || /^account@send\.tenthson\.com$/i.test(configured)) {
-    return defaultSender;
-  }
-  return configured || defaultSender;
+// Product-owned invariant: all transactional emails use this sender, even when
+// legacy environment variables are blank or still contain an old address.
+// This includes account verification, password recovery, beta feedback,
+// diagnostics, SMTP and Resend. Never use the message payload as the From.
+const FIXED_EMAIL_SENDER = 'no-reply@hexsettlers.org';
+function fromAddress(_env = process.env) {
+  return FIXED_EMAIL_SENDER;
 }
 
 function messageIdDomain(from) {
@@ -103,7 +101,7 @@ function envelopeAddress(from) {
   const value = String(from || '').trim();
   const match = value.match(/<([^>]+)>/) || value.match(/([^\s<>]+@[^\s<>]+)/);
   const validation = validateEmailAddress(match ? match[1] : value);
-  if (!validation.ok) throw new Error('HEX_EMAIL_FROM must contain a valid sender email address.');
+  if (!validation.ok) throw new Error('The fixed outbound email sender is invalid.');
   return validation.value;
 }
 

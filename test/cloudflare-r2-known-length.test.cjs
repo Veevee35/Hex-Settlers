@@ -8,7 +8,10 @@ const path = require('node:path');
 // Use original source instead of a duplicated persistence implementation.
 const source = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'container-worker.mjs'), 'utf8');
 const section = source.slice(source.indexOf('const STATE_HOST'), source.indexOf('export class HexGameContainer'));
-const { r2StateRequest } = new Function('Response', `${section.replaceAll('export ', '')}\nreturn { r2StateRequest };`)(Response);
+// The Worker now also imports admin routing; this isolated R2 test only
+// evaluates the state helpers, so omit ESM import/export statements.
+const isolated = section.replace(/^import\s+[^\n]+$/gm, '').replace(/^export \{[^\n]+$/gm, '').replaceAll('export ', '');
+const { r2StateRequest } = new Function('Response', `${isolated}\nreturn { r2StateRequest };`)(Response);
 const uri = 'http://hex-state.internal/state/users.json';
 
 function envWithPut(assertPut) {

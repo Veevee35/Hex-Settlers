@@ -2,6 +2,7 @@ const DEFAULT_UPSTREAM_ORIGIN = 'https://hexsettlers.up.railway.app';
 
 const DYNAMIC_PATHS = new Set(['/health', '/ws']);
 const EMAIL_BRIDGE_PATH = '/api/internal/send-email';
+const FIXED_EMAIL_SENDER = 'no-reply@hexsettlers.org';
 
 export function isDynamicPath(pathname) {
   return DYNAMIC_PATHS.has(pathname) || pathname.startsWith('/api/');
@@ -43,7 +44,7 @@ export async function handleEmailBridge(request, env) {
   const authorization = request.headers.get('Authorization') || '';
   const provided = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
   if (!await secretsMatch(provided, String(env.EMAIL_BRIDGE_SECRET || ''))) return jsonError(401, 'Unauthorized.');
-  if (!env.EMAIL || typeof env.EMAIL.send !== 'function' || !String(env.EMAIL_FROM || '').trim()) {
+  if (!env.EMAIL || typeof env.EMAIL.send !== 'function') {
     return jsonError(503, 'Email service is not configured.');
   }
   if (Number(request.headers.get('Content-Length') || 0) > 131072) return jsonError(413, 'Message is too large.');
@@ -56,7 +57,7 @@ export async function handleEmailBridge(request, env) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return jsonError(400, 'Invalid recipient address.');
   if (!subject || subject.length > 200 || text.length > 100000 || html.length > 100000) return jsonError(400, 'Invalid email content.');
   try {
-    const result = await env.EMAIL.send({ to, from: String(env.EMAIL_FROM).trim(), subject, text, html });
+    const result = await env.EMAIL.send({ to, from: FIXED_EMAIL_SENDER, subject, text, html });
     return jsonResponse(200, { ok: true, id: result && (result.messageId || result.id) || null });
   } catch (error) {
     console.error('[cloudflare] Email Service send failed:', error);

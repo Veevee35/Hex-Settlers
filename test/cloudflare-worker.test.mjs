@@ -25,7 +25,7 @@ test('Cloudflare email bridge rejects requests without its shared secret', async
     method: 'POST', body: JSON.stringify({ to: 'player@example.com', subject: 'Verify', text: 'Code' }),
   }), {
     EMAIL_BRIDGE_SECRET: 'bridge-secret',
-    EMAIL_FROM: 'Hex Settlers <no-reply@example.com>',
+    EMAIL_FROM: 'attacker@unapproved.example',
     EMAIL: { async send() { sent = true; } },
   });
   assert.equal(response.status, 401);
@@ -40,13 +40,26 @@ test('Cloudflare email bridge sends an authorized message with the fixed sender'
     body: JSON.stringify({ to: 'PLAYER@example.com', subject: 'Verify account', text: 'Code', html: '<p>Code</p>' }),
   }), {
     EMAIL_BRIDGE_SECRET: 'bridge-secret',
-    EMAIL_FROM: 'Hex Settlers <no-reply@example.com>',
+    EMAIL_FROM: 'attacker@unapproved.example',
     EMAIL: { async send(value) { message = value; return { messageId: 'message-1' }; } },
   });
   assert.equal(response.status, 200);
   assert.equal(message.to, 'player@example.com');
-  assert.equal(message.from, 'Hex Settlers <no-reply@example.com>');
+  assert.equal(message.from, 'no-reply@hexsettlers.org');
   assert.equal((await response.json()).id, 'message-1');
+});
+
+test('Cloudflare email bridge works without any EMAIL_FROM binding', async () => {
+  let message;
+  const response = await handleEmailBridge(new Request('https://game.example/api/internal/send-email', {
+    method: 'POST', headers: { Authorization: 'Bearer bridge-secret', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: 'player@example.com', subject: 'Notice', text: 'body', from: 'injected@example.com' }),
+  }), {
+    EMAIL_BRIDGE_SECRET: 'bridge-secret',
+    EMAIL: { async send(value) { message = value; return { messageId: 'message-2' }; } },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(message.from, 'no-reply@hexsettlers.org');
 });
 
 test('Cloudflare Worker accepts only its own browser origin', () => {

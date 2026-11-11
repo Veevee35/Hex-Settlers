@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   emailDeliveryMode,
+  fromAddress,
   isPublicMailAddress,
   isEmailDeliveryConfigured,
   maskEmail,
@@ -59,7 +60,7 @@ test('Cloudflare bridge sends a protected HTTPS request', async () => {
   assert.equal(JSON.parse(received.options.body).to, 'player@example.com');
 });
 
-test('Resend delivery uses its HTTPS API and configured sender', async () => {
+test('Resend always uses the locked no-reply@hexsettlers.org sender', async () => {
   let received;
   const result = await sendViaResend({
     to: 'player@example.com', subject: 'Verify', text: 'Code', html: '<p>Code</p>',
@@ -73,14 +74,16 @@ test('Resend delivery uses its HTTPS API and configured sender', async () => {
     });
   });
   assert.equal(result.provider, 'resend');
+  assert.equal(fromAddress({ HEX_EMAIL_FROM: '' }), 'no-reply@hexsettlers.org');
+  assert.equal(fromAddress({ HEX_EMAIL_FROM: 'spoof@other.example', SMTP_FROM: 'other@example.org' }), 'no-reply@hexsettlers.org');
   assert.equal(received.url, 'https://api.resend.com/emails');
   assert.equal(received.options.headers.Authorization, 'Bearer re_test_key');
   const body = JSON.parse(received.options.body);
-  assert.equal(body.from, 'Hex Settlers <account@play.example.com>');
+  assert.equal(body.from, 'no-reply@hexsettlers.org');
   assert.deepEqual(body.to, ['player@example.com']);
 });
 
-test('legacy Hex Settlers Resend sender migrates to the no-reply address', async () => {
+test('legacy sender environment variables cannot override the locked sender', async () => {
   let received;
   await sendViaResend({
     to: 'player@example.com', subject: 'Verify', text: 'Code', html: '<p>Code</p>',
@@ -93,7 +96,7 @@ test('legacy Hex Settlers Resend sender migrates to the no-reply address', async
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
   });
-  assert.equal(JSON.parse(received.body).from, 'Hex Settlers <no-reply@send.tenthson.com>');
+  assert.equal(JSON.parse(received.body).from, 'no-reply@hexsettlers.org');
 });
 
 test('direct MX delivery rejects private and documentation network targets', () => {

@@ -26,11 +26,11 @@ Password recovery requires a public URL, a sender identity, and a working delive
 ```text
 HEX_PUBLIC_BASE_URL=https://hex-settlers.bt616923.workers.dev
 HEX_EMAIL_MODE=resend
-HEX_EMAIL_FROM=Hex Settlers <no-reply@send.tenthson.com>
+HEX_EMAIL_FROM=no-reply@hexsettlers.org
 RESEND_API_KEY=re_your_sending_only_key
 ```
 
-Create a free Resend account, add the sending subdomain `send.tenthson.com`, and add the DNS records Resend supplies to Cloudflare DNS. After Resend marks the domain verified, create an API key with **Sending access** restricted to that domain and store it as the private Railway variable `RESEND_API_KEY`. Do not commit the key. Using a subdomain keeps transactional-email authentication separate from any existing root-domain mail provider.
+Create a Resend account, add the sending domain `hexsettlers.org`, and add the DNS records Resend supplies to Cloudflare DNS. After Resend marks the domain verified, create an API key with **Sending access** restricted to that domain and store it as the private Railway variable `RESEND_API_KEY`. Do not commit the key. The outbound From address is fixed in game code to `no-reply@hexsettlers.org`, even if an environment variable differs.
 
 Remove the old Railway variables `HEX_EMAIL_CLOUDFLARE_ENDPOINT` and `HEX_EMAIL_BRIDGE_SECRET`, set the four variables above, and redeploy Railway. No Cloudflare Worker secret or Email Sending binding is used in this mode.
 
@@ -44,8 +44,8 @@ Direct SMTP remains available only as an explicit option for a host that permits
 
 ```text
 HEX_EMAIL_MODE=direct
-HEX_EMAIL_FROM=Hex Settlers <no-reply@YOUR-DOMAIN>
-HEX_EMAIL_EHLO_NAME=mail.YOUR-DOMAIN
+HEX_EMAIL_FROM=no-reply@hexsettlers.org
+HEX_EMAIL_EHLO_NAME=mail.hexsettlers.org
 ```
 
 Railway allows outbound SMTP only on Pro plans and above, while Cloudflare Workers cannot open port 25. Direct SMTP is therefore not suitable for the current deployment. Set `HEX_DIRECT_EMAIL_REQUIRE_TLS=true` if using it elsewhere and delivery must fail whenever a recipient MX server does not offer STARTTLS.
@@ -58,7 +58,7 @@ SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=your-smtp-username
 SMTP_PASS=your-smtp-password
-SMTP_FROM=Hex Settlers <no-reply@YOUR-DOMAIN>
+SMTP_FROM=no-reply@hexsettlers.org
 SMTP_REQUIRE_TLS=true
 HEX_EMAIL_MODE=smtp
 ```

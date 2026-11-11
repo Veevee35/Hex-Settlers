@@ -137,7 +137,7 @@ export class HexGameContainer extends Container {
       OAUTH_CLOUDFLARE_CLIENT_ID: String(env.OAUTH_CLOUDFLARE_CLIENT_ID || ''),
       OAUTH_CLOUDFLARE_CLIENT_SECRET: String(env.OAUTH_CLOUDFLARE_CLIENT_SECRET || ''),
       OAUTH_CLOUDFLARE_SCOPES: String(env.OAUTH_CLOUDFLARE_SCOPES || ''),
-      HEX_EMAIL_FROM: String(env.HEX_EMAIL_FROM || ''),
+      HEX_EMAIL_FROM: 'no-reply@hexsettlers.org', // fixed sender for every transactional email
       RESEND_API_KEY: String(env.RESEND_API_KEY || ''),
       ALLOW_EMPTY_DATABASE: String(env.ALLOW_EMPTY_DATABASE || '0'),
     };

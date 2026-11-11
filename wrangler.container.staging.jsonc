@@ -42,7 +42,7 @@
   ],
   "vars": {
     "PUBLIC_BASE_URL": "https://hex-settlers-cloudflare-staging.bt616923.workers.dev",
-    "HEX_EMAIL_FROM": "",
+    "HEX_EMAIL_FROM": "no-reply@hexsettlers.org",
     "ALLOW_EMPTY_DATABASE": "0"
   }
 }

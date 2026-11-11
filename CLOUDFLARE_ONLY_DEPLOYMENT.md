@@ -102,7 +102,7 @@ Paste the result into Wrangler's password/secret prompt, not into project source
 .\cloudflare\node_modules\.bin\wrangler.cmd secret put RESEND_API_KEY --config wrangler.container.staging.jsonc
 ```
 
-Set `vars.HEX_EMAIL_FROM` in the staging `.jsonc` to your real verified sender identity, for example `Hex Settlers <your-verified-sender@example.com>`. The container sets `HEX_EMAIL_MODE=resend` automatically when this secret is present; otherwise it disables outgoing account email. This setup uses no Railway email service. Redeploy if you edited the config.
+The sender is already locked to `no-reply@hexsettlers.org` in all Wrangler configuration files and in server code. Do **not** edit this value through the Cloudflare dashboard: Wrangler applies the committed value on every GitHub deployment. Verify `hexsettlers.org` in Resend and create an API key with Sending access to that domain. The container sets `HEX_EMAIL_MODE=resend` automatically when the secret is present; otherwise it disables outgoing account email. This setup uses no Railway email service.
 
 13. Check staging using the exact URL Wrangler printed:
 

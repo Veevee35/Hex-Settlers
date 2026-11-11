@@ -45,7 +45,7 @@ test('report notifications use server-owned recipient and Cloudflare forwarded e
   const notifier = read('server/beta-feedback-email.js');
   const worker = read('cloudflare/container-worker.mjs');
   const server = read('server.js');
-  assert.match(notifier, /BETA_FEEDBACK_RECIPIENT = 'support@hexsettlers\.com'/);
+  assert.match(notifier, /BETA_FEEDBACK_RECIPIENT = 'support@hexsettlers\.org'/);
   assert.match(worker, /RESEND_API_KEY: String\(env\.RESEND_API_KEY \|\| ''\)/);
   assert.match(server, /await BETA\.save\(\);[\s\S]*?BETA_FEEDBACK_EMAIL\.process\(\)/);
   assert.match(server, /beta-feedback-email-retry/);
