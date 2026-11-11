@@ -1781,6 +1781,7 @@
       { key: 'lowestTimeMs', label: 'Lowest Time' },
       { key: 'lowestTurns', label: 'Lowest Turns to Win' },
       { key: 'totalVP', label: 'Total VP earned' },
+      { key: 'aiCount', label: '# of AI' },
     ];
     const headers = new Map();
     const rankedRows = rows.map((entry, index) => ({ entry, rank: index + 1 }));
@@ -1819,6 +1820,7 @@
           formatChallengeTime(entry.lowestTimeMs),
           entry.lowestTurns == null ? '—' : String(entry.lowestTurns),
           entry.totalVP == null ? '—' : String(entry.totalVP),
+          entry.aiCount == null ? '—' : String(entry.aiCount),
         ];
         for (const cell of cells) {
           const td = document.createElement('td');
@@ -4605,7 +4607,9 @@ function renderChallengeExplorer(section) {
     if (!Number.isFinite(turns) || turns < 0) continue;
     const started = Number(game.startedAt), ended = Number(game.endedAt);
     const elapsed = Number.isFinite(started) && Number.isFinite(ended) && started > 0 && ended >= started ? ended - started : null;
-    const candidate = { id, name:String(game.winnerName || winner.name || 'Player'), lowestTurns:turns+1, lowestTimeMs:elapsed, totalVP,
+    const aiPlayers = game.players || [];
+    const aiCount = aiPlayers.length && aiPlayers.every(p => typeof p.isAI === 'boolean') ? aiPlayers.filter(p => p.isAI).length : null;
+    const candidate = { id, name:String(game.winnerName || winner.name || 'Player'), lowestTurns:turns+1, lowestTimeMs:elapsed, totalVP, aiCount,
       period: game.challenge.dayId || game.challenge.weekId };
     if (needle && !candidate.name.toLowerCase().includes(needle)) continue;
     const previous = best.get(id);
@@ -4623,7 +4627,7 @@ function renderChallengeExplorer(section) {
   const table = document.createElement('table');
   const thead = document.createElement('thead'); const header = document.createElement('tr');
   const tbody = document.createElement('tbody');
-  const cols = [['name','Player'],['lowestTimeMs','Lowest Time'],['lowestTurns','Lowest Turns to Win'],['totalVP','Total VP earned'],['period','Period']];
+  const cols = [['name','Player'],['lowestTimeMs','Lowest Time'],['lowestTurns','Lowest Turns to Win'],['totalVP','Total VP earned'],['aiCount','# of AI'],['period','Period']];
   for (const [col, label] of cols) {
     const th = document.createElement('th');
     th.setAttribute('aria-sort', col === key ? (mult === 1 ? 'ascending' : 'descending') : 'none');
@@ -4639,7 +4643,7 @@ function renderChallengeExplorer(section) {
   thead.appendChild(header); table.appendChild(thead);
   for (const item of rows) {
     const tr = document.createElement('tr');
-    for (const value of [`#${ranked.get(item.id)}  ${item.name}`, formatChallengeTime(item.lowestTimeMs), item.lowestTurns, item.totalVP, item.period]) {
+    for (const value of [`#${ranked.get(item.id)}  ${item.name}`, formatChallengeTime(item.lowestTimeMs), item.lowestTurns, item.totalVP, item.aiCount == null ? '—' : item.aiCount, item.period]) {
       const cell = document.createElement('td'); cell.textContent = String(value); tr.appendChild(cell);
     }
     tbody.appendChild(tr);

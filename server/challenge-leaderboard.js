@@ -16,6 +16,15 @@ function compareChallengeResults(a, b) {
   return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
 }
 
+// Preserve unknown historical counts rather than incorrectly labeling them zero.
+function countChallengeAI(game) {
+  const players = Array.isArray(game?.players) && game.players.length &&
+    game.players.every(p => p && typeof p.isAI === 'boolean')
+    ? game.players : game?.snapshot?.players;
+  if (!Array.isArray(players) || !players.length) return null;
+  return players.filter(p => p && (p.isAI === true || p.ai === true || String(p.id || '').startsWith('ai_'))).length;
+}
+
 function buildChallengeLeaderboard(history, periodId, playerCount, findUserById, kind = 'weekly') {
   const bestByUser = new Map();
   const size = Number(playerCount);
@@ -54,6 +63,7 @@ function buildChallengeLeaderboard(history, periodId, playerCount, findUserById,
       lowestTimeMs,
       lowestTurns,
       totalVP,
+      aiCount: countChallengeAI(game),
     };
     const current = bestByUser.get(id);
     if (!current || compareChallengeResults(result, current) < 0) bestByUser.set(id, result);
@@ -61,4 +71,4 @@ function buildChallengeLeaderboard(history, periodId, playerCount, findUserById,
   return [...bestByUser.values()].sort(compareChallengeResults).slice(0, 25);
 }
 
-module.exports = { buildChallengeLeaderboard, compareChallengeResults };
+module.exports = { buildChallengeLeaderboard, compareChallengeResults, countChallengeAI };

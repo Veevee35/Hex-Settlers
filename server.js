@@ -443,6 +443,7 @@ function _historyPlayerSummary(p) {
     name: String(p.name || '').slice(0, 40),
     color: p.color || '#777',
     vp: Math.max(0, Math.floor(Number(p.vp || 0))),
+    isAI: !!(p.isAI || p.ai || String(p.id || '').startsWith('ai_')),
   };
 }
 
@@ -553,7 +554,10 @@ function listGameHistory(limit = 200) {
     ratingChanges: g.ratingChanges || {},
     unrankedRatingChanges: g.unrankedRatingChanges || {},
     rules: g.rules || null,
-    players: g.players || [],
+    players: (g.players || []).map(p => ({ ...p,
+      isAI: typeof p.isAI === 'boolean' ? p.isAI :
+        (Array.isArray(g.snapshot?.players) ? !!g.snapshot.players.find(sp => String(sp.id) === String(p.id))?.isAI : (String(p.id || '').startsWith('ai_') ? true : null)),
+    })),
     replaySteps: Math.max(0, Number(g.replayStepCount ?? (g.replay && Array.isArray(g.replay.steps) ? g.replay.steps.length : 0))),
   }));
 }

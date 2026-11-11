@@ -42,7 +42,7 @@ test('official leaderboard ranks by fewest turns, then least elapsed time, then 
   assert.deepEqual(results.map(row => row.lowestTurns), [7, 7, 7, 8]);
   assert.equal(results[0].lowestTimeMs, 90000);
   assert.equal(results[0].totalVP, 12);
-  assert.deepEqual(Object.keys(results[0]), ['id', 'name', 'lowestTimeMs', 'lowestTurns', 'totalVP']);
+  assert.deepEqual(Object.keys(results[0]), ['id', 'name', 'lowestTimeMs', 'lowestTurns', 'totalVP', 'aiCount']);
 });
 
 test('one complete winning run supplies all three stats, never mixing independent personal bests', () => {
@@ -56,7 +56,7 @@ test('one complete winning run supplies all three stats, never mixing independen
   const results = buildChallengeLeaderboard(games, weekId, 4, findUser);
   assert.equal(results.length, 2);
   assert.deepEqual(results[0], {
-    id: 'alice', name: 'Alice', lowestTimeMs: 90000, lowestTurns: 6, totalVP: 12,
+    id: 'alice', name: 'Alice', lowestTimeMs: 90000, lowestTurns: 6, totalVP: 12, aiCount: 0,
   });
 });
 
@@ -98,11 +98,29 @@ test('reject missing turn count and keep results stable for identical rankings',
 
 test('challenge page renders four sortable requested headers and official rank labels', () => {
   const page = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-  for (const heading of ['Player', 'Lowest Time', 'Lowest Turns to Win', 'Total VP earned']) {
+  for (const heading of ['Player', 'Lowest Time', 'Lowest Turns to Win', 'Total VP earned', '# of AI']) {
     assert.match(page, new RegExp(`label: '${heading}'`));
   }
   assert.match(page, /button\.addEventListener\('click', \(\) => \{/);
   assert.match(page, /th\.setAttribute\('aria-sort'/);
   assert.match(page, /`#\$\{rank\}/);
   assert.doesNotMatch(page.slice(page.indexOf('function renderChallengeMaps()'), page.indexOf('function beginChallengeHost')), /'Best VP', 'Turns', 'Wins', 'Games'/);
+});
+
+test('AI count comes from the winning game and does not affect official ranking', () => {
+  const a = game('alice', 4, 20000, 12);
+  a.players.push({ id: 'ai_1', name: 'Bot', vp: 4, isAI: true }, { id: 'ai_2', name: 'Bot2', vp: 2, isAI: true });
+  const b = game('bob', 5, 10000, 12);
+  const rows = buildChallengeLeaderboard([a, b], weekId, 4, findUser);
+  assert.equal(rows[0].aiCount, 2);
+  assert.equal(rows[1].aiCount, 0);
+});
+
+test('legacy history recovers AI count from snapshot or leaves it unknown', () => {
+  const legacy = game('alice', 3, 10000, 12);
+  delete legacy.players[0].isAI;
+  legacy.snapshot.players = [ { id: 'alice', isAI: false }, { id: 'ai_1', isAI: true } ];
+  assert.equal(buildChallengeLeaderboard([legacy], weekId, 4, findUser)[0].aiCount, 1);
+  delete legacy.snapshot.players;
+  assert.equal(buildChallengeLeaderboard([legacy], weekId, 4, findUser)[0].aiCount, null);
 });
