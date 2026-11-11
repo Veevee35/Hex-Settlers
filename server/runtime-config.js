@@ -1,5 +1,7 @@
 'use strict';
 
+const { isIP } = require('node:net');
+
 function integerEnv(env, name, fallback, min, max) {
   const raw = env && env[name];
   if (raw == null || raw === '') return fallback;
@@ -27,12 +29,18 @@ function forwardedHost(request, trustProxy = false) {
   return String(request && request.headers && request.headers.host || '').trim();
 }
 
-function clientAddress(request, trustProxy = false) {
-  if (trustProxy) {
-    const forwarded = String(request && request.headers && request.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    if (forwarded) return forwarded;
+function clientAddress(request, trustProxy = false, trustedWorker = false) {
+  if (trustProxy && trustedWorker) {
+    const verified = String(request?.headers?.['x-hex-verified-client-ip'] || '').trim();
+    if (isIP(verified)) return verified;
+    // Do not fall back to untrusted forwarding headers on Worker deployments.
+  } else if (trustProxy) {
+    // Legacy non-Worker reverse proxies may still use XFF. Configure only with
+    // a trusted proxy that overwrites it, never with a directly public backend.
+    const forwarded = String(request?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+    if (isIP(forwarded)) return forwarded;
   }
-  return String(request && request.socket && request.socket.remoteAddress || 'unknown');
+  return String(request?.socket?.remoteAddress || 'unknown');
 }
 
 function isAllowedWebSocketOrigin(request, allowedOrigins = new Set(), trustProxy = false) {

@@ -23,6 +23,7 @@ const { applyBuild, displayVersion } = require('./server/build-version');
 const { MAX_HISTORY_IMPORT_BYTES, HISTORY_EXPORT_FORMAT, mergeHistory, validatedImportedHistory } = require('./server/admin-history');
 const { restoreRoom, serializeRoom } = require('./server/active-rooms');
 const { SESSION_COOKIE_NAME, clearSessionCookie, parseCookies, readJsonBody, requestIsTls, sessionCookie } = require('./server/http-auth');
+const ADMIN_MFA = require('./server/admin-mfa');
 const { PROVIDERS: OAUTH_PROVIDERS, providerAvailability, beginOAuth, finishOAuth, clearFlowCookie, safeReturnPath } = require('./server/oauth-login');
 const { claimOAuthUsername, finishVerifiedEmailLink, usernameAvailability } = require('./server/account-onboarding');
 const { parseClientMessage } = require('./server/protocol');
@@ -37,6 +38,7 @@ const {
   validTexturePackId,
 } = require('./server/texture-packs');
 const { clientAddress, forwardedHost, isAllowedWebSocketOrigin, runtimeConfig, securityHeaders } = require('./server/runtime-config');
+const { ROOM_CODE_LENGTH, randomRoomCode, createAuthAttemptGuard, mayViewFullHistory, publicHistoryMetadata } = require('./server/security-hardening');
 const {
   BUILTIN_ADMIN_DISPLAY_NAME,
   BUILTIN_ADMIN_MARKER,
@@ -132,6 +134,9 @@ function trustedProxyRequest(req) {
 }
 
 const APP_CONFIG = runtimeConfig(process.env);
+function verifiedClientAddress(req) {
+  return clientAddress(req, APP_CONFIG.trustProxy, !!UPSTREAM_SHARED_SECRET && trustedProxyRequest(req));
+}
 const PORT = APP_CONFIG.port;
 const HOST = APP_CONFIG.host;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -172,12 +177,8 @@ const SERVER_INSTANCE_ID = String(
 const SERVER_BUILD_ID = 'features-v48';
 const WS_HEARTBEAT_INTERVAL_MS = 25_000;
 
-function randCode(len = 4) {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let out = '';
-  for (let i = 0; i < len; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return out;
-}
+// Room codes are secret invitation capabilities, not guessable short IDs.
+function randCode(len = ROOM_CODE_LENGTH) { return randomRoomCode(len); }
 
 function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
@@ -936,7 +937,7 @@ function validateUsername(username) {
 
 function validatePassword(password) {
   const p = String(password || '');
-  if (p.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
+  if (p.length < 12) return { ok: false, error: 'Password must be at least 12 characters.' };
   if (p.length > 200) return { ok: false, error: 'Password too long.' };
   return { ok: true, value: p };
 }
@@ -9177,7 +9178,7 @@ function processRankedQueue(key, timestamp = now()) {
   let queue = (rankedQueues.get(key) || []).filter(entry =>
     entry.ws.readyState === WebSocket.OPEN && !entry.ws._roomCode && entry.ws._userId === entry.user.id);
   if (!queue.length) { rankedQueues.delete(key); return; }
-  while (queue.length >= playerCount) {
+  while (queue.length >= playerCount && rooms.size < MAX_ACTIVE_ROOMS) {
     const match = selectRankedMatch(queue, playerCount, timestamp);
     if (!match) break;
     const sockets = new Set(match.matched.map(entry => entry.ws));
@@ -9316,8 +9317,9 @@ function recoverSocketRoomBinding(ws, message) {
 }
 
 function createRoom(hostUserId, hostName) {
-  let code = randCode(4);
-  while (rooms.has(code)) code = randCode(4);
+  if (rooms.size >= MAX_ACTIVE_ROOMS) return null;
+  let code = randCode();
+  while (rooms.has(code)) code = randCode();
 
   const hostId = String(hostUserId || '').trim() || crypto.randomUUID();
   const dn = (hostName || 'Host');
@@ -9361,8 +9363,9 @@ function createRoom(hostUserId, hostName) {
 // Create a new lobby room that carries over the previous room's players/rules,
 // keeping the same host. Used for "rematch" from the postgame screen.
 function createRematchRoomFrom(prevRoom) {
-  let code = randCode(4);
-  while (rooms.has(code)) code = randCode(4);
+  if (rooms.size >= MAX_ACTIVE_ROOMS) return null;
+  let code = randCode();
+  while (rooms.has(code)) code = randCode();
 
   const hostId = (prevRoom && prevRoom.hostId) ? String(prevRoom.hostId) : '';
   const safeHostId = hostId || crypto.randomUUID();
@@ -10106,10 +10109,39 @@ function cleanupRooms() {
 
 // -------------------- HTTP static server --------------------
 
-const passwordAuthLimiter = new SlidingWindowRateLimiter({
-  maxAttempts: APP_CONFIG.authAttemptsPerMinute,
-  windowMs: 60_000,
-});
+const passwordAuthLimiter = createAuthAttemptGuard({ ipAttempts: APP_CONFIG.authAttemptsPerMinute });
+// A browser requesting a legacy login gets an HTTP-only session cookie instead.
+// Old WebSocket password/token logins are disabled in every production build.
+const TEST_LEGACY_WS_AUTH = process.env.NODE_ENV === 'test';
+const historyListLimiter = new SlidingWindowRateLimiter({ maxAttempts: 12, windowMs: 60_000 });
+const historyEntryLimiter = new SlidingWindowRateLimiter({ maxAttempts: 30, windowMs: 60_000 });
+const roomCreationIpLimiter = new SlidingWindowRateLimiter({ maxAttempts: 8, windowMs: 10 * 60_000 });
+const roomCreationAccountLimiter = new SlidingWindowRateLimiter({ maxAttempts: 4, windowMs: 10 * 60_000 });
+const roomJoinLimiter = new SlidingWindowRateLimiter({ maxAttempts: 20, windowMs: 60_000 });
+const roomJoinIpLimiter = new SlidingWindowRateLimiter({ maxAttempts: 60, windowMs: 60_000 });
+const historyListIpLimiter = new SlidingWindowRateLimiter({ maxAttempts: 50, windowMs: 60_000 });
+const historyEntryIpLimiter = new SlidingWindowRateLimiter({ maxAttempts: 100, windowMs: 60_000 });
+
+function loginThrottleIdentity(identifier) {
+  const name = String(identifier || '').trim();
+  const target = findUserByUsername(name) || findUserByEmail(name);
+  // Username/email aliases for one account must share the same attempt limit.
+  return target ? `user:${target.id}` : `unknown:${name}`;
+}
+const MAX_ACTIVE_ROOMS = Math.max(1, Math.min(5000, Number(process.env.HEX_MAX_ACTIVE_ROOMS || 512) || 512));
+
+function roomCreationError(userId, address) {
+  if (rooms.size >= MAX_ACTIVE_ROOMS) return 'The game is at its active-lobby capacity. Try again later.';
+  if ([...rooms.values()].some(room => room && !room.ranked && room.hostId === userId &&
+    (!room.game || room.game.phase !== 'game-over'))) {
+    return 'You already host an active game. Return to it or close it before creating another.';
+  }
+  const ip = roomCreationIpLimiter.consume(address);
+  const account = roomCreationAccountLimiter.consume(userId);
+  if (!ip.allowed || !account.allowed) return 'Too many new lobbies. Try again later.';
+  return null;
+}
+
 const eventLoopHistogram = monitorEventLoopDelay({ resolution: 25 });
 eventLoopHistogram.enable();
 let adminCpuSample = { at: Date.now(), cpu: process.cpuUsage() };
@@ -10704,9 +10736,12 @@ async function handleAuthHttp(req, res, urlPath) {
     const user = authenticateByToken(token);
     if (user) {
       revokeAuthToken(user, token);
+      ADMIN_MFA.revokeSession(user, parseCookies(req.headers.cookie)[ADMIN_MFA.COOKIE_MFA]);
       await saveUsersDb();
     }
-    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': [clearSessionCookie({ secure }),
+      ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_MFA, '', 0, secure),
+      ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_PENDING, '', 0, secure)] });
     return;
   }
 
@@ -10729,8 +10764,16 @@ async function handleAuthHttp(req, res, urlPath) {
       sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' });
       return;
     }
+    if (isAdminUser(user) && process.env.HEX_ADMIN_HOST && !requestIsAdminHostname(req)) {
+      sendHttpJson(req, res, 403, { ok: false, error: 'Administrators must sign in through the secure management portal.' });
+      return;
+    }
+    // Exchange the JS-readable legacy token exactly once for a NEW HTTP-only
+    // cookie token. The old token is revoked instead of reused as a cookie.
+    revokeAuthToken(user, token);
+    const cookieToken = issueAuthToken(user);
     await saveUsersDb();
-    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(cookieToken, { secure }) });
     return;
   }
 
@@ -10801,7 +10844,7 @@ async function handleAuthHttp(req, res, urlPath) {
       sendHttpJson(req, res, 503, { ok: false, error: 'Password-reset email delivery is not configured on this server.' });
       return;
     }
-    const address = clientAddress(req, APP_CONFIG.trustProxy);
+    const address = verifiedClientAddress(req);
     const limit = passwordResetRequestLimiter.consume(`ip:${address}`);
     if (!limit.allowed) {
       sendHttpJson(req, res, 429, { ok: false, error: 'Too many password-reset requests. Try again later.' }, {
@@ -10864,8 +10907,9 @@ async function handleAuthHttp(req, res, urlPath) {
     return;
   }
 
-  const address = clientAddress(req, APP_CONFIG.trustProxy);
-  const attempt = passwordAuthLimiter.consume(address);
+  const address = verifiedClientAddress(req);
+  const attempt = passwordAuthLimiter.consume(address,
+    urlPath === '/api/auth/login' ? loginThrottleIdentity(body.username || body.email) : '');
   if (!attempt.allowed) {
     sendHttpJson(req, res, 429, { ok: false, error: 'Too many authentication attempts. Try again shortly.' }, {
       'Retry-After': String(Math.max(1, Math.ceil(attempt.retryAfterMs / 1000))),
@@ -10888,6 +10932,10 @@ async function handleAuthHttp(req, res, urlPath) {
       sendHttpJson(req, res, 401, { ok: false, error: 'Invalid username or password.' });
       return;
     }
+    if (isAdminUser(user) && process.env.HEX_ADMIN_HOST && !requestIsAdminHostname(req)) {
+      sendHttpJson(req, res, 403, { ok: false, error: 'Administrators must sign in through the secure management portal.' });
+      return;
+    }
     if (user.requiresEmailVerification && !user.emailVerifiedAt) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Verify your email before logging in.' });
       return;
@@ -10898,8 +10946,217 @@ async function handleAuthHttp(req, res, urlPath) {
   user.lastLoginAt = now();
   const token = issueAuthToken(user);
   await saveUsersDb();
-  passwordAuthLimiter.clear(address);
   sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+}
+
+// Admin MFA is independent of the normal player session, but bound to that
+// exact existing account session. Both must still be live on every request.
+const adminMfaPasswordLimiter = new SlidingWindowRateLimiter({ maxAttempts: 8, windowMs: 15 * 60_000 });
+const adminMfaCodeLimiter = new SlidingWindowRateLimiter({ maxAttempts: 8, windowMs: 15 * 60_000 });
+const pendingAdminMfa = new Map();
+const ADMIN_MFA_KEY = ADMIN_MFA.encryptionKey(process.env.HEX_ADMIN_MFA_ENCRYPTION_KEY);
+function pendingAdminChallenge(req) {
+  const raw = parseCookies(req.headers.cookie)[ADMIN_MFA.COOKIE_PENDING];
+  if (!raw) return null;
+  const key = ADMIN_MFA.hash(raw);
+  const challenge = pendingAdminMfa.get(key);
+  if (!challenge || challenge.expiresAt <= Date.now()) { pendingAdminMfa.delete(key); return null; }
+  const user = findUserById(challenge.userId);
+  if (!user || !isAdminUser(user)) return null;
+  return { key, challenge, user };
+}
+function authenticatedAdminMfa(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  const normalToken = cookies[SESSION_COOKIE_NAME];
+  const user = authenticateByToken(normalToken);
+  if (!user || !isAdminUser(user) || !ADMIN_MFA.validSession(user, cookies[ADMIN_MFA.COOKIE_MFA], normalToken)) return null;
+  return { user, token: cookies[ADMIN_MFA.COOKIE_MFA], normalToken };
+}
+function adminCsrfToken(token) {
+  return crypto.createHmac('sha256', ADMIN_MFA_KEY).update('csrf-v1:' + String(token || '')).digest('base64url');
+}
+function validAdminCsrf(req, session) {
+  if (!session || !ADMIN_MFA_KEY) return false;
+  const provided = String(req.headers['x-hex-admin-csrf'] || '');
+  const expected = adminCsrfToken(session.token);
+  return provided.length === expected.length && crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+}
+function auditAdminAuth(event, req, userId = '') {
+  // Never record passwords, TOTP values, enrollment URIs, cookie contents or recovery codes.
+  console.info('[admin-mfa]', event, 'user=' + String(userId || '-').slice(0, 64),
+    'ip=' + String(verifiedClientAddress(req)).slice(0, 64));
+}
+function adminCookies(req, { normal = '', mfa = '', pending = '', clearPending = true } = {}) {
+  const secure = requestIsTls(req, APP_CONFIG.trustProxy);
+  const cookies = [];
+  if (normal) cookies.push(sessionCookie(normal, { secure, maxAgeSeconds: ADMIN_MFA.SESSION_MS / 1000 }));
+  if (mfa) cookies.push(ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_MFA, mfa, ADMIN_MFA.SESSION_MS / 1000, secure));
+  if (clearPending) cookies.push(ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_PENDING, '', 0, secure));
+  else if (pending) cookies.push(ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_PENDING, pending, ADMIN_MFA.PENDING_MS / 1000, secure));
+  return cookies;
+}
+async function issueFullAdminSession(req, res, user, pendingKey) {
+  user.lastLoginAt = Date.now();
+  const normal = issueAuthToken(user);
+  const mfa = ADMIN_MFA.createSession(user, normal);
+  await saveUsersDb();
+  if (pendingKey) pendingAdminMfa.delete(pendingKey);
+  auditAdminAuth('login_success', req, user.id);
+  sendHttpJson(req, res, 200, { ok: true, stage: 'ready' }, { 'Set-Cookie': adminCookies(req, { normal, mfa }) });
+}
+function adminMfaThrottled(req, userId, method) {
+  const ip = verifiedClientAddress(req);
+  const resultIp = adminMfaCodeLimiter.consume(`${method}:ip:${ip}`);
+  const resultUser = adminMfaCodeLimiter.consume(`${method}:user:${userId}`);
+  return !resultIp.allowed || !resultUser.allowed;
+}
+async function handleAdminMfaHttp(req, res, urlPath) {
+  if (!requestIsAdminHostname(req)) { sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' }); return; }
+  if (req.method !== 'POST') { sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }); return; }
+  if (!ADMIN_MFA_KEY) { sendHttpJson(req, res, 503, { ok: false, error: 'Admin MFA is not configured. Set HEX_ADMIN_MFA_ENCRYPTION_KEY.' }); return; }
+  if (urlPath === '/api/admin/mfa/check') {
+    // This internal-only probe is called by the Worker for each gated asset
+    // and dynamic request. The Worker never exposes this route externally.
+    const session = authenticatedAdminMfa(req);
+    sendHttpJson(req, res, session ? 200 : 401, { ok: !!session });
+    return;
+  }
+  if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' }); return;
+  }
+  if (req.headers['x-hex-mfa-request'] !== '1' || !String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Invalid administrator request.' }); return;
+  }
+  const session = authenticatedAdminMfa(req);
+  if (urlPath === '/api/admin/mfa/status') {
+    const pending = pendingAdminChallenge(req);
+    sendHttpJson(req, res, 200, session
+      ? { ok: true, stage: 'ready', csrf: adminCsrfToken(session.token) }
+      : { ok: true, stage: pending ? (pending.user.adminMfa?.enabledAt ? 'verify' : 'enroll') : 'login' });
+    return;
+  }
+  if (urlPath === '/api/admin/mfa/logout') {
+    const cookies = parseCookies(req.headers.cookie);
+    if (session) {
+      ADMIN_MFA.revokeSession(session.user, session.token);
+      revokeAuthToken(session.user, session.normalToken);
+      await saveUsersDb();
+      auditAdminAuth('logout', req, session.user.id);
+    }
+    const secure = requestIsTls(req, APP_CONFIG.trustProxy);
+    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': [
+      ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_MFA, '', 0, secure),
+      ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_PENDING, '', 0, secure),
+      clearSessionCookie({ secure }),
+    ] });
+    return;
+  }
+  let body;
+  try { body = await readJsonBody(req, 2048); }
+  catch (_) { sendHttpJson(req, res, 400, { ok: false, error: 'Invalid request.' }); return; }
+  if (urlPath === '/api/admin/mfa/login') {
+    const username = String(body.username || '').trim();
+    const ip = verifiedClientAddress(req);
+    const userKey = username.toLowerCase().slice(0, 100);
+    const ipLimit = adminMfaPasswordLimiter.consume(`ip:${ip}`);
+    const userLimit = adminMfaPasswordLimiter.consume(`user:${userKey}`);
+    if (!ipLimit.allowed || !userLimit.allowed) {
+      auditAdminAuth('password_rate_limited', req);
+      sendHttpJson(req, res, 429, { ok: false, error: 'Too many attempts. Try again later.' }); return;
+    }
+    const user = findUserByUsername(username) || findUserByEmail(username);
+    if (!user || !isAdminUser(user) || !await verifyPassword(user, body.password)) {
+      auditAdminAuth('password_rejected', req);
+      sendHttpJson(req, res, 401, { ok: false, error: 'Invalid administrator credentials.' }); return;
+    }
+    if (user.requiresEmailVerification && !user.emailVerifiedAt) {
+      sendHttpJson(req, res, 403, { ok: false, error: 'Verify your email first.' }); return;
+    }
+    const pending = ADMIN_MFA.token();
+    // Memory-only pre-auth state: never treated as an admin session.
+    if (pendingAdminMfa.size > 2048) {
+      for (const [key, item] of pendingAdminMfa) if (item.expiresAt <= Date.now()) pendingAdminMfa.delete(key);
+      if (pendingAdminMfa.size > 2048) pendingAdminMfa.clear();
+    }
+    pendingAdminMfa.set(ADMIN_MFA.hash(pending), { userId: user.id, expiresAt: Date.now() + ADMIN_MFA.PENDING_MS });
+    auditAdminAuth('password_accepted_mfa_pending', req, user.id);
+    sendHttpJson(req, res, 200, { ok: true, stage: user.adminMfa?.enabledAt ? 'verify' : 'enroll' },
+      { 'Set-Cookie': [...adminCookies(req, { pending, clearPending: false }),
+        ADMIN_MFA.cookie(ADMIN_MFA.COOKIE_MFA, '', 0, requestIsTls(req, APP_CONFIG.trustProxy)),
+        clearSessionCookie({ secure: requestIsTls(req, APP_CONFIG.trustProxy) })] });
+    return;
+  }
+  const pending = pendingAdminChallenge(req);
+  if (!pending) { sendHttpJson(req, res, 401, { ok: false, error: 'Password verification expired. Sign in again.' }); return; }
+  const { user, challenge, key } = pending;
+  if (adminMfaThrottled(req, user.id, urlPath)) {
+    auditAdminAuth('code_rate_limited', req, user.id);
+    sendHttpJson(req, res, 429, { ok: false, error: 'Too many verification attempts. Try again later.' }); return;
+  }
+  if (urlPath === '/api/admin/mfa/enroll') {
+    if (user.adminMfa?.enabledAt) { sendHttpJson(req, res, 409, { ok: false, error: 'Authenticator is already enrolled.' }); return; }
+    if (!challenge.enrollmentSecret) challenge.enrollmentSecret = ADMIN_MFA.newSecret();
+    const issuer = encodeURIComponent('Hex Settlers Admin');
+    const label = encodeURIComponent(`Hex Settlers:${user.username}`);
+    const uri = `otpauth://totp/${label}?secret=${challenge.enrollmentSecret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+    sendHttpJson(req, res, 200, { ok: true, secret: challenge.enrollmentSecret, uri });
+    return;
+  }
+  if (urlPath === '/api/admin/mfa/activate') {
+    if (user.adminMfa?.enabledAt || !challenge.enrollmentSecret) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'Authenticator enrollment not started.' }); return;
+    }
+    const step = ADMIN_MFA.verifyTotp(challenge.enrollmentSecret, body.code);
+    if (step === null) {
+      auditAdminAuth('enrollment_code_rejected', req, user.id);
+      sendHttpJson(req, res, 401, { ok: false, error: 'Invalid authenticator code.' }); return;
+    }
+    const codes = ADMIN_MFA.recoveryCodes();
+    user.adminMfa = {
+      enabledAt: Date.now(), secret: ADMIN_MFA.encryptedSecret(challenge.enrollmentSecret, ADMIN_MFA_KEY),
+      lastStep: step, recoveryHashes: codes.map(ADMIN_MFA.recoveryHash),
+    };
+    user.adminMfaSessions = [];
+    // Return recovery codes exactly once; the server only stores their hashes.
+    user.lastLoginAt = Date.now();
+    const normal = issueAuthToken(user);
+    const mfa = ADMIN_MFA.createSession(user, normal);
+    await saveUsersDb();
+    pendingAdminMfa.delete(key);
+    auditAdminAuth('enrollment_completed', req, user.id);
+    sendHttpJson(req, res, 200, { ok: true, stage: 'recovery-codes', recoveryCodes: codes },
+      { 'Set-Cookie': adminCookies(req, { normal, mfa }) });
+    return;
+  }
+  if (urlPath === '/api/admin/mfa/verify') {
+    if (!user.adminMfa?.enabledAt) { sendHttpJson(req, res, 401, { ok: false, error: 'Enroll an authenticator first.' }); return; }
+    const secret = ADMIN_MFA.decryptedSecret(user.adminMfa.secret, ADMIN_MFA_KEY);
+    if (!secret) { sendHttpJson(req, res, 503, { ok: false, error: 'MFA secret unavailable; check your encryption key.' }); return; }
+    const step = ADMIN_MFA.verifyTotp(secret, body.code, Date.now(), user.adminMfa.lastStep);
+    if (step === null) {
+      auditAdminAuth('totp_rejected', req, user.id);
+      sendHttpJson(req, res, 401, { ok: false, error: 'Invalid or already used authenticator code.' }); return;
+    }
+    user.adminMfa.lastStep = step;
+    await issueFullAdminSession(req, res, user, key);
+    return;
+  }
+  if (urlPath === '/api/admin/mfa/recover') {
+    if (!user.adminMfa?.enabledAt || !ADMIN_MFA.consumeRecoveryCode(user.adminMfa, body.code)) {
+      auditAdminAuth('recovery_rejected', req, user.id);
+      sendHttpJson(req, res, 401, { ok: false, error: 'Invalid or used recovery code.' }); return;
+    }
+    // Recovery authorizes fresh enrollment, NOT a second-factor bypass.
+    // The old device and all old sessions are revoked immediately.
+    delete user.adminMfa;
+    user.adminMfaSessions = [];
+    challenge.enrollmentSecret = null;
+    await saveUsersDb();
+    auditAdminAuth('recovery_reset', req, user.id);
+    sendHttpJson(req, res, 200, { ok: true, stage: 'enroll', message: 'Old authenticator disabled. Enroll a replacement now.' });
+    return;
+  }
+  sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
 }
 
 function requestIsAdminHostname(req) {
@@ -10924,6 +11181,9 @@ async function handleAdminHttp(req, res, urlPath) {
     return;
   }
 
+  const mfa = authenticatedAdminMfa(req);
+  if (!mfa) { sendHttpJson(req, res, 401, { ok: false, error: 'Administrator MFA required.' }); return; }
+  if (!validAdminCsrf(req, mfa)) { sendHttpJson(req, res, 403, { ok: false, error: 'Invalid admin CSRF token.' }); return; }
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
   const admin = authenticateByToken(token);
   if (!admin) {
@@ -11500,6 +11760,12 @@ async function handleAdminHttp(req, res, urlPath) {
 
 
 async function handleAccountHttp(req, res, urlPath) {
+  if (requestIsAdminHostname(req) && process.env.HEX_ADMIN_HOST) {
+    const mfa = authenticatedAdminMfa(req);
+    if (!mfa) { sendHttpJson(req, res, 401, { ok: false, error: 'Administrator MFA required.' }); return; }
+    if (!validAdminCsrf(req, mfa)) { sendHttpJson(req, res, 403, { ok: false, error: 'Invalid admin CSRF token.' }); return; }
+  }
+
   if (req.method !== 'POST') {
     sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
     return;
@@ -11890,7 +12156,7 @@ async function handleBetaHttp(req, res, urlPath) {
   if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
     sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' }); return;
   }
-  const ip = clientAddress(req, APP_CONFIG.trustProxy);
+  const ip = verifiedClientAddress(req);
   const user = authenticateByToken(parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME]);
   const isFeedback = urlPath === '/api/beta/feedback';
   const limiter = isFeedback ? betaFeedbackLimiter : betaEventLimiter;
@@ -11977,6 +12243,10 @@ const server = http.createServer(async (req, res) => {
       await handleAccountHttp(req, res, urlPath);
       return;
     }
+    if (urlPath.startsWith('/api/admin/mfa/')) {
+      await handleAdminMfaHttp(req, res, urlPath);
+      return;
+    }
     if (urlPath.startsWith('/api/admin/')) {
       await handleAdminHttp(req, res, urlPath);
       return;
@@ -12049,7 +12319,10 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
-  if (!trustedProxyRequest(req) || !isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
+  if (!trustedProxyRequest(req) || !isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)
+    || (process.env.HEX_ADMIN_HOST && requestIsAdminHostname(req))) {
+    // The management hostname never upgrades to a game socket. The Worker
+    // denies this as well, but keep an independent backend defense.
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
@@ -12063,7 +12336,7 @@ wss.on('connection', (ws, req) => {
   ws._playerId = null;
   ws._roomCode = null;
   ws._spectatorViewId = null;
-  ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
+  ws._clientAddress = verifiedClientAddress(req);
   ws._connectionId = crypto.randomUUID().slice(0, 12);
   ws._isAlive = true;
   ws._messageLimiter = new SlidingWindowRateLimiter({ maxAttempts: 300, windowMs: 10_000 });
@@ -12131,7 +12404,8 @@ wss.on('connection', (ws, req) => {
 
     // ---- Auth (must happen before joining/creating rooms) ----
     if (msg.type === 'auth_register') {
-      const attempt = passwordAuthLimiter.consume(ws._clientAddress);
+      if (!TEST_LEGACY_WS_AUTH) { sendJson(ws, { type: 'error', error: 'Use secure HTTP account registration.' }); return; }
+      const attempt = passwordAuthLimiter.consume(ws._clientAddress, loginThrottleIdentity(msg.username));
       if (!attempt.allowed) {
         sendJson(ws, { type: 'error', error: 'Too many authentication attempts. Try again shortly.' });
         return;
@@ -12146,7 +12420,6 @@ wss.on('connection', (ws, req) => {
       user.lastLoginAt = now();
       const token = issueAuthToken(user);
       await saveUsersDb();
-      passwordAuthLimiter.clear(ws._clientAddress);
       if (!activateAuthenticatedSocket(ws, user)) return;
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token });
@@ -12154,7 +12427,8 @@ wss.on('connection', (ws, req) => {
     }
 
     if (msg.type === 'auth_login') {
-      const attempt = passwordAuthLimiter.consume(ws._clientAddress);
+      if (!TEST_LEGACY_WS_AUTH) { sendJson(ws, { type: 'error', error: 'Use secure HTTP account login.' }); return; }
+      const attempt = passwordAuthLimiter.consume(ws._clientAddress, loginThrottleIdentity(msg.username));
       if (!attempt.allowed) {
         sendJson(ws, { type: 'error', error: 'Too many authentication attempts. Try again shortly.' });
         return;
@@ -12170,7 +12444,6 @@ wss.on('connection', (ws, req) => {
       user.lastLoginAt = now();
       const token = issueAuthToken(user);
       await saveUsersDb();
-      passwordAuthLimiter.clear(ws._clientAddress);
       if (!activateAuthenticatedSocket(ws, user)) return;
 
       sendJson(ws, { type: 'auth_ok', user: safeUserPublic(user), token });
@@ -12178,6 +12451,7 @@ wss.on('connection', (ws, req) => {
     }
 
     if (msg.type === 'auth_token') {
+      if (!TEST_LEGACY_WS_AUTH) { sendJson(ws, { type: 'auth_required' }); return; }
       const user = authenticateByToken(msg.token);
       if (!user) { sendJson(ws, { type: 'auth_required' }); return; }
       if (!activateAuthenticatedSocket(ws, user)) return;
@@ -12204,20 +12478,26 @@ wss.on('connection', (ws, req) => {
 
     // --- History / Leaderboard ---
     if (msg.type === 'get_game_history') {
-      const limit = clamp(Math.floor(Number(msg.limit || 200)), 1, 2000);
-      const games = listGameHistory(limit);
+      const user = ws._userId && findUserById(ws._userId);
+      if (!user) { sendJson(ws, { type: 'error', error: 'Log in to view game history.' }); return; }
+      if (!historyListLimiter.consume(user.id).allowed || !historyListIpLimiter.consume(ws._clientAddress).allowed) { sendJson(ws, { type: 'error', error: 'History request limit exceeded.' }); return; }
+      const limit = clamp(Math.floor(Number(msg.limit || 200)), 1, 500);
+      const games = publicHistoryMetadata(listGameHistory(limit), user);
       sendJson(ws, { type: 'game_history_list', games });
       return;
     }
 
     if (msg.type === 'get_game_history_entry') {
-      const id = String(msg.id || '').trim();
+      const user = ws._userId && findUserById(ws._userId);
+      if (!user) { sendJson(ws, { type: 'error', error: 'Log in to view game history.' }); return; }
+      if (!historyEntryLimiter.consume(user.id).allowed || !historyEntryIpLimiter.consume(ws._clientAddress).allowed) { sendJson(ws, { type: 'error', error: 'History request limit exceeded.' }); return; }
+      const id = String(msg.id || '').trim().slice(0, 128);
       const entry = getGameHistoryEntry(id);
-      if (!entry) {
+      if (!mayViewFullHistory(entry, user)) {
+        // Identical response for missing and unauthorized IDs: no probing.
         sendJson(ws, { type: 'error', error: 'History item not found.' });
         return;
       }
-      // Send full snapshot for postgame viewer
       sendJson(ws, { type: 'game_history_entry', game: entry });
       return;
     }
@@ -12437,6 +12717,8 @@ if (msg.type === 'create_tutorial_room') {
       if (ws._roomCode) { sendJson(ws, { type: 'error', error: 'Leave your current lobby before starting the tutorial.' }); return; }
       const user = findUserById(ws._userId);
       if (!user || user.needsUsernameSetup) { sendJson(ws, { type: 'error', error: 'Complete account setup first.' }); return; }
+      const blocked = roomCreationError(ws._userId, ws._clientAddress);
+      if (blocked) { sendJson(ws, { type: 'error', error: blocked }); return; }
       const displayName = authenticatedDisplayName(user, user.displayName || user.username, 'Settler');
       const room = createRoom(ws._userId, displayName);
       room.tutorial = { ownerId: ws._userId, version: 2 };
@@ -12464,6 +12746,9 @@ if (msg.type === 'create_tutorial_room') {
         sendJson(ws, { type: 'error', error: 'Please log in first.' });
         return;
       }
+      if (ws._roomCode) { sendJson(ws, { type: 'error', error: 'Leave your current room before creating another.' }); return; }
+      const blocked = roomCreationError(ws._userId, ws._clientAddress);
+      if (blocked) { sendJson(ws, { type: 'error', error: blocked }); return; }
       const user = findUserById(ws._userId);
       const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Host');
       if (user && desiredName) {
@@ -12517,6 +12802,8 @@ if (msg.type === 'create_tutorial_room') {
     }
 
     if (msg.type === 'join_room') {
+      const joinLimit = roomJoinLimiter.consume(ws._userId || ws._clientAddress);
+      if (!joinLimit.allowed || !roomJoinIpLimiter.consume(ws._clientAddress).allowed) { sendJson(ws, { type: 'error', error: 'Too many room join attempts. Try again shortly.' }); return; }
       if (!ws._userId) {
         sendJson(ws, { type: 'error', error: 'Please log in first.' });
         return;
@@ -12555,56 +12842,20 @@ if (msg.type === 'create_tutorial_room') {
     }
 
     if (msg.type === 'rejoin_room') {
-      const code = String(msg.code || '').toUpperCase().trim();
-
-      // New behavior: if logged in, rejoin using your account (no player ID needed)
-      if (ws._userId) {
-        const user = findUserById(ws._userId);
-        const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Player');
-        if (user && desiredName) {
-          setUserDisplayName(user, desiredName);
-          saveUsersDb();
-        }
-
-        // A rejoin must restore an existing membership, never create a new
-        // seat just because a stale code happens to belong to another lobby.
-        const jr = rejoinRoom(code, ws._userId);
-        if (!jr.ok) {
-          sendJson(ws, { type: 'error', error: jr.error });
-          return;
-        }
-        const room = jr.room;
-        const pid = ws._userId;
-
-        bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
-
-        sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: !room.ranked && pid === room.hostId, role: roomRole(room, pid) || 'player' });
-        sendRoomStateToSocket(room, ws, pid);
-        broadcastRoom(room);
-        return;
+      if (!ws._userId) { sendJson(ws, { type: 'error', error: 'Log in to rejoin your room.' }); return; }
+      if (msg.playerId != null && String(msg.playerId) !== String(ws._userId)) {
+        sendJson(ws, { type: 'error', error: 'Room member does not match authenticated account.' }); return;
       }
-
-      // Legacy behavior (older clients): requires explicit playerId
-      const result = rejoinRoom(code, msg.playerId);
-      if (!result.ok) {
-        sendJson(ws, { type: 'error', error: result.error });
-        return;
-      }
-      const room = result.room;
-      const pid = result.playerId;
-
-      bindSocketToRoomMember(room, pid, ws, 'This room session moved to another browser or tab.');
-
-      sendJson(ws, { type: 'joined', playerId: pid, room: roomSnapshot(room), isHost: !room.ranked && pid === room.hostId, role: roomRole(room, pid) || 'player' });
-      if (room.game) {
-        clearLegacyTradeTimerPause(room.game);
-        syncTimer(room.game);
-        sendJson(ws, { type: 'state', state: sanitizeStateFor(room.game, pid) });
-      } else {
-        ensurePreview(room, false);
-        const pg = makePreviewGame(room);
-        sendJson(ws, { type: 'state', state: sanitizeStateFor(pg, pid) });
-      }
+      const code = normalizeRoomCode(msg.code);
+      const jr = rejoinRoom(code, ws._userId);
+      if (!jr.ok) { sendJson(ws, { type: 'error', error: jr.error }); return; }
+      const user = findUserById(ws._userId);
+      const desiredName = authenticatedDisplayName(user, msg.displayName || msg.name || '', 'Player');
+      if (user && desiredName) { setUserDisplayName(user, desiredName); saveUsersDb(); }
+      const room = jr.room;
+      bindSocketToRoomMember(room, ws._userId, ws, 'This room session moved to another browser or tab.');
+      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: !room.ranked && ws._userId === room.hostId, role: jr.role });
+      sendRoomStateToSocket(room, ws, ws._userId);
       broadcastRoom(room);
       return;
     }
@@ -12989,8 +13240,15 @@ if (msg.type === 'create_tutorial_room') {
         return;
       }
       if (!newRoom) {
+        // Only the first rematcher creates a room; all later players reuse it.
+        if (rooms.size >= MAX_ACTIVE_ROOMS) {
+          sendJson(ws, { type: 'error', error: 'Server lobby capacity reached. Try again later.' }); return;
+        }
+        const creation = roomCreationError(pid, ws._clientAddress);
+        if (creation) { sendJson(ws, { type: 'error', error: creation }); return; }
         newRoom = createRematchRoomFrom(room);
-        
+        if (!newRoom) { sendJson(ws, { type: 'error', error: 'Could not create rematch lobby.' }); return; }
+
         // Copy AI opponents, but do not pre-join the other human players.
         newRoom.players = newRoom.players.filter((player) => player.id === pid || player.isAI);
         newRoom.spectators = [];
@@ -15583,7 +15841,9 @@ const betaEmailInterval = setInterval(() => BETA_FEEDBACK_EMAIL.process().catch(
 setTimeout(() => BETA_FEEDBACK_EMAIL.process().catch(e => console.error('[beta] Email queue:', e.message)), 1_000).unref();
 const authLimiterCleanupInterval = setInterval(() => {
   betaEventLimiter.cleanup(); betaFeedbackLimiter.cleanup();
-  passwordAuthLimiter.cleanup();
+  passwordAuthLimiter.cleanup(); historyListLimiter.cleanup(); historyEntryLimiter.cleanup();
+  roomCreationIpLimiter.cleanup(); roomCreationAccountLimiter.cleanup(); roomJoinLimiter.cleanup(); roomJoinIpLimiter.cleanup();
+  historyListIpLimiter.cleanup(); historyEntryIpLimiter.cleanup();
   adminActionLimiter.cleanup();
   betaEmailTestLimiter.cleanup();
   accountActionLimiter.cleanup();

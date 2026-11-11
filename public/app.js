@@ -1190,7 +1190,7 @@
       // ordinary room cached before tutorial enforcement was enabled.
       const code = String(saved.code || '').trim().toUpperCase();
       const age = nowMs - Number(saved.lastSeenAt);
-      if (/^[A-Z0-9]{4,8}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) {
+      if (/^[A-Z0-9]{4,10}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) {
         return { code, tutorial: saved.tutorial === true };
       }
       localStorage.removeItem(RECENT_ROOM_KEY);
@@ -1500,7 +1500,7 @@
     return String(item.scenario || 'four_islands').replace(/_(56|78)$/g, (_m, seats) => ` ${seats === '56' ? '5–6' : '7–8'}`).replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
   }
   function renderPublicLobbies(items) {
-    publicLobbyResults = items.filter(item => item && /^[A-Z0-9]{4,8}$/.test(String(item.code || '')));
+    publicLobbyResults = items.filter(item => item && /^[A-Z0-9]{4,10}$/.test(String(item.code || '')));
     renderPublicLobbyList();
     if (journeyView === 'detail') renderPublicLobbyDetail();
   }
@@ -1877,7 +1877,7 @@
   function beginJourneyJoin(code) {
     roomNotFoundReturnView = selectedPlayMode === 'journey' ? journeyView : '';
     const c = String(code || '').trim().toUpperCase();
-    if (!c || !/^[A-Z0-9]{4,8}$/.test(c)) { showRoomNotFound(); return; }
+    if (!c || !/^[A-Z0-9]{4,10}$/.test(c)) { showRoomNotFound(); return; }
     selectedPlayMode = 'unranked'; roomNotFoundVisible = false;
     try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
     updateAuthUi();
@@ -1927,8 +1927,8 @@
     if (clearToken) {
       removePersistedAuthToken();
     } else if (typeof token === 'string' && token.trim()) {
-      authToken = token.trim();
-      try { localStorage.setItem(AUTH_TOKEN_KEY, authToken); } catch (_) {}
+      // No new JS-readable session persistence; old tokens only migrate below.
+      removePersistedAuthToken();
     } else if (!user) {
       removePersistedAuthToken();
     }
@@ -2041,13 +2041,36 @@
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
     if (!response.ok || !payload.ok) throw new Error(payload.error || 'Authentication failed.');
+    if (IS_ADMIN_PORTAL && action === 'logout') {
+      window.location.replace('/admin-login.html');
+    }
     return payload;
   }
 
+  let cachedAdminCsrf = '';
+  async function adminCsrfHeader() {
+    if (!IS_ADMIN_PORTAL) return {};
+    if (!cachedAdminCsrf) {
+      const response = await fetch('/api/admin/mfa/status', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'X-Hex-MFA-Request': '1' },
+        body: '{}',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.stage !== 'ready' || !data.csrf) {
+        window.location.replace('/admin-login.html');
+        throw new Error('Your administrator MFA session has expired.');
+      }
+      cachedAdminCsrf = data.csrf;
+    }
+    return { 'X-Hex-Admin-CSRF': cachedAdminCsrf };
+  }
+
   async function adminApi(action, body = {}) {
+    const csrfHeaders = await adminCsrfHeader();
     const response = await fetch(`/api/admin/${action}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders },
       credentials: 'same-origin',
       body: JSON.stringify(body),
     });
@@ -2058,9 +2081,10 @@
   }
 
   async function accountApi(action, body = {}) {
+    const csrfHeaders = await adminCsrfHeader();
     const response = await fetch(`/api/account/${action}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders },
       credentials: 'same-origin',
       body: JSON.stringify(body),
     });
@@ -4652,8 +4676,10 @@ function renderGamesHistoryTab() {
 
       const select = document.createElement('label');
       select.className = 'historyGameSelect';
-      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = historyState.selectedIds.has(g.id);
+      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = g.canViewReplay !== false && historyState.selectedIds.has(g.id);
       checkbox.setAttribute('aria-label', 'Select game for replay download');
+      checkbox.disabled = g.canViewReplay === false;
+      if (checkbox.disabled) checkbox.title = 'This private game replay is available only to its participants.';
       checkbox.addEventListener('change', () => { if (checkbox.checked) historyState.selectedIds.add(g.id); else historyState.selectedIds.delete(g.id); });
       select.appendChild(checkbox);
       const meta = document.createElement('div');
@@ -4677,7 +4703,7 @@ function renderGamesHistoryTab() {
       const replayBtn = document.createElement('button');
       replayBtn.className = 'btn';
       replayBtn.textContent = 'Replay';
-      replayBtn.disabled = Math.max(0, Number(g.replaySteps || 0)) < 1;
+      replayBtn.disabled = g.canViewReplay === false || Math.max(0, Number(g.replaySteps || 0)) < 1;
       if (replayBtn.disabled) replayBtn.title = 'This older game was saved before step-by-step replays were available.';
       replayBtn.addEventListener('click', () => {
         if (!g.id) return;
@@ -4688,6 +4714,8 @@ function renderGamesHistoryTab() {
       const viewBtn = document.createElement('button');
       viewBtn.className = 'btn primary';
       viewBtn.textContent = 'View Summary';
+      viewBtn.disabled = g.canViewReplay === false;
+      if (viewBtn.disabled) viewBtn.title = 'Private game details are available to participants only.';
       viewBtn.addEventListener('click', () => {
         if (!g.id) return;
         historyState.openMode = 'summary';
@@ -7097,7 +7125,7 @@ function syncPostgameToState() {
     } catch (_) {}
     if (ui.codeInput) ui.codeInput.value = '';
     clearRoomQueryFromUrl();
-    if (ui.roomCode) ui.roomCode.textContent = '----';
+    if (ui.roomCode) ui.roomCode.textContent = '----------';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = '';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.disabled = true;
     if (ui.roomCode) ui.roomCode.disabled = true;
@@ -7732,7 +7760,7 @@ function syncPostgameToState() {
       const code = String(raw).trim().toUpperCase();
       // Invalid invite URLs must reach the same indistinguishable 404 flow as
       // nonexistent and restricted lobbies, not silently open a blank lobby.
-      if (!/^[A-Z0-9]{4,8}$/.test(code)) return 'INVALID-CODE';
+      if (!/^[A-Z0-9]{4,10}$/.test(code)) return 'INVALID-CODE';
       if (ui.codeInput && !ui.codeInput.value) ui.codeInput.value = code;
       return code;
     } catch (_) {
@@ -7808,8 +7836,8 @@ function refreshLobbyJoinLinkUi() {
       startWebsocketHeartbeat(socket);
       setConn(true, 'Connected');
       setError(null);
-      // Migrate older localStorage sessions into an HTTP-only cookie. The
-      // WebSocket token path remains as a fallback for older deployed servers.
+      // One-time migration: exchange an old localStorage token over HTTP for
+      // a rotated HTTP-only cookie. Never send it over WebSocket.
       pendingAutoRejoin = true;
       let t = null;
       try { t = localStorage.getItem(AUTH_TOKEN_KEY); } catch (_) { t = null; }
@@ -7818,7 +7846,8 @@ function refreshLobbyJoinLinkUi() {
           removePersistedAuthToken();
           reconnectForCookieAuth();
         }).catch(() => {
-          send({ type: 'auth_token', token: t });
+          removePersistedAuthToken();
+          updateAuthUi();
         });
       } else {
         updateAuthUi();
@@ -8095,7 +8124,7 @@ function refreshLobbyJoinLinkUi() {
           // Keep prior token if server didn't send one (e.g., display-name update)
           setAuthState(
             msg.user,
-            (typeof msg.token === 'string' && msg.token.trim()) ? msg.token : authToken,
+            null,
             { clearToken: !!msg.cookieAuth },
           );
         } else {
@@ -8167,7 +8196,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'lobby_invite') {
         const code = String(msg.roomCode || '').trim().toUpperCase();
-        if (!/^[A-Z0-9]{4,8}$/.test(code)) return;
+        if (!/^[A-Z0-9]{4,10}$/.test(code)) return;
         const notice = document.createElement('div');
         notice.className = 'friendRequestToast lobbyInviteToast';
         const message = document.createElement('div');
@@ -9388,7 +9417,7 @@ function refreshLobbyJoinLinkUi() {
           passwordSection.appendChild(passwordHeading);
 
           const currentPassword = makePasswordInput('Current password', 'current-password');
-          const newPassword = makePasswordInput('New password (6+ characters)');
+          const newPassword = makePasswordInput('New password (12+ characters)');
           const confirmPassword = makePasswordInput('Confirm new password');
           passwordSection.append(currentPassword, newPassword, confirmPassword);
 
@@ -9411,9 +9440,9 @@ function refreshLobbyJoinLinkUi() {
               currentPassword.focus();
               return;
             }
-            if (nextValue.length < 6) {
+            if (nextValue.length < 12) {
               passwordStatus.className = 'userManagementStatus error';
-              passwordStatus.textContent = 'New password must be at least 6 characters.';
+              passwordStatus.textContent = 'New password must be at least 12 characters.';
               newPassword.focus();
               return;
             }
@@ -9467,7 +9496,7 @@ function refreshLobbyJoinLinkUi() {
           emailInput.disabled = !emailDeliveryConfigured;
           emailSection.appendChild(emailInput);
 
-          const emailPassword = makePasswordInput(user.hasPassword ? 'Current password' : 'Create password (6+ characters)', user.hasPassword ? 'current-password' : 'new-password');
+          const emailPassword = makePasswordInput(user.hasPassword ? 'Current password' : 'Create password (12+ characters)', user.hasPassword ? 'current-password' : 'new-password');
           emailPassword.disabled = !emailDeliveryConfigured;
           emailSection.appendChild(emailPassword);
           let emailPasswordConfirm = null;
@@ -9517,13 +9546,13 @@ function refreshLobbyJoinLinkUi() {
             }
             if (!currentValue) {
               emailStatus.className = 'userManagementStatus error';
-              emailStatus.textContent = user.hasPassword ? 'Enter your current password.' : 'Create a password (6+ characters).';
+              emailStatus.textContent = user.hasPassword ? 'Enter your current password.' : 'Create a password (12+ characters).';
               emailPassword.focus();
               return;
             }
-            if (emailPasswordConfirm && (currentValue.length < 6 || currentValue !== emailPasswordConfirm.value)) {
+            if (emailPasswordConfirm && (currentValue.length < 12 || currentValue !== emailPasswordConfirm.value)) {
               emailStatus.className = 'userManagementStatus error';
-              emailStatus.textContent = currentValue.length < 6 ? 'Password must be at least 6 characters.' : 'Passwords do not match.';
+              emailStatus.textContent = currentValue.length < 12 ? 'Password must be at least 12 characters.' : 'Passwords do not match.';
               return;
             }
             verifyEmail.disabled = true;
@@ -9588,7 +9617,7 @@ function refreshLobbyJoinLinkUi() {
           adminHeading.textContent = 'Administrator Password Reset';
           adminSection.appendChild(adminHeading);
 
-          const password = makePasswordInput('New password (6+ characters)');
+          const password = makePasswordInput('New password (12+ characters)');
           adminSection.appendChild(password);
           const reset = document.createElement('button');
           reset.className = 'btn danger';
@@ -9601,9 +9630,9 @@ function refreshLobbyJoinLinkUi() {
 
           reset.addEventListener('click', async () => {
             const nextPassword = String(password.value || '');
-            if (nextPassword.length < 6) {
+            if (nextPassword.length < 12) {
               status.className = 'userManagementStatus error';
-              status.textContent = 'Password must be at least 6 characters.';
+              status.textContent = 'Password must be at least 12 characters.';
               password.focus();
               return;
             }
@@ -10218,7 +10247,7 @@ function refreshLobbyJoinLinkUi() {
     password.className = 'input';
     password.type = 'password';
     password.autocomplete = 'new-password';
-    password.placeholder = 'New password (6+ characters)';
+    password.placeholder = 'New password (12+ characters)';
     shell.appendChild(password);
 
     const confirm = document.createElement('input');
@@ -10240,9 +10269,9 @@ function refreshLobbyJoinLinkUi() {
 
     resetButton.addEventListener('click', async () => {
       const nextPassword = String(password.value || '');
-      if (nextPassword.length < 6) {
+      if (nextPassword.length < 12) {
         status.className = 'userManagementStatus error';
-        status.textContent = 'Password must be at least 6 characters.';
+        status.textContent = 'Password must be at least 12 characters.';
         password.focus();
         return;
       }

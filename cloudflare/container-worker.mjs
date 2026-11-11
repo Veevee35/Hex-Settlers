@@ -7,8 +7,8 @@ export { ContainerProxy }; // Required by outboundByHost R2 bridge.
 const STATE_HOST = 'hex-state.internal';
 // One Worker and one authoritative game container serve both hostnames.
 // Host routing is checked before ASSETS or the backend are reached.
-import { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath } from './admin-routing.mjs';
-export { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath };
+import { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath, isMfaPublicPath, isAdminMfaInternalPath } from './admin-routing.mjs';
+export { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath, isMfaPublicPath, isAdminMfaInternalPath };
 const JSON_FILES = new Set(['users.json', 'game_history.json', 'game_analytics.json', 'beta_program.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
 const MAX_STATE_UPLOAD = 128 * 1024 * 1024;
 const MAX_TEXTURE_UPLOAD = 8 * 1024 * 1024;
@@ -124,6 +124,7 @@ export class HexGameContainer extends Container {
       HEX_PUBLIC_BASE_URL: String(env.PUBLIC_BASE_URL || ''),
       HEX_ALLOWED_ORIGINS: [String(env.PUBLIC_BASE_URL || ''), `https://${ADMIN_HOST}`].filter(Boolean).join(','),
       HEX_ADMIN_HOST: ADMIN_HOST,
+      HEX_ADMIN_MFA_ENCRYPTION_KEY: String(env.HEX_ADMIN_MFA_ENCRYPTION_KEY || ''),
       CLOUDFLARE_STATE_ENDPOINT: `http://${STATE_HOST}`,
       HEX_BUILTIN_ADMIN_ENABLED: 'true',
       HEX_ADMIN_PASSWORD: String(env.HEX_ADMIN_PASSWORD || ''),
@@ -171,53 +172,84 @@ export function sameOrigin(request) {
   catch { return false; }
 }
 
+function backendHeaders(request, env, url) {
+  const headers = new Headers(request.headers);
+  // Only Cloudflare's own connecting-IP header can become trusted client IP.
+  const edgeClientIp = request.headers.get('CF-Connecting-IP') || '';
+  for (const k of ['x-hex-upstream-secret', 'x-hex-verified-client-ip', 'cf-connecting-ip', 'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto']) headers.delete(k);
+  if (edgeClientIp && edgeClientIp.length <= 45 && /^[0-9a-fA-F:.]+$/.test(edgeClientIp)) {
+    headers.set('X-Hex-Verified-Client-IP', edgeClientIp);
+  }
+  headers.set('X-Hex-Upstream-Secret', env.GAME_GATE_SECRET);
+  headers.set('X-Forwarded-Proto', 'https');
+  headers.set('X-Forwarded-Host', url.host);
+  return headers;
+}
+
+async function gameBackend(env) {
+  const backend = getContainer(env.HEX_BACKEND, 'hex-settlers-primary');
+  await backend.startAndWaitForPorts({
+    ports: 3000,
+    cancellationOptions: { instanceGetTimeoutMS: 30000, portReadyTimeoutMS: 90000 },
+  });
+  return backend;
+}
+
+function denyAdmin(request, path) {
+  // Browser navigations get the private password + TOTP login page; API and
+  // subresource requests fail closed without a redirect or HTML body.
+  const navigation = request.method === 'GET' &&
+    (path === '/' || path.endsWith('.html') || request.headers.get('Sec-Fetch-Dest') === 'document');
+  return navigation
+    ? Response.redirect(new URL('/admin-login.html', request.url), 303)
+    : Response.json({ ok: false, error: 'Administrator MFA required.' },
+      { status: 401, headers: { 'Cache-Control': 'no-store' } });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const adminHost = isAdminHost(request);
     const path = url.pathname;
-    // Every asset request hits this Worker first. Never expose dashboard-only
-    // assets or management APIs from the public game or workers.dev host.
     if (!adminHost && (isAdminApiPath(path) || isPrivatePortalAsset(path))) {
       return hardened(new Response('Not found', { status: 404 }), request);
     }
-    if (adminHost && !isAllowedAdminPortalPath(path)) {
+    if (adminHost && (!isAllowedAdminPortalPath(path) || isAdminMfaInternalPath(path))) {
       return hardened(new Response('Not found', { status: 404 }), request);
     }
-    // Worker static assets have a 25 MiB per-file cap. The downloadable 27 MiB
-    // texture-pack template lives in R2 and is the only public object served there.
-    if (!adminHost && url.pathname === '/texture-pack-template.zip') {
+    if (!adminHost && path === '/texture-pack-template.zip') {
       const obj = await env.STATE.get('assets/texture-pack-template.zip');
-      return obj ? new Response(obj.body, { headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename=texture-pack-template.zip', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
-        : new Response('Template has not been uploaded to R2.', { status: 404 });
+      return obj ? new Response(obj.body, { headers: {
+        'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename=texture-pack-template.zip',
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+      } }) : new Response('Template has not been uploaded to R2.', { status: 404 });
     }
-    if (isDynamicRequest(url.pathname)) {
-      if (!sameOrigin(request)) return Response.json({ error: 'Origin not allowed' }, { status: 403 });
-      if (!env.GAME_GATE_SECRET || !env.HEX_ADMIN_PASSWORD) {
-        return Response.json({ error: 'Missing required private game configuration' }, { status: 503 });
-      }
-      const headers = new Headers(request.headers);
-      for (const k of ['x-hex-upstream-secret', 'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto']) headers.delete(k);
-      headers.set('X-Hex-Upstream-Secret', env.GAME_GATE_SECRET);
-      headers.set('X-Forwarded-Proto', 'https');
-      headers.set('X-Forwarded-Host', url.host);
-      // The one Durable Object hosts the one authoritative Node process. It is
-      // not a load balancer: 2 containers would split rooms and damage state.
-     const backend = getContainer(env.HEX_BACKEND, 'hex-settlers-primary');
-
-await backend.startAndWaitForPorts({
-  ports: 3000,
-  cancellationOptions: {
-    instanceGetTimeoutMS: 30000,
-    portReadyTimeoutMS: 90000
-  }
-});
-
-return backend.fetch(new Request(request, { headers }));
+    if (isDynamicRequest(path) && !sameOrigin(request)) {
+      return hardened(Response.json({ ok: false, error: 'Origin not allowed.' }, { status: 403 }), request);
     }
-    // Same underlying game UI/JS powers the administrator console, but it
-    // enters a dashboard-only mode based on this exact hostname. No redirect
-    // to the public host, so HTTP-only sessions stay isolated by hostname.
+    const dynamic = isDynamicRequest(path);
+    const needsBackend = dynamic || (adminHost && !isMfaPublicPath(path));
+    if (needsBackend && (!env.GAME_GATE_SECRET || !env.HEX_ADMIN_PASSWORD)) {
+      return hardened(Response.json({ error: 'Missing required private game configuration' }, { status: 503 }), request);
+    }
+    if (adminHost && !isMfaPublicPath(path) && !request.headers.get('Cookie')?.includes('__Host-hex_admin_mfa=')) {
+      return hardened(denyAdmin(request, path), request);
+    }
+    let backend;
+    if (needsBackend) backend = await gameBackend(env);
+    if (adminHost && !isMfaPublicPath(path)) {
+      // The backend validates the *live*, revocable session on EVERY admin
+      // request (including static assets). A forged cookie cannot pass this.
+      const probe = new Request(new URL('/api/admin/mfa/check', url), {
+        method: 'POST', headers: backendHeaders(request, env, url),
+      });
+      const result = await backend.fetch(probe);
+      if (result.status !== 200) return hardened(denyAdmin(request, path), request);
+    }
+    if (dynamic) {
+      return backend.fetch(new Request(request, { headers: backendHeaders(request, env, url) }));
+    }
+    // Public game assets stay public; management assets are behind MFA.
     return hardened(await env.ASSETS.fetch(request), request);
   },
 };

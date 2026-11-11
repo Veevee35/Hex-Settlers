@@ -798,7 +798,7 @@ test('browser authentication uses an HTTP-only cookie for WebSocket sessions', {
   const response = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: `cookie_${suffix}`, password: 'cookie pass', displayName: 'Cookie Host' }),
+    body: JSON.stringify({ username: `cookie_${suffix}`, password: 'cookie passphrase', displayName: 'Cookie Host' }),
   });
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -1057,7 +1057,7 @@ test('built-in Benleethom administrator can list users and securely reset anothe
 
   const reserved = await post('/api/auth/register', {
     username: 'BENLEETHOM',
-    password: 'not allowed',
+    password: 'not allowed password',
     displayName: 'Impostor',
   });
   assert.equal(reserved.response.status, 400);

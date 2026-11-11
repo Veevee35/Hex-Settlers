@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Hex Settlers | Secure management login</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/admin-mfa.css">
+  <script src="/admin-mfa.js" defer></script>
+</head>
+<body>
+  <main class="panel" aria-label="Management sign in">
+    <header><span class="glyph">⬡</span><div><small>HEX SETTLERS</small><h1>Management access</h1></div></header>
+    <p class="sub">Restricted administration · Password and authenticator verification required.</p>
+    <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
+    <section id="passwordStage" hidden>
+      <h2>Administrator credentials</h2>
+      <form id="passwordForm">
+        <label for="username">Administrator username</label>
+        <input id="username" required autocomplete="username" maxlength="254" autofocus>
+        <label for="password">Password</label>
+        <input id="password" type="password" required autocomplete="current-password">
+        <button type="submit">Continue securely</button>
+      </form>
+    </section>
+    <section id="verifyStage" hidden>
+      <h2>Authenticator verification</h2>
+      <p>Enter the current six-digit code from your authenticator app.</p>
+      <form id="verifyForm">
+        <label for="verifyCode">Six-digit code</label>
+        <input id="verifyCode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" maxlength="6" required>
+        <button type="submit">Verify and open dashboard</button>
+      </form>
+      <button class="link" id="recoveryToggle" type="button">Lost your authenticator? Use a recovery code</button>
+      <div id="recoveryBox" hidden>
+        <p>A recovery code will disable the old device and require a new enrollment.</p>
+        <form id="recoveryForm"><label for="recoveryCode">Unused recovery code</label>
+          <input id="recoveryCode" autocomplete="off" spellcheck="false" required>
+          <button type="submit">Recover and enroll a new device</button>
+        </form>
+      </div>
+    </section>
+    <section id="enrollStage" hidden>
+      <h2>Enroll your authenticator</h2>
+      <p>In your authenticator app, choose <b>Add account → Enter setup key</b>. Use a time-based (TOTP) six-digit code.</p>
+      <label for="enrollmentSecret">Manual setup key</label>
+      <div class="secretWrap"><code id="enrollmentSecret"></code><button type="button" class="secondary" id="copySecret">Copy</button></div>
+      <details><summary>Advanced setup (otpauth URI)</summary><code id="enrollmentUri"></code></details>
+      <p class="muted">Do not share this key. It is never shown again after activation.</p>
+      <form id="enrollForm">
+        <label for="enrollCode">Confirm with the six-digit code</label>
+        <input id="enrollCode" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" maxlength="6" required>
+        <button type="submit">Activate two-factor authentication</button>
+      </form>
+    </section>
+    <section id="recoveryCodesStage" hidden>
+      <h2>Save your recovery codes</h2>
+      <p>Store these offline in a password manager or printed secure location. Each code works only once. They will <b>not</b> be displayed again.</p>
+      <pre id="recoveryCodes"></pre>
+      <button type="button" class="secondary" id="copyCodes">Copy recovery codes</button>
+      <label class="check"><input id="savedCodes" type="checkbox">I have saved my recovery codes in a safe place.</label>
+      <button id="finishEnrollment" type="button" disabled>Open management dashboard</button>
+    </section>
+    <footer><a href="https://hexsettlers.org/">Return to the public game</a><button type="button" class="link" id="restartLogin">Start over</button></footer>
+  </main>
+</body>
+</html>

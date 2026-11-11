@@ -144,7 +144,7 @@
       <button id="journeyHostPrivateBtn" type="button" class="btn primary">Host private lobby</button>
       <p class="smallNote">Only players with an invitation, code, or direct link can find this lobby. Friends-only access can be turned on inside the lobby.</p>
       <label class="label" for="journeyPrivateCode">Join using room code</label>
-      <div class="row" style="gap:8px"><input id="journeyPrivateCode" class="input code" maxlength="8" placeholder="ABCD"><button type="button" id="journeyPrivateJoinBtn" class="btn">Join lobby</button></div>
+      <div class="row" style="gap:8px"><input id="journeyPrivateCode" class="input code" maxlength="10" placeholder="10-character code"><button type="button" id="journeyPrivateJoinBtn" class="btn">Join lobby</button></div>
     </div>
     <div id="journeyBottomActions" class="journeyBottomActions">
       <button id="journeyRankedBtn" class="btn" type="button">Ranked</button>
@@ -260,8 +260,8 @@
       <label class="label">Display name</label><input id="registerName" class="input" maxlength="20" autocomplete="name" required>
       <label class="label">Username</label><input id="registerUsername" class="input" maxlength="24" autocomplete="username" required>
       <label class="label">Email</label><input id="registerEmail" class="input" type="email" autocomplete="email" required>
-      <label class="label">Password</label><input id="registerPassword" class="input" type="password" minlength="6" autocomplete="new-password" required>
-      <label class="label">Confirm password</label><input id="registerConfirm" class="input" type="password" minlength="6" autocomplete="new-password" required>
+      <label class="label">Password</label><input id="registerPassword" class="input" type="password" minlength="12" autocomplete="new-password" required>
+      <label class="label">Confirm password</label><input id="registerConfirm" class="input" type="password" minlength="12" autocomplete="new-password" required>
       <button class="btn primary portalPrimary" type="submit">Create Account &amp; Send Verification</button>
       <div id="oauthRegisterOptions" class="oauthOptions hidden" aria-label="Create an account with another provider">
         <div class="oauthDivider"><span>or create an account with</span></div>
@@ -385,7 +385,7 @@
  <div class="divider ranked-unavailable lobbyJoinDivider"></div>
 
           <label id="roomCodeLabel" class="label ranked-unavailable">Room code</label>
-          <input id="codeInput" class="input code ranked-unavailable" maxlength="8" placeholder="ABCD" />
+          <input id="codeInput" class="input code ranked-unavailable" maxlength="10" placeholder="10-character code" />
 
           <div class="row ranked-unavailable">
             <button id="joinBtn" class="btn">Join Lobby</button>
