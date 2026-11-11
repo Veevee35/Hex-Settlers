@@ -4,7 +4,7 @@ The following checks were completed against the packaged source code on November
 
 | Scope | Result | Detail |
 |---|---|---|
-| MFA + existing hardening targeted unit tests | **35/35 passed** | `admin-mfa-security`, V67 hardening, hostname routing, HTTP auth, OAuth, client IP handling, sender lock |
+| MFA + existing hardening targeted unit tests | **42/42 passed** | MFA security (including public OAuth administrator bypass prevention), V67 hardening, Worker routing, hostname routing, HTTP auth, OAuth, client IP handling, sender lock |
 | Cloudflare Worker routing simulation | **12 scenarios passed** | Public game allowed, public/staging admin denied, MFA login assets accessible, admin page redirected, forged cookie denied, valid backend-check allowed, forwarded headers sanitized |
 | Backend administrative HTTP integration | **Passed** | Actual Node HTTP handlers tested using a WebSocket stand-in: admin password, MFA first enrollment, TOTP, encrypted persisted seed, one-time recovery codes, CSRF enforcement, hostname checks, logout revocation, recovery and reenrollment |
 | Broad pre-existing project test suite | **448 passed; 17 failed** | The same 17 failures existed in the prior security-hardened V67 baseline (441 passed; 17 failed). The additional seven passing tests are new MFA tests. No newly introduced failure was identified by this comparison. |

@@ -8,7 +8,7 @@ The dedicated `admin-login.html` page requests the existing administrator userna
 
 Admin MFA sessions are opaque 256-bit random tokens bound to the matching existing HTTP-only account session, server-validated on every request, revoked at logout, and expire after eight hours. Pre-MFA sessions expire after five minutes; both cookies are host-only, HTTP-only, Secure and SameSite=Strict in production. TOTP codes have a ±30-second clock window and successful steps cannot be replayed. Dedicated IP- and username-based password throttles and IP-/user-based code throttles protect enrollment, verification and recovery. Administrator auth events are logged without credentials or codes.
 
-Only specific MFA login page assets and MFA authentication endpoints are accessible before MFA. Direct calls to `/api/admin/mfa/check` are not available from the public internet. Public/staging/workers.dev URLs cannot call admin endpoints. Admin WebSockets remain disabled by the existing hostname policy.
+Only specific MFA login page assets and MFA authentication endpoints are accessible before MFA. Direct calls to `/api/admin/mfa/check` are not available from the public internet. Public/staging/workers.dev URLs cannot call admin endpoints. Admin WebSockets remain disabled by the existing hostname policy. Administrator accounts cannot use OAuth callbacks to mint management sessions or link OAuth identities from the public hostname, preventing those flows from bypassing MFA.
 
 ## REQUIRED deployment preparation
 

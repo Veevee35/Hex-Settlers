@@ -10672,6 +10672,10 @@ async function handleOAuthHttp(req, res, urlPath) {
       const intent = params.get('intent') === 'link' ? 'link' : 'login';
       const viewer = authenticateByToken(cookie[SESSION_COOKIE_NAME]);
       if (intent === 'link' && !viewer) { redirect(finishRedirect('Sign in to connect an account.')); return; }
+      // An admin identity is never linked from the public game hostname.
+      if (intent === 'link' && isAdminUser(viewer) && process.env.HEX_ADMIN_HOST && !requestIsAdminHostname(req)) {
+        redirect(finishRedirect('Administrator accounts must be managed through the secure management portal.')); return;
+      }
       const start = beginOAuth({ provider, intent, userId: intent === 'link' ? viewer.id : '', sessionTokenHash: intent === 'link' ? hashSessionToken(cookie[SESSION_COOKIE_NAME]) : '', baseUrl, secure, returnTo: params.get('return') || '/' });
       redirect(start.location, [start.cookie]);
     } catch (error) { redirect(finishRedirect(error.message || 'Sign-in could not start.')); }
@@ -10689,6 +10693,8 @@ async function handleOAuthHttp(req, res, urlPath) {
         entry && entry.tokenHash && Number(entry.expiresAt || 0) > now() &&
         timingSafeHexEqual(entry.tokenHash, String(flow.sessionTokenHash || '')));
       if (!stillActive) throw new Error('Your session changed. Sign in again to connect this provider.');
+      if (isAdminUser(viewer) && process.env.HEX_ADMIN_HOST && !requestIsAdminHostname(req))
+        throw new Error('Administrator OAuth accounts cannot be linked from the public game.');
       const owner = findUserByOAuth(provider, identity.subject);
       if (owner && owner.id !== viewer.id) throw new Error('This provider account is already linked to another player.');
       viewer.oauthAccounts = Array.isArray(viewer.oauthAccounts) ? viewer.oauthAccounts : [];
@@ -10703,6 +10709,10 @@ async function handleOAuthHttp(req, res, urlPath) {
     // Never bind identities based on matching email or username: that can
     // silently merge two distinct player accounts and facilitate takeovers.
     if (!user) user = await createOAuthUser(identity);
+    // OAuth is a player convenience, not a bypass around the mandatory admin
+    // password + TOTP flow. It may never mint an admin login cookie.
+    if (isAdminUser(user) && process.env.HEX_ADMIN_HOST)
+      throw new Error('Administrators must use password and authenticator sign-in.');
     user.lastLoginAt = now();
     const token = issueAuthToken(user);
     await saveUsersDb();

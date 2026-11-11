@@ -97,3 +97,11 @@ test('Admin requests require MFA, CSRF and role checks; no public admin access t
   assert.match(app, /'X-Hex-Admin-CSRF'/);
   assert.match(app, /\/api\/admin\/mfa\/status/);
 });
+
+
+test('public OAuth callbacks cannot create or link administrator sessions as an MFA bypass', () => {
+  const server = source('server.js');
+  assert.match(server, /if \(isAdminUser\(user\) && process\.env\.HEX_ADMIN_HOST\)\s*throw new Error\('Administrators must use password and authenticator sign-in\.'\)/);
+  assert.match(server, /if \(intent === 'link' && isAdminUser\(viewer\) && process\.env\.HEX_ADMIN_HOST && !requestIsAdminHostname\(req\)\)/);
+  assert.match(server, /if \(isAdminUser\(viewer\) && process\.env\.HEX_ADMIN_HOST && !requestIsAdminHostname\(req\)\)\s*throw new Error\('Administrator OAuth accounts cannot be linked from the public game\.'\)/);
+});
