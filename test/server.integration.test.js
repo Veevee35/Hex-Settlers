@@ -629,7 +629,7 @@ test('account, lobby, expert tuning, chat, and game-start protocol remains compa
 
   host.send({ type: 'create_room', name: 'Host' });
   const hostJoined = await host.waitFor((message) => message.type === 'joined');
-  assert.match(hostJoined.room.code, /^[A-Z2-9]{4}$/);
+  assert.match(hostJoined.room.code, /^[A-Z2-9]{8}$/);
   assert.equal(hostJoined.isHost, true);
 
   host.send({ type: 'set_expert_ai_tuning', tuning: { vpGainWeight: 221 } });
@@ -1057,7 +1057,7 @@ test('built-in Benleethom administrator can list users and securely reset anothe
 
   const reserved = await post('/api/auth/register', {
     username: 'BENLEETHOM',
-    password: 'not allowed password',
+    password: 'not allowed',
     displayName: 'Impostor',
   });
   assert.equal(reserved.response.status, 400);
@@ -1448,4 +1448,130 @@ test('switching away from shared Unranked elects the longest-present remaining h
   await peers[2].waitFor(m => (m.type === 'left_room' || m.type === 'error'));
   peers[0].send({ type: 'rejoin_room', code });
   assert.match((await peers[0].waitFor(m => m.type === 'error')).error, /not found/i);
+});
+
+test('v67 security: anonymous rejoin cannot take an authenticated seat or read a game archive', { timeout: 20_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-security-rejoin-'));
+  const server = await startServer(port, dataDir);
+  const peers = [];
+  t.after(async () => {
+    for (const peer of peers) peer.close();
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const host = await Peer.connect(port);
+  peers.push(host);
+  const suffix = Date.now().toString(36);
+  host.send({ type: 'auth_register', username: `securehost_${suffix}`, password: 'secure registration phrase', displayName: 'Host' });
+  const account = await host.waitFor((event) => event.type === 'auth_ok');
+  host.send({ type: 'create_room', displayName: 'Host' });
+  const joined = await host.waitFor((event) => event.type === 'joined');
+  assert.match(joined.room.code, /^[A-Z2-9]{8}$/);
+
+  const attacker = await Peer.connect(port);
+  peers.push(attacker);
+  attacker.send({ type: 'rejoin_room', code: joined.room.code, playerId: account.user.id });
+  assert.equal((await attacker.waitFor((event) => event.type === 'auth_required')).type, 'auth_required');
+  attacker.send({ type: 'get_game_history_entry', id: 'arbitrary' });
+  assert.equal((await attacker.waitFor((event) => event.type === 'auth_required')).type, 'auth_required');
+  attacker.send({ type: 'get_game_history', limit: 100 });
+  assert.equal((await attacker.waitFor((event) => event.type === 'auth_required')).type, 'auth_required');
+  assert.equal(host.ws.readyState, WebSocket.OPEN, 'attacker did not disconnect the legitimate socket');
+  host.send({ type: 'client_ping', clientTime: 123 });
+  assert.equal((await host.waitFor((event) => event.type === 'server_pong' && event.clientTime === 123)).clientTime, 123);
+
+  const other = await Peer.connect(port);
+  peers.push(other);
+  other.send({ type: 'auth_register', username: `secureother_${suffix}`, password: 'another registration phrase', displayName: 'Other' });
+  await other.waitFor((event) => event.type === 'auth_ok');
+  other.send({ type: 'rejoin_room', code: joined.room.code, playerId: account.user.id });
+  const denied = await other.waitFor((event) => event.type === 'error');
+  assert.match(denied.error, /not found|not (?:in|a member)/i);
+
+  const tokenResponse = await fetch(`http://127.0.0.1:${port}/api/auth/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: account.token }),
+  });
+  assert.equal(tokenResponse.status, 200);
+  const cookie = tokenResponse.headers.get('set-cookie').split(';')[0];
+  const renewed = await Peer.connect(port, { headers: { Cookie: cookie } });
+  peers.push(renewed);
+  await renewed.waitFor((event) => event.type === 'auth_ok' && event.cookieAuth);
+  renewed.send({ type: 'rejoin_room', code: joined.room.code, playerId: 'attacker-supplied-id' });
+  const restored = await renewed.waitFor((event) => event.type === 'joined');
+  assert.equal(restored.playerId, account.user.id, 'account identity overrides attacker-supplied playerId');
+});
+
+test('v67 security: successful HTTP logins do not reset per-IP rate limits', { timeout: 15_000 }, async (t) => {
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-security-rate-'));
+  const server = await startServer(port, dataDir, 'server.js', { HEX_AUTH_ATTEMPTS_PER_MINUTE: '2' });
+  t.after(async () => {
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const suffix = Date.now().toString(36);
+  const credentials = { username: `rate_${suffix}`, password: 'long secure rate test password' };
+  const post = (action) => fetch(`http://127.0.0.1:${port}/api/auth/${action}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(credentials),
+  });
+  assert.equal((await post('register')).status, 200);
+  assert.equal((await post('login')).status, 200);
+  assert.equal((await post('login')).status, 429);
+});
+
+test('v68 security: admin password alone cannot create a management session and TOTP is mandatory', { timeout: 20_000 }, async (t) => {
+  const { totpAt } = require('../server/admin-totp');
+  const port = await unusedPort();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-security-admin-mfa-'));
+  const password = 'A secure admin test passphrase 2026!';
+  const server = await startServer(port, dataDir, 'server.js', {
+    HEX_ADMIN_HOST: 'admin.hexsettlers.org', HEX_BUILTIN_ADMIN_ENABLED: 'true', HEX_ADMIN_PASSWORD: password,
+  });
+  t.after(async () => {
+    await server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const post = async (action, body = {}, cookie = '', host = 'admin.hexsettlers.org') => {
+    const response = await fetch(`http://127.0.0.1:${port}/api/${action}`, {
+      method: 'POST', headers: {
+        Host: host, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}),
+      }, body: JSON.stringify(body),
+    });
+    const json = await response.json();
+    return { status: response.status, json, cookies: response.headers.getSetCookie?.() || [response.headers.get('set-cookie') || ''] };
+  };
+  const cookieNamed = (result, name) => {
+    const found = result.cookies.find((cookie) => cookie.startsWith(`${name}=`));
+    assert.ok(found, `Expected ${name} cookie`);
+    return found.split(';')[0];
+  };
+
+  const first = await post('auth/login', { username: 'Benleethom', password });
+  assert.equal(first.status, 200);
+  assert.equal(first.json.mfaRequired, true);
+  assert.equal(first.json.mfaSetup, true);
+  assert.ok(!first.json.user, 'password step must not expose an authenticated admin');
+  const pending = cookieNamed(first, 'hexsettlers_admin_mfa_pending');
+  assert.equal((await post('admin/users', {}, pending)).status, 401);
+  assert.equal((await post('auth/session', {}, pending)).status, 401);
+
+  const setup = await post('auth/admin-mfa-setup', {}, pending);
+  assert.equal(setup.status, 200);
+  assert.match(setup.json.secret, /^[A-Z2-7]{32}$/);
+  const code = totpAt(setup.json.secret, Math.floor(Date.now() / 30_000));
+  const verified = await post('auth/admin-mfa-verify', { code }, pending);
+  assert.equal(verified.status, 200);
+  assert.equal(verified.json.user.isAdmin, true);
+  const signedIn = cookieNamed(verified, 'hexsettlers_session');
+  assert.equal((await post('admin/users', {}, signedIn)).status, 200);
+  assert.equal((await post('auth/admin-mfa-verify', { code }, pending)).status, 401, 'used challenge cannot be replayed');
+
+  const publicLogin = await post('auth/login', { username: 'Benleethom', password }, '', 'hexsettlers.org');
+  assert.equal(publicLogin.status, 200);
+  const publicSession = cookieNamed(publicLogin, 'hexsettlers_session');
+  assert.equal((await post('admin/users', {}, publicSession)).status, 401);
+  assert.equal((await post('auth/session', {}, publicSession)).status, 401);
+  assert.equal((await post('admin/users', {}, signedIn, 'hexsettlers.org')).status, 404);
 });

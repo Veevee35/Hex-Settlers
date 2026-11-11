@@ -20,6 +20,7 @@
     if (landingTitle) landingTitle.textContent = 'Management Sign In';
     const landingLead = $('authLanding')?.querySelector('.portalLead');
     if (landingLead) landingLead.textContent = 'Restricted access for authorized Hex Settlers administrators.';
+    for (const id of ['landingCreateBtn', 'landingForgotBtn', 'oauthLoginOptions']) $(id)?.classList.add('hidden');
     toolbar.querySelector('#adminPortalDashboardBtn').addEventListener('click', () => {
       if (authUser?.isAdmin) openAdminManagementScreen();
     });
@@ -1190,7 +1191,7 @@
       // ordinary room cached before tutorial enforcement was enabled.
       const code = String(saved.code || '').trim().toUpperCase();
       const age = nowMs - Number(saved.lastSeenAt);
-      if (/^[A-Z0-9]{4,10}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) {
+      if (/^[A-Z0-9]{4,8}$/.test(code) && Number.isFinite(age) && age >= 0 && age <= RECENT_ROOM_WINDOW_MS) {
         return { code, tutorial: saved.tutorial === true };
       }
       localStorage.removeItem(RECENT_ROOM_KEY);
@@ -1500,7 +1501,7 @@
     return String(item.scenario || 'four_islands').replace(/_(56|78)$/g, (_m, seats) => ` ${seats === '56' ? '5–6' : '7–8'}`).replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
   }
   function renderPublicLobbies(items) {
-    publicLobbyResults = items.filter(item => item && /^[A-Z0-9]{4,10}$/.test(String(item.code || '')));
+    publicLobbyResults = items.filter(item => item && /^[A-Z0-9]{4,8}$/.test(String(item.code || '')));
     renderPublicLobbyList();
     if (journeyView === 'detail') renderPublicLobbyDetail();
   }
@@ -1877,7 +1878,7 @@
   function beginJourneyJoin(code) {
     roomNotFoundReturnView = selectedPlayMode === 'journey' ? journeyView : '';
     const c = String(code || '').trim().toUpperCase();
-    if (!c || !/^[A-Z0-9]{4,10}$/.test(c)) { showRoomNotFound(); return; }
+    if (!c || !/^[A-Z0-9]{4,8}$/.test(c)) { showRoomNotFound(); return; }
     selectedPlayMode = 'unranked'; roomNotFoundVisible = false;
     try { sessionStorage.setItem('hexsettlers_play_mode', selectedPlayMode); } catch (_) {}
     updateAuthUi();
@@ -1924,10 +1925,8 @@
   function setAuthState(user, token, { clearToken = false } = {}) {
     authUser = user || null;
     if (authUser && (typeof IS_ADMIN_PORTAL === 'undefined' || !IS_ADMIN_PORTAL) && typeof window !== 'undefined') window.HexBeta?.account();
-    if (clearToken) {
-      removePersistedAuthToken();
-    } else if (typeof token === 'string' && token.trim()) {
-      // No new JS-readable session persistence; old tokens only migrate below.
+    if (clearToken || (typeof token === 'string' && token.trim())) {
+      // A game bearer token must never survive a reload in browser storage.
       removePersistedAuthToken();
     } else if (!user) {
       removePersistedAuthToken();
@@ -2041,36 +2040,13 @@
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
     if (!response.ok || !payload.ok) throw new Error(payload.error || 'Authentication failed.');
-    if (IS_ADMIN_PORTAL && action === 'logout') {
-      window.location.replace('/admin-login.html');
-    }
     return payload;
   }
 
-  let cachedAdminCsrf = '';
-  async function adminCsrfHeader() {
-    if (!IS_ADMIN_PORTAL) return {};
-    if (!cachedAdminCsrf) {
-      const response = await fetch('/api/admin/mfa/status', {
-        method: 'POST', credentials: 'same-origin', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json', 'X-Hex-MFA-Request': '1' },
-        body: '{}',
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.stage !== 'ready' || !data.csrf) {
-        window.location.replace('/admin-login.html');
-        throw new Error('Your administrator MFA session has expired.');
-      }
-      cachedAdminCsrf = data.csrf;
-    }
-    return { 'X-Hex-Admin-CSRF': cachedAdminCsrf };
-  }
-
   async function adminApi(action, body = {}) {
-    const csrfHeaders = await adminCsrfHeader();
     const response = await fetch(`/api/admin/${action}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify(body),
     });
@@ -2081,10 +2057,9 @@
   }
 
   async function accountApi(action, body = {}) {
-    const csrfHeaders = await adminCsrfHeader();
     const response = await fetch(`/api/account/${action}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify(body),
     });
@@ -2120,9 +2095,53 @@
 
   async function authenticateInBrowser(action, credentials) {
     const result = await authApi(action, credentials);
+    if (IS_ADMIN_PORTAL && result.mfaRequired) {
+      await showAdminMfaChallenge(result.mfaSetup);
+      return;
+    }
     setAuthState(result.user, null, { clearToken: true });
     reconnectForCookieAuth();
   }
+
+  async function showAdminMfaChallenge(needsSetup) {
+    const panel = $('adminMfaPanel');
+    if (!panel) throw new Error('The authenticator screen is unavailable. Refresh this page.');
+    $('adminMfaLoginForm')?.classList.add('hidden');
+    panel.classList.remove('hidden');
+    $('adminMfaHelp').textContent = needsSetup
+      ? 'First sign-in: add the secret below to your authenticator app, then enter its six-digit code.'
+      : 'Enter the current six-digit code from your administrator authenticator.';
+    $('adminMfaSetup').classList.toggle('hidden', !needsSetup);
+    $('adminMfaCode').value = '';
+    if (needsSetup) {
+      const setup = await authApi('admin-mfa-setup');
+      $('adminMfaSecret').textContent = setup.secret;
+      $('adminMfaLink').href = setup.uri;
+    }
+    $('adminMfaCode').focus();
+  }
+
+  $('adminMfaVerify')?.addEventListener('click', async () => {
+    const status = $('adminMfaError');
+    status?.classList.add('hidden');
+    try {
+      const result = await authApi('admin-mfa-verify', { code: $('adminMfaCode')?.value.trim() });
+      $('adminMfaPanel')?.classList.add('hidden');
+      $('adminMfaLoginForm')?.classList.remove('hidden');
+      $('landingPassword').value = '';
+      setAuthState(result.user, null, { clearToken: true });
+    } catch (error) {
+      if (status) { status.textContent = error.message || 'Authenticator verification failed.'; status.classList.remove('hidden'); }
+    }
+  });
+  $('adminMfaCode')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); $('adminMfaVerify')?.click(); }
+  });
+  $('adminMfaCancel')?.addEventListener('click', async () => {
+    try { await authApi('logout'); } catch (_) {}
+    $('adminMfaPanel')?.classList.add('hidden');
+    $('adminMfaLoginForm')?.classList.remove('hidden');
+  });
 
   function enforceCasualMapRestrictions() {
     const casual = selectedPlayMode === 'casual' || !!room?.casual;
@@ -4676,10 +4695,8 @@ function renderGamesHistoryTab() {
 
       const select = document.createElement('label');
       select.className = 'historyGameSelect';
-      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = g.canViewReplay !== false && historyState.selectedIds.has(g.id);
+      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = historyState.selectedIds.has(g.id);
       checkbox.setAttribute('aria-label', 'Select game for replay download');
-      checkbox.disabled = g.canViewReplay === false;
-      if (checkbox.disabled) checkbox.title = 'This private game replay is available only to its participants.';
       checkbox.addEventListener('change', () => { if (checkbox.checked) historyState.selectedIds.add(g.id); else historyState.selectedIds.delete(g.id); });
       select.appendChild(checkbox);
       const meta = document.createElement('div');
@@ -4703,7 +4720,7 @@ function renderGamesHistoryTab() {
       const replayBtn = document.createElement('button');
       replayBtn.className = 'btn';
       replayBtn.textContent = 'Replay';
-      replayBtn.disabled = g.canViewReplay === false || Math.max(0, Number(g.replaySteps || 0)) < 1;
+      replayBtn.disabled = Math.max(0, Number(g.replaySteps || 0)) < 1;
       if (replayBtn.disabled) replayBtn.title = 'This older game was saved before step-by-step replays were available.';
       replayBtn.addEventListener('click', () => {
         if (!g.id) return;
@@ -4714,8 +4731,6 @@ function renderGamesHistoryTab() {
       const viewBtn = document.createElement('button');
       viewBtn.className = 'btn primary';
       viewBtn.textContent = 'View Summary';
-      viewBtn.disabled = g.canViewReplay === false;
-      if (viewBtn.disabled) viewBtn.title = 'Private game details are available to participants only.';
       viewBtn.addEventListener('click', () => {
         if (!g.id) return;
         historyState.openMode = 'summary';
@@ -7125,7 +7140,7 @@ function syncPostgameToState() {
     } catch (_) {}
     if (ui.codeInput) ui.codeInput.value = '';
     clearRoomQueryFromUrl();
-    if (ui.roomCode) ui.roomCode.textContent = '----------';
+    if (ui.roomCode) ui.roomCode.textContent = '----';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.value = '';
     if (ui.roomJoinLinkInput) ui.roomJoinLinkInput.disabled = true;
     if (ui.roomCode) ui.roomCode.disabled = true;
@@ -7760,7 +7775,7 @@ function syncPostgameToState() {
       const code = String(raw).trim().toUpperCase();
       // Invalid invite URLs must reach the same indistinguishable 404 flow as
       // nonexistent and restricted lobbies, not silently open a blank lobby.
-      if (!/^[A-Z0-9]{4,10}$/.test(code)) return 'INVALID-CODE';
+      if (!/^[A-Z0-9]{4,8}$/.test(code)) return 'INVALID-CODE';
       if (ui.codeInput && !ui.codeInput.value) ui.codeInput.value = code;
       return code;
     } catch (_) {
@@ -7836,22 +7851,11 @@ function refreshLobbyJoinLinkUi() {
       startWebsocketHeartbeat(socket);
       setConn(true, 'Connected');
       setError(null);
-      // One-time migration: exchange an old localStorage token over HTTP for
-      // a rotated HTTP-only cookie. Never send it over WebSocket.
+      // Any old browser-stored bearer token is removed, not exchanged or
+      // presented to a WebSocket. Cookie-based auth is now the only path.
       pendingAutoRejoin = true;
-      let t = null;
-      try { t = localStorage.getItem(AUTH_TOKEN_KEY); } catch (_) { t = null; }
-      if (t) {
-        authApi('token', { token: t }).then(() => {
-          removePersistedAuthToken();
-          reconnectForCookieAuth();
-        }).catch(() => {
-          removePersistedAuthToken();
-          updateAuthUi();
-        });
-      } else {
-        updateAuthUi();
-      }
+      removePersistedAuthToken();
+      updateAuthUi();
       setTimeout(() => {
         if (ws !== socket || !pendingAutoRejoin || roomConnectionReady || !room || !authUser) return;
         setError('The connection handshake stalled. Retrying without discarding the lobby…');
@@ -8124,7 +8128,7 @@ function refreshLobbyJoinLinkUi() {
           // Keep prior token if server didn't send one (e.g., display-name update)
           setAuthState(
             msg.user,
-            null,
+            (typeof msg.token === 'string' && msg.token.trim()) ? msg.token : authToken,
             { clearToken: !!msg.cookieAuth },
           );
         } else {
@@ -8196,7 +8200,7 @@ function refreshLobbyJoinLinkUi() {
 
       if (msg.type === 'lobby_invite') {
         const code = String(msg.roomCode || '').trim().toUpperCase();
-        if (!/^[A-Z0-9]{4,10}$/.test(code)) return;
+        if (!/^[A-Z0-9]{4,8}$/.test(code)) return;
         const notice = document.createElement('div');
         notice.className = 'friendRequestToast lobbyInviteToast';
         const message = document.createElement('div');
@@ -17613,7 +17617,7 @@ function handleProductionGoldPrompt() {
     if (String(t.type || '').toLowerCase() !== 'sea') return false;
     const nbs = (state.geom.tileNeighbors && Array.isArray(state.geom.tileNeighbors[t.id])) ? state.geom.tileNeighbors[t.id] : null;
     if (!nbs) return false;
-    return nbs.length < 6;
+    return nbs.length < 12;
   }
 
   function edgeAdjTilesAfterOuterSeaTrimClient(edgeId) {

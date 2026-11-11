@@ -31,6 +31,7 @@
       <h1>Welcome to Hex Settlers</h1>
       <p class="portalLead">Build kingdoms, cross new seas, and compete with settlers from around the world.</p>
       <div class="portalForm">
+        <div id="adminMfaLoginForm">
         <label class="label" for="landingUsername">Username or email</label>
         <input id="landingUsername" class="input" maxlength="254" autocomplete="username" placeholder="Username or verified email">
         <label class="label" for="landingPassword">Password</label>
@@ -39,6 +40,21 @@
           <button id="landingPasswordReveal" class="passwordRevealBtn" type="button" aria-label="Hold to reveal password" title="Hold to reveal password">Show</button>
         </div>
         <button id="landingLoginBtn" class="btn primary portalPrimary">Log In</button>
+        </div>
+        <div id="adminMfaPanel" class="hidden" aria-label="Administrator authenticator verification">
+          <h2>Administrator verification</h2>
+          <p id="adminMfaHelp" class="smallNote"></p>
+          <div id="adminMfaSetup" class="hidden">
+            <p class="smallNote">Add this setup key to a six-digit TOTP authenticator. Store your recovery information securely; there is no email bypass.</p>
+            <div id="adminMfaSecret" class="adminMfaSecret" style="font-family:monospace; overflow-wrap:anywhere; user-select:all; margin:12px 0;"></div>
+            <a id="adminMfaLink" href="#" class="smallNote">Open in authenticator app</a>
+          </div>
+          <label for="adminMfaCode" class="label">Six-digit authenticator code</label>
+          <input id="adminMfaCode" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" class="input" placeholder="000000">
+          <button type="button" id="adminMfaVerify" class="btn primary portalPrimary">Verify and sign in</button>
+          <button type="button" id="adminMfaCancel" class="btn">Cancel</button>
+          <div id="adminMfaError" class="error hidden" role="alert"></div>
+        </div>
         <button id="landingCreateBtn" class="btn">Create Account</button>
         <div id="oauthLoginOptions" class="oauthOptions hidden" aria-label="Other sign-in methods">
           <div class="oauthDivider"><span>or continue with</span></div>
@@ -144,7 +160,7 @@
       <button id="journeyHostPrivateBtn" type="button" class="btn primary">Host private lobby</button>
       <p class="smallNote">Only players with an invitation, code, or direct link can find this lobby. Friends-only access can be turned on inside the lobby.</p>
       <label class="label" for="journeyPrivateCode">Join using room code</label>
-      <div class="row" style="gap:8px"><input id="journeyPrivateCode" class="input code" maxlength="10" placeholder="10-character code"><button type="button" id="journeyPrivateJoinBtn" class="btn">Join lobby</button></div>
+      <div class="row" style="gap:8px"><input id="journeyPrivateCode" class="input code" maxlength="8" placeholder="ABCD"><button type="button" id="journeyPrivateJoinBtn" class="btn">Join lobby</button></div>
     </div>
     <div id="journeyBottomActions" class="journeyBottomActions">
       <button id="journeyRankedBtn" class="btn" type="button">Ranked</button>
@@ -385,7 +401,7 @@
  <div class="divider ranked-unavailable lobbyJoinDivider"></div>
 
           <label id="roomCodeLabel" class="label ranked-unavailable">Room code</label>
-          <input id="codeInput" class="input code ranked-unavailable" maxlength="10" placeholder="10-character code" />
+          <input id="codeInput" class="input code ranked-unavailable" maxlength="8" placeholder="ABCD" />
 
           <div class="row ranked-unavailable">
             <button id="joinBtn" class="btn">Join Lobby</button>

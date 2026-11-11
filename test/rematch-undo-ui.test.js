@@ -56,7 +56,7 @@ test('rematch uses one persisted room code and admits others only when clicking'
   const rematch = server.slice(begin, end);
   assert.match(rematch, /room\.rematchRoomCode/);
   assert.match(rematch, /let newRoom = existingCode \? roomByCodeWithPersistence\(existingCode\) : null/);
-  assert.match(rematch, /if \(!newRoom\) \{\s*newRoom = createRematchRoomFrom\(room\)/);
+  assert.match(rematch, /if \(!newRoom\) \{\s*newRoom = createRematchRoomFrom\(room, pid\)/);
   assert.match(rematch, /else if \(!findRoomPlayer\(newRoom, pid\)\)/);
   assert.match(rematch, /room\.sockets\.delete\(pid\)/);
   assert.match(rematch, /bindSocketToRoomMember\(newRoom, pid, ws\)/);

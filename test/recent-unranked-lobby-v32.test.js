@@ -105,7 +105,7 @@ test('uncreated lobby hides the board and all room-only setup cards instead of d
 test('direct invitations take priority over auto-rejoin, and old un-timed saved codes cannot auto-rejoin', () => {
   const auth = app.slice(app.indexOf("      if (msg.type === 'auth_ok')"), app.indexOf("      if (msg.type === 'lobby_invite')"));
   assert.ok(auth.indexOf('if (pendingDirectJoinRoomCode && authUser)') < auth.indexOf('if (pendingAutoRejoin)'));
-  assert.match(auth, /const recent = recentRoomSessionForUser\(authUser\)/);
+  assert.match(auth, /const recent = recentRoomCodeForUser\(authUser\)/);
   assert.doesNotMatch(auth, /localStorage\.getItem\(LAST_ROOM_KEY\)/);
   assert.match(server, /if \(msg\.type === 'rejoin_room'\)[\s\S]*?const jr = rejoinRoom\(code, ws\._userId\)/);
 });
