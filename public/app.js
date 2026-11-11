@@ -1651,7 +1651,7 @@
       `${kindLabel} · ${catalog.periodId} · ${scenarioName} · ${selectedChallengeKind === 'daily' ? 'Resets daily' : 'Resets Mondays'} at 1:00 AM Central · Balanced Bag · Expert AI`;
     const detail = $('challengeRulesNote');
     if (detail) detail.textContent = selectedChallengeKind === 'daily'
-      ? 'Solo challenge: one human versus Expert AI in a full lobby. One total attempt per account per day, used when the game starts. No other humans may join. Results count toward Unranked stats.'
+      ? 'Solo challenge: one human versus Expert AI in a full lobby. One attempt for each of the five daily maps (4–8 players), used when that game starts. Each map resets at 1 AM Central. No other humans may join. Results count toward Unranked stats.'
       : 'Weekly challenge: share a lobby link or room code. Expert AI fills empty seats until friends join. Results count toward Unranked stats.';
 
     // A refresh retains the chosen scenario; switching tabs does not alter server scores.
@@ -1746,8 +1746,8 @@
     play.type = 'button';
     play.className = 'btn primary';
     play.textContent = selectedChallengeKind === 'daily' ? 'Start solo Daily Challenge' : `Create ${count}-player lobby`;
-    play.disabled = selectedChallengeKind === 'daily' && !!catalog.attempted;
-    if (play.disabled) { play.textContent = 'Daily attempt used'; play.title = 'The next Daily resets at 1 AM Central.'; }
+    play.disabled = selectedChallengeKind === 'daily' && !!map.attempted;
+    if (play.disabled) { play.textContent = 'Already played today'; play.title = 'This map resets at 1 AM Central. You can still play any other unused Daily map.'; }
     play.addEventListener('click', () => beginChallengeHost(count));
     head.append(title, play);
 

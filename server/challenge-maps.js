@@ -37,6 +37,29 @@ function challengePeriodId(kind, timestamp = Date.now()) {
   throw new RangeError('Unknown challenge period');
 }
 
+// Each daily challenge capacity is a separate once-per-day attempt. Older
+// accounts may contain a single day-keyed record from the previous rules; that
+// record only consumes the map identified by its saved playerCount.
+function dailyChallengeAttemptKey(dayId, playerCount) {
+  const count = Number(playerCount);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dayId)) || !CHALLENGE_COUNTS.includes(count)) {
+    throw new RangeError('Invalid daily challenge period or player count');
+  }
+  return `${dayId}:${count}`;
+}
+
+function hasDailyChallengeAttempt(attempts, dayId, playerCount) {
+  if (!attempts || typeof attempts !== 'object') return false;
+  const key = dailyChallengeAttemptKey(dayId, playerCount);
+  if (attempts[key]) return true;
+  const legacy = attempts[dayId];
+  if (!legacy) return false;
+  const previousCount = Number(legacy.playerCount);
+  // A legacy marker with no capacity is treated as used for safety; normal
+  // legacy records always include playerCount and affect just that map.
+  return !CHALLENGE_COUNTS.includes(previousCount) || previousCount === Number(playerCount);
+}
+
 function deterministicRandom(seedText) {
   let state = crypto.createHash('sha256').update(seedText).digest().readUInt32LE(0);
   return () => {
@@ -90,4 +113,5 @@ function generateWeeklyMap(weekId, playerCount, generate) {
 }
 
 module.exports = { TIME_ZONE, CHALLENGE_COUNTS, FAMILIES, challengeDayId, challengeWeekId,
-  challengePeriodId, challengeScenario, challengeRules, generateChallengeMap, generateWeeklyMap };
+  challengePeriodId, challengeScenario, challengeRules, generateChallengeMap, generateWeeklyMap,
+  dailyChallengeAttemptKey, hasDailyChallengeAttempt };

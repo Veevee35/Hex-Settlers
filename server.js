@@ -78,7 +78,7 @@ const {
 } = require('./server/game-rules');
 const { normalizeDiceAlgorithm, rollDiceWithAlgorithm } = require('./server/dice-algorithms');
 const { buildChallengeLeaderboard } = require('./server/challenge-leaderboard');
-const { challengeWeekId, challengeDayId, challengePeriodId, challengeScenario, challengeRules, generateChallengeMap } = require('./server/challenge-maps');
+const { challengeWeekId, challengeDayId, challengePeriodId, challengeScenario, challengeRules, generateChallengeMap, dailyChallengeAttemptKey, hasDailyChallengeAttempt } = require('./server/challenge-maps');
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
@@ -9735,7 +9735,7 @@ function challengeMapsCatalog(userId, requestedKind = null, requestedPlayerCount
       // Only construct the selected game map; building all ten full geometric
       // boards on every page open caused long event-loop stalls and timeouts.
       if (selective && (kind !== requestedKind || playerCount !== activeCount)) {
-        return { playerCount, preview: [], ports: [], leaderboard: [] };
+        return { playerCount, attempted: kind === 'daily' && hasDailyChallengeAttempt(user?.dailyChallengeAttempts, periodId, playerCount), preview: [], ports: [], leaderboard: [] };
       }
       const cacheKey = `${kind}:${periodId}:${playerCount}`;
       let cached = challengeCatalogPreviewCache.get(cacheKey);
@@ -9788,7 +9788,8 @@ function challengeMapsCatalog(userId, requestedKind = null, requestedPlayerCount
         challengeCatalogPreviewCache.delete(challengeCatalogPreviewCache.keys().next().value);
       }
       }
-      return { playerCount, leaderboard: challengeLeaderboard(periodId, playerCount, kind),
+      return { playerCount, attempted: kind === 'daily' && hasDailyChallengeAttempt(user?.dailyChallengeAttempts, periodId, playerCount),
+        leaderboard: challengeLeaderboard(periodId, playerCount, kind),
         preview: cached.preview, ports: cached.ports };
     });
   }
@@ -9798,7 +9799,8 @@ function challengeMapsCatalog(userId, requestedKind = null, requestedPlayerCount
     timezone: 'America/Chicago', weekId, dayId,
     weekly: { periodId: weekId, scenario: challengeScenario('weekly', weekId), maps: mapsFor('weekly', weekId) },
     daily: { periodId: dayId, scenario: challengeScenario('daily', dayId),
-      attempted: !!user?.dailyChallengeAttempts?.[dayId], maps: mapsFor('daily', dayId) },
+      attempted: [4,5,6,7,8].every(count => hasDailyChallengeAttempt(user?.dailyChallengeAttempts, dayId, count)),
+      maps: mapsFor('daily', dayId) },
   };
 }
 
@@ -12611,8 +12613,8 @@ if (msg.type === 'create_tutorial_room') {
       const challengeKind = msg.kind === 'daily' ? 'daily' : 'weekly';
       const dailyId = challengeDayId();
       if (isChallenge && challengeKind === 'daily') {
-        if (findUserById(ws._userId)?.dailyChallengeAttempts?.[dailyId]) {
-          sendJson(ws, { type: 'error', error: 'Your daily challenge attempt has already been used. Try again after the 1 AM Central reset.' }); return;
+        if (hasDailyChallengeAttempt(findUserById(ws._userId)?.dailyChallengeAttempts, dailyId, requestedSize)) {
+          sendJson(ws, { type: 'error', error: `You already played today's ${requestedSize}-player Daily Challenge. Choose another map or try again after the 1 AM Central reset.` }); return;
         }
         if ([...rooms.values()].some(existing => existing?.challenge?.kind === 'daily' &&
             existing.challenge.dayId === dailyId && existing.hostId === ws._userId &&
@@ -13716,8 +13718,8 @@ if (msg.type === 'create_tutorial_room') {
         }
         if (kind === 'daily') {
           const user = findUserById(pid);
-          if (!user || user.dailyChallengeAttempts?.[currentId]) {
-            sendJson(ws, { type: 'error', error: 'Your daily challenge attempt has already been used.' }); return;
+          if (!user || hasDailyChallengeAttempt(user.dailyChallengeAttempts, currentId, room.challenge.playerCount)) {
+            sendJson(ws, { type: 'error', error: `You already played today's ${room.challenge.playerCount}-player Daily Challenge.` }); return;
           }
           if (room.players.filter(p => p && !isAIPlayerObj(p)).length !== 1 || room.hostId !== pid) {
             sendJson(ws, { type: 'error', error: 'Daily Challenges require one human and Expert AI opponents only.' }); return;
@@ -13770,22 +13772,23 @@ if (msg.type === 'create_tutorial_room') {
       // initialization fails. The account DB, not client storage, is authoritative.
       const dailyUser = room.challenge?.kind === 'daily' ? findUserById(pid) : null;
       const dailyId = room.challenge?.kind === 'daily' ? room.challenge.dayId : null;
+      const dailyAttemptKey = dailyUser ? dailyChallengeAttemptKey(dailyId, room.challenge.playerCount) : null;
       if (dailyUser) {
         dailyUser.dailyChallengeAttempts = dailyUser.dailyChallengeAttempts || {};
-        if (dailyUser.dailyChallengeAttempts[dailyId]) {
-          sendJson(ws, { type: 'error', error: 'Your daily challenge attempt has already been used.' }); return;
+        if (hasDailyChallengeAttempt(dailyUser.dailyChallengeAttempts, dailyId, room.challenge.playerCount)) {
+          sendJson(ws, { type: 'error', error: `You already played today's ${room.challenge.playerCount}-player Daily Challenge.` }); return;
         }
-        dailyUser.dailyChallengeAttempts[dailyId] = { roomCode: room.code, playerCount: room.challenge.playerCount, startedAt: now() };
-        // Keep the number of historical attempt markers bounded.
-        for (const old of Object.keys(dailyUser.dailyChallengeAttempts).sort().slice(0, -90)) delete dailyUser.dailyChallengeAttempts[old];
+        dailyUser.dailyChallengeAttempts[dailyAttemptKey] = { roomCode: room.code, playerCount: room.challenge.playerCount, startedAt: now() };
+        // Retain up to 90 days of five maps per day, plus any legacy markers.
+        for (const old of Object.keys(dailyUser.dailyChallengeAttempts).sort().slice(0, -450)) delete dailyUser.dailyChallengeAttempts[old];
         await saveUsersDb();
       }
       let ok = false;
       try { ok = startGame(room); } catch (error) {
-        if (dailyUser) { delete dailyUser.dailyChallengeAttempts[dailyId]; await saveUsersDb(); }
+        if (dailyUser) { delete dailyUser.dailyChallengeAttempts[dailyAttemptKey]; await saveUsersDb(); }
         throw error;
       }
-      if (!ok && dailyUser) { delete dailyUser.dailyChallengeAttempts[dailyId]; await saveUsersDb(); }
+      if (!ok && dailyUser) { delete dailyUser.dailyChallengeAttempts[dailyAttemptKey]; await saveUsersDb(); }
       if (!ok) {
         sendJson(ws, { type: 'error', error: 'Could not start game.' });
         return;
