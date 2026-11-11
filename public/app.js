@@ -17617,7 +17617,9 @@ function handleProductionGoldPrompt() {
     if (String(t.type || '').toLowerCase() !== 'sea') return false;
     const nbs = (state.geom.tileNeighbors && Array.isArray(state.geom.tileNeighbors[t.id])) ? state.geom.tileNeighbors[t.id] : null;
     if (!nbs) return false;
-    return nbs.length < 12;
+    // A hex has at most six neighbors. Only trim navigation-only sea hexes
+    // on the outside edge, matching server-side shipping/pirate rules.
+    return nbs.length < 6;
   }
 
   function edgeAdjTilesAfterOuterSeaTrimClient(edgeId) {

@@ -41,3 +41,36 @@ test('manual board positioning survives renders and an empty preview is safe', (
   vm.runInContext('view.autoFit = true; state = null; fitBoardToViewport(390, 540)', context);
   assert.equal(view.scale, 80);
 });
+
+
+test('Seafarers keeps interior sea hexes visible and trims only outer navigation sea', () => {
+  const start = appJs.indexOf('  function shouldHideOuterSeaBorderTileClient(');
+  const end = appJs.indexOf('  function edgeAdjTilesAfterOuterSeaTrimClient(', start);
+  assert.ok(start >= 0 && end > start);
+  const source = appJs.slice(start, end);
+  const tiles = [
+    { id: 0, type: 'sea' },
+    { id: 1, type: 'sea' },
+    { id: 2, type: 'forest' },
+  ];
+  const state = {
+    rules: { mapMode: 'seafarers', seafarersScenario: 'through_the_desert' },
+    geom: { tiles, tileNeighbors: [
+      [1, 2, 3, 4, 5, 6], // playable interior sea hex
+      [0, 2, 3],          // navigation-only border sea hex
+      [0, 1],             // coast remains visible
+    ] },
+  };
+  const context = vm.createContext({ state });
+  vm.runInContext(source, context);
+  const hidden = id => vm.runInContext(`shouldHideOuterSeaBorderTileClient(state.geom.tiles[${id}])`, context);
+  assert.equal(hidden(0), false, 'interior sea must render');
+  assert.equal(hidden(1), true, 'only outside sea border is trimmed');
+  assert.equal(hidden(2), false, 'land must render');
+  state.rules.seafarersScenario = 'fog_island';
+  assert.equal(hidden(0), false, 'Fog Island interior sea must render');
+  state.rules.seafarersScenario = 'four_islands_78';
+  assert.equal(hidden(1), false, '7-8 player maps retain outer sea');
+  state.rules.mapMode = 'classic';
+  assert.equal(hidden(1), false, 'classic mode does not trim sea');
+});
