@@ -1,5 +1,8 @@
 # Hex Settlers: GitHub -> existing Cloudflare staging Worker
 
+> **V68.2 deployment repair (November 2026):** For the current production GitHub auto-deploy, read [`V68_2_GITHUB_AUTO_DEPLOY_FIX.md`](V68_2_GITHUB_AUTO_DEPLOY_FIX.md) first. The Dockerfile no longer runs npm inside Docker; it copies root dependencies installed by Cloudflare Builds. The production deployment command uses `wrangler.container.production.jsonc`, not `wrangler.jsonc`.
+
+
 This build is configured to update the **existing** Worker `hex-settlers-cloudflare-staging` and the **existing** private R2 bucket `hex-settlers-state-staging`. It does not provision a new database, make a production cutover, or connect to Railway. This repository contains **no private account data**; live persistence is separate in R2.
 
 ## Before enabling automatic deployment

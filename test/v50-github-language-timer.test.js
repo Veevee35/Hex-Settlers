@@ -54,7 +54,7 @@ test('30 supported language options and translated page script load before app',
 test('commit stamper busts browser caches without GitHub bot commits', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(),'hex-v50-stamp-'));
   try {
-    for (const p of ['scripts/stamp-git-build.cjs','build-version.json','public/index.html','public/app.js','public/sw.js']) {
+    for (const p of ['scripts/stamp-git-build.cjs','build-version.json','public/index.html','public/beta.html','public/app.js','public/sw.js']) {
       const dest=path.join(temp,p);
       fs.mkdirSync(path.dirname(dest),{recursive:true});
       fs.copyFileSync(path.join(ROOT,p),dest);
