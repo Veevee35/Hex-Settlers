@@ -62,7 +62,7 @@ function safeReturnPath(value) {
     return `${parsed.pathname}${parsed.search}`;
   } catch { return '/'; }
 }
-function beginOAuth({ provider, intent = 'login', userId = '', sessionTokenHash = '', baseUrl, env = process.env, secure = true, returnTo = '/' }) {
+function beginOAuth({ provider, intent = 'login', userId = '', sessionTokenHash = '', baseUrl, env = process.env, secure = true, returnTo = '/', allowRegistration = false }) {
   const config = providerConfiguration(provider, env);
   if (!config) throw new Error('This sign-in provider is not configured.');
   if (intent !== 'login' && intent !== 'link') throw new Error('Invalid sign-in action.');
@@ -75,7 +75,7 @@ function beginOAuth({ provider, intent = 'login', userId = '', sessionTokenHash 
   const url = new URL(config.authorize);
   for (const [key, value] of Object.entries({ client_id: config.clientId, redirect_uri: redirect, response_type: 'code', scope: config.scope, state, code_challenge: challenge, code_challenge_method: 'S256' })) url.searchParams.set(key, value);
   if (provider === 'google') { url.searchParams.set('nonce', nonce); url.searchParams.set('prompt', 'select_account'); }
-  const cookie = cookieValue(encryptState({ state, verifier, nonce, provider, intent, userId, sessionTokenHash: intent === 'link' ? sessionTokenHash : '', returnTo: safeReturnPath(returnTo), expiresAt: Date.now() + FLOW_TTL_MS }, env.OAUTH_STATE_SECRET), secure);
+  const cookie = cookieValue(encryptState({ state, verifier, nonce, provider, intent, userId, sessionTokenHash: intent === 'link' ? sessionTokenHash : '', allowRegistration: !!allowRegistration && intent === 'login', returnTo: safeReturnPath(returnTo), expiresAt: Date.now() + FLOW_TTL_MS }, env.OAUTH_STATE_SECRET), secure);
   return { location: url.toString(), cookie };
 }
 async function jsonRequest(url, options = {}, fetchImpl = fetch) {

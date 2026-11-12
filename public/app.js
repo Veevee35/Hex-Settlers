@@ -1949,10 +1949,87 @@
     updateAuthUi();
   }
 
+  const captchaTokens = { register: '', login: '' };
+  const captchaWidgetIds = { register: null, login: null };
+  let captchaSiteKeyPromise = null;
+  let captchaScriptPromise = null;
+  async function loadCaptchaSiteKey() {
+    if (!captchaSiteKeyPromise) captchaSiteKeyPromise = fetch('/api/auth/captcha-config', {
+      credentials: 'same-origin', cache: 'no-store',
+    }).then(async response => {
+      if (!response.ok) throw new Error('Security verification is unavailable.');
+      const data = await response.json();
+      if (!data.siteKey) throw new Error('Security verification is not configured. Contact support.');
+      return data.siteKey;
+    }).catch(error => { captchaSiteKeyPromise = null; throw error; });
+    return captchaSiteKeyPromise;
+  }
+  async function loadCaptchaScript() {
+    if (window.turnstile) return;
+    if (!captchaScriptPromise) captchaScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => { script.remove(); captchaScriptPromise = null; reject(new Error('Could not load the CAPTCHA. Check your connection or content blocker.')); };
+      document.head.appendChild(script);
+    });
+    await captchaScriptPromise;
+    if (!window.turnstile) throw new Error('CAPTCHA failed to initialize.');
+  }
+  async function showAuthCaptcha(kind) {
+    const wrap = $(kind === 'login' ? 'loginCaptchaWrap' : 'registerCaptchaWrap');
+    const notice = $(kind === 'login' ? 'loginCaptchaNotice' : 'registerCaptchaNotice');
+    const container = $(kind === 'login' ? 'loginCaptcha' : 'registerCaptcha');
+    wrap?.classList.remove('hidden');
+    if (!container) return false;
+    if (captchaWidgetIds[kind] !== null) return true;
+    if (notice) notice.textContent = 'Loading security verification…';
+    try {
+      const sitekey = await loadCaptchaSiteKey();
+      await loadCaptchaScript();
+      if (captchaWidgetIds[kind] !== null) return true;
+      captchaWidgetIds[kind] = window.turnstile.render(container, {
+        sitekey, action: kind, theme: 'auto', size: 'flexible',
+        callback: token => { captchaTokens[kind] = token; if (notice) notice.textContent = ''; },
+        'expired-callback': () => { captchaTokens[kind] = ''; if (notice) notice.textContent = 'Verification expired. Please try again.'; },
+        'error-callback': () => { captchaTokens[kind] = ''; if (notice) notice.textContent = 'Verification was interrupted. Retry the challenge.'; },
+      });
+      if (notice) notice.textContent = '';
+      return true;
+    } catch (error) {
+      if (notice) notice.textContent = error.message || 'CAPTCHA unavailable.';
+      return false;
+    }
+  }
+  function resetAuthCaptcha(kind) {
+    captchaTokens[kind] = '';
+    if (captchaWidgetIds[kind] !== null && window.turnstile) {
+      try { window.turnstile.reset(captchaWidgetIds[kind]); } catch (_) {}
+    }
+  }
+
   const OAUTH_LABELS = { google: 'Google (Gmail)', github: 'GitHub', cloudflare: 'Cloudflare' };
-  function startOAuthProvider(provider, intent = 'login') {
+  async function startOAuthProvider(provider, intent = 'login') {
     if (!Object.hasOwn(OAUTH_LABELS, provider)) return;
     const returnUrl = window.location.pathname + window.location.search;
+    if (intent === 'register') {
+      const message = $('registerMessage');
+      await showAuthCaptcha('register');
+      const token = captchaTokens.register;
+      if (!token) { if (message) message.textContent = 'Complete the security verification before creating an account.'; return; }
+      try {
+        const response = await fetch(`/api/auth/oauth/${provider}/start`, {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ captchaToken: token, return: returnUrl }),
+        });
+        const body = await response.json();
+        if (!response.ok || !body.ok || !body.location) throw new Error(body.error || 'Could not start provider sign-up.');
+        window.location.assign(body.location);
+      } catch (error) { if (message) message.textContent = error.message || 'Provider sign-up failed.'; }
+      finally { resetAuthCaptcha('register'); }
+      return;
+    }
     const query = new URLSearchParams({ intent, return: returnUrl });
     window.location.assign(`/api/auth/oauth/${provider}/start?${query.toString()}`);
   }
@@ -2041,7 +2118,12 @@
     });
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
-    if (!response.ok || !payload.ok) throw new Error(payload.error || 'Authentication failed.');
+    if (!response.ok || !payload.ok) {
+      const error = new Error(payload.error || 'Authentication failed.');
+      error.captchaRequired = payload.captchaRequired === true;
+      error.lockedUntil = Number(payload.lockedUntil || 0);
+      throw error;
+    }
     return payload;
   }
 
@@ -12746,8 +12828,19 @@ function refreshLobbyJoinLinkUi() {
     const errorBox = $('landingError');
     errorBox?.classList.add('hidden');
     if (!username || !password) { if (errorBox) { errorBox.textContent = 'Enter your username or email and password.'; errorBox.classList.remove('hidden'); } return; }
-    try { await authenticateInBrowser('login', { username, password }); }
-    catch (error) { if (errorBox) { errorBox.textContent = error.message || 'Login failed.'; errorBox.classList.remove('hidden'); } }
+    if (!$('loginCaptchaWrap')?.classList.contains('hidden') && !captchaTokens.login) {
+      if (errorBox) { errorBox.textContent = 'Complete the CAPTCHA before trying again.'; errorBox.classList.remove('hidden'); }
+      return;
+    }
+    const captchaToken = captchaTokens.login;
+    try {
+      await authenticateInBrowser('login', { username, password, captchaToken });
+      $('loginCaptchaWrap')?.classList.add('hidden');
+    } catch (error) {
+      if (error.captchaRequired && !error.lockedUntil) void showAuthCaptcha('login');
+      if (error.lockedUntil) $('loginCaptchaWrap')?.classList.add('hidden');
+      if (errorBox) { errorBox.textContent = error.message || 'Login failed.'; errorBox.classList.remove('hidden'); }
+    } finally { if (captchaToken) resetAuthCaptcha('login'); }
   }
 
   // Both portal screens share one accessible modal. Legal pages are separate,
@@ -12825,7 +12918,10 @@ function refreshLobbyJoinLinkUi() {
     revealButton?.addEventListener('keyup', () => setPasswordRevealed(false));
     window.addEventListener('blur', () => setPasswordRevealed(false));
   }
-  $('landingCreateBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.remove('hidden'));
+  $('landingCreateBtn')?.addEventListener('click', () => {
+    $('registerOverlay')?.classList.remove('hidden');
+    void showAuthCaptcha('register');
+  });
   $('registerCloseBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.add('hidden'));
   $('landingForgotBtn')?.addEventListener('click', openForgotPasswordScreen);
   $('registerForm')?.addEventListener('submit', async (event) => {
@@ -12833,11 +12929,15 @@ function refreshLobbyJoinLinkUi() {
     const message = $('registerMessage');
     const password = String($('registerPassword')?.value || '');
     if (password !== String($('registerConfirm')?.value || '')) { if (message) message.textContent = 'Passwords do not match.'; return; }
+    await showAuthCaptcha('register');
+    const captchaToken = captchaTokens.register;
+    if (!captchaToken) { if (message) message.textContent = 'Complete the security verification before creating an account.'; return; }
     try {
-      const result = await authApi('register-with-email', { displayName: $('registerName')?.value, username: $('registerUsername')?.value, email: $('registerEmail')?.value, password });
+      const result = await authApi('register-with-email', { displayName: $('registerName')?.value, username: $('registerUsername')?.value, email: $('registerEmail')?.value, password, captchaToken });
       if (message) message.textContent = result.message;
       event.target.reset();
     } catch (error) { if (message) message.textContent = error.message || 'Registration failed.'; }
+    finally { resetAuthCaptcha('register'); }
   });
   function stopRankedMatchmaking() {
     pendingRankedMatchmaking = false;

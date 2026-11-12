@@ -66,6 +66,8 @@ const {
   verifyPasswordHash,
 } = require('./server/security');
 const { newTotpSecret, totpUri, verifyTotp } = require('./server/admin-totp');
+const { turnstileConfig, verifyTurnstile } = require('./server/turnstile');
+const { loginState, recordFailedLogin, clearLoginFailures, cleanupUnknownLogins } = require('./server/login-protection');
 const {
   DEFAULT_RULES,
   RANKED_SCENARIOS,
@@ -1037,6 +1039,11 @@ async function setUserPassword(user, password, { revokeTokens = true, source = '
   user.pass = { salt, hash };
   user.passwordResetAt = now();
   delete user.passwordReset;
+  clearLoginFailures(user); // A successful password change immediately removes the 20-minute lock.
+  // The older 15-minute account limiter must not prolong a password-reset unlock.
+  if (typeof passwordAccountLimiter !== 'undefined') {
+    for (const identifier of [user.username, user.email]) if (identifier) clearAccountLoginLimiter(identifier);
+  }
   if (revokeTokens) user.tokens = [];
   if (isBuiltInAdminUser(user)) user.adminPasswordSource = source === 'environment' ? 'environment' : 'account';
   return { ok: true };
@@ -10128,10 +10135,25 @@ const passwordAuthLimiter = new SlidingWindowRateLimiter({
 // Never reset either window after a successful login. A distributed password
 // attack must also hit an account-scoped ceiling, not only an IP ceiling.
 const passwordAccountLimiter = new SlidingWindowRateLimiter({ maxAttempts: 12, windowMs: 15 * 60_000 });
-function consumeAccountLoginAttempt(identifier) {
-  const normalized = String(identifier || '').trim().toLowerCase().slice(0, 254);
-  const key = crypto.createHash('sha256').update(normalized).digest('hex');
-  return passwordAccountLimiter.consume(key);
+function accountLimiterKey(identifier) {
+  return crypto.createHash('sha256').update(String(identifier || '').trim().toLowerCase().slice(0, 254)).digest('hex');
+}
+function clearAccountLoginLimiter(identifier) { passwordAccountLimiter.clear(accountLimiterKey(identifier)); }
+function consumeAccountLoginAttempt(identifier) { return passwordAccountLimiter.consume(accountLimiterKey(identifier)); }
+// Serializes password checks per known account (regardless of username/email)
+// so concurrent guesses cannot race past the fifth-failure lockout.
+const accountLoginQueues = new Map();
+async function serializeAccountLogin(key, operation) {
+  const previous = accountLoginQueues.get(key) || Promise.resolve();
+  let release;
+  const current = new Promise(resolve => { release = resolve; });
+  accountLoginQueues.set(key, current);
+  await previous;
+  try { return await operation(); }
+  finally {
+    release();
+    if (accountLoginQueues.get(key) === current) accountLoginQueues.delete(key);
+  }
 }
 const MAX_ACTIVE_ROOMS = 300;
 const MAX_HOSTED_ROOMS_PER_ACCOUNT = 4;
@@ -10153,6 +10175,7 @@ const adminMfaPending = new Map();
 const adminMfaLimiter = new SlidingWindowRateLimiter({ maxAttempts: 8, windowMs: 5 * 60_000 });
 const securityLimiterCleanup = setInterval(() => {
   for (const limiter of [passwordAuthLimiter, passwordAccountLimiter, roomCreationLimiter, adminMfaLimiter]) limiter.cleanup();
+  cleanupUnknownLogins();
   for (const [key, entry] of adminMfaPending) if (entry.expiresAt < now()) adminMfaPending.delete(key);
 }, 5 * 60_000);
 securityLimiterCleanup.unref();
@@ -10666,6 +10689,26 @@ async function handleTexturePackHttp(req, res, urlPath) {
   sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'GET, PUT, POST' });
 }
 
+async function requireCaptcha(req, token, action) {
+  const { siteKey, secret } = turnstileConfig();
+  if (!siteKey || !secret) {
+    return { ok: false, status: 503, error: 'Security verification is not configured. Please contact support.' };
+  }
+  const result = await verifyTurnstile(token, {
+    secret, action,
+    hostname: forwardedHost(req, APP_CONFIG.trustProxy).split(':')[0],
+    remoteIp: clientAddress(req, APP_CONFIG.trustProxy),
+  });
+  return result.ok ? { ok: true } : { ok: false, status: 403, error: result.error };
+}
+
+function sendLoginLock(req, res, lockedUntil) {
+  const remaining = Math.max(1, Math.ceil((lockedUntil - now()) / 1000));
+  sendHttpJson(req, res, 429, { ok: false, lockedUntil, retryAfterSeconds: remaining,
+    error: 'Too many incorrect passwords. Login is locked for 20 minutes, or until you reset your password.' },
+  { 'Retry-After': String(remaining) });
+}
+
 async function handleOAuthHttp(req, res, urlPath) {
   if (process.env.HEX_ADMIN_HOST && requestIsAdminHostname(req)) {
     sendHttpJson(req, res, 403, { ok: false, error: 'Administrator sign-in requires password and authenticator.' }); return;
@@ -10679,8 +10722,9 @@ async function handleOAuthHttp(req, res, urlPath) {
     return;
   }
   const match = /^\/api\/auth\/oauth\/(google|github|cloudflare)\/(start|callback)$/.exec(urlPath);
-  if (!match || req.method !== 'GET') { sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' }); return; }
+  if (!match || !['GET', 'POST'].includes(req.method)) { sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' }); return; }
   const [, provider, action] = match;
+  if (action === 'callback' && req.method !== 'GET') { sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }); return; }
   const params = new URL(req.url, 'http://internal.invalid').searchParams;
   const finishRedirect = (message, succeeded = false, returnTo = '/') => {
     const target = new URL(safeReturnPath(returnTo), baseUrl || 'http://localhost');
@@ -10696,6 +10740,24 @@ async function handleOAuthHttp(req, res, urlPath) {
   if (action === 'start') {
     if (!isAllowedWebSocketOrigin(req, APP_CONFIG.allowedOrigins, APP_CONFIG.trustProxy)) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Origin not allowed.' }); return;
+    }
+    // OAuth sign-in GETs may authenticate *existing* identities, not mint
+    // accounts. Creating a new OAuth identity requires this CAPTCHA-protected
+    // POST, and the encrypted flow cookie carries the verified signup intent.
+    if (req.method === 'POST') {
+      let body;
+      try { body = await readJsonBody(req); }
+      catch (error) { sendHttpJson(req, res, 400, { ok: false, error: 'Invalid request.' }); return; }
+      const attempt = passwordAuthLimiter.consume(clientAddress(req, APP_CONFIG.trustProxy));
+      if (!attempt.allowed) { sendHttpJson(req, res, 429, { ok: false, error: 'Too many sign-up attempts. Try again later.' }); return; }
+      const captcha = await requireCaptcha(req, body.captchaToken, 'register');
+      if (!captcha.ok) { sendHttpJson(req, res, captcha.status, { ok: false, captchaRequired: true, error: captcha.error }); return; }
+      try {
+        const start = beginOAuth({ provider, intent: 'login', allowRegistration: true,
+          baseUrl, secure, returnTo: body.return || '/' });
+        sendHttpJson(req, res, 200, { ok: true, location: start.location }, { 'Set-Cookie': start.cookie });
+      } catch (error) { sendHttpJson(req, res, 400, { ok: false, error: error.message || 'Sign-up could not start.' }); }
+      return;
     }
     try {
       const intent = params.get('intent') === 'link' ? 'link' : 'login';
@@ -10731,7 +10793,10 @@ async function handleOAuthHttp(req, res, urlPath) {
     let user = findUserByOAuth(provider, identity.subject);
     // Never bind identities based on matching email or username: that can
     // silently merge two distinct player accounts and facilitate takeovers.
-    if (!user) user = await createOAuthUser(identity);
+    if (!user) {
+      if (flow.allowRegistration !== true) throw new Error('Create your account first and complete the CAPTCHA.');
+      user = await createOAuthUser(identity);
+    }
     user.lastLoginAt = now();
     const token = issueAuthToken(user);
     await saveUsersDb();
@@ -10743,6 +10808,11 @@ async function handleOAuthHttp(req, res, urlPath) {
 }
 
 async function handleAuthHttp(req, res, urlPath) {
+  if (urlPath === '/api/auth/captcha-config' && req.method === 'GET') {
+    const { siteKey, secret } = turnstileConfig();
+    sendHttpJson(req, res, 200, { ok: true, siteKey: siteKey && secret ? siteKey : '' });
+    return;
+  }
   if (req.method !== 'POST') {
     sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'POST' });
     return;
@@ -10862,6 +10932,10 @@ async function handleAuthHttp(req, res, urlPath) {
     let result;
     try { result = finishVerifiedEmailLink(user, { ...verification, email }, now()); }
     catch (error) { sendHttpJson(req, res, 409, { ok: false, error: error.message }); return; }
+    if (result.convertedToEmailLogin) {
+      clearLoginFailures(user);
+      for (const identifier of [user.username, user.email]) if (identifier) clearAccountLoginLimiter(identifier);
+    }
     await saveUsersDb();
     if (result.convertedToEmailLogin) {
       sendHttpJson(req, res, 200, {
@@ -10876,6 +10950,14 @@ async function handleAuthHttp(req, res, urlPath) {
   }
 
   if (urlPath === '/api/auth/register-with-email') {
+    const attempt = passwordAuthLimiter.consume(clientAddress(req, APP_CONFIG.trustProxy));
+    if (!attempt.allowed) {
+      sendHttpJson(req, res, 429, { ok: false, error: 'Too many registration attempts. Try again shortly.' },
+        { 'Retry-After': String(Math.max(1, Math.ceil(attempt.retryAfterMs / 1000))) });
+      return;
+    }
+    const captcha = await requireCaptcha(req, body.captchaToken, 'register');
+    if (!captcha.ok) { sendHttpJson(req, res, captcha.status, { ok: false, captchaRequired: true, error: captcha.error }); return; }
     if (!isEmailDeliveryConfigured(process.env)) {
       sendHttpJson(req, res, 503, { ok: false, error: 'Account email delivery is not configured.' });
       return;
@@ -10974,16 +11056,16 @@ async function handleAuthHttp(req, res, urlPath) {
   }
 
   const address = clientAddress(req, APP_CONFIG.trustProxy);
-  const attempt = passwordAuthLimiter.consume(address);
-  if (!attempt.allowed) {
-    sendHttpJson(req, res, 429, { ok: false, error: 'Too many authentication attempts. Try again shortly.' }, {
-      'Retry-After': String(Math.max(1, Math.ceil(attempt.retryAfterMs / 1000))),
-    });
-    return;
-  }
-
   let user;
   if (urlPath === '/api/auth/register') {
+    const attempt = passwordAuthLimiter.consume(address);
+    if (!attempt.allowed) {
+      sendHttpJson(req, res, 429, { ok: false, error: 'Too many authentication attempts. Try again shortly.' },
+        { 'Retry-After': String(Math.max(1, Math.ceil(attempt.retryAfterMs / 1000))) });
+      return;
+    }
+    const captcha = await requireCaptcha(req, body.captchaToken, 'register');
+    if (!captcha.ok) { sendHttpJson(req, res, captcha.status, { ok: false, captchaRequired: true, error: captcha.error }); return; }
     const result = await createUser({ username: body.username, password: body.password, displayName: body.displayName || body.name || '' });
     if (!result.ok) {
       sendHttpJson(req, res, 400, { ok: false, error: result.error || 'Register failed.' });
@@ -10992,21 +11074,50 @@ async function handleAuthHttp(req, res, urlPath) {
     user = result.user;
   } else {
     const identifier = String(body.username || body.email || '').trim();
-    if (!consumeAccountLoginAttempt(identifier).allowed) {
-      sendHttpJson(req, res, 429, { ok: false, error: 'Too many login attempts for this account. Try again later.' }); return;
-    }
-    user = findUserByUsername(identifier) || findUserByEmail(identifier);
-    if (!user || (identifier.includes('@') && (!user.emailVerifiedAt || normalizeEmail(user.email) !== normalizeEmail(identifier))) || !await verifyPassword(user, body.password)) {
-      sendHttpJson(req, res, 401, { ok: false, error: 'Invalid username or password.' });
-      return;
-    }
-    if (user.requiresEmailVerification && !user.emailVerifiedAt) {
-      sendHttpJson(req, res, 403, { ok: false, error: 'Verify your email before logging in.' });
-      return;
-    }
-    if (body.displayName || body.name) setUserDisplayName(user, body.displayName || body.name);
+    const match = findUserByUsername(identifier) || findUserByEmail(identifier);
+    const lockKey = match ? `user:${match.id}` : `unknown:${accountLimiterKey(identifier)}`;
+    user = await serializeAccountLogin(lockKey, async () => {
+      const candidate = findUserByUsername(identifier) || findUserByEmail(identifier);
+      const gate = loginState(candidate, identifier);
+      if (gate.lockedUntil > now()) { sendLoginLock(req, res, gate.lockedUntil); return null; }
+      const attempt = passwordAuthLimiter.consume(address);
+      if (!attempt.allowed) {
+        sendHttpJson(req, res, 429, { ok: false, error: 'Too many authentication attempts. Try again shortly.' },
+          { 'Retry-After': String(Math.max(1, Math.ceil(attempt.retryAfterMs / 1000))) });
+        return null;
+      }
+      // After two bad passwords a fresh CAPTCHA is mandatory, even for known
+      // email aliases and when a correct password is subsequently supplied.
+      if (gate.captchaRequired) {
+        const captcha = await requireCaptcha(req, body.captchaToken, 'login');
+        if (!captcha.ok) {
+          sendHttpJson(req, res, captcha.status, { ok: false, captchaRequired: true, error: captcha.error }); return null;
+        }
+      }
+      if (!consumeAccountLoginAttempt(identifier).allowed) {
+        sendHttpJson(req, res, 429, { ok: false, error: 'Too many login attempts for this account. Try again later.' }); return null;
+      }
+      const validCredentials = !!(candidate &&
+        (!identifier.includes('@') || (candidate.emailVerifiedAt && normalizeEmail(candidate.email) === normalizeEmail(identifier))) &&
+        await verifyPassword(candidate, body.password));
+      if (!validCredentials) {
+        const result = recordFailedLogin(candidate, identifier);
+        if (candidate) await saveUsersDb();
+        if (result.lockedUntil > now()) { sendLoginLock(req, res, result.lockedUntil); return null; }
+        sendHttpJson(req, res, 401, { ok: false, captchaRequired: result.captchaRequired,
+          error: result.captchaRequired ? 'Invalid username or password. Complete the CAPTCHA for your next attempt.' : 'Invalid username or password.' });
+        return null;
+      }
+      if (candidate.requiresEmailVerification && !candidate.emailVerifiedAt) {
+        sendHttpJson(req, res, 403, { ok: false, error: 'Verify your email before logging in.' });
+        return null;
+      }
+      clearLoginFailures(candidate);
+      if (body.displayName || body.name) setUserDisplayName(candidate, body.displayName || body.name);
+      return candidate;
+    });
+    if (!user) return;
   }
-
   if (adminHost) {
     if (!isAdminUser(user)) { sendHttpJson(req, res, 403, { ok: false, error: 'Administrator access required.' }); return; }
     for (const [key, challenge] of adminMfaPending) {
@@ -12289,10 +12400,16 @@ wss.on('connection', (ws, req) => {
         return;
       }
       const identifier = String(msg.username || '').trim();
-      if (!consumeAccountLoginAttempt(identifier).allowed) { sendJson(ws, { type: 'error', error: 'Too many login attempts for this account.' }); return; }
       const user = findUserByUsername(identifier) || findUserByEmail(identifier);
-      if (!user || (identifier.includes('@') && (!user.emailVerifiedAt || normalizeEmail(user.email) !== normalizeEmail(identifier)))) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
-      if (!await verifyPassword(user, msg.password)) { sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return; }
+      const gate = loginState(user, identifier);
+      if (gate.lockedUntil > now()) { sendJson(ws, { type: 'error', error: 'Login locked for 20 minutes, or until the password is changed.' }); return; }
+      if (gate.captchaRequired) { sendJson(ws, { type: 'error', error: 'CAPTCHA required. Use the website to log in.' }); return; }
+      if (!consumeAccountLoginAttempt(identifier).allowed) { sendJson(ws, { type: 'error', error: 'Too many login attempts for this account.' }); return; }
+      if (!user || (identifier.includes('@') && (!user.emailVerifiedAt || normalizeEmail(user.email) !== normalizeEmail(identifier))) || !await verifyPassword(user, msg.password)) {
+        recordFailedLogin(user, identifier); if (user) await saveUsersDb();
+        sendJson(ws, { type: 'error', error: 'Invalid username or password.' }); return;
+      }
+      clearLoginFailures(user);
       if (user.requiresEmailVerification && !user.emailVerifiedAt) { sendJson(ws, { type: 'error', error: 'Verify your email before logging in.' }); return; }
       if (msg.displayName || msg.name) {
         setUserDisplayName(user, msg.displayName || msg.name);

@@ -39,6 +39,11 @@
           <input id="landingPassword" class="input" type="password" autocomplete="current-password" placeholder="Your password">
           <button id="landingPasswordReveal" class="passwordRevealBtn" type="button" aria-label="Hold to reveal password" title="Hold to reveal password">Show</button>
         </div>
+        <div id="loginCaptchaWrap" class="authCaptchaWrap hidden" aria-label="Login security verification">
+          <label class="label">Security verification required</label>
+          <div id="loginCaptcha" class="authCaptchaWidget"></div>
+          <p id="loginCaptchaNotice" class="authCaptchaNotice" role="status"></p>
+        </div>
         <button id="landingLoginBtn" class="btn primary portalPrimary">Log In</button>
         </div>
         <div id="adminMfaPanel" class="hidden" aria-label="Administrator authenticator verification">
@@ -278,13 +283,18 @@
       <label class="label">Email</label><input id="registerEmail" class="input" type="email" autocomplete="email" required>
       <label class="label">Password</label><input id="registerPassword" class="input" type="password" minlength="12" autocomplete="new-password" required>
       <label class="label">Confirm password</label><input id="registerConfirm" class="input" type="password" minlength="12" autocomplete="new-password" required>
+      <div id="registerCaptchaWrap" class="authCaptchaWrap" aria-label="Account registration security verification">
+        <label class="label">Verify you're human</label>
+        <div id="registerCaptcha" class="authCaptchaWidget"></div>
+        <p id="registerCaptchaNotice" class="authCaptchaNotice" role="status"></p>
+      </div>
       <button class="btn primary portalPrimary" type="submit">Create Account &amp; Send Verification</button>
       <div id="oauthRegisterOptions" class="oauthOptions hidden" aria-label="Create an account with another provider">
         <div class="oauthDivider"><span>or create an account with</span></div>
         <div class="oauthProviderButtons">
-          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="google" data-oauth-intent="login">Google (Gmail)</button>
-          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="github" data-oauth-intent="login">GitHub</button>
-          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="cloudflare" data-oauth-intent="login">Cloudflare</button>
+          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="google" data-oauth-intent="register">Google (Gmail)</button>
+          <button type="button" class="btn oauthProvider hidden" data-oauth-provider="github" data-oauth-intent="register">GitHub</button>
+          <button type="button" class="btn oauthProvider hidden" data-oauth-intent="register" data-oauth-provider="cloudflare">Cloudflare</button>
         </div>
         <p class="smallNote">After provider sign-up, choose a unique username to track your ratings and stats. You can switch to verified email/password later in Manage Account.</p>
       </div>

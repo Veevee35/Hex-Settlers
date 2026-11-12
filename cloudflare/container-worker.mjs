@@ -139,6 +139,8 @@ export class HexGameContainer extends Container {
       OAUTH_CLOUDFLARE_CLIENT_SECRET: String(env.OAUTH_CLOUDFLARE_CLIENT_SECRET || ''),
       OAUTH_CLOUDFLARE_SCOPES: String(env.OAUTH_CLOUDFLARE_SCOPES || ''),
       HEX_EMAIL_FROM: 'no-reply@hexsettlers.org', // fixed sender for every transactional email
+      TURNSTILE_SITE_KEY: String(env.TURNSTILE_SITE_KEY || ''),
+      TURNSTILE_SECRET_KEY: String(env.TURNSTILE_SECRET_KEY || ''),
       RESEND_API_KEY: String(env.RESEND_API_KEY || ''),
       ALLOW_EMPTY_DATABASE: String(env.ALLOW_EMPTY_DATABASE || '0'),
     };
@@ -155,7 +157,7 @@ function hardened(response, request) {
   h.set('X-Frame-Options', 'DENY');
   h.set('Referrer-Policy', 'no-referrer');
   h.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  h.set('Content-Security-Policy', "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
+  h.set('Content-Security-Policy', "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss: https://challenges.cloudflare.com; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
   if (new URL(request.url).protocol === 'https:') h.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   if (/\.(html|css|js|json)$/i.test(new URL(request.url).pathname) || new URL(request.url).pathname === '/') h.set('Cache-Control', 'no-store');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });

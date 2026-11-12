@@ -155,7 +155,7 @@ export function secureStaticAssetResponse(response, request) {
   headers.set('Cross-Origin-Opener-Policy', 'same-origin');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   headers.set('Content-Security-Policy',
-    "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
+    "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss: https://challenges.cloudflare.com; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
   if (new URL(request.url).protocol === 'https:') {
     headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }

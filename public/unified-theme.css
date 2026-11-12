@@ -409,3 +409,9 @@ body.uncreated-lobby #lobbyCard>.lobbyCardHeading {padding-bottom:8px;border-bot
   #journeyScreen.challengeWideLayout .journeyHeading h1 {white-space:normal;}
   #journeyScreen.challengeWideLayout .journeyHeading .portalLead {flex-basis:100%;text-align:left;}
 }
+
+/* Turnstile protection: use both the desktop and mobile account cards. */
+.authCaptchaWrap { margin: 12px 0 14px; max-width: 100%; min-width: 0; }
+.authCaptchaWidget { min-height: 65px; width: 100%; max-width: 100%; overflow: visible; }
+.authCaptchaNotice { margin: 4px 0 0; font-size: .82rem; color: var(--muted, #b4bec7); }
+.authCaptchaWrap.hidden { display: none !important; }

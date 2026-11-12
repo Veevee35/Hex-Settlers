@@ -45,7 +45,7 @@ function isAllowedWebSocketOrigin(request, allowedOrigins = new Set(), trustProx
 
 function securityHeaders({ isTls = false } = {}) {
   const headers = {
-    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss: https://challenges.cloudflare.com; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Referrer-Policy': 'no-referrer',
