@@ -1,6 +1,6 @@
 /* Hex Settlers asset cache service worker (auto-generated) */
 const CACHE_PREFIX = 'hexsettlers-asset-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'release-v1.0.47';
+const CACHE_NAME = CACHE_PREFIX + 'release-v1.0.48';
 const PRECACHE_URLS = [
   "/assets/sfx/dev_card.wav",
   "/assets/sfx/dice_roll.wav",
@@ -16,6 +16,11 @@ const PRECACHE_URLS = [
   "/assets/sfx/trade_success.wav",
   "/assets/sfx/turn_bell.wav",
   "/favicon.png",
+  "/icons/oauth/google.svg",
+  "/icons/oauth/github.svg",
+  "/icons/oauth/cloudflare.svg",
+  "/icons/oauth/discord.svg",
+
   "/texture%20pack/gold-resource.png",
   "/texture%20pack/Dev%20Cards/Invention.png",
   "/texture%20pack/Dev%20Cards/Knight.png",
