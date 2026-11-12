@@ -87,6 +87,7 @@ const { challengeWeekId, challengeDayId, challengePeriodId, challengeScenario, c
 const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('./server/departure');
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
+const { strategicNeuralBonus, tradeIsWorthAccepting } = require('./server/neural-strategy');
 const { FEATURE_NAMES: NEURAL_FEATURE_NAMES, FEATURE_VERSION: NEURAL_FEATURE_VERSION, TRAINING_OBJECTIVE: NEURAL_TRAINING_OBJECTIVE, opponentFeatures, upgradeNeuralModel, victoryTrainingTarget } = require('./server/neural-objective');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
@@ -10256,6 +10257,8 @@ const MAX_ACTIVE_ROOMS = 300;
 const MAX_HOSTED_ROOMS_PER_ACCOUNT = 4;
 const roomCreationLimiter = new SlidingWindowRateLimiter({ maxAttempts: 6, windowMs: 60_000 });
 function enforceRoomCreationQuota(userId, { ranked = false } = {}) {
+  // Dedicated localhost self-play uses ephemeral accounts/rooms, not public quotas.
+  if (AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1') return;
   if (rooms.size >= MAX_ACTIVE_ROOMS) throw new Error('Game capacity reached. Try again after a lobby closes.');
   if (ranked) return; // Ranked matchmaking is server-controlled, not user room creation.
   const id = String(userId || '');
@@ -13319,8 +13322,9 @@ if (msg.type === 'create_tutorial_room') {
         if (roleNow === 'spectator') return;
         if (pid === room.hostId) {
           const successor = seniorLobbyPlayer(room, pid);
-          if (!successor) { sendJson(ws, { type: 'error', error: 'Another human player must join before the host can spectate.' }); return; }
-          room.hostId = successor.id;
+          if (!successor && !(AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1')) { sendJson(ws, { type: 'error', error: 'Another human player must join before the host can spectate.' }); return; }
+          // Keep the spectator as host only in isolated headless training.
+          if (successor) room.hostId = successor.id;
         }
         const moved = moveRoomPlayerToSpectator(room, pid);
         if (moved.ok && room.challenge) ensureChallengeRoomInvariants(room);
@@ -14431,7 +14435,7 @@ if (msg.type === 'create_tutorial_room') {
     // Completed headless training rooms have no reconnecting humans and retain
     // large replay/geometry objects. Release them as soon as the trainer reads
     // the terminal state so long curricula keep a flat memory profile.
-    if (AI_TRAINING_MODE && room.game?.phase === 'game-over' && room.sockets.size === 0) {
+    if (AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1' && room.sockets.size === 0) {
       rooms.delete(code);
       return;
     }
@@ -14972,13 +14976,14 @@ function handleAI(room) {
 
   const listRoadEdges = (pid, preferExplore = false) => {
     const cands = [];
+    const fogUrgency = preferExplore ? (listSettlementPlacements(pid).length === 0 ? 110 : 65) : 0;
     for (let i = 0; i < (game.geom.edges || []).length; i++) {
       const e = game.geom.edges?.[i];
       if (!e) continue;
       if (e.roadOwner || e.shipOwner) continue;
       if (!edgeTouchesLand(i)) continue;
       if (!edgeConnectsToPlayer(game, i, pid)) continue;
-      let score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      let score = (preferExplore && edgeWouldExploreFog(i)) ? fogUrgency : 0;
       const e2 = game.geom.edges?.[i];
       if (e2) {
         for (const nid of [e2.a, e2.b]) {
@@ -14998,6 +15003,7 @@ function handleAI(room) {
   const listShipEdges = (pid, preferExplore = false) => {
     if (!isSeafarers) return [];
     const cands = [];
+    const fogUrgency = preferExplore ? (listSettlementPlacements(pid).length === 0 ? 110 : 65) : 0;
     for (let i = 0; i < (game.geom.edges || []).length; i++) {
       const e = game.geom.edges?.[i];
       if (!e) continue;
@@ -15034,7 +15040,7 @@ function handleAI(room) {
       }
       if (!connected) continue;
 
-      let score = (preferExplore && edgeWouldExploreFog(i)) ? 10 : 0;
+      let score = (preferExplore && edgeWouldExploreFog(i)) ? fogUrgency : 0;
       for (const nid of [e.a, e.b]) {
         const node = game.geom.nodes?.[nid];
         if (!node || node.building) continue;
@@ -15093,7 +15099,8 @@ function handleAI(room) {
         if (!best || score > best.score) best = { score, giveKind, takeKind, takeQty: 1 };
       }
     }
-    if (!best || best.score <= 0.15) return null;
+    // Non-enabling swaps must materially improve the plan, not just pad hand score.
+    if (!best || best.score <= 4) return null;
     return { kind: 'bank_trade', giveKind: best.giveKind, takeKind: best.takeKind, takeQty: 1 };
   };
 
@@ -15229,7 +15236,12 @@ function handleAI(room) {
         const robberBest = bestScoredTarget(landIds, (id) => scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)).score;
         const pirateBest = bestScoredTarget(seaIds, (id) => scorePirateTile(game, pid, id, RESOURCE_KINDS)).score;
         score = 28 + Math.max(0, robberBest, pirateBest);
-        if ((p.army || 0) + 1 >= 3 && (p.army || 0) + 1 > Number(game.largestArmy?.size || 0)) score += 180;
+        if (game.largestArmy?.playerId !== pid) {
+          const titleTarget = Math.max(3, Number(game.largestArmy?.size || 0) + 1);
+          const gap = titleTarget - (Number(p.army || 0) + 1);
+          if (gap <= 0) score += 240;
+          else if (gap <= 2) score += 65;
+        }
       } else if (card.type === DEV_CARD_TYPES.MONOPOLY) {
         const resourceKind = chooseMonopolyResource(pid);
         const total = (game.players || []).reduce((sum, opponent) => opponent && opponent.id !== pid && !opponent.departed
@@ -15500,115 +15512,132 @@ function handleAI(room) {
 
     computeVP(game);
     const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid));
-    let best = null;
     const candidates = [];
+    const spotsBefore = listSettlementPlacements(pid).length;
+    const vpGap = Math.max(0, Number(game.rules?.victoryPointsToWin || 10) - Number(p.vp || 0));
+    const routesBefore = computeLongestRoadForPlayer(game, pid);
 
     if (canAfford(p.resources, BUILD_COSTS.city)) {
-      const cityNodes = listCityUpgrades(pid)
+      for (const nodeId of listCityUpgrades(pid)
         .map(id => ({ id, score: nodeStrategicScore(pid, id) }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 8)
-        .map(o => ({ kind: 'upgrade_city', nodeId: o.id }));
-      candidates.push(...cityNodes);
+        .sort((a, b) => b.score - a.score).slice(0, 8).map(n => n.id)) {
+        candidates.push({ kind: 'upgrade_city', nodeId });
+      }
     }
-
     if (canAfford(p.resources, BUILD_COSTS.settlement)) {
-      const setNodes = listSettlementPlacements(pid).slice(0, 10).map(o => ({ kind: 'place_settlement', nodeId: o.id }));
-      candidates.push(...setNodes);
+      candidates.push(...listSettlementPlacements(pid).slice(0, 10)
+        .map(n => ({ kind: 'place_settlement', nodeId: n.id, siteScore: n.score })));
     }
-
-    if (isSeafarers && canAfford(p.resources, BUILD_COSTS.ship)) {
-      const shipEdges = listShipEdges(pid, preferExplore).slice(0, 10).map(edgeId => ({ kind: 'place_ship', edgeId }));
-      candidates.push(...shipEdges);
+    if (isSeafarers && (canAfford(p.resources, BUILD_COSTS.ship) || hasRoadBuildingPlacement(game, pid))) {
+      candidates.push(...listShipEdges(pid, preferExplore).slice(0, 12)
+        .map(edgeId => ({ kind: 'place_ship', edgeId })));
     }
-
-    if (canAfford(p.resources, BUILD_COSTS.road)) {
-      const roadEdges = listRoadEdges(pid, preferExplore).slice(0, 10).map(edgeId => ({ kind: 'place_road', edgeId }));
-      candidates.push(...roadEdges);
+    if (canAfford(p.resources, BUILD_COSTS.road) || hasRoadBuildingPlacement(game, pid)) {
+      candidates.push(...listRoadEdges(pid, preferExplore).slice(0, 12)
+        .map(edgeId => ({ kind: 'place_road', edgeId })));
     }
-
     if (canAfford(p.resources, DEV_CARD_COST) && (game.devDeck || []).length > 0) {
       candidates.push({ kind: 'buy_dev_card' });
     }
-
-    if ((mem.tradeCount || 0) < 3) {
-      const targets = [BUILD_COSTS.city, BUILD_COSTS.settlement, DEV_CARD_COST];
-      for (const t of targets) {
-        const bt = chooseBankTradeToEnable(pid, t);
-        if (bt) candidates.push(bt);
+    if ((mem.tradeCount || 0) < 2) {
+      for (const target of [BUILD_COSTS.city, BUILD_COSTS.settlement, DEV_CARD_COST]) {
+        const action = chooseBankTradeToEnable(pid, target);
+        if (action && !candidates.some(c => c.kind === 'bank_trade' && c.giveKind === action.giveKind && c.takeKind === action.takeKind)) {
+          candidates.push(action);
+        }
       }
     }
 
-    for (const act of candidates) {
-      if (act.kind === 'bank_trade' && (mem.tradeCount || 0) >= 2) continue;
+    let best = null;
+    for (const candidate of candidates) {
+      const { siteScore: preservedSiteScore, ...act } = candidate;
       const sim = simulateAction(pid, act);
       if (!sim) continue;
-      const before = playerById(game, pid);
       const after = playerById(sim, pid);
-      const vpGain = Math.max(0, Number(after?.vp || 0) - Number(before?.vp || 0));
-
+      const vpGain = Math.max(0, Number(after?.vp || 0) - Number(p.vp || 0));
+      const isRoute = act.kind === 'place_road' || act.kind === 'place_ship';
+      const spotsAfter = isRoute ? (() => {
+        let count = 0;
+        const geom = sim.geom || {};
+        for (const node of geom.nodes || []) {
+          if (!node || node.building || !settlementDistanceOk(sim, node.id)) continue;
+          if ((geom.tiles || []).some(t => t?.type === 'sea') &&
+              !(geom.nodeAdjTiles?.[node.id] || []).some(id => geom.tiles?.[id]?.type !== 'sea')) continue;
+          if ((geom.nodeEdges?.[node.id] || []).some(id => geom.edges?.[id]?.roadOwner === pid || (isSeafarers && geom.edges?.[id]?.shipOwner === pid))) count++;
+        }
+        return count;
+      })() : spotsBefore;
+      // Count actual reveals from the simulated state: adjacent corner-touching
+      // fog is also discoverable, not only edge-adjacent fog.
+      const fogRevealed = isRoute ? (game.geom.tiles || []).reduce((count, tile, index) =>
+        count + (tile?.fog && !tile.revealed && sim.geom?.tiles?.[index]?.revealed ? 1 : 0), 0) : 0;
       let score = neuralActionValue(sim, pid, stateValueFor(sim, pid));
-      score += vpGain * 250;
-      if (act.kind === 'upgrade_city' || act.kind === 'place_settlement') score += 50;
-      if ((act.kind === 'place_road' || act.kind === 'place_ship') && listSettlementPlacements(pid).length < 1) score += 25;
-      if (act.kind === 'bank_trade' && vpGain === 0) score -= 18;
-
-      if (!best || score > best.v) best = { act, v: score };
+      score += vpGain * 300;
+      score += strategicNeuralBonus({
+        kind: act.kind,
+        siteScore: preservedSiteScore ?? ((act.kind === 'upgrade_city') ? nodeStrategicScore(pid, act.nodeId) : 0),
+        fogRevealed,
+        availableSpots: spotsBefore,
+        newlyAvailableSpots: Math.max(0, spotsAfter - spotsBefore),
+        routeLengthBefore: routesBefore,
+        routeLengthAfter: isRoute ? computeLongestRoadForPlayer(sim, pid) : routesBefore,
+        longestRoadLength: Number(game.longestRoad?.length || 0),
+        ownsLongestRoad: game.longestRoad?.playerId === pid,
+        army: Number(p.army || 0),
+        largestArmySize: Number(game.largestArmy?.size || 0),
+        ownsLargestArmy: game.largestArmy?.playerId === pid,
+        vpGap,
+        devDeckSize: (game.devDeck || []).length,
+      });
+      if (act.kind === 'bank_trade') {
+        // Trading is a preparatory action, never an end in itself. A neutral
+        // swap can look positive to the neural feature extractor, but burns
+        // scarce production, invites churn and wastes an action.
+        const nextResources = after?.resources || {};
+        const enablesBuild = (listCityUpgrades(pid).length > 0 &&
+            !canAffordCost(p.resources, BUILD_COSTS.city) && canAffordCost(nextResources, BUILD_COSTS.city))
+          || (spotsBefore > 0 && !canAffordCost(p.resources, BUILD_COSTS.settlement)
+            && canAffordCost(nextResources, BUILD_COSTS.settlement))
+          || ((game.devDeck || []).length > 0 && !canAffordCost(p.resources, DEV_CARD_COST)
+            && canAffordCost(nextResources, DEV_CARD_COST));
+        score -= enablesBuild ? 16 : 175;
+      }
+      if (!best || score > best.score) best = { action: act, score };
     }
-
     if (!best) return null;
-    if (best.act.kind === 'bank_trade' && best.v <= baseValue + 0.05) return null;
-    if (best.v <= baseValue - 10) return null;
-    return best.act;
+    if (best.action.kind === 'bank_trade' && best.score <= baseValue + 35) return null;
+    if (best.score <= baseValue + 2) return null;
+    return best.action;
   };
-const wouldAcceptTrade = (pid, trade, diff) => {
+
+  const wouldAcceptTrade = (pid, trade, diff) => {
     const p = playerById(game, pid);
     if (!p || !trade) return false;
-    if (diff === 'test' || diff === 'easy') return false;
-
-    // Must be able to pay what's requested.
-    for (const [k, n] of Object.entries(trade.request || {})) {
-      if ((p.resources?.[k] || 0) < (n || 0)) return false;
-    }
-
-    // Immediate-enabler check: does this trade allow a city/settlement/dev right away?
-    const resAfter = { ...p.resources };
-    for (const [k, n] of Object.entries(trade.request || {})) resAfter[k] = (resAfter[k] || 0) - (n || 0);
-    for (const [k, n] of Object.entries(trade.offer || {})) resAfter[k] = (resAfter[k] || 0) + (n || 0);
-
-    const canCity = canAffordCost(resAfter, BUILD_COSTS.city) && listCityUpgrades(pid).length > 0;
-    const canSettle = canAffordCost(resAfter, BUILD_COSTS.settlement) && listSettlementPlacements(pid).length > 0;
-    const canDev = canAffordCost(resAfter, DEV_CARD_COST) && (game.devDeck || []).length > 0;
-    if (canCity || canSettle || canDev) return true;
-
-    // Weighted value heuristic.
-    const weights = { brick: 1, lumber: 1, wool: 1, grain: 1, ore: 1 };
-    // Emphasize grain/ore if the player has settlements to upgrade.
-    if (listCityUpgrades(pid).length > 0) { weights.grain += 0.6; weights.ore += 0.9; }
-    // Emphasize the settlement set.
-    weights.brick += 0.4; weights.lumber += 0.4; weights.wool += 0.3; weights.grain += 0.2;
-    if (isSeafarers) { weights.wool += 0.1; weights.lumber += 0.1; }
-
-    const val = (obj) => {
-      let s = 0;
-      for (const k of RESOURCE_KINDS) s += (obj?.[k] || 0) * (weights[k] || 1);
-      return s;
-    };
-
-    const got = val(trade.offer);
-    const paid = val(trade.request);
-    if (paid <= 0) return true;
-
-    // Decline if trade gives up a strongly scarce resource without immediate tactical gain.
-    const income = playerResourceIncome(pid);
-    for (const [k, n] of Object.entries(trade.request || {})) {
-      const scarce = (income[k] || 0) < 4;
-      if (scarce && (n || 0) >= 1 && !canCity && !canSettle && !canDev) return false;
-    }
-
-    // Medium: be pickier. Hard: accept slightly favorable trades.
-    if (diff === 'medium') return got >= paid * 1.2;
-    return got >= paid * 0.9;
+    const after = { ...(p.resources || {}) };
+    for (const [k, n] of Object.entries(trade.request || {})) after[k] = Number(after[k] || 0) - Number(n || 0);
+    for (const [k, n] of Object.entries(trade.offer || {})) after[k] = Number(after[k] || 0) + Number(n || 0);
+    const canCity = canAffordCost(after, BUILD_COSTS.city) && listCityUpgrades(pid).length > 0;
+    const canSettle = canAffordCost(after, BUILD_COSTS.settlement) && listSettlementPlacements(pid).length > 0;
+    const canDev = canAffordCost(after, DEV_CARD_COST) && (game.devDeck || []).length > 0;
+    const beforeEnabled = (canAffordCost(p.resources, BUILD_COSTS.city) && listCityUpgrades(pid).length > 0)
+      || (canAffordCost(p.resources, BUILD_COSTS.settlement) && listSettlementPlacements(pid).length > 0)
+      || (canAffordCost(p.resources, DEV_CARD_COST) && (game.devDeck || []).length > 0);
+    const proposer = playerById(game, trade.fromId);
+    const proposerCanCity = (game.geom.nodes || []).some(n => n?.building?.owner === trade.fromId && n.building.type === 'settlement');
+    const proposerCanSettle = (() => {
+      for (const node of game.geom.nodes || []) {
+        if (!node || node.building || !settlementDistanceOk(game, node.id)) continue;
+        if ((game.geom.nodeEdges?.[node.id] || []).some(id => game.geom.edges?.[id]?.roadOwner === trade.fromId || game.geom.edges?.[id]?.shipOwner === trade.fromId)) return true;
+      }
+      return false;
+    })();
+    return tradeIsWorthAccepting({
+      diff, player: { ...p, hasCityUpgrade: listCityUpgrades(pid).length > 0 }, proposer,
+      trade, income: playerResourceIncome(pid),
+      victoryTarget: Number(game.rules?.victoryPointsToWin || 10),
+      enabling: !beforeEnabled && (canCity || canSettle || canDev),
+      proposerCanCity, proposerCanSettle, devDeckSize: (game.devDeck || []).length,
+    });
   };
 
   // 1) Unblock global vote/trade prompts quickly.

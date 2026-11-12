@@ -51,19 +51,21 @@ test('migration and distributed merging preserve old weights and train new oppon
   assert.equal(merged.trainedGames, 9);
 });
 
-test('standard curriculum has exactly thirteen modes at full victory targets', () => {
+test('standard curriculum includes New Shores and 7–8 player scenarios at full victory targets', () => {
   const standard = ALL_MAPS.filter(map => !map.customBuilder);
-  assert.equal(standard.length, 13);
+  assert.ok(standard.length >= 19);
+  assert.ok(standard.some(map => map.id === 'heading_for_new_shores_56'));
+  assert.ok(standard.some(map => map.id === 'heading_for_new_shores_78'));
   assert.ok(standard.every(map => map.victoryPoints >= 10));
   const previous = process.env.MAP_SET;
   try {
     process.env.MAP_SET = 'standard';
     delete require.cache[require.resolve('../scripts/train_neural_ai_all_maps')];
-    const games = require('../scripts/train_neural_ai_all_maps').curriculum(13000);
+    const games = require('../scripts/train_neural_ai_all_maps').curriculum(standard.length * 30);
     const counts = new Map();
     for (const item of games) counts.set(item.map.id, (counts.get(item.map.id) || 0) + 1);
-    assert.equal(counts.size, 13);
-    assert.ok([...counts.values()].every(count => count === 1000));
+    assert.equal(counts.size, standard.length);
+    assert.ok([...counts.values()].every(count => count === 30));
   } finally {
     if (previous === undefined) delete process.env.MAP_SET;
     else process.env.MAP_SET = previous;

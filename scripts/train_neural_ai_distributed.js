@@ -6,15 +6,15 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { TRAINING_OBJECTIVE, FEATURE_VERSION, upgradeNeuralModel } = require('../server/neural-objective');
-const { atomicWriteJson } = require('../server/persistence');
+const { atomicWriteJson } = require('./training-file');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const TRAINER_PATH = path.join(__dirname, 'train_neural_ai_all_maps.js');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT, 'neural_ai_model.json'));
 const TOTAL_GAMES = Math.max(1, Math.floor(Number(process.env.SIMS || 5000)));
-const SHARD_COUNT = Math.max(1, Math.min(TOTAL_GAMES, Math.floor(Number(process.env.SHARDS || Math.min(12, os.cpus().length)))));
+const SHARD_COUNT = Math.max(1, Math.min(TOTAL_GAMES, Math.floor(Number(process.env.SHARDS || Math.min(4, os.cpus().length)))));
 const CHILD_BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 20)));
-const CHILD_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 10)));
+const CHILD_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
 const OUTPUT_PATH = path.resolve(process.env.TRAINING_OUTPUT || path.join(PROJECT_ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_fast_victory_all_scenarios.json`));
 const MAP_SET = process.env.MAP_SET || 'all';
 
@@ -151,6 +151,7 @@ async function main() {
   const startedAt = new Date();
   const startingModel = upgradeNeuralModel(readJson(MODEL_PATH));
   const startingHash = sha256(MODEL_PATH);
+  fs.mkdirSync(path.join(PROJECT_ROOT, 'scripts', 'output'), { recursive: true });
   const tempRoot = fs.mkdtempSync(path.join(PROJECT_ROOT, 'scripts', 'output', '.neural-shards-'));
   const shards = [];
   fs.copyFileSync(MODEL_PATH, path.join(tempRoot, 'starting_model.json'));
@@ -203,9 +204,9 @@ async function main() {
     const completedGames = games.length;
     if (completedGames !== TOTAL_GAMES) throw new Error(`Merged report has ${completedGames} games; expected ${TOTAL_GAMES}`);
     if (new Set(games.map(game => game.curriculumIndex)).size !== TOTAL_GAMES) throw new Error('Duplicate curriculum games');
-    if (MAP_SET === 'standard' && TOTAL_GAMES === 13000 &&
-        (Object.keys(byMap).length !== 13 || Object.values(byMap).some(summary => summary.games !== 1000))) {
-      throw new Error('Expected exactly 1000 games in each of the 13 standard modes');
+    // Keep the whole curriculum balanced even as new scenarios are added.
+    if (Object.values(byMap).some(summary => Math.abs(summary.games - TOTAL_GAMES / Object.keys(byMap).length) > 1)) {
+      throw new Error('Distributed curriculum lost its balance across scenarios');
     }
     if (sha256(MODEL_PATH) !== startingHash) throw new Error('Destination model changed during training; shard models retained');
     await atomicWriteJson(MODEL_PATH, mergedModel);
@@ -235,8 +236,7 @@ async function main() {
       completedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
     };
-    fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
-    fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await atomicWriteJson(OUTPUT_PATH, report);
     succeeded = true;
     console.log(JSON.stringify({ ...report, games: undefined, reportPath: OUTPUT_PATH }, null, 2));
   } finally {

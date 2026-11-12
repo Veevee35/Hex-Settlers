@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { atomicWriteJson } = require('../server/persistence');
+const { atomicWriteJson } = require('./training-file');
 const { TRAINING_OBJECTIVE, upgradeNeuralModel } = require('../server/neural-objective');
 const { assertFiniteModel, summarizeGames } = require('./train_neural_ai_distributed');
 
@@ -14,9 +14,9 @@ const TRAINER = path.join(__dirname, 'train_neural_ai_all_maps.js');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(ROOT, 'neural_ai_model.json'));
 const TOTAL_GAMES = Math.max(1, Math.floor(Number(process.env.SIMS || 20000)));
 const GENERATION_GAMES = Math.max(1, Math.floor(Number(process.env.SELECTION_INTERVAL || 1000)));
-const SHARDS = Math.max(1, Math.min(GENERATION_GAMES, Math.floor(Number(process.env.SHARDS || Math.min(16, os.cpus().length)))));
+const SHARDS = Math.max(1, Math.min(GENERATION_GAMES, Math.floor(Number(process.env.SHARDS || Math.min(4, os.cpus().length)))));
 const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 100)));
-const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 8)));
+const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
 const MAP_SET = process.env.MAP_SET || 'standard';
 const OUTPUT = path.resolve(process.env.TRAINING_OUTPUT || path.join(ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_evolutionary.json`));
 
@@ -85,6 +85,7 @@ async function main() {
   const startedAt = new Date();
   const startingModel = upgradeNeuralModel(readJson(MODEL_PATH));
   const startingHash = hashFile(MODEL_PATH);
+  fs.mkdirSync(path.join(ROOT, 'scripts', 'output'), { recursive: true });
   const tempRoot = fs.mkdtempSync(path.join(ROOT, 'scripts', 'output', '.neural-evolution-'));
   const generations = [];
   const allGames = [];
@@ -184,8 +185,7 @@ async function main() {
       completedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
     };
-    fs.mkdirSync(path.dirname(OUTPUT), { recursive: true });
-    fs.writeFileSync(OUTPUT, `${JSON.stringify(report, null, 2)}\n`);
+    await atomicWriteJson(OUTPUT, report);
     succeeded = true;
     console.log(JSON.stringify({ ...report, games: undefined, reportPath: OUTPUT }, null, 2));
   } finally {

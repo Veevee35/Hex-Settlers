@@ -10,22 +10,23 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const WebSocket = require('ws');
 const { TRAINING_OBJECTIVE } = require('../server/neural-objective');
-const { atomicWriteJson } = require('../server/persistence');
+const { atomicWriteJson } = require('./training-file');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT, 'neural_ai_model.json'));
 const TOTAL_GAMES = Math.max(1, Math.floor(Number(process.env.SIMS || 500)));
 const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 25)));
-const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 5)));
+const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
 const CURRICULUM_OFFSET = Math.max(0, Math.floor(Number(process.env.CURRICULUM_OFFSET || 0)));
 const VP_TO_WIN_RAW = String(process.env.VP_TO_WIN || '').trim();
 const VP_TO_WIN_PARSED = Math.floor(Number(VP_TO_WIN_RAW));
 const VP_TO_WIN_OVERRIDE = VP_TO_WIN_RAW && Number.isFinite(VP_TO_WIN_PARSED) ? Math.max(3, VP_TO_WIN_PARSED) : null;
-const GAME_TIMEOUT_MS = Math.max(20_000, Math.floor(Number(process.env.GAME_TIMEOUT_MS || 180_000)));
+const GAME_TIMEOUT_MS = Math.max(20_000, Math.floor(Number(process.env.GAME_TIMEOUT_MS || 240_000)));
 const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() === '1';
 const OUTPUT_PATH = path.resolve(process.env.TRAINING_OUTPUT || path.join(PROJECT_ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_fast_victory_all_scenarios.json`));
 
-// Every lobby scenario is represented. Test Builder has no authored default
+// Include the 7-8 player and New Shores curricula alongside original maps.
+// Test Builder has no authored default
 // board, so those rounds paint a varied, valid Gold-bearing training board.
 const ALL_MAPS = Object.freeze([
   { id: 'classic', label: 'Classic', mapMode: 'classic', scenario: 'four_islands', players: 4, victoryPoints: 10 },
@@ -38,11 +39,17 @@ const ALL_MAPS = Object.freeze([
   { id: 'cartographer_4_random', label: 'Scattered Tiles 4', mapMode: 'seafarers', scenario: 'cartographer_4_random', players: 4, victoryPoints: 12, gold: true },
   { id: 'test_builder', label: 'Test Builder 4', mapMode: 'seafarers', scenario: 'test_builder', players: 4, victoryPoints: 13, gold: true, customBuilder: true },
   { id: 'six_islands', label: 'Six Islands', mapMode: 'seafarers', scenario: 'six_islands', players: 6, victoryPoints: 14, gold: true },
+  { id: 'heading_for_new_shores_56', label: 'Heading for New Shores 5-6', mapMode: 'seafarers', scenario: 'heading_for_new_shores_56', players: 6, victoryPoints: 14, gold: true },
   { id: 'through_the_desert_56', label: 'Through the Desert 5-6', mapMode: 'seafarers', scenario: 'through_the_desert_56', players: 6, victoryPoints: 14, gold: true },
   { id: 'fog_island_56', label: 'Fog Island 5-6', mapMode: 'seafarers', scenario: 'fog_island_56', players: 6, victoryPoints: 12, gold: true },
   { id: 'cartographer_56_manual', label: 'Cartographer 5-6', mapMode: 'seafarers', scenario: 'cartographer_56_manual', players: 6, victoryPoints: 12, gold: true },
   { id: 'cartographer_56_random', label: 'Scattered Tiles 5-6', mapMode: 'seafarers', scenario: 'cartographer_56_random', players: 6, victoryPoints: 12, gold: true },
   { id: 'test_builder_56', label: 'Test Builder 5-6', mapMode: 'seafarers', scenario: 'test_builder_56', players: 6, victoryPoints: 13, gold: true, customBuilder: true },
+  { id: 'classic78', label: 'Classic 7-8', mapMode: 'classic78', scenario: 'four_islands', players: 8, victoryPoints: 14 },
+  { id: 'eight_islands_78', label: 'Eight Islands 7-8', mapMode: 'seafarers', scenario: 'eight_islands_78', players: 8, victoryPoints: 14, gold: true },
+  { id: 'through_the_desert_78', label: 'Through the Desert 7-8', mapMode: 'seafarers', scenario: 'through_the_desert_78', players: 8, victoryPoints: 14, gold: true },
+  { id: 'fog_island_78', label: 'Fog Island 7-8', mapMode: 'seafarers', scenario: 'fog_island_78', players: 8, victoryPoints: 14, gold: true },
+  { id: 'heading_for_new_shores_78', label: 'Heading for New Shores 7-8', mapMode: 'seafarers', scenario: 'heading_for_new_shores_78', players: 8, victoryPoints: 14, gold: true },
 ]);
 const MAP_SET = process.env.MAP_SET || 'all';
 if (!['all', 'standard'].includes(MAP_SET)) throw new Error(`Unknown MAP_SET: ${MAP_SET}`);
@@ -65,15 +72,19 @@ async function unusedPort() {
   return port;
 }
 
-async function waitForServer(port, output) {
+async function waitForServer(port, output, child) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
+    if (child?.exitCode !== null || child?.signalCode) {
+      throw new Error(`Training server exited before readiness (exit=${child.exitCode}, signal=${child.signalCode}).\n${output()}`);
+    }
     try {
       await new Promise((resolve, reject) => {
         const request = http.get(`http://127.0.0.1:${port}/`, (response) => {
           response.resume();
           response.statusCode === 200 ? resolve() : reject(new Error(`HTTP ${response.statusCode}`));
         });
+        request.setTimeout(1500, () => request.destroy(new Error('Readiness probe timed out')));
         request.once('error', reject);
       });
       return;
@@ -98,13 +109,25 @@ async function startTrainingServer(dataDir) {
       AI_FAST: '1',
       AI_TRAINING: '1',
       HEX_BUILTIN_ADMIN_ENABLED: '0',
+      // Never inherit production persistence/auth bridge settings in self-play.
+      CLOUDFLARE_STATE_ENDPOINT: '',
+      HEX_UPSTREAM_SHARED_SECRET: '',
+      HEX_ADMIN_HOST: '',
+      HEX_TRUST_PROXY: '0',
+      HEX_EMAIL_MODE: 'none',
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
   });
-  child.stdout.on('data', (chunk) => { output += String(chunk); });
-  child.stderr.on('data', (chunk) => { output += String(chunk); });
-  await waitForServer(port, () => output);
+  const appendOutput = chunk => { output = (output + String(chunk)).slice(-24_000); };
+  child.stdout.on('data', appendOutput);
+  child.stderr.on('data', appendOutput);
+  try {
+    await waitForServer(port, () => output, child);
+  } catch (error) {
+    if (child.exitCode === null) child.kill('SIGTERM');
+    throw error;
+  }
   return {
     child,
     port,
@@ -114,10 +137,12 @@ async function startTrainingServer(dataDir) {
       const exited = once(child, 'exit');
       if (child.connected) child.send({ type: 'shutdown' });
       else child.kill('SIGTERM');
+      let timer;
       const clean = await Promise.race([
         exited.then(() => true),
-        new Promise((resolve) => setTimeout(() => resolve(false), 8_000)),
+        new Promise((resolve) => { timer = setTimeout(() => resolve(false), 8_000); }),
       ]);
+      clearTimeout(timer);
       if (!clean && child.exitCode === null) {
         child.kill('SIGTERM');
         await once(child, 'exit');
@@ -131,23 +156,50 @@ class Peer {
     this.ws = ws;
     this.messages = [];
     this.waiters = [];
-    ws.on('message', (raw) => this.accept(JSON.parse(String(raw))));
+    this.closedError = null;
+    ws.on('message', (raw) => {
+      try { this.accept(JSON.parse(String(raw))); }
+      catch (error) { this.fail(error); }
+    });
+    ws.on('error', (error) => this.fail(error));
+    ws.on('close', (code) => this.fail(new Error(`Training WebSocket closed (${code})`)));
   }
 
   static async connect(port) {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     const peer = new Peer(ws);
-    await once(ws, 'open');
-    await peer.waitFor((message) => message.type === 'hello');
-    return peer;
+    try {
+      let timer;
+      try {
+        await Promise.race([
+          once(ws, 'open'),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('WebSocket connection timed out')), 5000); }),
+        ]);
+      } finally { clearTimeout(timer); }
+      await peer.waitFor((message) => message.type === 'hello');
+      return peer;
+    } catch (error) {
+      peer.close();
+      throw error;
+    }
+  }
+
+  fail(error) {
+    if (this.closedError) return;
+    this.closedError = error;
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
   }
 
   accept(message) {
-    const index = this.waiters.findIndex((waiter) => waiter.predicate(message));
+    const index = this.waiters.findIndex((waiter) => waiter.predicate(message) || message.type === 'error' || message.type === 'auth_required');
     if (index >= 0) {
       const [waiter] = this.waiters.splice(index, 1);
       clearTimeout(waiter.timer);
-      waiter.resolve(message);
+      if (!waiter.predicate(message)) waiter.reject(new Error(message.error || message.reason || 'Server rejected trainer request'));
+      else waiter.resolve(message);
     } else {
       this.messages.push(message);
       if (this.messages.length > 250) this.messages.shift();
@@ -155,14 +207,18 @@ class Peer {
   }
 
   waitFor(predicate, timeoutMs = 25_000) {
-    const queuedIndex = this.messages.findIndex(predicate);
-    if (queuedIndex >= 0) return Promise.resolve(this.messages.splice(queuedIndex, 1)[0]);
+    if (this.closedError) return Promise.reject(this.closedError);
+    const queuedIndex = this.messages.findIndex(m => predicate(m) || m.type === 'error' || m.type === 'auth_required');
+    if (queuedIndex >= 0) {
+      const message = this.messages.splice(queuedIndex, 1)[0];
+      return predicate(message) ? Promise.resolve(message) : Promise.reject(new Error(message.error || message.reason || 'Server rejected trainer request'));
+    }
     return new Promise((resolve, reject) => {
       const waiter = { predicate, resolve, reject, timer: null };
       waiter.timer = setTimeout(() => {
         const index = this.waiters.indexOf(waiter);
         if (index >= 0) this.waiters.splice(index, 1);
-        reject(new Error(`Timed out after ${timeoutMs}ms`));
+        reject(new Error(`Timed out after ${timeoutMs}ms; last messages: ${this.messages.slice(-3).map(m => m.type).join(', ')}`));
       }, timeoutMs);
       this.waiters.push(waiter);
     });
@@ -301,7 +357,9 @@ async function runOneGame(port, token, item) {
     await peer.waitFor((message) => message.type === 'room' && (message.room.players || []).length === item.map.players);
 
     peer.send({ type: 'start_game' });
-    const finished = await peer.waitFor((message) => message.type === 'state' && message.state?.phase === 'game-over', GAME_TIMEOUT_MS);
+    // Larger 5–8 player maps need more CPU turns than Classic, especially on desktops.
+    const gameTimeout = GAME_TIMEOUT_MS * (item.map.players >= 7 ? 2 : item.map.players >= 5 ? 1.5 : 1);
+    const finished = await peer.waitFor((message) => message.type === 'state' && message.state?.phase === 'game-over', gameTimeout);
     const state = finished.state;
     const winner = (state.players || []).find((player) => player.id === state.winnerId);
     const victoryTarget = VP_TO_WIN_OVERRIDE || item.map.victoryPoints;
@@ -337,17 +395,13 @@ function curriculum(total) {
 }
 
 async function runBatch(server, token, items, completedBefore) {
-  const queue = items.slice();
+  const queue = items.map(item => ({ ...item, retries: 0 }));
   const results = [];
-  let attempts = 0;
-  const maxAttempts = Math.max(items.length * 4, items.length + 10);
-
+  let failure = null;
   const worker = async () => {
-    while (queue.length) {
+    while (queue.length && !failure) {
       const item = queue.shift();
       if (!item) return;
-      attempts += 1;
-      if (attempts > maxAttempts) throw new Error(`Batch exceeded ${maxAttempts} attempts`);
       try {
         const result = await runOneGame(server.port, token, item);
         results.push(result);
@@ -356,13 +410,18 @@ async function runBatch(server, token, items, completedBefore) {
           process.stdout.write(`[train] ${totalComplete}/${TOTAL_GAMES} map=${result.mapId} turn=${result.turnNumber} gold=${result.goldProductionCards}\n`);
         }
       } catch (error) {
-        process.stderr.write(`[train] retry map=${item.map.id} game=${item.sessionIndex + 1}: ${error.message}\n`);
-        queue.push(item);
+        if (item.retries >= 2) {
+          failure = new Error(`Trainer failed on ${item.map.id} (game ${item.sessionIndex + 1}) after 3 attempts: ${error.message}\n${server.output().slice(-3000)}`);
+          break;
+        }
+        process.stderr.write(`[train] retry ${item.retries + 1}/2 map=${item.map.id} game=${item.sessionIndex + 1}: ${error.message}\n`);
+        queue.push({ ...item, retries: item.retries + 1 });
       }
     }
   };
-
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
+  if (failure) throw failure;
+  if (results.length !== items.length) throw new Error(`Batch incomplete: ${results.length}/${items.length} games`);
   return results;
 }
 
@@ -393,6 +452,7 @@ async function main() {
   const items = curriculum(TOTAL_GAMES);
   const results = [];
   let latestModelPath = MODEL_PATH;
+  let succeeded = false;
 
   try {
     for (let offset = 0, batchNo = 1; offset < items.length; offset += BATCH_SIZE, batchNo++) {
@@ -420,7 +480,7 @@ async function main() {
     }
 
     results.sort((a, b) => a.sessionIndex - b.sessionIndex);
-    fs.copyFileSync(latestModelPath, MODEL_PATH);
+    await atomicWriteJson(MODEL_PATH, readModel(latestModelPath));
     const finalModel = readModel(MODEL_PATH);
     const report = {
       mode: 'neural_net_self_play',
@@ -444,11 +504,12 @@ async function main() {
       completedAt: new Date().toISOString(),
     };
     fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
-    fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await atomicWriteJson(OUTPUT_PATH, report);
+    succeeded = true;
     console.log(JSON.stringify({ ...report, games: undefined, reportPath: OUTPUT_PATH }, null, 2));
   } finally {
-    if (!KEEP_TEMP) fs.rmSync(tempRoot, { recursive: true, force: true });
-    else console.log(`[train] kept temporary data at ${tempRoot}`);
+    if (!KEEP_TEMP && succeeded) fs.rmSync(tempRoot, { recursive: true, force: true });
+    else console.log(`[train] kept training checkpoints at ${tempRoot}`);
   }
 }
 

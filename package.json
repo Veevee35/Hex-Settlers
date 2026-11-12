@@ -1,6 +1,6 @@
 {
   "name": "hex-settlers",
-  "version": "1.0.50",
+  "version": "1.0.52",
   "private": true,
   "description": "Online hex-settlement strategy game with classic and seafaring maps, multiplayer, and AI opponents.",
   "main": "dist/server.js",
@@ -15,7 +15,12 @@
     "electron:start": "npm --prefix desktop run start",
     "electron:dist": "npm --prefix desktop run dist --",
     "build:discord": "node scripts/build-discord.cjs && node scripts/verify-discord-bundle.cjs",
-    "check:discord-bundle": "node scripts/verify-discord-bundle.cjs"
+    "check:discord-bundle": "node scripts/verify-discord-bundle.cjs",
+    "train:neural": "node scripts/train_neural_ai_all_maps.js",
+    "train:neural:smoke": "node scripts/train_neural_ai_smoke.js",
+    "train:neural:distributed": "node scripts/train_neural_ai_distributed.js",
+    "train:neural:evolutionary": "node scripts/train_neural_ai_evolutionary.js",
+    "test:neural": "node --test test/neural-strategy.test.js"
   },
   "dependencies": {
     "ws": "8.22.2"

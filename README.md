@@ -182,3 +182,7 @@ In unranked lobbies, choose **Classic** or **Seafarers** and then select one of 
   a generated credential.
 
 See `V48_RELEASE_NOTES.md` and `V48_SECURITY_AND_RELIABILITY_AUDIT.md`.
+
+## Train Expert / Neural AI locally
+
+See [`V1.0.52_NEURAL_TRAINER_DESKTOP_REPAIR.md`](V1.0.52_NEURAL_TRAINER_DESKTOP_REPAIR.md) for the full Windows/Codex training workflow, model safety, and neural strategy changes. After `npm ci`, run `npm run train:neural:smoke` for a **non-destructive single-match test**, or `npm run train:neural` to update the project's neural model from completed self-play games. Training is localhost-only and does not connect to the live game.
