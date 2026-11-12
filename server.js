@@ -70,6 +70,7 @@ const { turnstileConfig, verifyTurnstile } = require('./server/turnstile');
 const { loginState, recordFailedLogin, clearLoginFailures, cleanupUnknownLogins } = require('./server/login-protection');
 const { DISCORD_APP_ID, DISCORD_PROXY_ORIGIN, isActivityRequest, issueJoinTicket, verifyJoinTicket, verifyDiscordActivity } = require('./server/discord-activity');
 const { createPairingStore, validPairId } = require('./server/discord-login-pair');
+const { clientType, recordClientDay, clientReport } = require('./server/client-analytics');
 const {
   DEFAULT_RULES,
   RANKED_SCENARIOS,
@@ -148,6 +149,7 @@ const MIME = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.ico': 'image/x-icon',
   '.wav': 'audio/wav',
   '.zip': 'application/zip',
@@ -10206,6 +10208,7 @@ const adminActionLimiter = new SlidingWindowRateLimiter({
 // admin diagnostic, without restricting normal reporting and admin analytics.
 const betaEmailTestLimiter = new SlidingWindowRateLimiter({ maxAttempts: 2, windowMs: 60_000 });
 const discordActivityLimiter = new SlidingWindowRateLimiter({ maxAttempts: 8, windowMs: 60_000 });
+const discordAutoLoginLimiter = new SlidingWindowRateLimiter({ maxAttempts: 8, windowMs: 60_000 });
 const accountActionLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 30,
   windowMs: 60_000,
@@ -10228,6 +10231,7 @@ function activateAuthenticatedSocket(ws, user) {
   ws._authed = true;
   // A login lasting less than one sample still counts toward daily unique activity.
   GAME_ANALYTICS.markUser(user.id);
+  recordClientDay(user, ws._clientType || 'browser');
   return true;
 }
 
@@ -10792,7 +10796,7 @@ async function handleOAuthHttp(req, res, urlPath) {
     sendHttpJson(req, res, 200, { ok: true, providers: providerAvailability() });
     return;
   }
-  const match = /^\/api\/auth\/oauth\/(google|github|cloudflare)\/(start|callback)$/.exec(urlPath);
+  const match = /^\/api\/auth\/oauth\/(google|github|cloudflare|discord)\/(start|callback)$/.exec(urlPath);
   if (!match || !['GET', 'POST'].includes(req.method)) { sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' }); return; }
   const [, provider, action] = match;
   if (action === 'callback' && req.method !== 'GET') { sendHttpJson(req, res, 405, { ok: false, error: 'Method not allowed.' }); return; }
@@ -11012,9 +11016,9 @@ async function handleAuthHttp(req, res, urlPath) {
     if (result.convertedToEmailLogin) {
       sendHttpJson(req, res, 200, {
         ok: true, convertedToEmailLogin: true,
-        message: 'Email verified. OAuth sign-in has been disconnected. Log in using your email address (or username) and password; your ratings, stats and friends are unchanged.',
+        message: 'Email verified. You can now sign in with email and password or any of your linked providers. Your ratings, stats and friends are unchanged.',
       }, { 'Set-Cookie': clearSessionCookie({ secure, embedded, discordProxy: discordProxyCookie(req) }) });
-      setTimeout(() => disconnectUserSessions(user.id, 'Your account now uses email/password. Please sign in again.'), 25);
+      setTimeout(() => disconnectUserSessions(user.id, 'Your new password is ready. Please sign in again using any linked method.'), 25);
     } else {
       sendHttpJson(req, res, 200, { ok: true, message: 'Email verified. You can now sign in with this email and your password.' });
     }
@@ -11417,6 +11421,23 @@ async function handleAdminHttp(req, res, urlPath) {
     const removed = BETA.removeSession(String(body.id || ''));
     if (removed) await BETA.save();
     sendHttpJson(req, res, removed ? 200 : 404, { ok: removed, error: removed ? undefined : 'Session not found.' });
+    return;
+  }
+
+  if (urlPath === '/api/admin/client-stats') {
+    const allowed = new Set(['day','week','month','quarter']);
+    const range = allowed.has(body.range) ? body.range : 'week';
+    const active = [...userSockets.entries()].map(([userId, sockets]) => {
+      const user = findUserById(userId);
+      const open = [...sockets].filter(ws => ws.readyState === WebSocket.OPEN);
+      if (!user || !open.length) return null;
+      return { username: String(user.username || '').slice(0, 24),
+        displayName: String(user.displayName || '').slice(0, 30),
+        clients: [...new Set(open.map(ws => ['browser','discord','mobile'].includes(ws._clientType) ? ws._clientType : 'browser'))],
+        connections: open.length };
+    }).filter(Boolean).sort((a,b)=>a.username.localeCompare(b.username));
+    sendHttpJson(req, res, 200, { ok:true, ...clientReport(USERS_DB.users || [], userSockets, now(), range),
+      activeCount:active.length, activeAccounts:active.slice(0, 150) });
     return;
   }
 
@@ -12087,7 +12108,7 @@ async function handleAccountHttp(req, res, urlPath) {
       sendHttpJson(req, res, 409, { ok: false, error: 'That email is already linked to another account.' });
       return;
     }
-    if (normalizeEmail(viewer.email) === email && viewer.emailVerifiedAt && !(viewer.oauthAccounts || []).length) {
+    if (normalizeEmail(viewer.email) === email && viewer.emailVerifiedAt && viewer.pass) {
       sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(viewer), message: 'That email is already verified.' });
       return;
     }
@@ -12124,7 +12145,7 @@ async function handleAccountHttp(req, res, urlPath) {
     sendHttpJson(req, res, 200, {
       ok: true,
       user: safeUserPublic(viewer),
-      message: `Verification email sent to ${email}. ${viewer.emailVerification.convertToDirectLogin ? 'After verification, your OAuth providers will be disconnected and you can sign in with email/password.' : ''}`.trim(),
+      message: `Verification email sent to ${email}. After verification, email/password will work alongside your linked sign-in providers.`.trim(),
     });
     return;
   }
@@ -12237,6 +12258,47 @@ async function handleBetaHttp(req, res, urlPath) {
   sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
 }
 
+async function handleDiscordActivityAutoLogin(req, res) {
+  if (req.method !== 'POST' || !isActivityRequest(req, APP_CONFIG.trustProxy) ||
+      String(req.headers.origin || '') !== DISCORD_PROXY_ORIGIN) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Activity authentication is only available inside Discord.' }); return;
+  }
+  const address = clientAddress(req, APP_CONFIG.trustProxy);
+  if (!discordAutoLoginLimiter.consume(address).allowed) {
+    sendHttpJson(req, res, 429, { ok: false, error: 'Too many login attempts. Try again shortly.' }); return;
+  }
+  let body;
+  try { body = await readJsonBody(req, 4096); }
+  catch { sendHttpJson(req, res, 400, { ok: false, error: 'Invalid request.' }); return; }
+  try {
+    const discord = await verifyDiscordActivity({
+      code: body.code, instanceId: body.instanceId,
+      clientId: process.env.DISCORD_CLIENT_ID, clientSecret: process.env.DISCORD_CLIENT_SECRET,
+      botToken: process.env.DISCORD_BOT_TOKEN,
+    });
+    const user = findUserByOAuth('discord', discord.discordId);
+    // Never silently link by matching email or Discord nickname. Administrators
+    // must continue to complete the independent administrator MFA flow.
+    if (!user || user.needsUsernameSetup || isAdminUser(user)) {
+      sendHttpJson(req, res, 200, { ok: true, linked: false }); return;
+    }
+    user.lastLoginAt = now();
+    recordClientDay(user, 'discord');
+    const token = issueAuthToken(user);
+    await saveUsersDb();
+    const ticket = issueJoinTicket({ userId:user.id, discordId:discord.discordId,
+      instanceId:body.instanceId, secret:process.env.HEX_UPSTREAM_SHARED_SECRET });
+    sendHttpJson(req, res, 200, { ok: true, linked:true, user:safeUserPublic(user),
+      ticket, accessToken:discord.accessToken }, {
+      'Set-Cookie': sessionCookie(token, { secure:requestIsTls(req, APP_CONFIG.trustProxy),
+        embedded:true, discordProxy:discordProxyCookie(req) }),
+    });
+  } catch (error) {
+    console.warn('[discord-activity] Auto-login rejected:', error.message);
+    sendHttpJson(req, res, 403, { ok:false, error:'Discord identity or Activity participation could not be verified. Check the registered OAuth2 redirects, then relaunch the Activity.' });
+  }
+}
+
 async function handleDiscordActivitySession(req, res) {
   if (req.method !== 'POST' || !isActivityRequest(req, APP_CONFIG.trustProxy)) {
     sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' }); return;
@@ -12260,6 +12322,10 @@ async function handleDiscordActivitySession(req, res) {
       clientId: process.env.DISCORD_CLIENT_ID, clientSecret: process.env.DISCORD_CLIENT_SECRET,
       botToken: process.env.DISCORD_BOT_TOKEN,
     });
+    const linkedOwner = findUserByOAuth('discord', discord.discordId);
+    if (linkedOwner && linkedOwner.id !== user.id) {
+      sendHttpJson(req, res, 409, { ok: false, error: 'This Discord account is linked to another Hex Settlers player.' }); return;
+    }
     const ticket = issueJoinTicket({ userId: user.id, discordId: discord.discordId,
       instanceId: body.instanceId, secret: process.env.HEX_UPSTREAM_SHARED_SECRET });
     sendHttpJson(req, res, 200, { ok: true, accessToken: discord.accessToken, ticket, discordName: discord.displayName });
@@ -12278,6 +12344,10 @@ const server = http.createServer(async (req, res) => {
     if ((urlPath === '/health' || urlPath === '/ws' || urlPath.startsWith('/api/')) && !trustedProxyRequest(req)) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Origin proxy authentication failed.' });
       return;
+    }
+    if (urlPath === '/api/discord/activity/auto-login') {
+      if (!trustedProxyRequest(req)) { sendHttpJson(req, res, 403, { ok: false, error: 'Proxy authorization failed.' }); return; }
+      await handleDiscordActivityAutoLogin(req, res); return;
     }
     if (urlPath === '/api/discord/activity/session') {
       if (!trustedProxyRequest(req)) { sendHttpJson(req, res, 403, { ok: false, error: 'Proxy authorization failed.' }); return; }
@@ -12412,6 +12482,7 @@ wss.on('connection', (ws, req) => {
   ws._roomCode = null;
   ws._spectatorViewId = null;
   ws._clientAddress = clientAddress(req, APP_CONFIG.trustProxy);
+  ws._clientType = clientType(req, { activity:isActivityRequest(req, APP_CONFIG.trustProxy) && String(req.headers.origin || '') === DISCORD_PROXY_ORIGIN });
   ws._connectionId = crypto.randomUUID().slice(0, 12);
   ws._isAlive = true;
   ws._messageLimiter = new SlidingWindowRateLimiter({ maxAttempts: 300, windowMs: 10_000 });

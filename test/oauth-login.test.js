@@ -13,6 +13,7 @@ const env = {
   OAUTH_GOOGLE_CLIENT_ID: 'google-id', OAUTH_GOOGLE_CLIENT_SECRET: 'google-secret',
   OAUTH_GITHUB_CLIENT_ID: 'github-id', OAUTH_GITHUB_CLIENT_SECRET: 'github-secret',
   OAUTH_CLOUDFLARE_CLIENT_ID: 'cloudflare-id', OAUTH_CLOUDFLARE_CLIENT_SECRET: 'cloudflare-secret',
+  DISCORD_CLIENT_ID: '1477895334406656101', DISCORD_CLIENT_SECRET: 'discord-secret',
 };
 const baseUrl = 'https://hexsettlers.org';
 
@@ -25,15 +26,15 @@ function start(provider = 'google', args = {}) {
 }
 
 test('providers require credentials and a strong shared state secret', () => {
-  assert.deepEqual(providerAvailability(env), { google: true, github: true, cloudflare: true });
-  assert.deepEqual(providerAvailability({ ...env, OAUTH_STATE_SECRET: 'short' }), { google: false, github: false, cloudflare: false });
+  assert.deepEqual(providerAvailability(env), { google: true, github: true, cloudflare: true, discord: true });
+  assert.deepEqual(providerAvailability({ ...env, OAUTH_STATE_SECRET: 'short' }), { google: false, github: false, cloudflare: false, discord: false });
   assert.equal(providerAvailability({ ...env, OAUTH_GITHUB_CLIENT_ID: '' }).github, false);
 });
 
 test('OAuth start sets PKCE and same-site encrypted HttpOnly state cookie', () => {
-  for (const provider of ['google', 'github', 'cloudflare']) {
+  for (const provider of ['google', 'github', 'cloudflare', 'discord']) {
     const flow = start(provider);
-    assert.equal(flow.url.searchParams.get('client_id'), env[`OAUTH_${provider.toUpperCase()}_CLIENT_ID`]);
+    assert.equal(flow.url.searchParams.get('client_id'), (provider === 'discord' ? env.DISCORD_CLIENT_ID : env[`OAUTH_${provider.toUpperCase()}_CLIENT_ID`]));
     assert.equal(flow.url.searchParams.get('redirect_uri'), `${baseUrl}/api/auth/oauth/${provider}/callback`);
     assert.equal(flow.url.searchParams.get('response_type'), 'code');
     assert.equal(flow.url.searchParams.get('code_challenge_method'), 'S256');
@@ -107,12 +108,40 @@ test('public user view lists linked providers without leaking immutable IDs or t
 test('HTML, game server and Cloudflare container expose the end-to-end OAuth integration', () => {
   const root = path.resolve(__dirname, '..');
   const read = file => fs.readFileSync(path.join(root, file), 'utf8');
-  for (const provider of ['google', 'github', 'cloudflare']) {
+  for (const provider of ['google', 'github', 'cloudflare', 'discord']) {
     assert.match(read('public/index.html'), new RegExp(`data-oauth-provider="${provider}"`, 'i'));
-    assert.match(read('cloudflare/container-worker.mjs'), new RegExp(`OAUTH_${provider.toUpperCase()}_CLIENT_SECRET`));
+    assert.match(read('cloudflare/container-worker.mjs'), new RegExp(provider === 'discord' ? 'DISCORD_CLIENT_SECRET' : `OAUTH_${provider.toUpperCase()}_CLIENT_SECRET`));
   }
   assert.match(read('server.js'), /handleOAuthHttp\(req, res, urlPath\)/);
   assert.match(read('server.js'), /findUserByOAuth/);
   assert.match(read('server.js'), /unlink-oauth/);
   assert.match(read('public/app.js'), /startOAuthProvider/);
+});
+
+
+test('Discord OAuth uses the server-side confidential client flow and verifies immutable Discord ID', async () => {
+  const flow = start('discord');
+  assert.equal(flow.url.hostname, 'discord.com');
+  assert.equal(flow.url.searchParams.get('redirect_uri'), 'https://hexsettlers.org/api/auth/oauth/discord/callback');
+  assert.equal(flow.url.searchParams.get('scope'), 'identify');
+  const calls = [];
+  const result = await finishOAuth({
+    provider: 'discord',
+    callbackUrl: `/api/auth/oauth/discord/callback?code=code123&iss=https%3A%2F%2Fdiscord.com&state=${flow.url.searchParams.get('state')}`,
+    cookieHeader: flow.cookie, baseUrl, env,
+    fetchImpl: async (url, options) => {
+      calls.push({url, options});
+      if (url === 'https://discord.com/api/oauth2/token') return fakeResponse({access_token:'access', token_type:'Bearer'});
+      if (url === 'https://discord.com/api/users/@me') return fakeResponse({id:'1477895334406656101', username:'settler', global_name:'Player One'});
+      throw new Error(`Unexpected ${url}`);
+    },
+  });
+  assert.deepEqual(result.identity, {provider:'discord', subject:'1477895334406656101', name:'Player One', email:''});
+  assert.equal(calls.length, 2);
+  assert.equal(new URLSearchParams(calls[0].options.body).get('redirect_uri'), 'https://hexsettlers.org/api/auth/oauth/discord/callback');
+  assert.equal(calls[1].options.headers.Authorization, 'Bearer access');
+  await assert.rejects(() => finishOAuth({
+    provider:'discord', callbackUrl:`/api/auth/oauth/discord/callback?code=abc&iss=https%3A%2F%2Fevil.example&state=${flow.url.searchParams.get('state')}`,
+    cookieHeader:flow.cookie, baseUrl, env, fetchImpl: () => { throw Error('should not fetch'); },
+  }), /issuer was invalid/);
 });

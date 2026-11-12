@@ -7,13 +7,13 @@ const crypto = require('node:crypto');
 const { parseCookies } = require('./http-auth');
 const FLOW_COOKIE = 'hexsettlers_oauth_flow';
 const FLOW_TTL_MS = 10 * 60 * 1000;
-const PROVIDERS = Object.freeze({ google: 'Google', github: 'GitHub', cloudflare: 'Cloudflare' });
+const PROVIDERS = Object.freeze({ google: 'Google', github: 'GitHub', cloudflare: 'Cloudflare', discord: 'Discord' });
 
 function providerConfiguration(provider, env = process.env) {
   if (!Object.hasOwn(PROVIDERS, provider)) return null;
   const prefix = `OAUTH_${provider.toUpperCase()}_`;
-  const clientId = String(env[`${prefix}CLIENT_ID`] || '').trim();
-  const clientSecret = String(env[`${prefix}CLIENT_SECRET`] || '').trim();
+  const clientId = String(env[`${prefix}CLIENT_ID`] || (provider === 'discord' ? env.DISCORD_CLIENT_ID : '') || '').trim();
+  const clientSecret = String(env[`${prefix}CLIENT_SECRET`] || (provider === 'discord' ? env.DISCORD_CLIENT_SECRET : '') || '').trim();
   const stateSecret = String(env.OAUTH_STATE_SECRET || '');
   if (!clientId || !clientSecret || stateSecret.length < 32) return null;
   const definitions = {
@@ -21,6 +21,7 @@ function providerConfiguration(provider, env = process.env) {
     github: { authorize: 'https://github.com/login/oauth/authorize', token: 'https://github.com/login/oauth/access_token', scope: 'read:user' },
     // Cloudflare OAuth client scopes are API permission names, NOT OIDC scopes.
     cloudflare: { authorize: 'https://dash.cloudflare.com/oauth2/auth', token: 'https://dash.cloudflare.com/oauth2/token', scope: 'user-details.read' },
+    discord: { authorize: 'https://discord.com/oauth2/authorize', token: 'https://discord.com/api/oauth2/token', scope: 'identify' },
   };
   return { provider, clientId, clientSecret, ...definitions[provider], scope: String(env[`${prefix}SCOPES`] || definitions[provider].scope).trim() };
 }
@@ -98,6 +99,11 @@ async function resolveOAuthIdentity(provider, token, { fetchImpl = fetch } = {})
     // Email is optional. Identity is NEVER matched to a local account by email.
     return { provider, subject: String(user.id), name: String(user.name || user.login || ''), email: '' };
   }
+  if (provider === 'discord') {
+    const user = await jsonRequest('https://discord.com/api/users/@me', { headers }, fetchImpl);
+    if (!/^\d{15,22}$/.test(String(user.id || ''))) throw new Error('Discord did not provide a valid account ID.');
+    return { provider, subject: String(user.id), name: String(user.global_name || user.username || ''), email: '' };
+  }
   if (provider === 'cloudflare') {
     const payload = await jsonRequest('https://api.cloudflare.com/client/v4/user', { headers }, fetchImpl);
     const user = payload.result;
@@ -118,6 +124,9 @@ async function finishOAuth({ provider, callbackUrl, cookieHeader, baseUrl, env =
       Buffer.byteLength(flow.state) !== Buffer.byteLength(incoming.searchParams.get('state')) ||
       !crypto.timingSafeEqual(Buffer.from(flow.state), Buffer.from(incoming.searchParams.get('state')))) {
     throw new Error('Sign-in security check failed. Please try again.');
+  }
+  if (provider === 'discord' && incoming.searchParams.has('iss') && incoming.searchParams.get('iss') !== 'https://discord.com') {
+    throw new Error('Discord OAuth issuer was invalid.');
   }
   if (incoming.searchParams.has('error')) throw new Error('Authorization was cancelled or declined.');
   const code = incoming.searchParams.get('code');

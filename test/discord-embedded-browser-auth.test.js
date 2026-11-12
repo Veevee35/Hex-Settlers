@@ -41,7 +41,7 @@ test('Discord deploy ships a verified offline-compiled bundle, with version-stam
   assert.match(build, /discord-rpc-lite\.mjs/);
   assert.match(entry, /import \{ DiscordSDK, Events \} from '\.\/discord-rpc-lite\.mjs'/);
   assert.doesNotMatch(gitignore, /^public\/discord-activity\.bundle\.js$/m);
-  assert.match(read('public/index.html'), /discord-activity\.bundle\.js\?v=release-v1\.0\.45/);
+  assert.match(read('public/index.html'), /discord-activity\.bundle\.js\?v=release-v1\.0\.46/);
   assert.match(read('scripts/bump-version.cjs'), /discord-activity\\.bundle/);
   assert.match(read('scripts/stamp-git-build.cjs'), /discord-activity\\.bundle/);
 });

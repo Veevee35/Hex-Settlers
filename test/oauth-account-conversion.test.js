@@ -37,7 +37,7 @@ test('OAuth username onboarding accepts only unique allowed usernames, once', ()
   assert.equal(claimOAuthUsername(user, 'AnotherName', lookup).ok, false);
 });
 
-test('provider to email conversion preserves player ID/history and revokes provider login only after verification', () => {
+test('email/password linking preserves all OAuth identities, account ID, history, and friends', () => {
   const user = provisional();
   user.needsUsernameSetup = false;
   user.username = 'real_player';
@@ -54,7 +54,7 @@ test('provider to email conversion preserves player ID/history and revokes provi
   assert.equal(user.email, 'verified@example.org');
   assert.equal(user.emailVerifiedAt, 123456);
   assert.deepEqual(user.pass, record.pendingPassword);
-  assert.deepEqual(user.oauthAccounts, []);
+  assert.deepEqual(user.oauthAccounts.map(item => item.provider), ['github', 'google']);
   assert.deepEqual(user.tokens, []);
   assert.equal(user.id, 'permanent-user-1');
   assert.equal(user.username, 'real_player');
@@ -62,7 +62,7 @@ test('provider to email conversion preserves player ID/history and revokes provi
   assert.deepEqual(user.friendIds, ['friend-1']);
 });
 
-test('conversion cannot unlink a passwordless OAuth account without a verified new password', () => {
+test('passwordless account cannot add an email login before verified password setup', () => {
   const user = provisional();
   assert.throws(() => finishVerifiedEmailLink(user, {
     email: 'verified@example.org', convertToDirectLogin: true,
@@ -80,7 +80,7 @@ test('ordinary email link leaves existing OAuth links alone when it is not a con
   assert.equal(user.tokens.length, 1);
 });
 
-test('existing password is retained when converting a linked OAuth account to direct email', () => {
+test('existing password and OAuth link are retained when adding a verified email', () => {
   const user = provisional();
   user.pass = { salt: 'prior', hash: 'original' };
   const result = finishVerifiedEmailLink(user, {
@@ -88,7 +88,7 @@ test('existing password is retained when converting a linked OAuth account to di
   }, 200);
   assert.equal(result.convertedToEmailLogin, true);
   assert.deepEqual(user.pass, { salt: 'prior', hash: 'original' });
-  assert.deepEqual(user.oauthAccounts, []);
+  assert.deepEqual(user.oauthAccounts.map(item => item.provider), ['github']);
 });
 
 test('client and server wire OAuth username setup and verified email/password switching', () => {

@@ -45,7 +45,7 @@ function safeManagedUser(user, { includeEmail = false } = {}) {
     passwordResetAt: Number(user.passwordResetAt || 0),
     hasEmail: !!linkedEmail,
     hasPassword: !!(user.pass && user.pass.salt && user.pass.hash),
-    oauthProviders: includeEmail ? (Array.isArray(user.oauthAccounts) ? user.oauthAccounts : []).filter(link => link && ['google', 'github', 'cloudflare'].includes(link.provider)).map(link => ({ provider: link.provider, name: String(link.name || '').slice(0, 100), linkedAt: Number(link.linkedAt || 0) })) : [],
+    oauthProviders: includeEmail ? (Array.isArray(user.oauthAccounts) ? user.oauthAccounts : []).filter(link => link && ['google', 'github', 'cloudflare', 'discord'].includes(link.provider)).map(link => ({ provider: link.provider, name: String(link.name || '').slice(0, 100), linkedAt: Number(link.linkedAt || 0) })) : [],
     emailVerified: !!(linkedEmail && user.emailVerifiedAt),
     email: includeEmail ? linkedEmail : '',
     emailMasked: linkedEmail ? maskEmail(linkedEmail) : '',

@@ -43,7 +43,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.45';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.46';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -2025,11 +2025,15 @@
     }
   }
 
-  const OAUTH_LABELS = { google: 'Google (Gmail)', github: 'GitHub', cloudflare: 'Cloudflare' };
+  const OAUTH_LABELS = { google: 'Google (Gmail)', github: 'GitHub', cloudflare: 'Cloudflare', discord: 'Discord' };
   async function startOAuthProvider(provider, intent = 'login') {
     if (!Object.hasOwn(OAUTH_LABELS, provider)) return;
     const returnUrl = window.location.pathname + window.location.search;
     if (IS_DISCORD_ACTIVITY) {
+      if (intent === 'link') {
+        await window.HexDiscordOpenManageLinks?.();
+        return;
+      }
       if (typeof window.HexDiscordOpenOAuth === 'function') await window.HexDiscordOpenOAuth(provider);
       else {
         const banner = $('landingError');
@@ -9747,7 +9751,7 @@ function refreshLobbyJoinLinkUi() {
           if (user.hasPassword !== false) controls.appendChild(passwordSection);
           else {
             const note = document.createElement('div'); note.className = 'smallNote';
-            note.textContent = 'Provider sign-in is active. To switch to email/password, enter your email and create a password below. OAuth stays connected until you verify the email.';
+            note.textContent = 'Add email/password sign-in without removing Google, GitHub, Cloudflare, or Discord.';
             controls.appendChild(note);
           }
 
@@ -9755,7 +9759,7 @@ function refreshLobbyJoinLinkUi() {
           emailSection.className = 'userManagementSection';
           const emailHeading = document.createElement('div');
           emailHeading.className = 'labelTiny';
-          emailHeading.textContent = (user.oauthProviders || []).length ? 'Switch to Email & Password' : 'Recovery Email';
+          emailHeading.textContent = (user.oauthProviders || []).length ? 'Add Email & Password Login' : 'Recovery Email';
           emailSection.appendChild(emailHeading);
 
           const emailInput = document.createElement('input');
@@ -9779,7 +9783,7 @@ function refreshLobbyJoinLinkUi() {
           if ((user.oauthProviders || []).length) {
             const info = document.createElement('p');
             info.className = 'smallNote';
-            info.textContent = 'After you confirm the verification email, all OAuth providers will disconnect. Your username, stats, ratings, friends, and game history stay with this account. You will sign in with email (or username) and password.';
+            info.textContent = 'Verifying this email adds a password sign-in to your existing account. All linked providers, player history, stats and friends remain connected.';
             emailSection.appendChild(info);
           }
 
@@ -9788,7 +9792,7 @@ function refreshLobbyJoinLinkUi() {
           const verifyEmail = document.createElement('button');
           verifyEmail.className = 'btn';
           verifyEmail.type = 'button';
-          verifyEmail.textContent = (user.oauthProviders || []).length ? 'Verify & Switch to Email Login' : (user.pendingEmail ? 'Resend Verification' : (user.hasEmail ? 'Change Email' : 'Link Email'));
+          verifyEmail.textContent = (user.oauthProviders || []).length ? 'Verify & Add Email Login' : (user.pendingEmail ? 'Resend Verification' : (user.hasEmail ? 'Change Email' : 'Link Email'));
           verifyEmail.disabled = !emailDeliveryConfigured;
           emailButtons.appendChild(verifyEmail);
 
@@ -10401,6 +10405,84 @@ function refreshLobbyJoinLinkUi() {
     }, 20_000);
   }
 
+  function renderAdminClientStats(container) {
+    container.replaceChildren();
+    const shell = adminElement('div', 'adminStats');
+    const heading = adminElement('div', 'adminStatsTop');
+    const title = adminElement('div', 'adminStatsHeading');
+    title.append(adminElement('h2', '', 'Client Analytics'),
+      adminElement('p', 'smallNote', 'Authenticated players by platform: desktop browser, Discord Activity, or mobile browser / installed web app. Each account counts once per client type per day.'));
+    const controls = adminElement('div', 'adminStatsControls');
+    const period = document.createElement('select');
+    period.className = 'input'; period.setAttribute('aria-label','Client analytics time range');
+    for (const [key, label] of [['day','Today'],['week','Last 7 days'],['month','Last 30 days'],['quarter','Last 90 days']]) {
+      const opt = document.createElement('option'); opt.value = key; opt.textContent = label; period.appendChild(opt);
+    }
+    period.value = 'week';
+    const button = adminElement('button','btn','Refresh now'); button.type = 'button';
+    controls.append(period,button); heading.append(title,controls);
+    const status = adminElement('p','adminStatsStatus','Loading client usage…');
+    status.setAttribute('role','status');
+    const liveHeading = adminElement('h3','adminStatsSectionTitle','Connected now');
+    const live = adminElement('div','adminStatsMetrics');
+    const rangeHeading = adminElement('h3','adminStatsSectionTitle','Unique accounts during selected period');
+    const totals = adminElement('div','adminStatsMetrics');
+    const chart = adminElement('div','adminStatsCharts');
+    const onlineHeading = adminElement('h3','adminStatsSectionTitle','Currently connected players');
+    const online = adminElement('div','adminStatsBreakdown');
+    const footnote = adminElement('p','smallNote','');
+    shell.append(heading,status,liveHeading,live,rangeHeading,totals,chart,onlineHeading,online,footnote);
+    container.appendChild(shell);
+    const card = (label,value,note) => {
+      const el=adminElement('div','adminStatsMetric');
+      el.append(adminElement('div','adminStatsMetricLabel',label),adminElement('strong','',String(value)));
+      if (note) el.append(adminElement('small','',note));
+      return el;
+    };
+    let busy=false;
+    const refresh=async()=>{
+      if(busy || !container.isConnected || !container.closest('.adminDashboard')?.querySelector('.adminTabs [data-tab="clients"].active')) return;
+      busy=true;button.disabled=true;
+      try {
+        const data=await adminApi('client-stats',{range:period.value});
+        if(!container.isConnected) return;
+        live.replaceChildren(); totals.replaceChildren(); chart.replaceChildren(); online.replaceChildren();
+        for(const [key,label] of [['browser','Desktop browser'],['discord','Discord Activity'],['mobile','Mobile / installed app']]) {
+          live.append(card(label,Number(data.live?.[key]?.accounts||0).toLocaleString(),`${Number(data.live?.[key]?.connections||0)} active connections`));
+          totals.append(card(label,Number(data.uniqueAccounts?.[key]||0).toLocaleString(),'Unique authenticated users'));
+        }
+        totals.prepend(card('Total distinct players',Number(data.totalUniqueAccounts||0).toLocaleString(),'Deduplicated across all three client types'));
+        renderGameStatsChart(chart,'Daily player client usage',data.daily||[],[
+          {key:'browser',label:'Desktop browser',color:'#75b7f9'},
+          {key:'discord',label:'Discord Activity',color:'#a6a1fa'},
+          {key:'mobile',label:'Mobile / installed',color:'#7dddb7'},
+        ],{dateAxis:true});
+        if (!data.activeAccounts?.length) online.append(adminElement('p','smallNote','No authenticated players connected.'));
+        else {
+          const table=document.createElement('table'); table.className='adminClientTable';
+          const head=document.createElement('thead'); const headerRow=document.createElement('tr');
+          for(const h of ['Player','Client types','Connections']) headerRow.append(adminElement('th','',h));
+          head.appendChild(headerRow);table.appendChild(head);
+          const body=document.createElement('tbody');
+          for (const user of data.activeAccounts) {
+            const row=document.createElement('tr');
+            row.append(adminElement('td','',user.displayName || user.username),
+              adminElement('td','',(user.clients||[]).map(type => type==='discord'?'Discord':type==='mobile'?'Mobile':'Browser').join(' · ')),
+              adminElement('td','',String(user.connections||0)));
+            body.appendChild(row);
+          }
+          table.appendChild(body);online.append(table);
+          if (data.activeCount>data.activeAccounts.length) online.append(adminElement('p','smallNote',`Showing ${data.activeAccounts.length} of ${data.activeCount} online players.`));
+        }
+        footnote.textContent=data.note||'';
+        status.textContent=`Updated ${new Date(data.sampledAt).toLocaleString()} · 90-day rolling history starts with V1.0.46`;
+      } catch(error) {status.textContent=error.message||'Client analytics unavailable.';}
+      finally {busy=false;button.disabled=false;}
+    };
+    period.addEventListener('change',refresh);button.addEventListener('click',refresh);
+    void refresh();
+  }
+
   function openAdminManagementScreen() {
     if (!authUser?.isAdmin) { setError('Administrator access required.'); return; }
     const dashboard = adminElement('div', 'adminDashboard');
@@ -10408,7 +10490,7 @@ function refreshLobbyJoinLinkUi() {
     tabs.setAttribute('aria-label', 'Administrator management sections');
     const content = adminElement('section', 'adminDashboardContent');
     const options = [
-      ['stats', 'Game Stats'], ['beta', 'Beta Testing'], ['server', 'Server Management'], ['ratings', 'Rating Management'],
+      ['stats', 'Game Stats'], ['clients', 'Client Analytics'], ['beta', 'Beta Testing'], ['server', 'Server Management'], ['ratings', 'Rating Management'],
       ['users', 'User Account Management'], ['merge', 'Merge Accounts'],
       ['history', 'Manage Game History'],
       ['health', 'Health Monitor'],
@@ -10422,6 +10504,7 @@ function refreshLobbyJoinLinkUi() {
       });
       content.replaceChildren();
       if (key === 'stats') renderAdminGameStats(content);
+      if (key === 'clients') renderAdminClientStats(content);
       if (key === 'beta') window.renderHexBetaAdmin?.(content, adminApi);
       if (key === 'server') void openServerManagementConsole(content);
       if (key === 'ratings') void openRatingManagementScreen(content);
@@ -13144,7 +13227,7 @@ function refreshLobbyJoinLinkUi() {
     }
     const hint = document.createElement('p');
     hint.className = 'discordActivitySignupHint';
-    hint.textContent = 'For Google, GitHub, Cloudflare, or CAPTCHA-protected password sign-in, use the secure browser connection. Complete any security challenge on hexsettlers.org, approve the matching code, and return to Discord.';
+    hint.textContent = 'For Google, GitHub, Cloudflare, Discord, or CAPTCHA-protected password sign-in, use the secure browser connection. Complete any security challenge on hexsettlers.org, approve the matching code, and return to Discord.';
     $('authLanding')?.querySelector('.portalForm')?.appendChild(hint);
   }
   $('landingCreateBtn')?.addEventListener('click', () => {

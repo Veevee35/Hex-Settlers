@@ -4818,3 +4818,11 @@ body.settings-sandbox #app #leaveGameBtn {pointer-events:none!important;opacity:
   body.live-tutorial-mobile .tutorialGuide h2 {font-size:16px;}
   body.live-tutorial-mobile .tutorialGuideActions {position:sticky;bottom:0;background:#101b25;padding:6px 0;}
 }
+
+/* Home-screen installation is offered only by the first-party mobile login. */
+#installGameApp:not([hidden]) { width:100%; margin-top:8px; border:1px solid #67b2df; background:linear-gradient(150deg,#173d56,#144367); color:#fff; font-weight:700; }
+.installGameHelp { max-width:380px; line-height:1.45; font-size:13px; padding:12px; margin-top:8px; border:1px solid #3c708e; background:#102739; border-radius:9px; color:#d9ebf8; }
+
+.adminClientTable {width:100%; border-collapse:collapse; margin-top:8px; color:#d8e7f2; text-align:left; font-size:13px;}
+.adminClientTable th,.adminClientTable td {padding:10px; border-bottom:1px solid rgba(145,181,209,.21); overflow-wrap:anywhere;}
+.adminClientTable th {color:#f0be6b; font-weight:700;}

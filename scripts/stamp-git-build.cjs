@@ -27,6 +27,7 @@ update('public/index.html', /(styles\.css\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(unified-theme\.css\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(boot-preload\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(app\.js\?v=)[^"\s]+/, `$1${key}`);
+update('public/index.html', /(install-app\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(beta\.css\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(beta-client\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(beta-admin\.js\?v=)[^"\s]+/, `$1${key}`);

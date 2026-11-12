@@ -46,6 +46,7 @@ function prepareFiles(state) {
     [/(unified-theme\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(boot-preload\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(app\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
+    [/(install-app\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(languages\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(locale-expansion\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(beta\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],

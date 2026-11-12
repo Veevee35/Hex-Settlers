@@ -54,9 +54,9 @@ function finishVerifiedEmailLink(user, record, timestamp) {
   delete user.passwordReset;
   if (converting) {
     if (record.pendingPassword) user.pass = record.pendingPassword;
-    user.oauthAccounts = [];
-    // Credentials changed: invalidate all existing sessions, including OAuth
-    // sessions issued before the email was verified.
+    // Preserve every linked OAuth identity. Password/email is an additional
+    // sign-in method, not a conversion that disconnects existing providers.
+    // Credentials changed: invalidate all existing sessions.
     user.tokens = [];
     user.passwordResetAt = timestamp;
   }

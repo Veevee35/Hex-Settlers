@@ -16,6 +16,7 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
   let lastAttemptAt = 0;
   let participants = null;
   let pendingBrowserLogin = null;
+  let autoLoginInProgress = false;
 
   const banner = document.createElement('section');
   banner.className = 'discordActivityStatus';
@@ -70,6 +71,12 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
     }
   };
 
+  window.HexDiscordOpenManageLinks = async function openManageLinks() {
+    setStatus('To connect another provider, sign in at hexsettlers.org, open Account Management, and select Link beside that provider.');
+    try { await openWebsite('https://hexsettlers.org/'); }
+    catch (error) { setStatus(error.message || 'Could not open account management.', true); }
+  };
+
   window.HexDiscordOpenOAuth = async function openOAuth(provider = '', screen = '') {
     if (pendingBrowserLogin) {
       setStatus('A browser sign-in is already pending. Complete it or restart the Activity.');
@@ -88,7 +95,7 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
       const link = new URL('https://hexsettlers.org/');
       link.searchParams.set('activity_link', pair.id);
       if (screen === 'register') link.searchParams.set('auth_screen', 'register');
-      if (['google', 'github', 'cloudflare'].includes(provider)) link.searchParams.set('activity_provider', provider);
+      if (['google', 'github', 'cloudflare', 'discord'].includes(provider)) link.searchParams.set('activity_provider', provider);
       setStatus(`Browser sign-in · code ${data.code} · expires in 10 min`);
       // Start observing immediately. On some Discord clients openExternalLink
       // resolves only after the confirmation prompt or external browser closes;
@@ -135,7 +142,7 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
   }
 
   async function enterLobby() {
-    if (!sdkReady || busy || !window.HexSettlersActivityBridge?.isAuthenticated()) return;
+    if (!sdkReady || busy || autoLoginInProgress || !window.HexSettlersActivityBridge?.isAuthenticated()) return;
     const now = Date.now();
     if (now - lastAttemptAt < 1800) return;
     lastAttemptAt = now;
@@ -172,6 +179,54 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
     } finally { busy = false; }
   }
 
+  // New visitors are signed in only if the *verified Discord identity* has
+  // already been linked explicitly to a Hex Settlers player. An unlinked
+  // Discord account remains at the regular sign-in/registration screen.
+  async function autoLoginLinkedDiscord() {
+    if (autoLoginInProgress) return;
+    autoLoginInProgress = true;
+    setStatus('Checking your linked Discord account…');
+    try {
+      const authorization = await sdk.commands.authorize({
+        client_id:APP_ID, response_type:'code', prompt:'none', scope:['identify'],
+      });
+      if (!authorization?.code || !sdk.instanceId) throw new Error('Discord authorization is not ready.');
+      const response = await fetch('/api/discord/activity/auto-login', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({code:authorization.code, instanceId:sdk.instanceId}),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Discord automatic login failed.');
+      if (!data.linked) {
+        setStatus('Discord account not linked yet. Sign in below, then connect Discord in Account Management.');
+        // Existing password / other-provider sessions may still join the
+        // Activity, even without a linked Discord identity.
+        setTimeout(() => { if (window.HexSettlersActivityBridge?.isAuthenticated()) void enterLobby(); }, 100);
+        return;
+      }
+      await sdk.commands.authenticate({access_token:data.accessToken});
+      if (!(await window.HexSettlersActivityBridge?.acceptWebSession?.())) {
+        throw new Error('Discord sign-in succeeded, but the embedded browser rejected its login cookie.');
+      }
+      // The existing websocket needs time to reconnect using the new cookie.
+      for (let i = 0; i < 40 && !window.HexSettlersActivityBridge?.isAuthenticated(); i++) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      if (!window.HexSettlersActivityBridge?.sendJoin?.(data.ticket)) {
+        throw new Error('Signed in, but game connection is still loading.');
+      }
+      attached = true;
+      await refreshParticipants();
+      setStatus(`Discord account connected automatically${participants == null ? '' : ` · ${participants} in Activity`}`);
+    } catch (error) {
+      // Do not block conventional password/provider sign-in after an Activity
+      // OAuth failure (e.g. missing OAuth2 redirect in the Developer Portal).
+      console.warn('[discord-activity] Auto-login:', error);
+      setStatus('Automatic Discord sign-in unavailable. You can still sign in below. Check OAuth2 Redirects in the Discord Developer Portal.');
+    } finally { autoLoginInProgress = false; }
+  }
+
   window.addEventListener('hexsettlers:discord-auth', () => { void enterLobby(); });
   window.addEventListener('hexsettlers:discord-signed-out', () => {
     pendingBrowserLogin = null;
@@ -191,7 +246,7 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
           if (attached) setStatus(`Discord lobby connected${participants == null ? '' : ` · ${participants} in Activity`}`);
         });
       } catch { /* Notifications are optional. */ }
-      await enterLobby();
+      await autoLoginLinkedDiscord();
     } catch (error) {
       console.error('[discord-activity] SDK initialization failed:', error);
       setStatus('Launch this game from a Discord voice channel or Activity invite.', true);
