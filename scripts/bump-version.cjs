@@ -51,6 +51,7 @@ function prepareFiles(state) {
     [/(beta\.css\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(beta-client\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
     [/(beta-admin\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
+    [/(discord-activity\.bundle\.js\?v=)[^"\s]+/, (_all, prefix) => `${prefix}${cacheKey}`],
   ]) {
     if (!oldPattern.test(htmlFile.after)) throw new Error(`Missing client cache reference: ${oldPattern}`);
     htmlFile.after = htmlFile.after.replace(oldPattern, replacement);

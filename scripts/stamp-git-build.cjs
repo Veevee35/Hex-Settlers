@@ -34,6 +34,7 @@ update('public/beta.html', /(\/beta\.css\?v=)[^"\s]+/, `$1${key}`);
 update('public/beta.html', /(\/beta-client\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(languages\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/index.html', /(locale-expansion\.js\?v=)[^"\s]+/, `$1${key}`);
+update('public/index.html', /(discord-activity\.bundle\.js\?v=)[^"\s]+/, `$1${key}`);
 update('public/app.js', /const ASSET_CACHE_SW_BUILD = '[^']+';/, `const ASSET_CACHE_SW_BUILD = '${key}';`);
 update('public/sw.js', /const CACHE_NAME = CACHE_PREFIX \+ '[^']+';/, `const CACHE_NAME = CACHE_PREFIX + '${key}';`);
 const htmlPath=path.join(root,'public/index.html');

@@ -2,7 +2,7 @@
  * Discord Activity entry point. Built locally into public/discord-activity.bundle.js
  * using npm run build:discord. Discord secrets NEVER ship to this bundle.
  */
-import { DiscordSDK, Events } from '@discord/embedded-app-sdk';
+import { DiscordSDK, Events } from './discord-rpc-lite.mjs';
 
 const APP_ID = '1477895334406656101';
 const PROXY_HOST = `${APP_ID}.discordsays.com`;
@@ -186,7 +186,7 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
       sdkReady = true;
       setStatus('Sign in to Hex Settlers to join this Activity.');
       try {
-        sdk.subscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, async () => {
+        await sdk.subscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, async () => {
           await refreshParticipants();
           if (attached) setStatus(`Discord lobby connected${participants == null ? '' : ` · ${participants} in Activity`}`);
         });

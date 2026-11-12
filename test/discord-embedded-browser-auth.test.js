@@ -29,13 +29,19 @@ test('Google/GitHub/Cloudflare and registration use the one-use external approva
   assert.match(app, /discord-pair\/approve/);
 });
 
-test('Discord deploy build has an SDK artifact guard and leaves normal version-stamping alone', () => {
+test('Discord deploy ships a verified offline-compiled bundle, with version-stamping intact', () => {
   const pkg = JSON.parse(read('package.json'));
   const guard = read('scripts/verify-discord-bundle.cjs');
   const build = read('scripts/build-discord.cjs');
+  const gitignore = read('.gitignore');
+  const entry = read('client/discord-activity.mjs');
   assert.match(pkg.scripts['build:discord'], /verify-discord-bundle/);
-  assert.match(guard, /contents\.length < 12000/);
-  assert.match(build, /embedded-app-sdk|node_modules/); // build-only pinned SDK
-  assert.match(build, /esbuild\.buildSync/);
-  assert.equal(pkg.scripts.build, 'tsc -p tsconfig.bootstrap.json');
+  assert.match(pkg.scripts.build, /npm run build:discord/);
+  assert.match(guard, /sha256/);
+  assert.match(build, /discord-rpc-lite\.mjs/);
+  assert.match(entry, /import \{ DiscordSDK, Events \} from '\.\/discord-rpc-lite\.mjs'/);
+  assert.doesNotMatch(gitignore, /^public\/discord-activity\.bundle\.js$/m);
+  assert.match(read('public/index.html'), /discord-activity\.bundle\.js\?v=release-v1\.0\.45/);
+  assert.match(read('scripts/bump-version.cjs'), /discord-activity\\.bundle/);
+  assert.match(read('scripts/stamp-git-build.cjs'), /discord-activity\\.bundle/);
 });

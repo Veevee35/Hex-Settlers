@@ -102,7 +102,7 @@ test('client and server wire OAuth username setup and verified email/password sw
   assert.match(server, /check-username/);
   assert.match(server, /findUserByUsername\(identifier\) \|\| findUserByEmail\(identifier\)/);
   assert.match(server, /finishVerifiedEmailLink/);
-  assert.match(server, /clearSessionCookie\(\{ secure \}\)/);
+  assert.match(server, /clearSessionCookie\(\{ secure, embedded/);
   assert.match(app, /authUser\?\.needsUsernameSetup/);
   assert.match(app, /complete-oauth-username/);
   assert.match(app, /convertedToEmailLogin/);

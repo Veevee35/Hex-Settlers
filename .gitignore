@@ -1,5 +1,4 @@
 node_modules/
-public/discord-activity.bundle.js
 .pnpm-store/
 .wrangler/
 .env
