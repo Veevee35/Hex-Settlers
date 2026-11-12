@@ -11,9 +11,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Hex Settlers">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css?v=release-v1.0.46" />
-  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.46" />
-  <link rel="stylesheet" href="beta.css?v=release-v1.0.46">
+  <link rel="stylesheet" href="styles.css?v=release-v1.0.47" />
+  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.47" />
+  <link rel="stylesheet" href="beta.css?v=release-v1.0.47">
   <link rel="stylesheet" href="/discord-activity.css">
 </head>
 <body>
@@ -65,6 +65,20 @@
           <button type="button" id="adminMfaCancel" class="btn">Cancel</button>
           <div id="adminMfaError" class="error hidden" role="alert"></div>
         </div>
+        <div id="loginAccountLink" class="loginAccountLink" aria-label="Connect multiple sign-in methods">
+          <label class="loginAccountLinkToggle" for="loginLinkExisting"><input id="loginLinkExisting" type="checkbox"> <strong>Link to existing account</strong></label>
+          <div id="loginLinkMethods" class="loginLinkMethods hidden">
+            <p class="smallNote">Select the sign-in methods you have or want to connect. First sign in using a method already linked to your Hex Settlers account. After signing in, you can securely connect the others.</p>
+            <div class="loginLinkMethodsGrid">
+              <label><input type="checkbox" data-link-method="email"> Email / password</label>
+              <label><input type="checkbox" data-link-method="google"> Google (Gmail)</label>
+              <label><input type="checkbox" data-link-method="github"> GitHub</label>
+              <label><input type="checkbox" data-link-method="cloudflare"> Cloudflare</label>
+              <label><input type="checkbox" data-link-method="discord"> Discord</label>
+            </div>
+            <p id="loginLinkNotice" class="smallNote" role="status">Accounts are only linked after you authenticate to the existing Hex Settlers account and authorize each provider.</p>
+          </div>
+        </div>
         <button id="landingCreateBtn" class="btn">Create Account</button>
         <button id="installGameApp" class="btn installGameApp" type="button" hidden>Download App · Add to Home Screen</button>
         <div id="oauthLoginOptions" class="oauthOptions hidden" aria-label="Other sign-in methods">
@@ -85,7 +99,7 @@
         </a>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -105,7 +119,7 @@
         <button id="casualModeBtn" class="modeChoice"><strong>Casual Play</strong><span>Play with friends or AI, up to 6 players. No stats or ratings are tracked.</span></button>
       </div>
     </div>
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -186,7 +200,7 @@
     </div>
     <button id="journeyTutorialBtn" type="button" class="btn journeyTutorialReplay">Replay the walkthrough</button>
   </div>
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -199,7 +213,7 @@
     </div>
 </section>
 <section id="roomNotFoundScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard journeyCard notFoundCard"><img class="portalLogo compactPortalLogo" src="/favicon.png" alt="Hex Settlers"><p class="portalEyebrow">Choose your adventure</p><h1>Lobby Not Found</h1><p class="portalLead">This lobby may have closed, expired, or become unavailable to your account.</p><button id="roomNotFoundBackBtn" type="button" class="btn primary portalPrimary">← Go Back</button></div>
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -248,7 +262,7 @@
       <button id="oauthUsernameSave" class="btn primary portalPrimary" type="submit">Save Username &amp; Continue</button>
       <button id="oauthUsernameSignOut" class="portalTextBtn" type="button">Sign out instead</button>
     </form>
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -302,12 +316,13 @@
           <button type="button" class="btn oauthProvider hidden" data-oauth-provider="google" data-oauth-intent="register">Google (Gmail)</button>
           <button type="button" class="btn oauthProvider hidden" data-oauth-provider="github" data-oauth-intent="register">GitHub</button>
           <button type="button" class="btn oauthProvider hidden" data-oauth-intent="register" data-oauth-provider="cloudflare">Cloudflare</button>
+          <button type="button" class="btn oauthProvider hidden" data-oauth-intent="register" data-oauth-provider="discord">Discord</button>
         </div>
         <p class="smallNote">After provider sign-up, choose a unique username to track your ratings and stats. You can switch to verified email/password later in Manage Account.</p>
       </div>
       <div id="registerMessage" class="hint"></div>
     </form>
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -333,7 +348,7 @@
   </div>
 
   <section id="rankedScreen" class="portalScreen hidden"><div class="portalBackdrop"></div><div class="portalCard rankedCard"><button id="rankedBackBtn" class="btn portalBackBtn" type="button">← Back to Game Types</button><img class="portalLogo compactPortalLogo" src="/favicon.png" alt="Hex Settlers"><p class="portalEyebrow">Choose your adventure</p><h1>Ranked Play</h1><p class="portalLead">Join one four-player queue and compete against similarly ranked players.</p><div id="rankSummary" class="rankSummary">Ranked rating: 1000</div><p class="portalLead">After matchmaking, everyone votes on three randomly selected scenarios.</p><button id="rankedReadyBtn" class="btn primary portalPrimary">Start Matchmaking</button><button id="rankedCancelBtn" class="btn hidden">Cancel Matchmaking</button><p id="rankedStatus" class="portalLead">Ready when you are.</p></div>
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -347,7 +362,7 @@
 </section>
   <div id="app" class="hidden">
     <div class="preLobbyAppFooter" aria-label="Game information">
-    <div class="appVersion" aria-label="Game version">V1.0.46</div>
+    <div class="appVersion" aria-label="Game version">V1.0.47</div>
     <nav class="portalLegalLinks" aria-label="Legal information">
       <button type="button" class="portalLegalLink" data-legal-page="terms">Terms of Service</button>
       <span class="portalLegalSeparator" aria-hidden="true">·</span>
@@ -1028,13 +1043,13 @@
     </div>
   </div>
 
-  <script src="boot-preload.js?v=release-v1.0.46"></script>
-  <script src="locale-expansion.js?v=release-v1.0.46"></script>
-  <script src="languages.js?v=release-v1.0.46"></script>
-  <script src="beta-client.js?v=release-v1.0.46"></script>
-  <script src="beta-admin.js?v=release-v1.0.46"></script>
-  <script src="app.js?v=release-v1.0.46"></script>
-  <script src="install-app.js?v=release-v1.0.46"></script>
-  <script type="module" src="/discord-activity.bundle.js?v=release-v1.0.46"></script>
+  <script src="boot-preload.js?v=release-v1.0.47"></script>
+  <script src="locale-expansion.js?v=release-v1.0.47"></script>
+  <script src="languages.js?v=release-v1.0.47"></script>
+  <script src="beta-client.js?v=release-v1.0.47"></script>
+  <script src="beta-admin.js?v=release-v1.0.47"></script>
+  <script src="app.js?v=release-v1.0.47"></script>
+  <script src="install-app.js?v=release-v1.0.47"></script>
+  <script type="module" src="/discord-activity.bundle.js?v=release-v1.0.47"></script>
 </body>
 </html>

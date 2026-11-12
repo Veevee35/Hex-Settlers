@@ -96,6 +96,14 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
       link.searchParams.set('activity_link', pair.id);
       if (screen === 'register') link.searchParams.set('auth_screen', 'register');
       if (['google', 'github', 'cloudflare', 'discord'].includes(provider)) link.searchParams.set('activity_provider', provider);
+      const linkEnabled = document.getElementById('loginLinkExisting')?.checked;
+      if (linkEnabled) {
+        const wanted = Array.from(document.querySelectorAll('[data-link-method]:checked'))
+          .map(input => input.dataset.linkMethod)
+          .filter(method => ['email', 'google', 'github', 'cloudflare', 'discord'].includes(method));
+        if (wanted.length) link.searchParams.set('link_providers', wanted.join(','));
+      }
+
       setStatus(`Browser sign-in · code ${data.code} · expires in 10 min`);
       // Start observing immediately. On some Discord clients openExternalLink
       // resolves only after the confirmation prompt or external browser closes;

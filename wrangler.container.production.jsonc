@@ -1,6 +1,7 @@
 {
   "$schema": "./cloudflare/node_modules/wrangler/config-schema.json",
   "name": "hex-settlers",
+  "keep_vars": true,
   "main": "cloudflare/container-worker.mjs",
   "compatibility_date": "2026-11-07",
   "observability": {
@@ -42,6 +43,7 @@
   ],
   "vars": {
     "PUBLIC_BASE_URL": "https://hexsettlers.org",
+    "DISCORD_CLIENT_ID": "1477895334406656101",
     "HEX_EMAIL_FROM": "no-reply@hexsettlers.org",
     "ALLOW_EMPTY_DATABASE": "0"
   }

@@ -43,7 +43,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.46';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.47';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1949,6 +1949,9 @@
       }
     }
     updateAuthUi();
+    if (authUser && !authUser.needsUsernameSetup && !IS_ADMIN_PORTAL) {
+      setTimeout(() => showPendingAccountLinkWizard(), 0);
+    }
     window.dispatchEvent(new Event('hexsettlers:session-change'));
   }
 
@@ -2026,8 +2029,106 @@
   }
 
   const OAUTH_LABELS = { google: 'Google (Gmail)', github: 'GitHub', cloudflare: 'Cloudflare', discord: 'Discord' };
+  const LOGIN_LINK_SELECTION_KEY = 'hexsettlers_login_link_methods';
+  const ACCOUNT_LINK_METHODS = ['email', ...Object.keys(OAUTH_LABELS)];
+  function selectedLoginLinkMethods() {
+    if (!$('loginLinkExisting')?.checked) return [];
+    return Array.from(document.querySelectorAll('[data-link-method]:checked'))
+      .map(input => input.dataset.linkMethod).filter(value => ACCOUNT_LINK_METHODS.includes(value));
+  }
+  function storeLoginLinkMethods() {
+    try {
+      const methods = selectedLoginLinkMethods();
+      if (methods.length) sessionStorage.setItem(LOGIN_LINK_SELECTION_KEY, JSON.stringify(methods));
+      else sessionStorage.removeItem(LOGIN_LINK_SELECTION_KEY);
+    } catch (_) {}
+  }
+  function pendingLoginLinkMethods() {
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem(LOGIN_LINK_SELECTION_KEY) || '[]');
+      return Array.isArray(parsed) ? ACCOUNT_LINK_METHODS.filter(method => parsed.includes(method)) : [];
+    } catch (_) { return []; }
+  }
+  function clearLoginLinkMethods() {
+    try { sessionStorage.removeItem(LOGIN_LINK_SELECTION_KEY); } catch (_) {}
+    $('loginLinkExisting').checked = false;
+  }
+  function initializeLoginLinkChoices() {
+    const checkbox = $('loginLinkExisting');
+    if (!checkbox || IS_ADMIN_PORTAL) return;
+    const params = new URLSearchParams(location.search);
+    const fromActivity = String(params.get('link_providers') || '').split(',')
+      .filter(method => ACCOUNT_LINK_METHODS.includes(method));
+    const initialMethods = fromActivity.length ? fromActivity : pendingLoginLinkMethods();
+    if (initialMethods.length) {
+      checkbox.checked = true;
+      for (const input of document.querySelectorAll('[data-link-method]')) input.checked = initialMethods.includes(input.dataset.linkMethod);
+    }
+    const update = () => {
+      $('loginLinkMethods')?.classList.toggle('hidden', !checkbox.checked);
+      storeLoginLinkMethods();
+    };
+    checkbox.addEventListener('change', update);
+    for (const input of document.querySelectorAll('[data-link-method]')) input.addEventListener('change', update);
+    update();
+    if (fromActivity.length) {
+      params.delete('link_providers');
+      history.replaceState(null, '', `${location.pathname}${params.size ? '?' + params : ''}${location.hash}`);
+    }
+  }
+  initializeLoginLinkChoices();
+
+  // This wizard never links accounts by email/username. A provider is connected
+  // only by a fresh OAuth callback bound to the current authenticated session.
+  function showPendingAccountLinkWizard() {
+    if (!authUser || authUser.needsUsernameSetup || IS_ADMIN_PORTAL) return;
+    // An in-flight Discord pairing must be approved first or its one-time code
+    // may expire while a player connects other providers.
+    if (new URLSearchParams(location.search).has('activity_link')) return;
+    const methods = pendingLoginLinkMethods();
+    if (!methods.length) return;
+    let overlay = $('accountLinkWizard');
+    if (!overlay) {
+      overlay = document.createElement('div'); overlay.id = 'accountLinkWizard'; overlay.className = 'accountLinkWizard';
+      overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-label', 'Finish linking sign-in methods');
+      document.body.appendChild(overlay);
+    }
+    overlay.replaceChildren(); overlay.classList.remove('hidden');
+    const card = document.createElement('section'); card.className = 'accountLinkWizardCard';
+    const heading = document.createElement('h2'); heading.textContent = 'Link your sign-in methods';
+    const intro = document.createElement('p');
+    intro.textContent = `Signed in as ${authUser.username}. Choose Connect for any selected provider you want attached to this player. Each connection requires signing in with that provider.`;
+    card.append(heading, intro);
+    for (const method of methods) {
+      const linked = method === 'email' ? !!(authUser.hasEmail && authUser.hasPassword)
+        : (authUser.oauthProviders || []).some(item => item.provider === method);
+      const row = document.createElement('div'); row.className = 'accountLinkWizardRow';
+      const name = document.createElement('span'); name.textContent = method === 'email' ? 'Email & password' : OAUTH_LABELS[method];
+      const button = document.createElement('button'); button.className = 'btn'; button.type = 'button';
+      button.textContent = linked ? 'Connected' : (method === 'email' ? 'Manage email login' : 'Connect');
+      button.disabled = linked;
+      button.addEventListener('click', () => {
+        if (method === 'email') {
+          overlay.classList.add('hidden');
+          if (IS_DISCORD_ACTIVITY) window.HexDiscordOpenManageLinks?.();
+          else openUserManagementScreen({ selfOnly: true });
+          return;
+        }
+        if (IS_DISCORD_ACTIVITY) { window.HexDiscordOpenManageLinks?.(); return; }
+        void startOAuthProvider(method, 'link');
+      });
+      row.append(name, button); card.appendChild(row);
+    }
+    const footer = document.createElement('div'); footer.className = 'accountLinkWizardActions';
+    const done = document.createElement('button'); done.type = 'button'; done.className = 'btn primary'; done.textContent = 'Done · Continue to game';
+    done.addEventListener('click', () => { clearLoginLinkMethods(); overlay.classList.add('hidden'); });
+    footer.appendChild(done); card.appendChild(footer); overlay.appendChild(card);
+  }
+
   async function startOAuthProvider(provider, intent = 'login') {
     if (!Object.hasOwn(OAUTH_LABELS, provider)) return;
+    if (intent === 'login') storeLoginLinkMethods();
     const returnUrl = window.location.pathname + window.location.search;
     if (IS_DISCORD_ACTIVITY) {
       if (intent === 'link') {
@@ -2174,6 +2275,7 @@
         next.searchParams.delete('activity_provider');
         next.searchParams.delete('auth_screen');
         history.replaceState(null, '', next.pathname + next.search + next.hash);
+        setTimeout(() => showPendingAccountLinkWizard(), 0);
       } catch (error) {
         message.textContent = error.message || 'Could not approve the sign-in.';
         update();
@@ -2236,14 +2338,22 @@
     const status = params.get('oauth');
     if (!status) return;
     const provider = params.get('provider') || '';
-    const message = status === 'connected' ? `${OAUTH_LABELS[provider] || 'Provider'} sign-in connected.` : (params.get('oauth_message') || 'Provider sign-in was not completed.');
+    const message = status === 'not-linked'
+      ? `No Hex Settlers account is linked to ${OAUTH_LABELS[provider] || 'this provider'}. Create a new account below, or sign in with an existing account first and then link this provider.`
+      : status === 'connected' ? `${OAUTH_LABELS[provider] || 'Provider'} sign-in connected.` : (params.get('oauth_message') || 'Provider sign-in was not completed.');
     const banner = $('landingError');
     if (banner) {
       banner.textContent = message;
       banner.classList.remove('hidden');
       banner.classList.toggle('oauthSuccess', status === 'connected');
     }
-    if (status !== 'connected') setError(message);
+    if (status === 'not-linked') {
+      if (!IS_DISCORD_ACTIVITY && !IS_ADMIN_PORTAL) {
+        $('registerOverlay')?.classList.remove('hidden');
+        const info = $('registerMessage'); if (info) info.textContent = message;
+        void showAuthCaptcha('register');
+      }
+    } else if (status !== 'connected') setError(message);
     params.delete('oauth'); params.delete('provider'); params.delete('oauth_message');
     window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}${window.location.hash}`);
   }
@@ -10475,7 +10585,7 @@ function refreshLobbyJoinLinkUi() {
           if (data.activeCount>data.activeAccounts.length) online.append(adminElement('p','smallNote',`Showing ${data.activeAccounts.length} of ${data.activeCount} online players.`));
         }
         footnote.textContent=data.note||'';
-        status.textContent=`Updated ${new Date(data.sampledAt).toLocaleString()} · 90-day rolling history starts with V1.0.46`;
+        status.textContent=`Updated ${new Date(data.sampledAt).toLocaleString()} · 90-day rolling history starts with V1.0.47`;
       } catch(error) {status.textContent=error.message||'Client analytics unavailable.';}
       finally {busy=false;button.disabled=false;}
     };
@@ -13106,6 +13216,7 @@ function refreshLobbyJoinLinkUi() {
       return;
     }
     const captchaToken = captchaTokens.login;
+    storeLoginLinkMethods();
     try {
       await authenticateInBrowser('login', { username, password, captchaToken });
       $('loginCaptchaWrap')?.classList.add('hidden');

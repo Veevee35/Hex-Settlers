@@ -10869,7 +10869,17 @@ async function handleOAuthHttp(req, res, urlPath) {
     // Never bind identities based on matching email or username: that can
     // silently merge two distinct player accounts and facilitate takeovers.
     if (!user) {
-      if (flow.allowRegistration !== true) throw new Error('Create your account first and complete the CAPTCHA.');
+      if (flow.allowRegistration !== true) {
+        // No local account has this verified provider subject. Never create or
+        // merge an identity during login, and never use provider email to infer
+        // an existing player. Offer explicit CAPTCHA-protected registration.
+        const target = new URL(safeReturnPath(flow.returnTo), baseUrl || 'http://localhost');
+        target.searchParams.set('oauth', 'not-linked');
+        target.searchParams.set('provider', provider);
+        target.searchParams.set('auth_screen', 'register');
+        redirect(target.pathname + target.search, [cleared]);
+        return;
+      }
       user = await createOAuthUser(identity);
     }
     user.lastLoginAt = now();

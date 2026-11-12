@@ -1,6 +1,6 @@
 {
   "name": "hex-settlers",
-  "version": "1.0.46",
+  "version": "1.0.47",
   "private": true,
   "description": "Online hex-settlement strategy game with classic and seafaring maps, multiplayer, and AI opponents.",
   "main": "dist/server.js",

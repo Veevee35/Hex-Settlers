@@ -15,6 +15,8 @@ test('the DISTRIBUTED browser bundle initializes inside a Discord frame and can 
   const window = { parent, location, addEventListener(name, callback) { handlers.set(name, callback); } };
   const document = {
     referrer: 'https://discord.com/channels/456/789',
+    getElementById(id) { return id === 'loginLinkExisting' ? {checked:true} : null; },
+    querySelectorAll(selector) { return selector === '[data-link-method]:checked' ? [{dataset:{linkMethod:'google'}},{dataset:{linkMethod:'discord'}}] : []; },
     createElement(tag) { const e = {tag, hidden:false, dataset:{}, className:'', textContent:'', setAttribute(){}, addEventListener(){}, append(...children) { this.children=children; }}; elements.push(e); return e; },
     body: { appendChild() {} },
   };
@@ -34,12 +36,14 @@ test('the DISTRIBUTED browser bundle initializes inside a Discord frame and can 
   handlers.get('message')({ source:parent, origin:'https://discord.com', data:[1,{cmd:'DISPATCH', evt:'READY', data:{v:1}}] });
   await new Promise(resolve => process.nextTick(resolve));
   const handoff = window.HexDiscordOpenOAuth('github');
-  await new Promise(resolve => process.nextTick(resolve));
+  await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(fetchPaths, ['/api/auth/discord-pair/start']);
-  const command = sent.at(-1)[1];
+  const command = sent.map(frame => frame[1]).find(frame => frame.cmd === 'OPEN_EXTERNAL_LINK');
+  assert.ok(command, 'Discord must receive OPEN_EXTERNAL_LINK');
   assert.equal(command.cmd, 'OPEN_EXTERNAL_LINK');
   assert.ok(command.args.url.startsWith('https://hexsettlers.org/?activity_link='));
   assert.equal(new URL(command.args.url).searchParams.get('activity_provider'), 'github');
+  assert.equal(new URL(command.args.url).searchParams.get('link_providers'), 'google,discord');
   handlers.get('message')({source:parent,origin:'https://discord.com',data:[1,{cmd:'OPEN_EXTERNAL_LINK',nonce:command.nonce,evt:null,data:{}}]});
   await handoff;
   const status = elements.find(e => e.className === 'discordActivityStatus');
