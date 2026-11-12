@@ -1968,7 +1968,15 @@ function newShoresGeometry(template, numberPool) {
 
   const numbered = shuffle(land.filter(t => t.type !== 'desert'));
   const numbers = shuffle(numberPool.slice());
-  numbered.forEach((t,i) => { if(i < numbers.length) t.number = numbers[i]; });
+  // Gold produces any chosen resource: keep 6 and 8 on ordinary terrain.
+  // Allocate those tokens first to non-gold land, then distribute the rest.
+  const hot = numbers.filter(n => n === 6 || n === 8);
+  const ordinary = shuffle(numbered.filter(t => t.type !== 'gold'));
+  if (ordinary.length < hot.length) throw new Error('Insufficient non-gold tiles for New Shores hot numbers.');
+  for (let i = 0; i < hot.length; i++) ordinary[i].number = hot[i];
+  const remaining = shuffle(numbered.filter(t => t.number === null));
+  const other = shuffle(numbers.filter(n => n !== 6 && n !== 8));
+  remaining.forEach((t,i) => { if (i < other.length) t.number = other[i]; });
   const robberTile = geom.tiles.find(t => t.type === 'desert') || shuffle([...main].map(id=>geom.tiles[id]))[0];
   if (robberTile) robberTile.robber = true;
   const sea = geom.tiles.filter(t => t.type === 'sea');
@@ -3042,7 +3050,7 @@ function defaultVictoryPointsToWin(rules) {
   const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
   if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog' || scen === 'fog_island_56' || scen === 'fog_island_78') return 12;
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56' || scen==='through_the_desert_78' || scen==='eight_islands_78') return 14;
-  if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
+  if (scen === 'heading_for_new_shores' || scen === 'heading_for_new_shores_56' || scen === 'heading_for_new_shores_78' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
   if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
   // Expanded Scattered Tiles / Cartographer (5–6 and 7–8 players) use 14 VP.
   if (isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen) || scen.startsWith('scattered_tiles_56') || scen === 'scattered_56' || scen.startsWith('scattered_tiles_78')) return 14;

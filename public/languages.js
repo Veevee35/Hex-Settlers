@@ -210,6 +210,14 @@
     if (!dict || !s) return s;
     const exact = dict[s] || (aliases[s] && dict[aliases[s]]);
     if (exact) return exact;
+    // Server-authored AI activity is not player chat: localize the event
+    // while preserving its numeric actor identifier and game state.
+    const aiEvent = /^AI ([0-9]+) placed a (road|settlement|ship|city)\.$/.exec(s);
+    if (aiEvent) {
+      const action = ({fr:{road:'a construit une route',settlement:'a fondé une colonie',ship:'a construit un bateau',city:'a construit une ville'},es:{road:'construyó un camino',settlement:'fundó un poblado',ship:'construyó un barco',city:'construyó una ciudad'},de:{road:'hat eine Straße gebaut',settlement:'hat eine Siedlung errichtet',ship:'hat ein Schiff gebaut',city:'hat eine Stadt errichtet'}})[active]?.[aiEvent[2]];
+      if (action) return `IA ${aiEvent[1]} ${action}.`.replace(active==='de'?'IA ':'___',active==='de'?'KI ':'___');
+    }
+
     const boardSize = /^([1-9](?:[-–][1-9])?) Player$/.exec(s);
     if (boardSize && dict.Players && dict.Player) return `${boardSize[1]} ${boardSize[1] === '1' ? dict.Player : dict.Players}`;
     const match = /^([A-Za-z][A-Za-z ]{0,30}):\s*([0-9—][0-9.,/%+\-]*)$/.exec(s);

@@ -43,7 +43,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.47';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.50';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -5350,7 +5350,7 @@ function syncPostgameToState() {
     if (mm !== 'seafarers') return 10;
     if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog' || scen === 'fog_island_56' || scen === 'fog_island_78') return 12;
     if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'through_the_desert_56' || scen === 'through_the_desert_78' || scen === 'eight_islands_78') return 14;
-    if (scen === 'heading_for_new_shores' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
+    if (scen === 'heading_for_new_shores' || scen === 'heading_for_new_shores_56' || scen === 'heading_for_new_shores_78' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
     if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
     // The 5–6 and 7–8 player Cartographer / Scattered Tiles scenarios default to 14 VP.
     if (scen === 'cartographer_78' || scen === 'scattered_tiles_78' || scen === 'cartographer_78_7' || scen === 'cartographer_78_8' || scen === 'scattered_tiles_78_7' || scen === 'scattered_tiles_78_8') return 14;
@@ -5366,7 +5366,7 @@ function syncPostgameToState() {
     if (mm === 'classic78' || mm === 'seafarers78' || isCustom78Map(rules) || (mm==='seafarers' && /_78(_[78])?$/.test(String(rules?.seafarersScenario||'')))) return 30;
     if (mm === 'classic56' || mm === 'seafarers56') return 24;
     const scen = String(rules?.seafarersScenario56 || rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56')) return 24;
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56' || scen === 'heading_for_new_shores_56')) return 24;
     return 19;
   }
 
@@ -5374,7 +5374,7 @@ function syncPostgameToState() {
     const mm = String(rules?.mapMode || 'classic').toLowerCase();
     const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
     if (mm === 'seafarers' && (scen === 'test_builder_78' || scen.endsWith('_78') || scen==='cartographer_78_7' || scen==='cartographer_78_8' || scen==='scattered_tiles_78_7' || scen==='scattered_tiles_78_8')) return 'seafarers78';
-    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56')) return 'seafarers56';
+    if (mm === 'seafarers' && (scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'test_builder_56' || scen === 'heading_for_new_shores_56')) return 'seafarers56';
     return rules?.mapMode || 'classic';
   }
 
@@ -13050,12 +13050,14 @@ function refreshLobbyJoinLinkUi() {
     }
     if (ui.mapScenarioSelect) {
       // Only meaningful when mapMode === 'seafarers'.
-      ui.mapScenarioSelect.value = (mmNow === 'seafarers') ? (r.seafarersScenario || 'four_islands') : 'four_islands';
+      const option4 = new Set(Array.from(ui.mapScenarioSelect.options, o => o.value));
+      const value4 = String(r.seafarersScenario || 'four_islands');
+      ui.mapScenarioSelect.value = mmNow === 'seafarers' && option4.has(value4) ? value4 : 'four_islands';
       ui.mapScenarioSelect.disabled = !isHost || (mmNow !== 'seafarers');
     }
     if (ui.mapScenario56Select) {
       const scen56 = (mmNow === 'seafarers56') ? String(r.seafarersScenario || 'six_islands').toLowerCase() : 'six_islands';
-      const allowed56 = new Set(['six_islands', 'through_the_desert_56', 'fog_island_56', 'cartographer_56_manual', 'cartographer_56_random', 'test_builder_56']);
+      const allowed56 = new Set(['six_islands', 'through_the_desert_56', 'fog_island_56', 'cartographer_56_manual', 'cartographer_56_random', 'test_builder_56', 'heading_for_new_shores_56']);
       ui.mapScenario56Select.value = allowed56.has(scen56) ? scen56 : 'six_islands';
       ui.mapScenario56Select.disabled = !isHost || (mmNow !== 'seafarers56');
     }
@@ -13111,7 +13113,7 @@ function refreshLobbyJoinLinkUi() {
       const mmUi = uiMapModeFromRules(r);
       const mmL = String(mmUi || 'classic').toLowerCase();
       const scen = (mmL === 'seafarers56')
-        ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56') || (r.seafarersScenario === 'cartographer_56_manual') || (r.seafarersScenario === 'cartographer_56_random') || (r.seafarersScenario === 'test_builder_56')) ? r.seafarersScenario : 'six_islands')
+        ? (((r.seafarersScenario === 'through_the_desert_56') || (r.seafarersScenario === 'fog_island_56') || (r.seafarersScenario === 'cartographer_56_manual') || (r.seafarersScenario === 'cartographer_56_random') || (r.seafarersScenario === 'test_builder_56') || (r.seafarersScenario === 'heading_for_new_shores_56')) ? r.seafarersScenario : 'six_islands')
         : (r.seafarersScenario || 'four_islands');
       const scenLabel = LOBBY_RULES_SCENARIOS[scen]?.label || `Unknown scenario (${scen})`;
       const is56 = mmL === 'classic56';
@@ -13284,6 +13286,7 @@ function refreshLobbyJoinLinkUi() {
         if (overlay.classList.contains('hidden') || heading.dataset.documentKey !== key) return;
         frame.replaceChildren(...Array.from(doc.body.childNodes).map(node => document.importNode(node, true)));
         window.HexSettlersLanguages?.localize(frame);
+        window.HexSettlersLegalApply?.(frame, key === 'privacy' ? 'privacy' : 'terms', window.HexSettlersLanguages?.getLanguage?.() || 'en');
       }).catch(() => {
         frame.replaceChildren();
         const failed = document.createElement('p');
@@ -13297,6 +13300,14 @@ function refreshLobbyJoinLinkUi() {
       dialog?.focus();
       closeButton?.focus();
     };
+    window.addEventListener('hexsettlers:languagechange', () => {
+      if (!overlay || overlay.classList.contains('hidden')) return;
+      const key = heading?.dataset.documentKey;
+      if (!documents[key]) return;
+      heading.textContent = window.HexSettlersLanguages?.t(documents[key].label) || documents[key].label;
+      // The fetched document stays visible and is translated in place.
+      if (key && frame) window.HexSettlersLegalApply?.(frame, key === 'privacy' ? 'privacy' : 'terms', window.HexSettlersLanguages?.getLanguage?.() || 'en');
+    });
     document.querySelectorAll('[data-legal-page]').forEach((button) => {
       button.addEventListener('click', () => openLegal(button.dataset.legalPage, button));
     });

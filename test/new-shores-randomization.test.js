@@ -44,6 +44,8 @@ for (const n of ['56','78']) test(`New Shores ${n} randomizes terrain, isolates 
     const groups=matchingTileComponents(geom,t=>t.type!=='sea').sort((a,b)=>b.size-a.size), main=groups[0];
     assert.equal([...main].filter(id=>geom.tiles[id].type==='gold').length,0);
     assert.equal(geom.tiles.filter(t=>t.type==='gold').length,3);
+    assert.ok(geom.tiles.filter(t=>t.type==='gold').every(t=>t.number!==6 && t.number!==8), 'gold fields must not receive 6 or 8');
+    if (n==='78') { assert.equal(geom.tiles.length,65); assert.equal(geom.tiles.filter(t=>t.type==='sea').length,17); }
     assert.equal(geom.tiles.filter(t=>t.number!==null).length,pool.length);
     assert.equal(geom.ports.length,9);
     const mainlandId=[...main][0], offshoreId=[...groups[1]][0];
