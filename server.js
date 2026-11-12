@@ -10041,6 +10041,9 @@ function sendGameResultSfx(room, game, winnerId) {
 }
 
 function broadcastSfx(room, name, extra) {
+  // Audio events are irrelevant to headless self-play and were flooding the
+  // training WebSocket during long 7–8-player games.
+  if (process.env.AI_TRAINING === '1' && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1') return;
   // applyAction() is also used in "dry run" contexts (e.g., build-option probing)
   // where we pass a minimal { game } object that intentionally has no sockets.
   // Never crash the server in those cases.
@@ -14797,7 +14800,7 @@ function handleAI(room) {
     return 'easy';
   };
 
-  const aiBudgetFor = (diff) => (diff === 'catanatron' || diff === 'neural_net') ? 8 : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
+  const aiBudgetFor = (diff) => (diff === 'catanatron' || diff === 'neural_net') ? ((process.env.AI_TRAINING === '1' && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1') ? Math.max(2, Math.min(8, Number(process.env.TRAINING_AI_ACTION_BUDGET || 4))) : 8) : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
 
   const DICE_PIPS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
@@ -16107,6 +16110,21 @@ const aiTickInterval = setInterval(() => {
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
     const autoPaused = maybePauseDisconnectedTurn(room);
     const changed = autoPaused || handleTimeout(room) || handleAI(room);
+    // Training-only, low-cost progress: avoid the huge full-state broadcasts while
+    // allowing the trainer to distinguish a live game from an AI deadlock.
+    if (AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1' && changed) {
+      room._trainingMoves = (room._trainingMoves || 0) + 1;
+      const t = now();
+      if (t - (room._lastTrainingProgressAt || 0) >= 1000) {
+        room._lastTrainingProgressAt = t;
+        for (const socket of room.sockets.values()) {
+          if (socket.readyState === WebSocket.OPEN) sendJson(socket, {
+            type: 'training_progress', moves: room._trainingMoves,
+            turnNumber: Number(room.game.turnNumber || 0), phase: room.game.phase,
+          });
+        }
+      }
+    }
     // Headless self-play only needs the terminal state. Avoid serializing and
     // sending every intermediate action, which otherwise dominates CPU/memory.
     if (changed && (!AI_TRAINING_MODE || room.game.phase === 'game-over')) broadcastState(room);

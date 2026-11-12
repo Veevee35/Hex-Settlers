@@ -18,6 +18,7 @@ const SHARDS = Math.max(1, Math.min(GENERATION_GAMES, Math.floor(Number(process.
 const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 100)));
 const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
 const MAP_SET = process.env.MAP_SET || 'standard';
+const RESUME_RUN_DIR = String(process.env.RESUME_RUN_DIR || '').trim();
 const OUTPUT = path.resolve(process.env.TRAINING_OUTPUT || path.join(ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_evolutionary.json`));
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -46,6 +47,7 @@ function runCandidate(candidate, generationStart, totalProgress) {
         BATCH_SIZE: String(BATCH_SIZE),
         CONCURRENCY: String(CONCURRENCY),
         MAP_SET,
+        RESUME_TRAINING: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -83,22 +85,79 @@ async function main() {
   if (!fs.existsSync(MODEL_PATH)) throw new Error(`Model not found: ${MODEL_PATH}`);
   if (TOTAL_GAMES % GENERATION_GAMES !== 0) throw new Error('SIMS must be divisible by SELECTION_INTERVAL');
   const startedAt = new Date();
-  const startingModel = upgradeNeuralModel(readJson(MODEL_PATH));
-  const startingHash = hashFile(MODEL_PATH);
+  const isResume = !!RESUME_RUN_DIR;
   fs.mkdirSync(path.join(ROOT, 'scripts', 'output'), { recursive: true });
-  const tempRoot = fs.mkdtempSync(path.join(ROOT, 'scripts', 'output', '.neural-evolution-'));
+  const tempRoot = isResume ? path.resolve(RESUME_RUN_DIR) : fs.mkdtempSync(path.join(ROOT, 'scripts', 'output', '.neural-evolution-'));
+  if (isResume && !fs.statSync(tempRoot).isDirectory()) throw new Error(`Resume path is not a directory: ${tempRoot}`);
+  const manifestPath = path.join(tempRoot, 'run.json');
+  const originalModelPath = path.join(tempRoot, 'starting_model.json');
+  if (!isResume) fs.copyFileSync(MODEL_PATH, originalModelPath);
+  if (isResume && !fs.existsSync(originalModelPath)) {
+    // Backward-compatible recovery of the 1.0.52 generation-1 failure: candidate
+    // files still contain the untouched starting model until their final report.
+    let legacyBase = null;
+    for (let index = 1; index <= SHARDS; index++) {
+      const dir = path.join(tempRoot, 'generation-01', `candidate-${String(index).padStart(2, '0')}`);
+      const candidatePath = path.join(dir, 'neural_ai_model.json');
+      const reportPath = path.join(dir, 'report.json');
+      if (!fs.existsSync(candidatePath) || fs.existsSync(reportPath)) continue;
+      const checkpointPath = `${reportPath}.checkpoint.json`;
+      if (fs.existsSync(checkpointPath) && Number(readJson(candidatePath).trainedGames) !== Number(readJson(checkpointPath).startingTrainedGames)) continue;
+      legacyBase = candidatePath;
+      break;
+    }
+    // An old generation could have completed every candidate immediately
+    // before selection; in that case root weights still equal the original.
+    if (!legacyBase) {
+      const firstReport = path.join(tempRoot, 'generation-01', 'candidate-01', 'report.json');
+      if (fs.existsSync(firstReport) && readJson(firstReport).startingModelSha256 === hashFile(MODEL_PATH)) legacyBase = MODEL_PATH;
+    }
+    if (!legacyBase) throw new Error('Old checkpoint cannot safely determine its original model; keep it for manual recovery');
+    fs.copyFileSync(legacyBase, originalModelPath);
+    console.log('[evolution] recovered V1.0.52 starting model from unfinished first generation');
+  }
+  const startingModel = upgradeNeuralModel(readJson(originalModelPath));
+  const startingHash = hashFile(originalModelPath);
+  if (fs.existsSync(manifestPath)) {
+    const manifest = readJson(manifestPath);
+    if (manifest.totalGames !== TOTAL_GAMES || manifest.generationGames !== GENERATION_GAMES || manifest.shards !== SHARDS || manifest.mapSet !== MAP_SET || manifest.startingHash !== startingHash)
+      throw new Error('Run parameters or base model differ from saved checkpoint. Use original SIMS, SELECTION_INTERVAL, SHARDS and MAP_SET.');
+  } else {
+    fs.writeFileSync(manifestPath, JSON.stringify({ totalGames: TOTAL_GAMES, generationGames: GENERATION_GAMES, shards: SHARDS, mapSet: MAP_SET, startingHash, createdAt: startedAt.toISOString() }, null, 2));
+  }
   const generations = [];
   const allGames = [];
   let incumbent = startingModel;
-  let incumbentBytes = fs.readFileSync(MODEL_PATH);
+  let incumbentBytes = fs.readFileSync(originalModelPath);
   let succeeded = false;
-  console.log(`[evolution] checkpoints=${tempRoot}`);
+  console.log(`[evolution] ${isResume ? 'resuming' : 'checkpoints'}=${tempRoot}`);
 
   try {
     for (let generation = 0; generation < TOTAL_GAMES / GENERATION_GAMES; generation++) {
       const generationStart = generation * GENERATION_GAMES;
       const generationDir = path.join(tempRoot, `generation-${String(generation + 1).padStart(2, '0')}`);
       fs.mkdirSync(generationDir, { recursive: true });
+      const selectionPath = path.join(generationDir, 'selection.json');
+      const selectedModelPath = path.join(generationDir, 'selected_model.json');
+      if (isResume && fs.existsSync(selectionPath)) {
+        if (!fs.existsSync(selectedModelPath)) throw new Error(`Cannot resume generation ${generation + 1}: selected model snapshot missing`);
+        const record = readJson(selectionPath);
+        if (record.generation !== generation + 1 || !Array.isArray(record.candidates)) throw new Error('Invalid generation selection checkpoint');
+        const generationGames = [];
+        for (let index = 0; index < SHARDS; index++) {
+          const reportPath = path.join(generationDir, `candidate-${String(index + 1).padStart(2, '0')}`, 'report.json');
+          if (!fs.existsSync(reportPath)) throw new Error(`Missing candidate report in completed generation ${generation + 1}`);
+          generationGames.push(...(readJson(reportPath).games || []));
+        }
+        if (generationGames.length !== GENERATION_GAMES) throw new Error(`Generation ${generation + 1} is incomplete`);
+        incumbentBytes = fs.readFileSync(selectedModelPath);
+        if (hashBytes(incumbentBytes) !== record.selectedModelSha256) throw new Error('Selected model checkpoint integrity failure');
+        incumbent = readJson(selectedModelPath);
+        allGames.push(...generationGames);
+        generations.push(record);
+        console.log(`[evolution] reused completed generation ${generation + 1}/${TOTAL_GAMES / GENERATION_GAMES}`);
+        continue;
+      }
       const candidates = [];
       let offset = generationStart;
       for (let index = 0; index < SHARDS; index++) {
@@ -107,13 +166,21 @@ async function main() {
         fs.mkdirSync(dir, { recursive: true });
         const modelPath = path.join(dir, 'neural_ai_model.json');
         const reportPath = path.join(dir, 'report.json');
-        fs.writeFileSync(modelPath, incumbentBytes);
+        if (!fs.existsSync(modelPath)) fs.writeFileSync(modelPath, incumbentBytes);
         candidates.push({ index, games, offset, modelPath, reportPath, progress: 0 });
         offset += games;
       }
 
       const totalProgress = { value: 0, nextReport: 50 };
-      await Promise.all(candidates.map((candidate) => runCandidate(candidate, generationStart, totalProgress)));
+      await Promise.all(candidates.map((candidate) => {
+        if (!fs.existsSync(candidate.reportPath)) return runCandidate(candidate, generationStart, totalProgress);
+        const report = readJson(candidate.reportPath);
+        if ((report.games || []).length !== candidate.games) throw new Error(`Existing candidate ${candidate.index + 1} report is incomplete`);
+        candidate.progress = candidate.games;
+        totalProgress.value += candidate.games;
+        console.log(`[evolution] reused completed candidate ${candidate.index + 1} in generation ${generation + 1}`);
+        return Promise.resolve();
+      }));
       const evaluated = candidates.map((candidate) => {
         const report = readJson(candidate.reportPath);
         const model = upgradeNeuralModel(readJson(candidate.modelPath));
@@ -129,6 +196,9 @@ async function main() {
       incumbent.meta = { ...(incumbent.meta || {}), trainingObjective: TRAINING_OBJECTIVE };
       assertFiniteModel(incumbent);
       incumbentBytes = Buffer.from(`${JSON.stringify(incumbent, null, 2)}\n`);
+      // Selected weights and records are durable before progressing. Reopening
+      // this run does not retrain or discard already completed generations.
+      await atomicWriteJson(selectedModelPath, incumbent);
       await atomicWriteJson(MODEL_PATH, incumbent);
 
       const generationGames = evaluated.flatMap((entry) => entry.report.games || []);
@@ -141,7 +211,7 @@ async function main() {
         averageVictoryTurn: winner.averageTurn,
         averageWinnerMargin: winner.averageMargin,
         previousModelSha256: previousHash,
-        selectedModelSha256: hashFile(MODEL_PATH),
+        selectedModelSha256: hashFile(selectedModelPath),
         candidates: evaluated.map((entry) => ({
           candidate: entry.candidate.index + 1,
           games: entry.candidate.games,
@@ -151,11 +221,14 @@ async function main() {
         })),
       };
       generations.push(record);
-      fs.writeFileSync(path.join(generationDir, 'selection.json'), `${JSON.stringify(record, null, 2)}\n`);
+      await atomicWriteJson(selectionPath, record);
       console.log(`[evolution] generation ${generation + 1}/${TOTAL_GAMES / GENERATION_GAMES}: selected candidate ${record.selectedCandidate} score=${record.selectionScore.toFixed(4)}; propagated to all candidates`);
     }
 
     if (allGames.length !== TOTAL_GAMES) throw new Error(`Recorded ${allGames.length} games; expected ${TOTAL_GAMES}`);
+    // After restoring completed generations, repair the public local model
+    // from the matching selected snapshot (unless already identical).
+    if (hashFile(MODEL_PATH) !== hashBytes(incumbentBytes)) await atomicWriteJson(MODEL_PATH, incumbent);
     const templates = {};
     for (const game of allGames) if (!templates[game.mapId]) templates[game.mapId] = { label: game.mapId, victoryPointsToWin: game.victoryPointsToWin };
     const byMap = summarizeGames(allGames, templates);
@@ -172,6 +245,8 @@ async function main() {
       propagation: 'winning weights seed every candidate in the next generation',
       trainingObjective: TRAINING_OBJECTIVE,
       mapSet: MAP_SET,
+      resumedFrom: isResume ? tempRoot : null,
+      scenariosReplaced: allGames.filter(game => game.requestedMapId).length,
       startingTrainedGames: Number(startingModel.trainedGames || 0),
       finalTrainedGames: Number(incumbent.trainedGames || 0),
       startingModelSha256: startingHash,

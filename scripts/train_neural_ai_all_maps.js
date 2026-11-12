@@ -11,6 +11,7 @@ const { once } = require('node:events');
 const WebSocket = require('ws');
 const { TRAINING_OBJECTIVE } = require('../server/neural-objective');
 const { atomicWriteJson } = require('./training-file');
+const { fallbackMap, validateCheckpoint } = require('./training-recovery');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT, 'neural_ai_model.json'));
@@ -23,6 +24,15 @@ const VP_TO_WIN_PARSED = Math.floor(Number(VP_TO_WIN_RAW));
 const VP_TO_WIN_OVERRIDE = VP_TO_WIN_RAW && Number.isFinite(VP_TO_WIN_PARSED) ? Math.max(3, VP_TO_WIN_PARSED) : null;
 const GAME_TIMEOUT_MS = Math.max(20_000, Math.floor(Number(process.env.GAME_TIMEOUT_MS || 240_000)));
 const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() === '1';
+const RESUME_TRAINING = process.env.RESUME_TRAINING === '1';
+const IDLE_TIMEOUT_MS = Math.max(15_000, Math.floor(Number(process.env.IDLE_TIMEOUT_MS || 75_000)));
+const MAX_TRAINING_TURNS = Math.max(50, Math.floor(Number(process.env.MAX_TRAINING_TURNS || 900)));
+const MAX_ATTEMPTS_PER_MAP = Math.max(1, Math.floor(Number(process.env.MAX_ATTEMPTS_PER_MAP || 2)));
+const MAX_MAP_REPLACEMENTS = Math.max(0, Math.floor(Number(process.env.MAX_MAP_REPLACEMENTS || 6)));
+const MAX_BATCH_RESTARTS = Math.max(0, Math.floor(Number(process.env.MAX_BATCH_RESTARTS || 2)));
+const MAX_CONSECUTIVE_FAILURES = Math.max(2, Math.floor(Number(process.env.MAX_CONSECUTIVE_FAILURES || 4)));
+const MAP_QUARANTINE_FAILURES = Math.max(1, Math.floor(Number(process.env.MAP_QUARANTINE_FAILURES || 3)));
+const MAP_QUARANTINE_GAMES = Math.max(1, Math.floor(Number(process.env.MAP_QUARANTINE_GAMES || 80)));
 const OUTPUT_PATH = path.resolve(process.env.TRAINING_OUTPUT || path.join(PROJECT_ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_fast_victory_all_scenarios.json`));
 
 // Include the 7-8 player and New Shores curricula alongside original maps.
@@ -359,7 +369,33 @@ async function runOneGame(port, token, item) {
     peer.send({ type: 'start_game' });
     // Larger 5–8 player maps need more CPU turns than Classic, especially on desktops.
     const gameTimeout = GAME_TIMEOUT_MS * (item.map.players >= 7 ? 2 : item.map.players >= 5 ? 1.5 : 1);
-    const finished = await peer.waitFor((message) => message.type === 'state' && message.state?.phase === 'game-over', gameTimeout);
+    const hardDeadline = Date.now() + gameTimeout;
+    let idleDeadline = Date.now() + IDLE_TIMEOUT_MS;
+    let lastMoves = -1;
+    let lastTurn = 0;
+    let lastPhase = 'starting';
+    let finished;
+    while (!finished) {
+      const remaining = Math.min(hardDeadline - Date.now(), idleDeadline - Date.now());
+      if (remaining <= 0) {
+        throw new Error(`Training game stalled or exceeded wall clock: map=${item.map.id} turn=${lastTurn} phase=${lastPhase} moves=${lastMoves} idleLimit=${IDLE_TIMEOUT_MS}ms hardLimit=${gameTimeout}ms`);
+      }
+      let event;
+      try {
+        event = await peer.waitFor((message) => (message.type === 'state' && message.state?.phase === 'game-over') || message.type === 'training_progress', remaining);
+      } catch (error) {
+        if (error.message.includes('Timed out')) throw new Error(`Training stalled: map=${item.map.id} turn=${lastTurn} phase=${lastPhase} moves=${lastMoves}: ${error.message}`);
+        throw error;
+      }
+      if (event.type === 'state') { finished = event; break; }
+      const moves = Number(event.moves || 0);
+      const turn = Number(event.turnNumber || 0);
+      lastPhase = event.phase || lastPhase;
+      if (moves > lastMoves || turn !== lastTurn) idleDeadline = Date.now() + IDLE_TIMEOUT_MS;
+      lastMoves = Math.max(lastMoves, moves);
+      lastTurn = turn;
+      if (lastTurn > MAX_TRAINING_TURNS) throw new Error(`Training game exceeded ${MAX_TRAINING_TURNS} turns on ${item.map.id} (unproductive match)`);
+    }
     const state = finished.state;
     const winner = (state.players || []).find((player) => player.id === state.winnerId);
     const victoryTarget = VP_TO_WIN_OVERRIDE || item.map.victoryPoints;
@@ -394,28 +430,69 @@ function curriculum(total) {
   }));
 }
 
-async function runBatch(server, token, items, completedBefore) {
-  const queue = items.map(item => ({ ...item, retries: 0 }));
+function logTrainingFailure(message) {
+  const line = `${new Date().toISOString()} ${message}\n`;
+  process.stderr.write(`[train] ${message}\n`);
+  try {
+    fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
+    fs.appendFileSync(`${OUTPUT_PATH}.failures.log`, line);
+  } catch (error) { process.stderr.write(`[train] could not write failure log: ${error.message}\n`); }
+}
+
+async function runBatch(server, token, items, completedBefore, mapHealth) {
+  const queue = items.map(item => {
+    const quarantined = (mapHealth[item.map.id]?.quarantineUntil || -1) > item.sessionIndex;
+    const excluded = Object.keys(mapHealth).filter(id => (mapHealth[id]?.quarantineUntil || -1) > item.sessionIndex);
+    const mapped = quarantined ? fallbackMap(MAPS, item.map, 1, excluded) : item.map;
+    return { ...item, map: mapped, originalMapId: item.map.id, retries: 0,
+      replacements: mapped.id === item.map.id ? 0 : 1, attemptedMapIds: [item.map.id, mapped.id] };
+  });
   const results = [];
   let failure = null;
+  let consecutiveFailures = 0;
   const worker = async () => {
     while (queue.length && !failure) {
       const item = queue.shift();
       if (!item) return;
       try {
         const result = await runOneGame(server.port, token, item);
+        if (item.originalMapId !== result.mapId) result.requestedMapId = item.originalMapId;
         results.push(result);
+        if (mapHealth[result.mapId]) mapHealth[result.mapId].successes = (mapHealth[result.mapId].successes || 0) + 1;
+        consecutiveFailures = 0;
         const totalComplete = completedBefore + results.length;
         if (totalComplete % 10 === 0 || totalComplete === TOTAL_GAMES) {
           process.stdout.write(`[train] ${totalComplete}/${TOTAL_GAMES} map=${result.mapId} turn=${result.turnNumber} gold=${result.goldProductionCards}\n`);
         }
       } catch (error) {
-        if (item.retries >= 2) {
-          failure = new Error(`Trainer failed on ${item.map.id} (game ${item.sessionIndex + 1}) after 3 attempts: ${error.message}\n${server.output().slice(-3000)}`);
+        const health = mapHealth[item.map.id] || (mapHealth[item.map.id] = { failures: 0, successes: 0, quarantineUntil: -1 });
+        health.failures += 1;
+        if (health.failures >= MAP_QUARANTINE_FAILURES && health.quarantineUntil <= item.sessionIndex) {
+          health.quarantineUntil = item.sessionIndex + MAP_QUARANTINE_GAMES;
+          health.failures = 0;
+          logTrainingFailure(`cooldown ${item.map.id} for ${MAP_QUARANTINE_GAMES} curriculum slots after repeated failed games`);
+        }
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES || server.child.exitCode !== null) {
+          failure = new Error(`Training server unhealthy after ${consecutiveFailures} consecutive match failures; restarting batch. Last error: ${error.message}`);
           break;
         }
-        process.stderr.write(`[train] retry ${item.retries + 1}/2 map=${item.map.id} game=${item.sessionIndex + 1}: ${error.message}\n`);
-        queue.push({ ...item, retries: item.retries + 1 });
+        if (item.retries + 1 >= MAX_ATTEMPTS_PER_MAP) {
+          if (item.replacements >= MAX_MAP_REPLACEMENTS) {
+            failure = new Error(`Trainer could not finish ${item.originalMapId} (game ${item.sessionIndex + 1}) after ${item.replacements + 1} map choices: ${error.message}\n${server.output().slice(-3000)}`);
+            break;
+          }
+          const replacement = fallbackMap(MAPS, item.map, item.replacements + 1, item.attemptedMapIds);
+          if (!replacement || replacement.id === item.map.id) {
+            failure = new Error(`No replacement scenario for failed ${item.map.id}: ${error.message}`);
+            break;
+          }
+          logTrainingFailure(`quarantined ${item.map.id} game=${item.sessionIndex + 1} after ${MAX_ATTEMPTS_PER_MAP} failed attempts; trying ${replacement.id} (${replacement.players} players): ${error.message}`);
+          queue.push({ ...item, map: replacement, retries: 0, replacements: item.replacements + 1, attemptedMapIds: [...item.attemptedMapIds, replacement.id] });
+        } else {
+          logTrainingFailure(`retry ${item.retries + 1}/${MAX_ATTEMPTS_PER_MAP - 1} map=${item.map.id} game=${item.sessionIndex + 1}: ${error.message}`);
+          queue.push({ ...item, retries: item.retries + 1 });
+        }
       }
     }
   };
@@ -450,37 +527,66 @@ async function main() {
   const startingHash = modelHash(MODEL_PATH);
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-neural-curriculum-'));
   const items = curriculum(TOTAL_GAMES);
-  const results = [];
-  let latestModelPath = MODEL_PATH;
+  const checkpointPath = `${OUTPUT_PATH}.checkpoint.json`;
+  const startingTrainedGames = Number(startingModel.trainedGames || 0);
+  let results = [];
+  let latestModel = startingModel;
+  let mapHealth = {};
+  if (RESUME_TRAINING && fs.existsSync(checkpointPath)) {
+    const checkpoint = readModel(checkpointPath);
+    validateCheckpoint(checkpoint, startingTrainedGames, items, new Set(MAPS.map(map => map.id)), startingHash);
+    results = checkpoint.games;
+    latestModel = checkpoint.model;
+    mapHealth = checkpoint.mapHealth || {};
+    process.stdout.write(`[train] ${results.length}/${TOTAL_GAMES} resumed from ${checkpointPath}\n`);
+  }
+  const completed = new Set(results.map(game => game.sessionIndex));
   let succeeded = false;
-
   try {
     for (let offset = 0, batchNo = 1; offset < items.length; offset += BATCH_SIZE, batchNo++) {
-      const batchItems = items.slice(offset, offset + BATCH_SIZE);
-      const batchDir = path.join(tempRoot, `batch-${String(batchNo).padStart(3, '0')}`);
-      fs.mkdirSync(batchDir, { recursive: true });
-      fs.copyFileSync(latestModelPath, path.join(batchDir, 'neural_ai_model.json'));
-
-      const server = await startTrainingServer(batchDir);
-      try {
-        const token = await createTrainerToken(server.port, batchNo);
-        results.push(...await runBatch(server, token, batchItems, results.length));
-      } finally {
-        await server.stop();
+      const batchItems = items.slice(offset, offset + BATCH_SIZE).filter(item => !completed.has(item.sessionIndex));
+      if (!batchItems.length) continue;
+      let newGames;
+      let batchModel;
+      // If a simulator server wedges, discard that uncommitted batch and
+      // restart from the last checkpoint. Never use partially trained weights.
+      for (let attempt = 0; attempt <= MAX_BATCH_RESTARTS; attempt++) {
+        const batchDir = path.join(tempRoot, `batch-${String(batchNo).padStart(3, '0')}-attempt-${attempt + 1}`);
+        fs.mkdirSync(batchDir, { recursive: true });
+        const batchModelPath = path.join(batchDir, 'neural_ai_model.json');
+        await atomicWriteJson(batchModelPath, latestModel);
+        let server;
+        try {
+          server = await startTrainingServer(batchDir);
+          const token = await createTrainerToken(server.port, batchNo);
+          newGames = await runBatch(server, token, batchItems, results.length, mapHealth);
+          batchModel = readModel(batchModelPath);
+          break;
+        } catch (error) {
+          if (attempt >= MAX_BATCH_RESTARTS) throw new Error(`Batch ${batchNo} failed after ${attempt + 1} isolated-server attempts; saved checkpoint remains resumable: ${error.message}`);
+          logTrainingFailure(`batch ${batchNo} server restart ${attempt + 1}/${MAX_BATCH_RESTARTS}: ${error.message}`);
+        } finally {
+          if (server) await server.stop();
+        }
       }
-
-      latestModelPath = path.join(batchDir, 'neural_ai_model.json');
-      const batchModel = readModel(latestModelPath);
-      const expected = Number(startingModel.trainedGames || 0) + results.length;
+      const expected = startingTrainedGames + results.length + newGames.length;
       if (Number(batchModel.trainedGames || 0) !== expected) {
         throw new Error(`Model trainedGames=${batchModel.trainedGames}; expected ${expected} after batch ${batchNo}`);
       }
-      // Commit completed batches together so a long interrupted run is recoverable.
-      await atomicWriteJson(`${OUTPUT_PATH}.checkpoint.json`, { startingTrainedGames: Number(startingModel.trainedGames || 0), model: batchModel, games: results });
+      results.push(...newGames);
+      for (const game of newGames) completed.add(game.sessionIndex);
+      latestModel = batchModel;
+      // Save both completed games and their matching weights atomically. A crash
+      // can lose at most the currently active batch, never completed batches.
+      await atomicWriteJson(checkpointPath, {
+        startingTrainedGames, startingModelSha256: startingHash, totalGames: TOTAL_GAMES,
+        mapSet: MAP_SET, curriculumOffset: CURRICULUM_OFFSET, model: latestModel, games: results,
+        mapHealth,
+      });
     }
-
+    if (results.length !== TOTAL_GAMES) throw new Error(`Incomplete run: ${results.length}/${TOTAL_GAMES}`);
     results.sort((a, b) => a.sessionIndex - b.sessionIndex);
-    await atomicWriteJson(MODEL_PATH, readModel(latestModelPath));
+    await atomicWriteJson(MODEL_PATH, latestModel);
     const finalModel = readModel(MODEL_PATH);
     const report = {
       mode: 'neural_net_self_play',
@@ -493,6 +599,9 @@ async function main() {
       trainingObjective: TRAINING_OBJECTIVE,
       mapSet: MAP_SET,
       mapsCovered: MAPS.map((map) => map.id),
+      scenariosReplaced: results.filter(game => game.requestedMapId).map(game => ({ game: game.sessionIndex + 1, requested: game.requestedMapId, trained: game.mapId })),
+      resumed: RESUME_TRAINING,
+      mapHealth,
       startingTrainedGames: Number(startingModel.trainedGames || 0),
       finalTrainedGames: Number(finalModel.trainedGames || 0),
       startingModelSha256: startingHash,
