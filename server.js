@@ -1878,16 +1878,30 @@ function nodeIsOnFogStartIslands(game, nodeId) {
 }
 
 
+function isNewShoresScenario(s) {
+  return ['heading_for_new_shores', 'heading_for_new_shores_56', 'heading_for_new_shores_78'].includes(String(s || '').toLowerCase().replace(/-/g, '_'));
+}
+
+// Use the actual generated board, not a fixed list of coordinates. The sea
+// mask is stable, while the resource types and token values change each game.
+function newShoresMainIslandKeys(geom) {
+  const groups = matchingTileComponents(geom, t => t.type !== 'sea')
+    .sort((a, b) => b.size - a.size);
+  const main = groups[0] || new Set();
+  return new Set([...main].map(id => axialKey(geom.tiles[id].q, geom.tiles[id].r)));
+}
+
 function nodeIsOnHFNSMainIsland(game, nodeId) {
+  const scenario = seafarersScenarioKey(game);
+  const allowed = scenario === 'heading_for_new_shores'
+    ? HFNS_MAIN_ISLAND_KEYS : newShoresMainIslandKeys(game.geom);
   const adj = game?.geom?.nodeAdjTiles?.[nodeId] || [];
   let sawLand = false;
   for (const tid of adj) {
     const t = game?.geom?.tiles?.[tid];
-    if (!t) continue;
-    if (t.type === 'sea') continue;
+    if (!t || t.type === 'sea') continue;
     sawLand = true;
-    const key = `${t.q},${t.r}`;
-    if (!HFNS_MAIN_ISLAND_KEYS.has(key)) return false;
+    if (!allowed.has(axialKey(t.q, t.r))) return false;
   }
   return sawLand;
 }
@@ -1912,21 +1926,57 @@ const NEW_SHORES_NUMBERS_78 = [...Array(3).fill(2),...Array(4).fill(3),...Array(
 function newShoresGeometry(template, numberPool) {
   const geom = buildGeometryFromAxials(template.tiles.map(t => ({q:t.q,r:t.r})));
   const byKey = new Map(template.tiles.map(t => [axialKey(t.q,t.r),t]));
-  for(const t of geom.tiles) {
-    const source=byKey.get(axialKey(t.q,t.r));
-    t.type=source.type; t.number=null; t.robber=false; t.pirate=false;
+  for (const t of geom.tiles) {
+    const source = byKey.get(axialKey(t.q,t.r));
+    t.type = source.type;
+    t.number = null;
+    t.robber = false;
+    t.pirate = false;
   }
-  const numbered=shuffle(geom.tiles.filter(t=>t.type!=='sea'&&t.type!=='desert'));
-  const numbers=shuffle(numberPool.slice());
-  numbered.forEach((t,i)=>{ if(i<numbers.length)t.number=numbers[i]; });
-  const robberTile=geom.tiles.find(t=>t.type==='desert') || geom.tiles.find(t=>t.type!=='sea');
-  if(robberTile)robberTile.robber=true;
-  const sea=geom.tiles.filter(t=>t.type==='sea');
-  if(sea.length)sea[Math.floor(Math.random()*sea.length)].pirate=true;
-  // Generate the nine ports specified by each scenario reference card.
-  geom.ports=generatePorts(geom,9);
+
+  // Preserve the ocean mask and the distinct islands, but shuffle every
+  // resource hex within the land slots. Gold fields belong only on smaller
+  // islands; the desert (when supplied) belongs to the starting mainland.
+  const groups = matchingTileComponents(geom, t => t.type !== 'sea')
+    .sort((a,b) => b.size - a.size);
+  const main = groups[0] || new Set();
+  const outlying = groups.slice(1);
+  const land = geom.tiles.filter(t => t.type !== 'sea');
+  const original = land.map(t => t.type);
+  const goldCount = original.filter(t => t === 'gold').length;
+  const desertCount = original.filter(t => t === 'desert').length;
+  const resources = shuffle(original.filter(t => t !== 'gold' && t !== 'desert'));
+  // Prefer spreading gold across different small islands. The choice of
+  // island and the exact position on it change between generated boards.
+  const goldSlots = [];
+  const candidateGroups = shuffle(outlying.filter(group => group.size));
+  for (const group of candidateGroups) {
+    if (goldSlots.length >= goldCount) break;
+    goldSlots.push(shuffle([...group])[0]);
+  }
+  const remainingOutlying = shuffle(outlying.flatMap(g => [...g]).filter(id => !goldSlots.includes(id)));
+  while (goldSlots.length < goldCount && remainingOutlying.length) goldSlots.push(remainingOutlying.pop());
+  if (goldSlots.length !== goldCount) throw new Error('Insufficient New Shores outer island tiles for gold.');
+  const desertSlots = shuffle([...main]).slice(0, desertCount);
+  if (desertSlots.length !== desertCount) throw new Error('Insufficient New Shores mainland tiles for desert.');
+  const reserved = new Set([...goldSlots, ...desertSlots]);
+  const resourceSlots = shuffle(land.filter(t => !reserved.has(t.id)));
+  if (resourceSlots.length !== resources.length) throw new Error('New Shores resource inventory mismatch.');
+  goldSlots.forEach(id => { geom.tiles[id].type = 'gold'; });
+  desertSlots.forEach(id => { geom.tiles[id].type = 'desert'; });
+  resourceSlots.forEach((t,i) => { t.type = resources[i]; });
+
+  const numbered = shuffle(land.filter(t => t.type !== 'desert'));
+  const numbers = shuffle(numberPool.slice());
+  numbered.forEach((t,i) => { if(i < numbers.length) t.number = numbers[i]; });
+  const robberTile = geom.tiles.find(t => t.type === 'desert') || shuffle([...main].map(id=>geom.tiles[id]))[0];
+  if (robberTile) robberTile.robber = true;
+  const sea = geom.tiles.filter(t => t.type === 'sea');
+  if (sea.length) sea[Math.floor(Math.random()*sea.length)].pirate = true;
+  geom.ports = generatePorts(geom, 9);
   return geom;
 }
+
 const MAP78_PRESETS = Object.freeze({
   classic: require('./server/maps-78/classic.json'),
   classic_custom: require('./server/maps-78/classic_custom.json'),
@@ -7017,7 +7067,7 @@ function applyActionCore(room, playerId, action) {
     }
 
     // Heading for New Shores: initial settlements are restricted to the main island.
-    if ((game.rules?.mapMode || 'classic') === 'seafarers' && seafarersScenarioKey(game) === 'heading_for_new_shores') {
+    if ((game.rules?.mapMode || 'classic') === 'seafarers' && isNewShoresScenario(seafarersScenarioKey(game))) {
       if (game.phase === 'setup1-settlement' || game.phase === 'setup2-settlement') {
         if (!nodeIsOnHFNSMainIsland(game, nodeId)) return { ok: false, error: 'Setup settlements must be placed on the main island.' };
       }
@@ -14443,7 +14493,7 @@ function handleTimeout(room) {
     const scen = seafarersScenarioKey(game);
     const isTTD = ((game.rules?.mapMode || 'classic') === 'seafarers' && ['through_the_desert','through_the_desert_56','through_the_desert_78'].includes(scen));
     const isFog = ((game.rules?.mapMode || 'classic') === 'seafarers' && isFogIslandScenario(scen));
-    const isHFNS = ((game.rules?.mapMode || 'classic') === 'seafarers' && scen === 'heading_for_new_shores');
+    const isHFNS = ((game.rules?.mapMode || 'classic') === 'seafarers' && isNewShoresScenario(scen));
     for (let i = 0; i < game.geom.nodes.length; i++) {
       if (!settlementDistanceOk(game, i)) continue;
       if (isTTD && !(scen==='through_the_desert_78'?nodeIsOnTTD78StartIsland(game,i):scen==='through_the_desert_56'?nodeIsOnTTD56StartIsland(game,i):nodeIsOnTTDStartIsland(game,i))) continue;
@@ -15645,7 +15695,7 @@ const wouldAcceptTrade = (pid, trade, diff) => {
     const rawScen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase();
     const isTTD = rawScen === 'through_the_desert' || rawScen === 'through-the-desert' || rawScen === 'through_the_desert_map' || rawScen === 'desert' || rawScen==='through_the_desert_78' || rawScen==='through_the_desert_56';
     const isFog = rawScen === 'fog_island_78' || rawScen === 'fog_island' || rawScen === 'fog-island' || rawScen === 'fog' || rawScen === 'fog_island_56' || rawScen === 'fog-island-56' || rawScen === 'fog56';
-    const isHFNS = rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading';
+    const isHFNS = isNewShoresScenario(rawScen) || ['heading_new_shores','new_shores','newshores','heading'].includes(rawScen);
 
     const nodeIds = [];
     for (let i = 0; i < game.geom.nodes.length; i++) {
