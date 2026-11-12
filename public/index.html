@@ -11,9 +11,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Hex Settlers">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css?v=release-v1.0.48" />
-  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.48" />
-  <link rel="stylesheet" href="beta.css?v=release-v1.0.48">
+  <link rel="stylesheet" href="styles.css?v=release-v1.0.49" />
+  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.49" />
+  <link rel="stylesheet" href="beta.css?v=release-v1.0.49">
   <link rel="stylesheet" href="/discord-activity.css">
 </head>
 <body>
@@ -243,7 +243,7 @@
         <h2 id="legalDialogTitle">Terms of Service</h2>
         <button id="legalDialogClose" class="legalCloseBtn" type="button" aria-label="Close legal document">× <span>Close</span></button>
       </div>
-      <iframe id="legalDocumentFrame" class="legalDocumentFrame" title="Terms of Service" loading="lazy"></iframe>
+      <div id="legalDocumentFrame" class="legalDocumentFrame" role="document" tabindex="0" aria-label="Legal document"></div>
       <div class="legalDialogFooter"><a id="legalDocumentLink" href="/terms_of_service.html" target="_blank" rel="noopener noreferrer">Open full document in a new tab</a></div>
     </section>
   </div>
@@ -561,6 +561,7 @@
           <div id="scenario78Row" class="hidden">
 <label class="label">Seafarers 7–8-player scenario</label>
 <select id="mapScenario78Select" class="input">
+<option value="heading_for_new_shores_78">Heading for New Shores</option>
 <option value="eight_islands_78" selected>Eight Islands</option>
 <option value="through_the_desert_78">Through the Desert</option>
 <option value="fog_island_78">Fog Island</option>
@@ -572,6 +573,7 @@
           <div id="scenario56Row" class="hidden">
 <label class="label">Seafarers 5–6 scenario</label>
 <select id="mapScenario56Select" class="input">
+<option value="heading_for_new_shores_56">Heading for New Shores</option>
 <option value="six_islands" selected>Six Islands</option>
 <option value="through_the_desert_56">Through the Desert</option>
 <option value="fog_island_56">Fog Island</option>
@@ -1043,13 +1045,13 @@
     </div>
   </div>
 
-  <script src="boot-preload.js?v=release-v1.0.48"></script>
-  <script src="locale-expansion.js?v=release-v1.0.48"></script>
-  <script src="languages.js?v=release-v1.0.48"></script>
-  <script src="beta-client.js?v=release-v1.0.48"></script>
-  <script src="beta-admin.js?v=release-v1.0.48"></script>
-  <script src="app.js?v=release-v1.0.48"></script>
-  <script src="install-app.js?v=release-v1.0.48"></script>
-  <script type="module" src="/discord-activity.bundle.js?v=release-v1.0.48"></script>
+  <script src="boot-preload.js?v=release-v1.0.49"></script>
+  <script src="locale-expansion.js?v=release-v1.0.49"></script>
+  <script src="languages.js?v=release-v1.0.49"></script>
+  <script src="beta-client.js?v=release-v1.0.49"></script>
+  <script src="beta-admin.js?v=release-v1.0.49"></script>
+  <script src="app.js?v=release-v1.0.49"></script>
+  <script src="install-app.js?v=release-v1.0.49"></script>
+  <script type="module" src="/discord-activity.bundle.js?v=release-v1.0.49"></script>
 </body>
 </html>

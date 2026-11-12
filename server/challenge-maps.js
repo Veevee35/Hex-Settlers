@@ -8,7 +8,7 @@ const CHALLENGE_COUNTS = Object.freeze([4, 5, 6, 7, 8]);
 // Each family supports all five capacities. Scattered Tiles retains the
 // existing random-scatter engine IDs for 4–6 seats, but the distinct manual
 // Cartographer scenario is never selected.
-const FAMILIES = Object.freeze(['classic', 'islands', 'desert', 'fog', 'scattered']);
+const FAMILIES = Object.freeze(['classic', 'islands', 'desert', 'fog', 'scattered', 'new_shores']);
 
 function chicagoParts(timestamp = Date.now()) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -86,10 +86,10 @@ function challengeRules(playerCount, family = 'classic') {
   if (family !== 'classic') {
     mapMode = 'seafarers';
     seafarersScenario = big
-      ? ({ islands: 'eight_islands_78', desert: 'through_the_desert_78', fog: 'fog_island_78', scattered: `scattered_tiles_78_${n}` })[family]
+      ? ({ new_shores: 'heading_for_new_shores_78', islands: 'eight_islands_78', desert: 'through_the_desert_78', fog: 'fog_island_78', scattered: `scattered_tiles_78_${n}` })[family]
       : n >= 5
-        ? ({ islands: 'six_islands', desert: 'through_the_desert_56', fog: 'fog_island_56', scattered: 'cartographer_56_random' })[family]
-        : ({ islands: 'four_islands', desert: 'through_the_desert', fog: 'fog_island', scattered: 'cartographer_4_random' })[family];
+        ? ({ new_shores: 'heading_for_new_shores_56', islands: 'six_islands', desert: 'through_the_desert_56', fog: 'fog_island_56', scattered: 'cartographer_56_random' })[family]
+        : ({ new_shores: 'heading_for_new_shores', islands: 'four_islands', desert: 'through_the_desert', fog: 'fog_island', scattered: 'cartographer_4_random' })[family];
   }
   return {
     ...DEFAULT_RULES, mapMode, seafarersScenario,

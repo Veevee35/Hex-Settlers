@@ -1898,10 +1898,35 @@ function seafarersScenarioKey(game) {
 
 function isSeafarers56Scenario(s) {
   const scen = String(s || '').toLowerCase().replace(/-/g,'_');
-  return scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56' || scen === 'test_builder_56';
+  return scen === 'heading_for_new_shores_56' || scen === 'six_islands' || scen === 'through_the_desert_56' || scen === 'fog_island_56' || scen === 'cartographer_56_manual' || scen === 'cartographer_56_random' || scen === 'cartographer_56' || scen === 'test_builder_56';
 }
 
 
+// Preset land masks supplied for the expanded New Shores scenarios.  The
+// peripheral sea border is retained exactly as drawn by the map author.
+const NEW_SHORES_56 = require('./server/maps-new-shores/heading_for_new_shores_56.json');
+const NEW_SHORES_78 = require('./server/maps-new-shores/heading_for_new_shores_78.json');
+const NEW_SHORES_NUMBERS_56 = [2,2,3,3,3,4,4,4,4,5,5,5,5,5,6,6,6,6,6,8,8,8,8,8,9,9,9,9,9,10,10,10,10,11,11,11,12,12];
+const NEW_SHORES_NUMBERS_78 = [...Array(3).fill(2),...Array(4).fill(3),...Array(5).fill(4),...Array(6).fill(5),...Array(6).fill(6),...Array(6).fill(8),...Array(6).fill(9),...Array(5).fill(10),...Array(4).fill(11),...Array(3).fill(12)];
+// Reference inventories: 38 tokens for 5–6 and 48 for 7–8.
+function newShoresGeometry(template, numberPool) {
+  const geom = buildGeometryFromAxials(template.tiles.map(t => ({q:t.q,r:t.r})));
+  const byKey = new Map(template.tiles.map(t => [axialKey(t.q,t.r),t]));
+  for(const t of geom.tiles) {
+    const source=byKey.get(axialKey(t.q,t.r));
+    t.type=source.type; t.number=null; t.robber=false; t.pirate=false;
+  }
+  const numbered=shuffle(geom.tiles.filter(t=>t.type!=='sea'&&t.type!=='desert'));
+  const numbers=shuffle(numberPool.slice());
+  numbered.forEach((t,i)=>{ if(i<numbers.length)t.number=numbers[i]; });
+  const robberTile=geom.tiles.find(t=>t.type==='desert') || geom.tiles.find(t=>t.type!=='sea');
+  if(robberTile)robberTile.robber=true;
+  const sea=geom.tiles.filter(t=>t.type==='sea');
+  if(sea.length)sea[Math.floor(Math.random()*sea.length)].pirate=true;
+  // Generate the nine ports specified by each scenario reference card.
+  geom.ports=generatePorts(geom,9);
+  return geom;
+}
 const MAP78_PRESETS = Object.freeze({
   classic: require('./server/maps-78/classic.json'),
   classic_custom: require('./server/maps-78/classic_custom.json'),
@@ -1914,7 +1939,7 @@ const MAP78_PRESETS = Object.freeze({
 });
 const SCENARIOS_78 = new Set(['eight_islands_78','through_the_desert_78','fog_island_78',
   'cartographer_78','scattered_tiles_78',
-  'cartographer_78_7','cartographer_78_8','scattered_tiles_78_7','scattered_tiles_78_8','test_builder_78']);
+  'cartographer_78_7','cartographer_78_8','scattered_tiles_78_7','scattered_tiles_78_8','test_builder_78','heading_for_new_shores_78']);
 const TTD78_START_KEYS = (() => {
   const tiles=MAP78_PRESETS.through_the_desert_78.tiles;
   const available=new Set(tiles.filter(t=>t.type!=='sea'&&t.type!=='desert').map(t=>axialKey(t.q,t.r)));
@@ -2077,6 +2102,7 @@ function generate78Ports(geom, scen) {
   return ports.map((p,i)=>({...p,id:i,kind:kinds[i]}));
 }
 function generate78Scenario(scenario) {
+  if (scenario === 'heading_for_new_shores_78') return newShoresGeometry(NEW_SHORES_78,NEW_SHORES_NUMBERS_78);
   const key=preset78Name(scenario);
   const preset=MAP78_PRESETS[key];
   if(!preset) throw new Error('Unknown 7-8 scenario: '+key);
@@ -5655,6 +5681,7 @@ function finalizeGeneratedSeafarersPirate(geom, tiles, scenario) {
 function generateBoardSeafarers(geom, scenario = 'four_islands', opts = null) {
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   let tiles = null;
+  if (s === 'heading_for_new_shores_56') return newShoresGeometry(NEW_SHORES_56,NEW_SHORES_NUMBERS_56).tiles;
   if (s === 'through_the_desert') tiles = generateBoardSeafarersThroughTheDesert(geom);
   else if (s === 'through_the_desert_56') tiles = generateBoardSeafarersThroughTheDesert56(geom);
   else if (s === 'fog_island') tiles = generateBoardSeafarersFogIsland(geom);
@@ -6032,7 +6059,9 @@ function newEmptyGame(room) {
     geom = buildGeometryClassic56();
   } else if (mapMode === 'seafarers') {
     const scen = String((room && room.rules && room.rules.seafarersScenario) || 'four_islands').toLowerCase().replace(/-/g,'_');
-    if (scen === 'through_the_desert_56') {
+    if (scen === 'heading_for_new_shores_56') {
+      geom = newShoresGeometry(NEW_SHORES_56,NEW_SHORES_NUMBERS_56);
+    } else if (scen === 'through_the_desert_56') {
       geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
     } else if (scen === 'fog_island_56') {
       geom = buildGeometryFromAxials(generateFogIsland56Axials());
@@ -6386,7 +6415,9 @@ function startGame(room) {
     if (mm === 'seafarers') {
       const scen = String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_');
       // Some Seafarers scenarios use custom geometry masks.
-      if (scen === 'through_the_desert_56') {
+      if (scen === 'heading_for_new_shores_56') {
+      game.geom = newShoresGeometry(NEW_SHORES_56,NEW_SHORES_NUMBERS_56);
+    } else if (scen === 'through_the_desert_56') {
       game.geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
     } else if (scen === 'fog_island_56') {
       game.geom = buildGeometryFromAxials(generateFogIsland56Axials());
@@ -6399,8 +6430,8 @@ function startGame(room) {
     } else if (isSeafarers56Scenario(scen)) {
       game.geom = buildGeometryFromAxials(generateSixIslandsAxials());
     }
-      game.geom.tiles = generateBoardSeafarers(game.geom, scen, { playerCount: game.players.length });
-      game.geom.ports = isTestBuilderScenarioKey(scen) ? [] : generatePortsSeafarers(game.geom, scen);
+      if (scen !== 'heading_for_new_shores_56') game.geom.tiles = generateBoardSeafarers(game.geom, scen, { playerCount: game.players.length });
+      if (scen !== 'heading_for_new_shores_56') game.geom.ports = isTestBuilderScenarioKey(scen) ? [] : generatePortsSeafarers(game.geom, scen);
     } else if ((mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) {
       // Classic 5–6 Player: larger landmass + 11 ports.
       game.geom = buildGeometryClassic56();
@@ -9642,6 +9673,7 @@ function mapPreviewKey(rules, playerCount = null) {
           ? 'cartographer_56_random'
         : (rawScen === 'cartographer')
           ? 'cartographer_4_random'
+        : (rawScen === 'heading_for_new_shores_56') ? 'heading_for_new_shores_56'
         : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
           ? 'heading_for_new_shores'
         : (rawScen === 'through_the_desert_56' || rawScen === 'through-the-desert-56' || rawScen === 'throughdesert56' || rawScen === 'desert56')
@@ -9672,7 +9704,9 @@ function generatePreviewGeom(rules, room = null) {
     const key = mapPreviewKey(rules, previewPlayerCount);
     const scen = key.split(':')[1] || 'four_islands';
     let geom = null;
-    if (scen === 'through_the_desert_56') {
+    if (scen === 'heading_for_new_shores_56') {
+      geom = newShoresGeometry(NEW_SHORES_56,NEW_SHORES_NUMBERS_56);
+    } else if (scen === 'through_the_desert_56') {
       geom = buildGeometryFromAxials(generateThroughTheDesert56Axials());
     } else if (scen === 'fog_island_56') {
       geom = buildGeometryFromAxials(generateFogIsland56Axials());
@@ -9691,8 +9725,8 @@ function generatePreviewGeom(rules, room = null) {
       geom.tiles = generateBoardSeafarersCartographer4ManualDraft(geom);
       geom.ports = [];
     } else {
-      geom.tiles = generateBoardSeafarers(geom, scen, { playerCount: previewPlayerCount });
-      geom.ports = isTestBuilderScenarioKey(scen) ? [] : generatePortsSeafarers(geom, scen);
+      if (scen !== 'heading_for_new_shores_56') geom.tiles = generateBoardSeafarers(geom, scen, { playerCount: previewPlayerCount });
+      if (scen !== 'heading_for_new_shores_56') geom.ports = isTestBuilderScenarioKey(scen) ? [] : generatePortsSeafarers(geom, scen);
     }
     return geom;
   }
@@ -13583,7 +13617,8 @@ if (msg.type === 'create_tutorial_room') {
           ? 'fog_island'
           : (rawScen === 'fog_island_56' || rawScen === 'fog-island-56' || rawScen === 'fog56' || rawScen === 'fog_island56')
             ? 'fog_island_56'
-          : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
+          : (rawScen === 'heading_for_new_shores_56') ? 'heading_for_new_shores_56'
+        : (rawScen === 'heading_for_new_shores' || rawScen === 'heading-for-new-shores' || rawScen === 'heading_new_shores' || rawScen === 'new_shores' || rawScen === 'newshores' || rawScen === 'heading')
             ? 'heading_for_new_shores'
           : (rawScen === 'test_builder' || rawScen === 'test-builder' || rawScen === 'test' || rawScen === 'builder')
             ? 'test_builder'

@@ -13260,7 +13260,7 @@ function refreshLobbyJoinLinkUi() {
       overlay.classList.add('hidden');
       overlay.setAttribute('aria-hidden', 'true');
       // Clear the document so hidden iframes are not unnecessarily retained.
-      if (frame) frame.removeAttribute('src');
+      if (frame) frame.replaceChildren();
       trigger?.focus?.();
       trigger = null;
     };
@@ -13268,9 +13268,29 @@ function refreshLobbyJoinLinkUi() {
       const documentInfo = documents[key];
       if (!documentInfo || !overlay || !frame || !heading || !link) return;
       trigger = from;
-      heading.textContent = documentInfo.label;
-      frame.title = documentInfo.label;
-      frame.src = documentInfo.path;
+      heading.textContent = window.HexSettlersLanguages?.t(documentInfo.label) || documentInfo.label;
+      frame.setAttribute('aria-label', window.HexSettlersLanguages?.t(documentInfo.label) || documentInfo.label);
+      frame.replaceChildren();
+      const loading = document.createElement('p');
+      loading.textContent = 'Loading document…';
+      frame.appendChild(loading);
+      // The Cloudflare CSP intentionally sets frame-ancestors 'none'; embedding
+      // the same-origin document in an iframe fails. Fetch and render its body
+      // as ordinary localized DOM instead.
+      fetch(documentInfo.path, { credentials: 'same-origin' }).then(async response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+        doc.body.querySelectorAll('script,iframe,object,embed,form,style,link,svg').forEach(el => el.remove());
+        if (overlay.classList.contains('hidden') || heading.dataset.documentKey !== key) return;
+        frame.replaceChildren(...Array.from(doc.body.childNodes).map(node => document.importNode(node, true)));
+        window.HexSettlersLanguages?.localize(frame);
+      }).catch(() => {
+        frame.replaceChildren();
+        const failed = document.createElement('p');
+        failed.textContent = 'Unable to display the document. Open the full document in a new tab.';
+        frame.appendChild(failed);
+      });
+      heading.dataset.documentKey = key;
       link.href = documentInfo.path;
       overlay.classList.remove('hidden');
       overlay.setAttribute('aria-hidden', 'false');
@@ -13944,7 +13964,7 @@ function refreshLobbyJoinLinkUi() {
       return size === '78' ? 'cartographer_78' : size === '56' ? 'cartographer_56_manual' : 'cartographer_4_manual';
     }
     if (key.startsWith('test_builder')) return size === '78' ? 'test_builder_78' : size === '56' ? 'test_builder_56' : 'test_builder';
-    if (key === 'heading_for_new_shores' && size === '4') return key;
+    if (key.startsWith('heading_for_new_shores')) return size === '78' ? 'heading_for_new_shores_78' : size === '56' ? 'heading_for_new_shores_56' : 'heading_for_new_shores';
     // Four/Six/Eight Islands are the size variants of the island scenario.
     return size === '78' ? 'eight_islands_78' : size === '56' ? 'six_islands' : 'four_islands';
   }

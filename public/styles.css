@@ -4857,3 +4857,8 @@ body.settings-sandbox #app #leaveGameBtn {pointer-events:none!important;opacity:
 .accountLinkWizardRow span {font-size:13px;}
 .accountLinkWizardActions {display:flex; gap:8px; margin-top:16px;}
 @media(max-width:390px){.loginLinkMethodsGrid{grid-template-columns:1fr;}}
+
+/* Legal text is rendered directly; CSP does not permit iframe embedding. */
+.legalDocumentFrame { overflow:auto; padding:20px 24px; background:#101b25!important; color:#dce7ef; line-height:1.6; font-family:system-ui,sans-serif; }
+.legalDocumentFrame h1,.legalDocumentFrame h2 { color:#f5d58c; }
+.legalDocumentFrame a { color:#8dc9f2; }
