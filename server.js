@@ -344,6 +344,9 @@ function saveNeuralAiModel() {
     : createDefaultNeuralAiModel();
   return NEURAL_AI_MODEL_WRITER.write(safe).catch((e) => {
     console.error('[neural-ai] Failed to save model:', e && e.message ? e.message : e);
+    // Live matches can continue if model storage is temporarily unavailable.
+    // Headless training must NEVER report a trained game without durable weights.
+    if (process.env.AI_TRAINING === '1' && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1') throw e;
   });
 }
 
@@ -3800,9 +3803,26 @@ function trainNeuralAiFromFinishedGame(game) {
     speedStats.averageTurns = speedStats.totalTurns / speedStats.games;
     NEURAL_AI_MODEL.speedTraining = speedStats;
     game._neuralTrained = true;
-    saveNeuralAiModel();
+    const trainedGames = NEURAL_AI_MODEL.trainedGames;
+    // Resolve save failures into a result rather than leaving an unhandled
+    // rejected promise capable of crashing the isolated training server.
+    const modelWrite = Promise.resolve(saveNeuralAiModel()).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, error: String(error && error.message || error) }),
+    );
+    // This receipt is deliberately non-enumerable: no training internals or
+    // promises are included in public game snapshots or serialized room data.
+    Object.defineProperty(game, '_neuralTrainingCommit', {
+      value: { gameId: game.id, trainedGames, promise: modelWrite },
+      configurable: true, enumerable: false,
+    });
+    return true;
   } catch (e) {
+    Object.defineProperty(game, '_neuralTrainingError', {
+      value: String(e && e.stack || e), configurable: true, enumerable: false,
+    });
     console.error('[neural-ai] Failed to train model from game:', e && e.message ? e.message : e);
+    return false;
   }
 }
 
@@ -10172,6 +10192,12 @@ function stateForRoomSocket(room, ws, memberId, baseState = null, stateCache = n
 
 function broadcastState(room) {
   if (!room.game) return;
+  // Training-only safeguard for alternate game-ending paths. Idempotent:
+  // normal checkWin() already trained the match and sets _neuralTrained.
+  if (AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1' &&
+      room.game.phase === 'game-over' && room.game.winnerId && !room.game._neuralTrained) {
+    trainNeuralAiFromFinishedGame(room.game);
+  }
   room.lastActiveAt = now();
   if (room.game.phase === 'game-over' && !room.finishedAt) {
     room.finishedAt = Number(room.game?.stats?.endedAt || 0) || now();
@@ -13240,6 +13266,38 @@ if (msg.type === 'create_tutorial_room') {
     ]);
     if (room.ranked && rankedAdministrativeMessages.has(msg.type)) {
       sendJson(ws, { type: 'error', error: 'Ranked matches are server-controlled.' });
+      return;
+    }
+
+    if (msg.type === 'get_training_receipt') {
+      // Only the local, ephemeral training server exposes training accounting.
+      // Never offer model status through production game WebSockets.
+      if (!(AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1')) {
+        sendJson(ws, { type: 'error', error: 'Training receipts are only available on the local trainer.' });
+        return;
+      }
+      const game = room.game;
+      if (!game || game.phase !== 'game-over' || !game.winnerId) {
+        sendJson(ws, { type: 'training_receipt', ok: false, error: 'Game is not completed.' });
+        return;
+      }
+      if (!game._neuralTrained) trainNeuralAiFromFinishedGame(game);
+      const commit = game._neuralTrainingCommit;
+      if (!commit) {
+        sendJson(ws, { type: 'training_receipt', ok: false,
+          gameId: game.id,
+          error: game._neuralTrainingError || `Neural training was not applied (${neuralPlayersInGame(game).length} eligible Neural AI players, room difficulty ${room.aiDifficulty || 'unknown'}).`,
+        });
+        return;
+      }
+      const saved = await commit.promise;
+      if (!saved.ok) {
+        sendJson(ws, { type: 'training_receipt', ok: false, gameId: commit.gameId,
+          error: `Neural weights could not be saved: ${saved.error}` });
+      } else {
+        sendJson(ws, { type: 'training_receipt', ok: true,
+          gameId: commit.gameId, trainedGames: commit.trainedGames });
+      }
       return;
     }
 

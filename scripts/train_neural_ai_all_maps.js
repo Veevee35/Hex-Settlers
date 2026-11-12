@@ -364,7 +364,13 @@ async function runOneGame(port, token, item) {
     }
 
     peer.send({ type: 'fill_ai', targetCount: item.map.players });
-    await peer.waitFor((message) => message.type === 'room' && (message.room.players || []).length === item.map.players);
+    const populated = await peer.waitFor((message) => message.type === 'room' && (message.room.players || []).length === item.map.players);
+    // Some lobby settings can silently fall back to easy AI. Such games are
+    // valid matches but do not train the neural model and must not be counted.
+    const seats = populated.room.players || [];
+    if (seats.some(player => !player.isAI || player.aiDifficulty !== 'neural_net')) {
+      throw new Error(`Trainer lobby has non-neural seats: ${seats.map(player => `${player.name}:${player.isAI ? player.aiDifficulty : 'human'}`).join(', ')}`);
+    }
 
     peer.send({ type: 'start_game' });
     // Larger 5–8 player maps need more CPU turns than Classic, especially on desktops.
@@ -400,8 +406,17 @@ async function runOneGame(port, token, item) {
     const winner = (state.players || []).find((player) => player.id === state.winnerId);
     const victoryTarget = VP_TO_WIN_OVERRIDE || item.map.victoryPoints;
     if (!winner || Number(winner.vp || 0) < victoryTarget) throw new Error('Game ended without a valid victory');
+    // A terminal WebSocket state proves only that a game ended. It does NOT
+    // prove that neural gradient updates were persisted. Require the local
+    // server's per-game durable-write receipt before this game earns credit.
+    peer.send({ type: 'get_training_receipt' });
+    const receipt = await peer.waitFor((message) => message.type === 'training_receipt', 30_000);
+    if (!receipt.ok || receipt.gameId !== state.id || !Number.isSafeInteger(Number(receipt.trainedGames))) {
+      throw new Error(`Game finished, but neural weights were not committed: ${receipt.error || `receipt gameId=${receipt.gameId}, expected ${state.id}, trainedGames=${receipt.trainedGames}`}`);
+    }
     const opponentVp = (state.players || []).filter(player => player.id !== winner.id).map(player => Number(player.vp || 0));
     return {
+      modelTrainedGames: Number(receipt.trainedGames),
       sessionIndex: item.sessionIndex,
       curriculumIndex: item.curriculumIndex,
       mapId: item.map.id,
@@ -561,17 +576,22 @@ async function main() {
           const token = await createTrainerToken(server.port, batchNo);
           newGames = await runBatch(server, token, batchItems, results.length, mapHealth);
           batchModel = readModel(batchModelPath);
+          const expectedBatchCount = startingTrainedGames + results.length + newGames.length;
+          if (Number(batchModel.trainedGames || 0) !== expectedBatchCount) {
+            throw new Error(`Local server returned ${newGames.length} completed games, but saved model trainedGames=${batchModel.trainedGames}, expected ${expectedBatchCount}. This batch will not be counted.`);
+          }
           break;
         } catch (error) {
-          if (attempt >= MAX_BATCH_RESTARTS) throw new Error(`Batch ${batchNo} failed after ${attempt + 1} isolated-server attempts; saved checkpoint remains resumable: ${error.message}`);
-          logTrainingFailure(`batch ${batchNo} server restart ${attempt + 1}/${MAX_BATCH_RESTARTS}: ${error.message}`);
+          const diagnosis = `${error.message}${server ? `\nTraining server logs:\n${server.output().slice(-6000)}` : ''}`;
+          if (attempt >= MAX_BATCH_RESTARTS) throw new Error(`Batch ${batchNo} failed after ${attempt + 1} isolated-server attempts; saved checkpoint remains resumable: ${diagnosis}`);
+          logTrainingFailure(`batch ${batchNo} server restart ${attempt + 1}/${MAX_BATCH_RESTARTS}: ${diagnosis}`);
         } finally {
           if (server) await server.stop();
         }
       }
       const expected = startingTrainedGames + results.length + newGames.length;
       if (Number(batchModel.trainedGames || 0) !== expected) {
-        throw new Error(`Model trainedGames=${batchModel.trainedGames}; expected ${expected} after batch ${batchNo}`);
+        throw new Error(`Model trainedGames=${batchModel.trainedGames}; expected ${expected} after batch ${batchNo}. Every completed game must receive a persisted training receipt; inspect ${OUTPUT_PATH}.failures.log and the local training-server log.`);
       }
       results.push(...newGames);
       for (const game of newGames) completed.add(game.sessionIndex);

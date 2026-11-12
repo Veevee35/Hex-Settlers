@@ -4,7 +4,7 @@ const CLIENT_MESSAGE_TYPES = Object.freeze([
   'auth_login', 'auth_register', 'auth_set_display_name', 'auth_token',
   'chat', 'clear_ai', 'client_ping', 'discord_activity_join', 'create_room', 'create_tutorial_room', 'restart_tutorial_game', 'tutorial_finish', 'tutorial_prepare_routes', 'create_challenge_room', 'get_settings_preview', 'get_challenge_maps', 'get_challenge_archive', 'download_custom_map', 'upload_custom_map', 'edit_preview_port', 'edit_preview_tile', 'fill_ai',
   'game_action', 'generate_map', 'get_game_history', 'get_game_history_entry',
-  'get_player_leaderboard', 'get_state', 'get_texture_pack', 'join_room', 'list_public_lobbies',
+  'get_player_leaderboard', 'get_state', 'get_training_receipt', 'get_texture_pack', 'join_room', 'list_public_lobbies',
   'kick_player', 'leave_room', 'pause_game', 'query_build_options',
   'query_ship_move_targets', 'rejoin_room', 'rematch_room', 'request_leave_game',
   'ranked_queue_join', 'ranked_queue_leave', 'ranked_scenario_vote',

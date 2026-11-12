@@ -28,6 +28,8 @@ const child = spawn(process.execPath, [path.join(__dirname, 'train_neural_ai_all
     BATCH_SIZE: '1',
     CONCURRENCY: '1',
     MAP_SET: 'standard',
+    RESUME_TRAINING: '0',
+    RESUME_RUN_DIR: '',
     KEEP_TRAINING_TEMP: '0',
   },
   stdio: 'inherit',
