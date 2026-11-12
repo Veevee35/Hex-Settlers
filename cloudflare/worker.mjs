@@ -3,6 +3,7 @@ const DEFAULT_UPSTREAM_ORIGIN = 'https://hexsettlers.up.railway.app';
 const DYNAMIC_PATHS = new Set(['/health', '/ws']);
 const EMAIL_BRIDGE_PATH = '/api/internal/send-email';
 const FIXED_EMAIL_SENDER = 'no-reply@hexsettlers.org';
+import { permittedActivityOrigin, frameHeadersForActivity } from './discord-routing.mjs';
 
 export function isDynamicPath(pathname) {
   return DYNAMIC_PATHS.has(pathname) || pathname.startsWith('/api/');
@@ -78,7 +79,7 @@ export function requestHasAllowedOrigin(request) {
   if (!origin) return true;
 
   try {
-    return new URL(origin).origin === new URL(request.url).origin;
+    return permittedActivityOrigin(request);
   } catch (_) {
     return false;
   }
@@ -163,6 +164,7 @@ export function secureStaticAssetResponse(response, request) {
   if (/\.(?:html|js|css|json)$/.test(pathname) || pathname === '/') {
     headers.set('Cache-Control', 'no-store, max-age=0');
   }
+  frameHeadersForActivity(headers, request);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

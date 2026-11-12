@@ -19,14 +19,22 @@ function requestIsTls(request, trustProxy = false) {
   return !!(request && request.socket && request.socket.encrypted) || forwarded === 'https';
 }
 
-function sessionCookie(token, { secure = false, maxAgeSeconds = 30 * 24 * 60 * 60 } = {}) {
-  const parts = [`${SESSION_COOKIE_NAME}=${encodeURIComponent(String(token || ''))}`, 'Path=/', 'HttpOnly', 'SameSite=Strict',
+function sessionCookie(token, { secure = false, embedded = false, maxAgeSeconds = 30 * 24 * 60 * 60 } = {}) {
+  // A Discord Activity is inside an iframe. Set a host-only, partitioned
+  // session cookie so account login works without sharing the public site's
+  // normal SameSite=Strict session with embedded clients.
+  const partitioned = !!secure && !!embedded;
+  const parts = [`${SESSION_COOKIE_NAME}=${encodeURIComponent(String(token || ''))}`, 'Path=/', 'HttpOnly',
+    `SameSite=${partitioned ? 'None' : 'Strict'}`,
     `Max-Age=${Math.max(0, Math.floor(Number(maxAgeSeconds || 0)))}`];
   if (secure) parts.push('Secure');
+  if (partitioned) parts.push('Partitioned');
   return parts.join('; ');
 }
 
-function clearSessionCookie({ secure = false } = {}) { return sessionCookie('', { secure, maxAgeSeconds: 0 }); }
+function clearSessionCookie({ secure = false, embedded = false } = {}) {
+  return sessionCookie('', { secure, embedded, maxAgeSeconds: 0 });
+}
 
 function readJsonBody(request, maxBytes = 16 * 1024) {
   return new Promise((resolve, reject) => {

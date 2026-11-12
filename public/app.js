@@ -5,6 +5,8 @@
   const $ = (id) => document.getElementById(id);
   const ADMIN_PORTAL_HOST = 'admin.hexsettlers.org';
   const IS_ADMIN_PORTAL = window.location.hostname.toLowerCase() === ADMIN_PORTAL_HOST;
+  const IS_DISCORD_ACTIVITY = ['activity.hexsettlers.org', '1477895334406656101.discordsays.com'].includes(window.location.hostname.toLowerCase());
+  if (IS_DISCORD_ACTIVITY) document.body.classList.add('discord-activity');
   if (IS_ADMIN_PORTAL) {
     document.body.classList.add('admin-portal');
     document.title = 'Hex Settlers | Management';
@@ -69,7 +71,7 @@
       }, { once: true });
     } catch (_) {}
   }
-  if (!IS_ADMIN_PORTAL) registerAssetCacheServiceWorker();
+  if (!IS_ADMIN_PORTAL && !IS_DISCORD_ACTIVITY) registerAssetCacheServiceWorker();
   window.addEventListener('hexsettlers:languagechange', () => {
     try { if (typeof render === 'function') render(); } catch (_) {}
   });
@@ -2049,7 +2051,7 @@
       parent?.classList.toggle('hidden', !Object.values(availability).some(Boolean));
     }
   }
-  void setupOAuthSignIn();
+  if (!IS_DISCORD_ACTIVITY) void setupOAuthSignIn();
 
   // First-time provider sign-ups must complete this screen before using a
   // lobby. Existing OAuth users with a selected username are unaffected.
@@ -2378,6 +2380,7 @@
   refreshDeployedVersion();
 
   function clearAuthLocal() {
+    if (IS_DISCORD_ACTIVITY) window.dispatchEvent(new Event('hexsettlers:discord-signed-out'));
     authUser = null;
     selectedPlayMode = '';
     try { sessionStorage.removeItem('hexsettlers_play_mode'); } catch (_) {}
@@ -8228,6 +8231,14 @@ function refreshLobbyJoinLinkUi() {
           return;
         }
 
+        if (IS_DISCORD_ACTIVITY && authUser) {
+          // Discord Activity rooms come from the verified Discord instance,
+          // never the last game stored in this browser or a pasted room code.
+          pendingAutoRejoin = false;
+          window.dispatchEvent(new Event('hexsettlers:discord-auth'));
+          return;
+        }
+
         if (pendingRankedMatchmaking && authUser) {
           startRankedMatchmaking();
         }
@@ -8614,6 +8625,15 @@ function refreshLobbyJoinLinkUi() {
     });
   }
 
+  window.HexSettlersActivityBridge = {
+    sendJoin(ticket) {
+      if (!IS_DISCORD_ACTIVITY || !authUser || !websocketAuthenticated || !ws || ws.readyState !== WebSocket.OPEN) return false;
+      send({ type: 'discord_activity_join', ticket });
+      return true;
+    },
+    isAuthenticated() { return !!authUser && websocketAuthenticated && !authUser.needsUsernameSetup; },
+  };
+
   function send(obj) {
     if (settingsSandboxActive && !['client_ping','get_settings_preview'].includes(String(obj?.type || ''))) {
       // The Settings view is a local render of a server-generated Classic board.
@@ -8688,8 +8708,8 @@ function refreshLobbyJoinLinkUi() {
   }
 
   try { sessionStorage.removeItem(AUTO_CREATE_ROOM_KEY); } catch (_) {}
-  pendingDirectJoinRoomCode = parseDirectJoinCodeFromUrl();
-  pendingDirectJoinAsSpectator = parseDirectJoinSpectatorFromUrl();
+  pendingDirectJoinRoomCode = IS_DISCORD_ACTIVITY ? null : parseDirectJoinCodeFromUrl();
+  pendingDirectJoinAsSpectator = IS_DISCORD_ACTIVITY ? false : parseDirectJoinSpectatorFromUrl();
   selectInvitedLobbyMode();
   updateAuthUi();
   if (IS_ADMIN_PORTAL) {
@@ -12918,12 +12938,29 @@ function refreshLobbyJoinLinkUi() {
     revealButton?.addEventListener('keyup', () => setPasswordRevealed(false));
     window.addEventListener('blur', () => setPasswordRevealed(false));
   }
+  if (IS_DISCORD_ACTIVITY) {
+    const create = $('landingCreateBtn');
+    if (create) {
+      create.textContent = 'Create account in browser';
+      create.addEventListener('click', () => {
+        if (typeof window.HexDiscordOpenSignup === 'function') window.HexDiscordOpenSignup();
+      });
+    }
+    const hint = document.createElement('p');
+    hint.className = 'discordActivitySignupHint';
+    hint.textContent = 'Sign in with your Hex Settlers account. New? Create your account on hexsettlers.org, then return to this Activity.';
+    $('authLanding')?.querySelector('.portalForm')?.appendChild(hint);
+  }
   $('landingCreateBtn')?.addEventListener('click', () => {
+    if (IS_DISCORD_ACTIVITY) return;
     $('registerOverlay')?.classList.remove('hidden');
     void showAuthCaptcha('register');
   });
   $('registerCloseBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.add('hidden'));
-  $('landingForgotBtn')?.addEventListener('click', openForgotPasswordScreen);
+  $('landingForgotBtn')?.addEventListener('click', () => {
+    if (IS_DISCORD_ACTIVITY) { window.HexDiscordOpenSignup?.(); return; }
+    openForgotPasswordScreen();
+  });
   $('registerForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const message = $('registerMessage');

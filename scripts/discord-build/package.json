@@ -1,0 +1,9 @@
+{
+  "name": "hexsettlers-discord-build-only",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@discord/embedded-app-sdk": "2.5.0",
+    "esbuild": "0.28.2"
+  }
+}

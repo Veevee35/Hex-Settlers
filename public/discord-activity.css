@@ -1,0 +1,10 @@
+/* Discord iframe-only shell; keep the normal website untouched. */
+body.discord-activity { overscroll-behavior: none; }
+body.discord-activity .discordActivityStatus { position:fixed; z-index:11000; top:max(6px, env(safe-area-inset-top)); right:8px; max-width:min(360px,65vw); display:flex; align-items:center; gap:8px; border:1px solid rgba(151,162,204,.35); background:rgba(18,20,30,.91); color:#f4f6ff; border-radius:10px; box-shadow:0 4px 18px #0007; padding:6px 10px; font:600 12px/1.4 system-ui,sans-serif; pointer-events:none; }
+body.discord-activity .discordActivityStatus[data-error="true"] { color:#ffd2d2; border-color:#d66b6b; }
+body.discord-activity .discordActivitySignupHint { color:#c8d4e8; text-align:center; font-size:12px; line-height:1.5; margin:8px 0 0; }
+@media (max-width:600px) { body.discord-activity .discordActivityStatus { font-size:10px; top:max(4px, env(safe-area-inset-top)); padding:4px 7px; } }
+
+body.discord-activity .discordActivityInvite { display:inline-flex; align-items:center; justify-content:center; border:1px solid #788cd7; background:#4659a4; color:white; border-radius:6px; padding:4px 9px; cursor:pointer; pointer-events:auto; font:inherit; white-space:nowrap; }
+body.discord-activity .discordActivityInvite[hidden] { display:none; }
+body.discord-activity .discordActivityInvite:hover { background:#6176c6; }

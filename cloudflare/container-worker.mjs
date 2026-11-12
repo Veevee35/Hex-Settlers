@@ -9,6 +9,7 @@ const STATE_HOST = 'hex-state.internal';
 // Host routing is checked before ASSETS or the backend are reached.
 import { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath } from './admin-routing.mjs';
 import { trustedClientIp } from './client-identity.mjs';
+import { ACTIVITY_HOST, DISCORD_PROXY_ORIGIN, isActivityHost, permittedActivityOrigin, frameHeadersForActivity } from './discord-routing.mjs';
 export { ADMIN_HOST, isAdminHost, isAdminApiPath, isPrivatePortalAsset, isAllowedAdminPortalPath };
 const JSON_FILES = new Set(['users.json', 'game_history.json', 'game_analytics.json', 'beta_program.json', 'active_rooms.json', 'rating_policy.json', 'neural_ai_model.json', 'build-version.json']);
 const MAX_STATE_UPLOAD = 128 * 1024 * 1024;
@@ -123,7 +124,7 @@ export class HexGameContainer extends Container {
       NODE_ENV: 'production', HOST: '0.0.0.0', PORT: '3000', DATA_DIR: '/data',
       HEX_TRUST_PROXY: 'true',
       HEX_PUBLIC_BASE_URL: String(env.PUBLIC_BASE_URL || ''),
-      HEX_ALLOWED_ORIGINS: [String(env.PUBLIC_BASE_URL || ''), `https://${ADMIN_HOST}`].filter(Boolean).join(','),
+      HEX_ALLOWED_ORIGINS: [String(env.PUBLIC_BASE_URL || ''), `https://${ADMIN_HOST}`, `https://${ACTIVITY_HOST}`, DISCORD_PROXY_ORIGIN].filter(Boolean).join(','),
       HEX_ADMIN_HOST: ADMIN_HOST,
       CLOUDFLARE_STATE_ENDPOINT: `http://${STATE_HOST}`,
       HEX_BUILTIN_ADMIN_ENABLED: 'true',
@@ -141,6 +142,9 @@ export class HexGameContainer extends Container {
       HEX_EMAIL_FROM: 'no-reply@hexsettlers.org', // fixed sender for every transactional email
       TURNSTILE_SITE_KEY: String(env.TURNSTILE_SITE_KEY || ''),
       TURNSTILE_SECRET_KEY: String(env.TURNSTILE_SECRET_KEY || ''),
+      DISCORD_CLIENT_ID: String(env.DISCORD_CLIENT_ID || ''),
+      DISCORD_CLIENT_SECRET: String(env.DISCORD_CLIENT_SECRET || ''),
+      DISCORD_BOT_TOKEN: String(env.DISCORD_BOT_TOKEN || ''),
       RESEND_API_KEY: String(env.RESEND_API_KEY || ''),
       ALLOW_EMPTY_DATABASE: String(env.ALLOW_EMPTY_DATABASE || '0'),
     };
@@ -160,6 +164,7 @@ function hardened(response, request) {
   h.set('Content-Security-Policy', "default-src 'self'; base-uri 'self'; connect-src 'self' ws: wss: https://challenges.cloudflare.com; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
   if (new URL(request.url).protocol === 'https:') h.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   if (/\.(html|css|js|json)$/i.test(new URL(request.url).pathname) || new URL(request.url).pathname === '/') h.set('Cache-Control', 'no-store');
+  frameHeadersForActivity(h, request);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });
 }
 
@@ -184,6 +189,9 @@ export default {
     if (!adminHost && (isAdminApiPath(path) || isPrivatePortalAsset(path))) {
       return hardened(new Response('Not found', { status: 404 }), request);
     }
+    if (isActivityHost(request) && (isAdminApiPath(path) || isPrivatePortalAsset(path))) {
+      return hardened(new Response('Not found', { status: 404 }), request);
+    }
     if (adminHost && !isAllowedAdminPortalPath(path)) {
       return hardened(new Response('Not found', { status: 404 }), request);
     }
@@ -195,7 +203,7 @@ export default {
         : new Response('Template has not been uploaded to R2.', { status: 404 });
     }
     if (isDynamicRequest(url.pathname)) {
-      if (!sameOrigin(request)) return Response.json({ error: 'Origin not allowed' }, { status: 403 });
+      if (!permittedActivityOrigin(request)) return Response.json({ error: 'Origin not allowed' }, { status: 403 });
       if (!env.GAME_GATE_SECRET || !env.HEX_ADMIN_PASSWORD) {
         return Response.json({ error: 'Missing required private game configuration' }, { status: 503 });
       }

@@ -68,6 +68,7 @@ const {
 const { newTotpSecret, totpUri, verifyTotp } = require('./server/admin-totp');
 const { turnstileConfig, verifyTurnstile } = require('./server/turnstile');
 const { loginState, recordFailedLogin, clearLoginFailures, cleanupUnknownLogins } = require('./server/login-protection');
+const { DISCORD_APP_ID, DISCORD_PROXY_ORIGIN, isActivityRequest, issueJoinTicket, verifyJoinTicket, verifyDiscordActivity } = require('./server/discord-activity');
 const {
   DEFAULT_RULES,
   RANKED_SCENARIOS,
@@ -9527,6 +9528,7 @@ function maybePauseDisconnectedTurn(room) {
 function joinRoom(code, userId, name, options = {}) {
   const room = roomByCodeWithPersistence(code);
   if (!room) return { ok: false, error: 'Room not found.' };
+  if (room.discordInstanceId && !options.activityJoin) return { ok: false, error: 'Join this lobby through its Discord Activity.' };
   ensureRoomRoleLists(room);
   if (!canAccessRoom(room, userId)) return { ok: false, error: 'Room not found.' };
 
@@ -10202,6 +10204,7 @@ const adminActionLimiter = new SlidingWindowRateLimiter({
 // A dedicated limiter prevents accidental repeated provider sends from the
 // admin diagnostic, without restricting normal reporting and admin analytics.
 const betaEmailTestLimiter = new SlidingWindowRateLimiter({ maxAttempts: 2, windowMs: 60_000 });
+const discordActivityLimiter = new SlidingWindowRateLimiter({ maxAttempts: 8, windowMs: 60_000 });
 const accountActionLimiter = new SlidingWindowRateLimiter({
   maxAttempts: 30,
   windowMs: 60_000,
@@ -10696,7 +10699,14 @@ async function requireCaptcha(req, token, action) {
   }
   const result = await verifyTurnstile(token, {
     secret, action,
-    hostname: forwardedHost(req, APP_CONFIG.trustProxy).split(':')[0],
+    // Discord's proxy changes the browser's actual Turnstile hostname to
+    // <application-id>.discordsays.com even though the Worker fetches from
+    // activity.hexsettlers.org. Compare against that precise hostname only
+    // for a request originating from the allowlisted Discord proxy.
+    hostname: isActivityRequest(req, APP_CONFIG.trustProxy) &&
+      String(req.headers.origin || '') === DISCORD_PROXY_ORIGIN
+      ? new URL(DISCORD_PROXY_ORIGIN).hostname
+      : forwardedHost(req, APP_CONFIG.trustProxy).split(':')[0],
     remoteIp: clientAddress(req, APP_CONFIG.trustProxy),
   });
   return result.ok ? { ok: true } : { ok: false, status: 403, error: result.error };
@@ -10823,6 +10833,7 @@ async function handleAuthHttp(req, res, urlPath) {
   }
 
   const secure = requestIsTls(req, APP_CONFIG.trustProxy);
+  const embedded = secure && isActivityRequest(req, APP_CONFIG.trustProxy);
   let body;
   try { body = await readJsonBody(req, urlPath === '/api/admin/history-import' ? MAX_HISTORY_IMPORT_BYTES : 16 * 1024); }
   catch (error) {
@@ -10865,7 +10876,7 @@ async function handleAuthHttp(req, res, urlPath) {
     await saveUsersDb();
     adminMfaPending.delete(hash);
     sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) },
-      { 'Set-Cookie': [sessionCookie(token, { secure, maxAgeSeconds: 12 * 60 * 60 }), clearPendingAdminCookie(secure)] });
+      { 'Set-Cookie': [sessionCookie(token, { secure, embedded, maxAgeSeconds: 12 * 60 * 60 }), clearPendingAdminCookie(secure)] });
     console.info('[admin-auth] MFA verified for administrator', user.id);
     return;
   }
@@ -10880,7 +10891,7 @@ async function handleAuthHttp(req, res, urlPath) {
       await saveUsersDb();
       disconnectUserSessions(user.id, 'Your account was signed out. Please log in again.');
     }
-    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': [clearSessionCookie({ secure }), clearPendingAdminCookie(secure)] });
+    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': [clearSessionCookie({ secure, embedded }), clearPendingAdminCookie(secure)] });
     return;
   }
 
@@ -10888,7 +10899,7 @@ async function handleAuthHttp(req, res, urlPath) {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
     const user = authenticateByToken(token, { requireAdminMfa: adminHost });
     if (!user) {
-      sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+      sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure, embedded }) });
       return;
     }
     await saveUsersDb();
@@ -10909,7 +10920,7 @@ async function handleAuthHttp(req, res, urlPath) {
       return;
     }
     await saveUsersDb();
-    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure, embedded }) });
     return;
   }
 
@@ -10941,7 +10952,7 @@ async function handleAuthHttp(req, res, urlPath) {
       sendHttpJson(req, res, 200, {
         ok: true, convertedToEmailLogin: true,
         message: 'Email verified. OAuth sign-in has been disconnected. Log in using your email address (or username) and password; your ratings, stats and friends are unchanged.',
-      }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+      }, { 'Set-Cookie': clearSessionCookie({ secure, embedded }) });
       setTimeout(() => disconnectUserSessions(user.id, 'Your account now uses email/password. Please sign in again.'), 25);
     } else {
       sendHttpJson(req, res, 200, { ok: true, message: 'Email verified. You can now sign in with this email and your password.' });
@@ -11044,7 +11055,7 @@ async function handleAuthHttp(req, res, urlPath) {
     }
     await saveUsersDb();
     sendHttpJson(req, res, 200, { ok: true, message: 'Password reset. You can now log in with the new password.' }, {
-      'Set-Cookie': clearSessionCookie({ secure }),
+      'Set-Cookie': clearSessionCookie({ secure, embedded }),
     });
     setTimeout(() => disconnectUserSessions(user.id, 'Your password was reset. Please log in again.'), 25);
     return;
@@ -11127,13 +11138,13 @@ async function handleAuthHttp(req, res, urlPath) {
     adminMfaPending.set(hashSessionToken(nonce), { userId: user.id, expiresAt: now() + ADMIN_MFA_PENDING_MS, attempts: 0 });
     console.info('[admin-auth] Password verified; authenticator required for', user.id);
     sendHttpJson(req, res, 200, { ok: true, mfaRequired: true, mfaSetup: !user.adminTotp?.secret },
-      { 'Set-Cookie': [clearSessionCookie({ secure }), pendingAdminCookie(nonce, secure)] });
+      { 'Set-Cookie': [clearSessionCookie({ secure, embedded }), pendingAdminCookie(nonce, secure)] });
     return;
   }
   user.lastLoginAt = now();
   const token = issueAuthToken(user);
   await saveUsersDb();
-  sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+  sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure, embedded }) });
 }
 
 function requestIsAdminHostname(req) {
@@ -11744,10 +11755,11 @@ async function handleAccountHttp(req, res, urlPath) {
   }
 
   const secure = requestIsTls(req, APP_CONFIG.trustProxy);
+  const embedded = secure && isActivityRequest(req, APP_CONFIG.trustProxy);
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
   const viewer = authenticateByToken(token, { requireAdminMfa: !!process.env.HEX_ADMIN_HOST && requestIsAdminHostname(req) });
   if (!viewer) {
-    sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure }) });
+    sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure, embedded }) });
     return;
   }
 
@@ -11979,7 +11991,7 @@ async function handleAccountHttp(req, res, urlPath) {
       ok: true,
       user: safeUserPublic(viewer),
       message: 'Password changed. Other saved sessions were signed out.',
-    }, { 'Set-Cookie': sessionCookie(newToken, { secure, ...(currentMfa ? { maxAgeSeconds: 12 * 60 * 60 } : {}) }) });
+    }, { 'Set-Cookie': sessionCookie(newToken, { secure, embedded, ...(currentMfa ? { maxAgeSeconds: 12 * 60 * 60 } : {}) }) });
     setTimeout(() => disconnectUserSessions(viewer.id, 'Your account password changed. Reconnecting securely.'), 75);
     return;
   }
@@ -12164,6 +12176,38 @@ async function handleBetaHttp(req, res, urlPath) {
   sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
 }
 
+async function handleDiscordActivitySession(req, res) {
+  if (req.method !== 'POST' || !isActivityRequest(req, APP_CONFIG.trustProxy)) {
+    sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' }); return;
+  }
+  const origin = String(req.headers.origin || '');
+  if (origin !== DISCORD_PROXY_ORIGIN) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'Launch this Activity through Discord.' }); return;
+  }
+  const user = authenticateByToken(parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME]);
+  if (!user || user.needsUsernameSetup) {
+    sendHttpJson(req, res, 401, { ok: false, error: 'Sign in to your Hex Settlers account before joining the Activity.' }); return;
+  }
+  if (!discordActivityLimiter.consume(`${user.id}:${clientAddress(req, APP_CONFIG.trustProxy)}`).allowed) {
+    sendHttpJson(req, res, 429, { ok: false, error: 'Too many Discord Activity requests. Try again shortly.' }); return;
+  }
+  let body;
+  try { body = await readJsonBody(req, 4096); } catch { sendHttpJson(req, res, 400, { ok: false, error: 'Invalid request.' }); return; }
+  try {
+    const discord = await verifyDiscordActivity({
+      code: body.code, instanceId: body.instanceId,
+      clientId: process.env.DISCORD_CLIENT_ID, clientSecret: process.env.DISCORD_CLIENT_SECRET,
+      botToken: process.env.DISCORD_BOT_TOKEN,
+    });
+    const ticket = issueJoinTicket({ userId: user.id, discordId: discord.discordId,
+      instanceId: body.instanceId, secret: process.env.HEX_UPSTREAM_SHARED_SECRET });
+    sendHttpJson(req, res, 200, { ok: true, accessToken: discord.accessToken, ticket, discordName: discord.displayName });
+  } catch (error) {
+    console.warn('[discord-activity] Session verification rejected:', error.message);
+    sendHttpJson(req, res, 403, { ok: false, error: 'Discord authorization or Activity participation could not be verified. Check your Discord application secrets and relaunch the Activity.' });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     let urlPath = req.url.split('?')[0];
@@ -12173,6 +12217,10 @@ const server = http.createServer(async (req, res) => {
     if ((urlPath === '/health' || urlPath === '/ws' || urlPath.startsWith('/api/')) && !trustedProxyRequest(req)) {
       sendHttpJson(req, res, 403, { ok: false, error: 'Origin proxy authentication failed.' });
       return;
+    }
+    if (urlPath === '/api/discord/activity/session') {
+      if (!trustedProxyRequest(req)) { sendHttpJson(req, res, 403, { ok: false, error: 'Proxy authorization failed.' }); return; }
+      await handleDiscordActivitySession(req, res); return;
     }
     if (urlPath === '/api/build-version') {
       await buildVersionReady;
@@ -12707,6 +12755,35 @@ if (msg.type === 'create_tutorial_room') {
       await scheduleActiveRoomsSave({ throwOnError: true });
       sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: true, role: 'player' });
       sendRoomStateToSocket(room, ws, ws._userId);
+      return;
+    }
+
+    if (msg.type === 'discord_activity_join') {
+      if (!ws._userId) { sendJson(ws, { type: 'auth_required', reason: 'Sign in to Hex Settlers first.' }); return; }
+      // HTTP authorization proves BOTH the Discord user and membership in this
+      // Discord Activity instance. A raw client-supplied instanceId is not trusted.
+      const verified = verifyJoinTicket(msg.ticket, ws._userId, process.env.HEX_UPSTREAM_SHARED_SECRET);
+      if (!verified) { sendJson(ws, { type: 'error', error: 'Discord Activity verification expired. Reopen this Activity.' }); return; }
+      const user = findUserById(ws._userId);
+      if (!user) { sendJson(ws, { type: 'auth_required' }); return; }
+      const displayName = authenticatedDisplayName(user, user.displayName || user.username, 'Player');
+      let room = Array.from(rooms.values()).find(candidate => candidate && !candidate.ranked && candidate.discordInstanceId === verified.i);
+      if (!room) {
+        try { room = createRoom(ws._userId, displayName); }
+        catch (error) { sendJson(ws, { type: 'error', error: error.message || 'Could not create lobby.' }); return; }
+        room.discordInstanceId = verified.i;
+        room.visibility = 'private';
+        room.friendsOnly = false;
+      } else if (!roomRole(room, ws._userId)) {
+        const joined = joinRoom(room.code, ws._userId, displayName, { activityJoin: true });
+        if (!joined.ok) { sendJson(ws, { type: 'error', error: joined.error }); return; }
+      }
+      bindSocketToRoomMember(room, ws._userId, ws, 'This Activity is active in another session.');
+      ensurePreview(room, !room.preview);
+      await scheduleActiveRoomsSave({ throwOnError: true });
+      sendJson(ws, { type: 'joined', playerId: ws._userId, room: roomSnapshot(room), isHost: ws._userId === room.hostId, role: roomRole(room, ws._userId) || 'player', discordActivity: true });
+      sendRoomStateToSocket(room, ws, ws._userId);
+      broadcastRoom(room);
       return;
     }
 

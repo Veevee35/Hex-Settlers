@@ -13,7 +13,8 @@
     "test:integration": "node --test test/server.integration.test.js",
     "check": "tsc -p tsconfig.bootstrap.json && node --test && node --check server.js && node --check public/app.js",
     "electron:start": "npm --prefix desktop run start",
-    "electron:dist": "npm --prefix desktop run dist --"
+    "electron:dist": "npm --prefix desktop run dist --",
+    "build:discord": "node scripts/build-discord.cjs"
   },
   "dependencies": {
     "ws": "8.22.2"
