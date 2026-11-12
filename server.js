@@ -69,6 +69,7 @@ const { newTotpSecret, totpUri, verifyTotp } = require('./server/admin-totp');
 const { turnstileConfig, verifyTurnstile } = require('./server/turnstile');
 const { loginState, recordFailedLogin, clearLoginFailures, cleanupUnknownLogins } = require('./server/login-protection');
 const { DISCORD_APP_ID, DISCORD_PROXY_ORIGIN, isActivityRequest, issueJoinTicket, verifyJoinTicket, verifyDiscordActivity } = require('./server/discord-activity');
+const { createPairingStore, validPairId } = require('./server/discord-login-pair');
 const {
   DEFAULT_RULES,
   RANKED_SCENARIOS,
@@ -10719,6 +10720,66 @@ function sendLoginLock(req, res, lockedUntil) {
   { 'Retry-After': String(remaining) });
 }
 
+// Pairing approvals are deliberately explicit: a link alone cannot authorize
+// an Activity. Only the logged-in player on the first-party website may do so.
+function discordProxyCookie(req) {
+  return isActivityRequest(req, APP_CONFIG.trustProxy) &&
+    String(req.headers.origin || '') === DISCORD_PROXY_ORIGIN;
+}
+const discordLoginPairs = createPairingStore();
+const discordPairStartLimiter = new SlidingWindowRateLimiter({ maxAttempts: 12, windowMs: 60_000 });
+async function handleDiscordPairHttp(req, res, urlPath) {
+  const embedded = isActivityRequest(req, APP_CONFIG.trustProxy);
+  const host = forwardedHost(req, APP_CONFIG.trustProxy).split(':')[0].toLowerCase();
+  const origin = String(req.headers.origin || '');
+  const expectedOrigin = embedded ? new Set([`https://${host}`, DISCORD_PROXY_ORIGIN]) : new Set(['https://hexsettlers.org']);
+  if (req.method !== 'POST' || !expectedOrigin.has(origin) ||
+    (embedded ? host !== 'activity.hexsettlers.org' : host !== 'hexsettlers.org')) {
+    sendHttpJson(req, res, 403, { ok: false, error: 'This sign-in action is not available here.' });
+    return;
+  }
+  let body;
+  try { body = await readJsonBody(req, 2048); }
+  catch { sendHttpJson(req, res, 400, { ok: false, error: 'Invalid request.' }); return; }
+  if (urlPath === '/api/auth/discord-pair/start' && embedded) {
+    if (!discordPairStartLimiter.consume(clientAddress(req, APP_CONFIG.trustProxy)).allowed) {
+      sendHttpJson(req, res, 429, { ok: false, error: 'Too many sign-in requests. Try again shortly.' }); return;
+    }
+    const pair = discordLoginPairs.start();
+    if (!pair) { sendHttpJson(req, res, 503, { ok: false, error: 'Too many pending sign-ins. Try again shortly.' }); return; }
+    sendHttpJson(req, res, 200, { ok: true, ...pair });
+    return;
+  }
+  if (urlPath === '/api/auth/discord-pair/approve' && !embedded) {
+    const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+    const viewer = authenticateByToken(token);
+    if (!viewer) { sendHttpJson(req, res, 401, { ok: false, error: 'Sign in first to approve this Activity.' }); return; }
+    if (!validPairId(body.pairId) || !discordLoginPairs.approve(body.pairId, viewer.id, hashSessionToken(token))) {
+      sendHttpJson(req, res, 410, { ok: false, error: 'This Activity sign-in has expired or was already approved. Start again in Discord.' }); return;
+    }
+    sendHttpJson(req, res, 200, { ok: true, message: 'Sign-in approved. Return to your Discord Activity.' });
+    return;
+  }
+  if (urlPath === '/api/auth/discord-pair/status' && embedded) {
+    const result = discordLoginPairs.redeem(body.pairId, body.secret);
+    if (result.state === 'expired') { sendHttpJson(req, res, 410, { ok: false, error: 'Sign-in expired. Try again.' }); return; }
+    if (result.state === 'pending') { sendHttpJson(req, res, 200, { ok: true, state: 'pending' }); return; }
+    const user = findUserById(result.userId);
+    // Approval expires if the browser session used to approve was revoked.
+    const stillAuthorized = !!user && (user.tokens || []).some(t =>
+      t && t.tokenHash && Number(t.expiresAt || 0) > now() &&
+      timingSafeHexEqual(t.tokenHash, result.sessionHash));
+    if (!stillAuthorized) { sendHttpJson(req, res, 401, { ok: false, error: 'That browser session has expired. Please sign in again.' }); return; }
+    user.lastLoginAt = now();
+    const token = issueAuthToken(user);
+    await saveUsersDb();
+    sendHttpJson(req, res, 200, { ok: true, state: 'connected', user: safeUserPublic(user) },
+      { 'Set-Cookie': sessionCookie(token, { secure: requestIsTls(req, APP_CONFIG.trustProxy), embedded: true, discordProxy: discordProxyCookie(req) }) });
+    return;
+  }
+  sendHttpJson(req, res, 404, { ok: false, error: 'Not found.' });
+}
+
 async function handleOAuthHttp(req, res, urlPath) {
   if (process.env.HEX_ADMIN_HOST && requestIsAdminHostname(req)) {
     sendHttpJson(req, res, 403, { ok: false, error: 'Administrator sign-in requires password and authenticator.' }); return;
@@ -10876,7 +10937,7 @@ async function handleAuthHttp(req, res, urlPath) {
     await saveUsersDb();
     adminMfaPending.delete(hash);
     sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) },
-      { 'Set-Cookie': [sessionCookie(token, { secure, embedded, maxAgeSeconds: 12 * 60 * 60 }), clearPendingAdminCookie(secure)] });
+      { 'Set-Cookie': [sessionCookie(token, { secure, embedded, discordProxy: discordProxyCookie(req), maxAgeSeconds: 12 * 60 * 60 }), clearPendingAdminCookie(secure)] });
     console.info('[admin-auth] MFA verified for administrator', user.id);
     return;
   }
@@ -10891,7 +10952,7 @@ async function handleAuthHttp(req, res, urlPath) {
       await saveUsersDb();
       disconnectUserSessions(user.id, 'Your account was signed out. Please log in again.');
     }
-    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': [clearSessionCookie({ secure, embedded }), clearPendingAdminCookie(secure)] });
+    sendHttpJson(req, res, 200, { ok: true }, { 'Set-Cookie': [clearSessionCookie({ secure, embedded, discordProxy: discordProxyCookie(req) }), clearPendingAdminCookie(secure)] });
     return;
   }
 
@@ -10899,7 +10960,7 @@ async function handleAuthHttp(req, res, urlPath) {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
     const user = authenticateByToken(token, { requireAdminMfa: adminHost });
     if (!user) {
-      sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure, embedded }) });
+      sendHttpJson(req, res, 401, { ok: false, error: 'Authentication required.' }, { 'Set-Cookie': clearSessionCookie({ secure, embedded, discordProxy: discordProxyCookie(req) }) });
       return;
     }
     await saveUsersDb();
@@ -10920,7 +10981,7 @@ async function handleAuthHttp(req, res, urlPath) {
       return;
     }
     await saveUsersDb();
-    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure, embedded }) });
+    sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure, embedded, discordProxy: discordProxyCookie(req) }) });
     return;
   }
 
@@ -10952,7 +11013,7 @@ async function handleAuthHttp(req, res, urlPath) {
       sendHttpJson(req, res, 200, {
         ok: true, convertedToEmailLogin: true,
         message: 'Email verified. OAuth sign-in has been disconnected. Log in using your email address (or username) and password; your ratings, stats and friends are unchanged.',
-      }, { 'Set-Cookie': clearSessionCookie({ secure, embedded }) });
+      }, { 'Set-Cookie': clearSessionCookie({ secure, embedded, discordProxy: discordProxyCookie(req) }) });
       setTimeout(() => disconnectUserSessions(user.id, 'Your account now uses email/password. Please sign in again.'), 25);
     } else {
       sendHttpJson(req, res, 200, { ok: true, message: 'Email verified. You can now sign in with this email and your password.' });
@@ -11055,7 +11116,7 @@ async function handleAuthHttp(req, res, urlPath) {
     }
     await saveUsersDb();
     sendHttpJson(req, res, 200, { ok: true, message: 'Password reset. You can now log in with the new password.' }, {
-      'Set-Cookie': clearSessionCookie({ secure, embedded }),
+      'Set-Cookie': clearSessionCookie({ secure, embedded, discordProxy: discordProxyCookie(req) }),
     });
     setTimeout(() => disconnectUserSessions(user.id, 'Your password was reset. Please log in again.'), 25);
     return;
@@ -11138,13 +11199,13 @@ async function handleAuthHttp(req, res, urlPath) {
     adminMfaPending.set(hashSessionToken(nonce), { userId: user.id, expiresAt: now() + ADMIN_MFA_PENDING_MS, attempts: 0 });
     console.info('[admin-auth] Password verified; authenticator required for', user.id);
     sendHttpJson(req, res, 200, { ok: true, mfaRequired: true, mfaSetup: !user.adminTotp?.secret },
-      { 'Set-Cookie': [clearSessionCookie({ secure, embedded }), pendingAdminCookie(nonce, secure)] });
+      { 'Set-Cookie': [clearSessionCookie({ secure, embedded, discordProxy: discordProxyCookie(req) }), pendingAdminCookie(nonce, secure)] });
     return;
   }
   user.lastLoginAt = now();
   const token = issueAuthToken(user);
   await saveUsersDb();
-  sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure, embedded }) });
+  sendHttpJson(req, res, 200, { ok: true, user: safeUserPublic(user) }, { 'Set-Cookie': sessionCookie(token, { secure, embedded, discordProxy: discordProxyCookie(req) }) });
 }
 
 function requestIsAdminHostname(req) {
@@ -12242,6 +12303,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/texture-packs/')) {
       await handleTexturePackHttp(req, res, urlPath);
+      return;
+    }
+    if (urlPath.startsWith('/api/auth/discord-pair/')) {
+      await handleDiscordPairHttp(req, res, urlPath);
       return;
     }
     if (urlPath.startsWith('/api/auth/oauth/')) {

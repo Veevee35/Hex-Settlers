@@ -8,3 +8,17 @@ body.discord-activity .discordActivitySignupHint { color:#c8d4e8; text-align:cen
 body.discord-activity .discordActivityInvite { display:inline-flex; align-items:center; justify-content:center; border:1px solid #788cd7; background:#4659a4; color:white; border-radius:6px; padding:4px 9px; cursor:pointer; pointer-events:auto; font:inherit; white-space:nowrap; }
 body.discord-activity .discordActivityInvite[hidden] { display:none; }
 body.discord-activity .discordActivityInvite:hover { background:#6176c6; }
+
+/* OAuth is approved in a normal browser; the one-time approval panel is
+   visible even if the signed-in game's splash screen is showing. */
+body .discordPairApproval { position:fixed; z-index:12050; top:16px; left:50%; transform:translateX(-50%); width:min(94vw,560px); max-height:calc(100vh - 32px); overflow-y:auto; background:#171d2c; border:1px solid #788cd7; color:#edf3ff; border-radius:14px; padding:16px 18px; box-shadow:0 14px 55px #000b; font:14px/1.5 system-ui,sans-serif; }
+.discordPairApproval h2 { font-size:19px; margin:0 0 8px; }
+.discordPairApproval p { margin:8px 0; }
+.discordPairApproval .discordPairAccount { font-weight:650; }
+.discordPairActions { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 2px; }
+.discordPairApproval .btn { width:auto; }
+.discordPairApproval .btn:disabled { opacity:.5; cursor:not-allowed; }
+.discordPairMessage { color:#cce5c1; }
+body.discord-activity .discordBrowserLogin { margin-top:8px; }
+
+body .discordPairApproval.discordPairApprovalInline { position:relative; z-index:1; top:auto; left:auto; transform:none; width:auto; max-height:none; margin:0 0 16px; padding:12px 14px; box-shadow:none; }

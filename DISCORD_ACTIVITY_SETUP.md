@@ -132,3 +132,12 @@ If `POST /api/discord/activity/session` fails: check the Worker secrets, verify 
 - https://docs.discord.com/developers/activities/development-guides/local-development
 - https://docs.discord.com/developers/activities/development-guides/multiplayer-experience
 - https://docs.discord.com/developers/developer-tools/embedded-app-sdk
+
+## Login compatibility update
+
+The latest login-specific corrections, including Google/GitHub/Cloudflare OAuth
+inside Discord and the one-time browser approval flow, are described in
+`DISCORD_ACTIVITY_LOGIN_FIX.md`. The earlier instructions above for external
+account creation are still valid. Provider sign-in now starts directly from the
+Activity's provider buttons, and account approval returns to the Activity
+without copying third-party provider tokens into the embedded browser.

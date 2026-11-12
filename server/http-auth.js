@@ -19,21 +19,25 @@ function requestIsTls(request, trustProxy = false) {
   return !!(request && request.socket && request.socket.encrypted) || forwarded === 'https';
 }
 
-function sessionCookie(token, { secure = false, embedded = false, maxAgeSeconds = 30 * 24 * 60 * 60 } = {}) {
-  // A Discord Activity is inside an iframe. Set a host-only, partitioned
-  // session cookie so account login works without sharing the public site's
-  // normal SameSite=Strict session with embedded clients.
+function sessionCookie(token, { secure = false, embedded = false, discordProxy = false, maxAgeSeconds = 30 * 24 * 60 * 60 } = {}) {
+  // A Discord Activity is inside an iframe. Use a partitioned cookie tied
+  // to the Discord proxy origin; the normal site remains SameSite=Strict.
   const partitioned = !!secure && !!embedded;
   const parts = [`${SESSION_COOKIE_NAME}=${encodeURIComponent(String(token || ''))}`, 'Path=/', 'HttpOnly',
     `SameSite=${partitioned ? 'None' : 'Strict'}`,
     `Max-Age=${Math.max(0, Math.floor(Number(maxAgeSeconds || 0)))}`];
   if (secure) parts.push('Secure');
+  // Requests proxied through Discord are seen by the browser as originating
+  // from the app-specific discordsays.com hostname, not our backend hostname.
+  // Match Discord's documented cookie domain to keep the browser session on
+  // the correct Activity proxy. No such Domain is set on the public site.
+  if (partitioned && discordProxy) parts.push('Domain=1477895334406656101.discordsays.com');
   if (partitioned) parts.push('Partitioned');
   return parts.join('; ');
 }
 
-function clearSessionCookie({ secure = false, embedded = false } = {}) {
-  return sessionCookie('', { secure, embedded, maxAgeSeconds: 0 });
+function clearSessionCookie({ secure = false, embedded = false, discordProxy = false } = {}) {
+  return sessionCookie('', { secure, embedded, discordProxy, maxAgeSeconds: 0 });
 }
 
 function readJsonBody(request, maxBytes = 16 * 1024) {

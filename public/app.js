@@ -1949,6 +1949,7 @@
       }
     }
     updateAuthUi();
+    window.dispatchEvent(new Event('hexsettlers:session-change'));
   }
 
   const captchaTokens = { register: '', login: '' };
@@ -2015,6 +2016,14 @@
   async function startOAuthProvider(provider, intent = 'login') {
     if (!Object.hasOwn(OAUTH_LABELS, provider)) return;
     const returnUrl = window.location.pathname + window.location.search;
+    if (IS_DISCORD_ACTIVITY) {
+      if (typeof window.HexDiscordOpenOAuth === 'function') await window.HexDiscordOpenOAuth(provider);
+      else {
+        const banner = $('landingError');
+        if (banner) { banner.textContent = 'Discord is initializing. Try again when the connection indicator is ready.'; banner.classList.remove('hidden'); }
+      }
+      return;
+    }
     if (intent === 'register') {
       const message = $('registerMessage');
       await showAuthCaptcha('register');
@@ -2051,7 +2060,117 @@
       parent?.classList.toggle('hidden', !Object.values(availability).some(Boolean));
     }
   }
-  if (!IS_DISCORD_ACTIVITY) void setupOAuthSignIn();
+  if (!IS_ADMIN_PORTAL) void setupOAuthSignIn();
+
+  // Discord OAuth happens on the normal first-party website, never inside
+  // Discord's sandbox. A short-lived, explicit approval connects that account
+  // back to the Activity without leaking provider tokens or a website cookie.
+  function setupExternalDiscordPairApproval() {
+    if (IS_DISCORD_ACTIVITY || IS_ADMIN_PORTAL || location.hostname !== 'hexsettlers.org') return;
+    const params = new URLSearchParams(location.search);
+    const pairId = params.get('activity_link') || '';
+    if (!/^[A-Za-z0-9_-]{24}$/.test(pairId)) return;
+    const code = pairId.slice(-6).toUpperCase();
+    const frame = document.createElement('section');
+    frame.className = 'discordPairApproval';
+    frame.setAttribute('role', 'region');
+    frame.setAttribute('aria-label', 'Discord Activity sign-in approval');
+    const title = document.createElement('h2');
+    title.textContent = 'Connect to your Discord Activity';
+    const detail = document.createElement('p');
+    detail.textContent = `Confirm that ${code} matches the code shown in Discord. Sign in to your Hex Settlers account on this website, then approve the connection.`;
+    const account = document.createElement('p');
+    account.className = 'discordPairAccount';
+    const preferred = params.get('activity_provider') || '';
+    const selectedProvider = Object.hasOwn(OAUTH_LABELS, preferred) ? preferred : '';
+    const continueProvider = document.createElement('button');
+    continueProvider.type = 'button';
+    continueProvider.className = 'btn';
+    continueProvider.textContent = `Continue with ${OAUTH_LABELS[selectedProvider] || 'provider'}`;
+    continueProvider.hidden = !selectedProvider;
+    continueProvider.addEventListener('click', () => { void startOAuthProvider(selectedProvider, 'login'); });
+    const actions = document.createElement('div');
+    actions.className = 'discordPairActions';
+    const approve = document.createElement('button');
+    approve.type = 'button';
+    approve.className = 'btn primary';
+    approve.textContent = 'Approve Discord sign-in';
+    const switchAccount = document.createElement('button');
+    switchAccount.type = 'button';
+    switchAccount.className = 'btn';
+    switchAccount.textContent = 'Use another account';
+    switchAccount.addEventListener('click', async () => {
+      if (!authUser) return;
+      switchAccount.disabled = true;
+      try {
+        await authApi('logout');
+        setAuthState(null, null, { clearToken: true });
+        reconnectForCookieAuth();
+        message.textContent = 'Signed out. Choose the Hex Settlers account you want to use.';
+      } catch (error) { message.textContent = error.message || 'Could not switch accounts.'; }
+      finally { switchAccount.disabled = false; }
+    });
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn';
+    cancel.textContent = 'Not now';
+    const message = document.createElement('p');
+    message.className = 'discordPairMessage';
+    message.setAttribute('role', 'status');
+    actions.append(approve, switchAccount, cancel);
+    frame.append(title, detail, account, continueProvider, actions, message);
+    document.body.appendChild(frame);
+    function update() {
+      if (!frame.isConnected) return;
+      // Keep the normal login form usable: the approval explainer belongs
+      // inside its card until the user is authenticated, then floats over
+      // whichever signed-in game screen is visible.
+      const loginCard = $('authLanding')?.querySelector('.portalCard');
+      if (!authUser && loginCard && frame.parentNode !== loginCard) loginCard.prepend(frame);
+      if (authUser && frame.parentNode !== document.body) document.body.appendChild(frame);
+      frame.classList.toggle('discordPairApprovalInline', !authUser);
+      continueProvider.hidden = !selectedProvider || !!authUser;
+      switchAccount.hidden = !authUser;
+      if (authUser?.needsUsernameSetup) {
+        account.textContent = 'Finish choosing your username before approving Discord sign-in.';
+        approve.disabled = true;
+      } else if (authUser) {
+        account.textContent = `Currently signed in as ${authUser.username}. Only approve if this is the account you want to play with.`;
+        approve.disabled = false;
+      } else {
+        account.textContent = 'Not signed in. Use the login form below or a Google, GitHub, or Cloudflare sign-in button.';
+        approve.disabled = true;
+      }
+    }
+    window.addEventListener('hexsettlers:session-change', update);
+    approve.addEventListener('click', async () => {
+      if (!authUser || authUser.needsUsernameSetup) return;
+      approve.disabled = true;
+      try {
+        const result = await authApi('discord-pair/approve', { pairId });
+        message.textContent = result.message || 'Approved. Return to Discord to play.';
+        account.textContent = 'This one-time sign-in has been approved. You may close this browser tab and return to Discord.';
+        actions.remove();
+        // A stale link cannot be reused after the user revisits the website.
+        const next = new URL(location.href);
+        next.searchParams.delete('activity_link');
+        next.searchParams.delete('activity_provider');
+        history.replaceState(null, '', next.pathname + next.search + next.hash);
+      } catch (error) {
+        message.textContent = error.message || 'Could not approve the sign-in.';
+        update();
+      }
+    });
+    cancel.addEventListener('click', () => {
+      frame.remove();
+      const next = new URL(location.href);
+      next.searchParams.delete('activity_link');
+      next.searchParams.delete('activity_provider');
+      history.replaceState(null, '', next.pathname + next.search + next.hash);
+    });
+    update();
+  }
+  setupExternalDiscordPairApproval();
 
   // First-time provider sign-ups must complete this screen before using a
   // lobby. Existing OAuth users with a selected username are unaffected.
@@ -2184,6 +2303,17 @@
     if (IS_ADMIN_PORTAL && result.mfaRequired) {
       await showAdminMfaChallenge(result.mfaSetup);
       return;
+    }
+    if (IS_DISCORD_ACTIVITY) {
+      // A Discord iframe runs at the discordsays.com proxy origin. Do not
+      // display a successful login if that client rejected the partitioned
+      // session cookie; the websocket would otherwise remain anonymous.
+      try {
+        const session = await authApi('session');
+        if (!session.user || session.user.id !== result.user?.id) throw Error('Session cookie missing.');
+      } catch {
+        throw new Error('Discord could not retain your login session. Choose "Sign in in browser" below to connect securely.');
+      }
     }
     setAuthState(result.user, null, { clearToken: true });
     reconnectForCookieAuth();
@@ -8626,6 +8756,16 @@ function refreshLobbyJoinLinkUi() {
   }
 
   window.HexSettlersActivityBridge = {
+    async acceptWebSession() {
+      if (!IS_DISCORD_ACTIVITY) return false;
+      try {
+        const session = await authApi('session');
+        if (!session.user) return false;
+        setAuthState(session.user, null, { clearToken: true });
+        reconnectForCookieAuth();
+        return true;
+      } catch { return false; }
+    },
     sendJoin(ticket) {
       if (!IS_DISCORD_ACTIVITY || !authUser || !websocketAuthenticated || !ws || ws.readyState !== WebSocket.OPEN) return false;
       send({ type: 'discord_activity_join', ticket });
@@ -8720,6 +8860,13 @@ function refreshLobbyJoinLinkUi() {
     connect();
   }
   handleOAuthReturnFromUrl();
+  if (!IS_DISCORD_ACTIVITY && !IS_ADMIN_PORTAL) {
+    const screen = new URLSearchParams(location.search).get('auth_screen');
+    if (screen === 'register') {
+      $('registerOverlay')?.classList.remove('hidden');
+      void showAuthCaptcha('register');
+    } else if (screen === 'forgot') openForgotPasswordScreen();
+  }
   setTimeout(handleAccountActionLinkFromUrl, 0);
   // Keep the countdown clock ticking even when no state messages arrive.
   if (!IS_ADMIN_PORTAL) ensureTimerUiInterval();
@@ -12939,11 +13086,17 @@ function refreshLobbyJoinLinkUi() {
     window.addEventListener('blur', () => setPasswordRevealed(false));
   }
   if (IS_DISCORD_ACTIVITY) {
+    const browserLogin = document.createElement('button');
+    browserLogin.type = 'button';
+    browserLogin.className = 'btn discordBrowserLogin';
+    browserLogin.textContent = 'Sign in in browser';
+    browserLogin.addEventListener('click', () => window.HexDiscordOpenOAuth?.(''));
+    $('landingCreateBtn')?.before(browserLogin);
     const create = $('landingCreateBtn');
     if (create) {
       create.textContent = 'Create account in browser';
       create.addEventListener('click', () => {
-        if (typeof window.HexDiscordOpenSignup === 'function') window.HexDiscordOpenSignup();
+        if (typeof window.HexDiscordOpenSignup === 'function') window.HexDiscordOpenSignup('register');
       });
     }
     const hint = document.createElement('p');
@@ -12958,7 +13111,7 @@ function refreshLobbyJoinLinkUi() {
   });
   $('registerCloseBtn')?.addEventListener('click', () => $('registerOverlay')?.classList.add('hidden'));
   $('landingForgotBtn')?.addEventListener('click', () => {
-    if (IS_DISCORD_ACTIVITY) { window.HexDiscordOpenSignup?.(); return; }
+    if (IS_DISCORD_ACTIVITY) { window.HexDiscordOpenSignup?.('forgot'); return; }
     openForgotPasswordScreen();
   });
   $('registerForm')?.addEventListener('submit', async (event) => {

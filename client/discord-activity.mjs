@@ -15,6 +15,7 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
   let attached = false;
   let lastAttemptAt = 0;
   let participants = null;
+  let pendingBrowserLogin = null;
 
   const banner = document.createElement('section');
   banner.className = 'discordActivityStatus';
@@ -48,18 +49,82 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
     } catch { /* Nonessential; the game remains playable. */ }
   }
 
-  // Account creation and Turnstile verification occur on the first-party site.
-  // Discord's iframe CSP and OAuth redirects make external signup safer.
-  window.HexDiscordOpenSignup = async function openSignup() {
-    const url = 'https://hexsettlers.org/';
+  // Third-party OAuth authorization screens must never be loaded inside the
+  // Activity iframe. Instead open the first-party website using Discord's
+  // external-link command, and poll a one-time approved login request.
+  async function openWebsite(url) {
+    if (sdkReady) return sdk.commands.openExternalLink({ url });
+    throw new Error('Discord is still connecting. Try again in a moment.');
+  }
+
+  window.HexDiscordOpenSignup = async function openSignup(screen = 'register') {
     try {
-      if (sdkReady) {
-        await sdk.commands.openExternalLink({ url });
+      await openWebsite(`https://hexsettlers.org/?auth_screen=${screen === 'forgot' ? 'forgot' : 'register'}`);
+    } catch (error) {
+      setStatus(error.message || 'Could not open account management.', true);
+    }
+  };
+
+  window.HexDiscordOpenOAuth = async function openOAuth(provider = '') {
+    if (pendingBrowserLogin) {
+      setStatus('A browser sign-in is already pending. Complete it or restart the Activity.');
+      return;
+    }
+    if (!sdkReady) { setStatus('Discord is still connecting. Try again.', true); return; }
+    try {
+      const response = await fetch('/api/auth/discord-pair/start', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok || !data.pairId || !data.secret) throw new Error(data.error || 'Could not prepare secure sign-in.');
+      const pair = { id: data.pairId, secret: data.secret, expiresAt: data.expiresAt };
+      pendingBrowserLogin = pair;
+      const link = new URL('https://hexsettlers.org/');
+      link.searchParams.set('activity_link', pair.id);
+      if (['google', 'github', 'cloudflare'].includes(provider)) link.searchParams.set('activity_provider', provider);
+      setStatus(`Browser sign-in · code ${data.code} · expires in 10 min`);
+      await openWebsite(link.href);
+      // Poll only while this Activity is running; never copy website cookies
+      // or provider OAuth tokens to this iframe or its local storage.
+      void pollBrowserLogin(pair);
+    } catch (error) {
+      pendingBrowserLogin = null;
+      setStatus(error.message || 'Could not open browser sign-in.', true);
+    }
+  };
+
+  async function pollBrowserLogin(pair) {
+    while (pendingBrowserLogin === pair && Date.now() < pair.expiresAt) {
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      if (pendingBrowserLogin !== pair) return;
+      try {
+        const response = await fetch('/api/auth/discord-pair/status', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pairId: pair.id, secret: pair.secret }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Browser sign-in expired.');
+        if (data.state !== 'connected') continue;
+        pendingBrowserLogin = null;
+        if (!(await window.HexSettlersActivityBridge?.acceptWebSession?.())) {
+          setStatus('Login approved, but the Discord browser did not retain its session cookie. Check cookie settings and retry.', true);
+          return;
+        }
+        setStatus('Browser login complete · connecting to Discord lobby…');
+        return;
+      } catch (error) {
+        pendingBrowserLogin = null;
+        setStatus(error.message || 'Browser sign-in failed.', true);
         return;
       }
-    } catch { /* Fall back if the Discord client does not support the command. */ }
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
+    }
+    if (pendingBrowserLogin === pair) {
+      pendingBrowserLogin = null;
+      setStatus('Browser sign-in expired. Select a provider to try again.', true);
+    }
+  }
 
   async function enterLobby() {
     if (!sdkReady || busy || !window.HexSettlersActivityBridge?.isAuthenticated()) return;
@@ -101,6 +166,7 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
 
   window.addEventListener('hexsettlers:discord-auth', () => { void enterLobby(); });
   window.addEventListener('hexsettlers:discord-signed-out', () => {
+    pendingBrowserLogin = null;
     attached = false;
     setStatus('Sign in to Hex Settlers to join this Activity.');
   });
