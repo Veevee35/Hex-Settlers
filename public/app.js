@@ -43,7 +43,7 @@
 
 
   // Local asset cache (PNGs/WAVs): versioned service worker with safe cache rollover.
-  const ASSET_CACHE_SW_BUILD = 'release-v1.0.69';
+  const ASSET_CACHE_SW_BUILD = 'release-v1.0.43';
   function registerAssetCacheServiceWorker() {
     try {
       if (!('serviceWorker' in navigator)) return;
@@ -1981,6 +1981,19 @@
     if (!window.turnstile) throw new Error('CAPTCHA failed to initialize.');
   }
   async function showAuthCaptcha(kind) {
+    // The Discord Activity is sandboxed behind Discord's reverse proxy.
+    // Turnstile's challenge iframe/script is not reliably supported there;
+    // never ask players to solve a challenge that the browser cannot render.
+    // Keep all server-side CAPTCHA/lockout checks unchanged. The external
+    // first-party site performs the real challenge and signs the Activity in
+    // through the approved, short-lived pairing flow.
+    if (IS_DISCORD_ACTIVITY) {
+      const wrap = $(kind === 'login' ? 'loginCaptchaWrap' : 'registerCaptchaWrap');
+      const notice = $(kind === 'login' ? 'loginCaptchaNotice' : 'registerCaptchaNotice');
+      wrap?.classList.add('hidden');
+      if (notice) notice.textContent = '';
+      return false;
+    }
     const wrap = $(kind === 'login' ? 'loginCaptchaWrap' : 'registerCaptchaWrap');
     const notice = $(kind === 'login' ? 'loginCaptchaNotice' : 'registerCaptchaNotice');
     const container = $(kind === 'login' ? 'loginCaptcha' : 'registerCaptcha');
@@ -2020,7 +2033,7 @@
       if (typeof window.HexDiscordOpenOAuth === 'function') await window.HexDiscordOpenOAuth(provider);
       else {
         const banner = $('landingError');
-        if (banner) { banner.textContent = 'Discord is initializing. Try again when the connection indicator is ready.'; banner.classList.remove('hidden'); }
+        if (banner) { banner.textContent = 'Discord Activity sign-in is unavailable because the Discord SDK did not load. The deployed game must include a compiled discord-activity.bundle.js (run npm run build:discord before deploying).'; banner.classList.remove('hidden'); }
       }
       return;
     }
@@ -2155,6 +2168,7 @@
         const next = new URL(location.href);
         next.searchParams.delete('activity_link');
         next.searchParams.delete('activity_provider');
+        next.searchParams.delete('auth_screen');
         history.replaceState(null, '', next.pathname + next.search + next.hash);
       } catch (error) {
         message.textContent = error.message || 'Could not approve the sign-in.';
@@ -12989,7 +13003,16 @@ function refreshLobbyJoinLinkUi() {
   if (ui.userManagementBtn) ui.userManagementBtn.addEventListener('click', openUserManagementScreen);
   if (ui.forgotPasswordBtn) ui.forgotPasswordBtn.addEventListener('click', openForgotPasswordScreen);
 
+  let activityNeedsBrowserCaptcha = false;
   async function portalLogin() {
+    // Once this account reaches the server's CAPTCHA threshold, its next
+    // password attempt must be made on the first-party website. Never retry
+    // an embedded CAPTCHA or send the same password repeatedly from Discord.
+    if (IS_DISCORD_ACTIVITY && activityNeedsBrowserCaptcha) {
+      const box = $('landingError');
+      if (box) { box.textContent = 'Security verification is required. Select Sign in in browser to finish safely on hexsettlers.org, then approve the Discord sign-in.'; box.classList.remove('hidden'); }
+      return;
+    }
     const username = String($('landingUsername')?.value || '').trim();
     const password = String($('landingPassword')?.value || '');
     const errorBox = $('landingError');
@@ -13004,8 +13027,22 @@ function refreshLobbyJoinLinkUi() {
       await authenticateInBrowser('login', { username, password, captchaToken });
       $('loginCaptchaWrap')?.classList.add('hidden');
     } catch (error) {
-      if (error.captchaRequired && !error.lockedUntil) void showAuthCaptcha('login');
-      if (error.lockedUntil) $('loginCaptchaWrap')?.classList.add('hidden');
+      if (IS_DISCORD_ACTIVITY) {
+        $('loginCaptchaWrap')?.classList.add('hidden');
+        if (error.captchaRequired && !error.lockedUntil) {
+          activityNeedsBrowserCaptcha = true;
+          if (errorBox) { errorBox.textContent = 'Two incorrect passwords triggered security verification. Discord cannot display that CAPTCHA. Choose Sign in in browser below, finish the CAPTCHA on hexsettlers.org, and approve your Activity sign-in.'; errorBox.classList.remove('hidden'); }
+          return;
+        }
+        if (error.lockedUntil) {
+          activityNeedsBrowserCaptcha = true;
+          if (errorBox) { errorBox.textContent = error.message || 'Login is temporarily locked. Use password recovery in your browser to unlock it.'; errorBox.classList.remove('hidden'); }
+          return;
+        }
+      } else {
+        if (error.captchaRequired && !error.lockedUntil) void showAuthCaptcha('login');
+        if (error.lockedUntil) $('loginCaptchaWrap')?.classList.add('hidden');
+      }
       if (errorBox) { errorBox.textContent = error.message || 'Login failed.'; errorBox.classList.remove('hidden'); }
     } finally { if (captchaToken) resetAuthCaptcha('login'); }
   }
@@ -13089,8 +13126,14 @@ function refreshLobbyJoinLinkUi() {
     const browserLogin = document.createElement('button');
     browserLogin.type = 'button';
     browserLogin.className = 'btn discordBrowserLogin';
-    browserLogin.textContent = 'Sign in in browser';
-    browserLogin.addEventListener('click', () => window.HexDiscordOpenOAuth?.(''));
+    browserLogin.textContent = 'Sign in securely in browser';
+    browserLogin.addEventListener('click', () => {
+      if (typeof window.HexDiscordOpenOAuth === 'function') window.HexDiscordOpenOAuth('');
+      else {
+        const error = $('landingError');
+        if (error) { error.textContent = 'Discord SDK was not bundled into the deployed Activity. Run npm run build:discord in your Cloudflare build command.'; error.classList.remove('hidden'); }
+      }
+    });
     $('landingCreateBtn')?.before(browserLogin);
     const create = $('landingCreateBtn');
     if (create) {
@@ -13101,7 +13144,7 @@ function refreshLobbyJoinLinkUi() {
     }
     const hint = document.createElement('p');
     hint.className = 'discordActivitySignupHint';
-    hint.textContent = 'Sign in with your Hex Settlers account. New? Create your account on hexsettlers.org, then return to this Activity.';
+    hint.textContent = 'For Google, GitHub, Cloudflare, or CAPTCHA-protected password sign-in, use the secure browser connection. Complete any security challenge on hexsettlers.org, approve the matching code, and return to Discord.';
     $('authLanding')?.querySelector('.portalForm')?.appendChild(hint);
   }
   $('landingCreateBtn')?.addEventListener('click', () => {

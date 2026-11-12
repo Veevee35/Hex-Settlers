@@ -22,3 +22,8 @@ body .discordPairApproval { position:fixed; z-index:12050; top:16px; left:50%; t
 body.discord-activity .discordBrowserLogin { margin-top:8px; }
 
 body .discordPairApproval.discordPairApprovalInline { position:relative; z-index:1; top:auto; left:auto; transform:none; width:auto; max-height:none; margin:0 0 16px; padding:12px 14px; box-shadow:none; }
+
+/* Never render the Cloudflare CAPTCHA in Discord's sandboxed proxy iframe.
+   The unmodified website handles challenges in a first-party browser tab. */
+body.discord-activity #loginCaptchaWrap,
+body.discord-activity #registerCaptchaWrap { display:none !important; }

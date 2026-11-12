@@ -58,14 +58,19 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
   }
 
   window.HexDiscordOpenSignup = async function openSignup(screen = 'register') {
+    if (screen === 'register') {
+      // Keep the pending Activity pairing attached to the account creation
+      // flow, otherwise new players return from registration unable to join.
+      return window.HexDiscordOpenOAuth('', 'register');
+    }
     try {
-      await openWebsite(`https://hexsettlers.org/?auth_screen=${screen === 'forgot' ? 'forgot' : 'register'}`);
+      await openWebsite('https://hexsettlers.org/?auth_screen=forgot');
     } catch (error) {
-      setStatus(error.message || 'Could not open account management.', true);
+      setStatus(error.message || 'Could not open password recovery.', true);
     }
   };
 
-  window.HexDiscordOpenOAuth = async function openOAuth(provider = '') {
+  window.HexDiscordOpenOAuth = async function openOAuth(provider = '', screen = '') {
     if (pendingBrowserLogin) {
       setStatus('A browser sign-in is already pending. Complete it or restart the Activity.');
       return;
@@ -82,12 +87,15 @@ if ([PROXY_HOST, ACTIVITY_HOST].includes(location.hostname.toLowerCase())) {
       pendingBrowserLogin = pair;
       const link = new URL('https://hexsettlers.org/');
       link.searchParams.set('activity_link', pair.id);
+      if (screen === 'register') link.searchParams.set('auth_screen', 'register');
       if (['google', 'github', 'cloudflare'].includes(provider)) link.searchParams.set('activity_provider', provider);
       setStatus(`Browser sign-in · code ${data.code} · expires in 10 min`);
-      await openWebsite(link.href);
-      // Poll only while this Activity is running; never copy website cookies
-      // or provider OAuth tokens to this iframe or its local storage.
+      // Start observing immediately. On some Discord clients openExternalLink
+      // resolves only after the confirmation prompt or external browser closes;
+      // the player may have finished approving their login before that happens.
+      // The pairing secret never leaves this Activity frame.
       void pollBrowserLogin(pair);
+      await openWebsite(link.href);
     } catch (error) {
       pendingBrowserLogin = null;
       setStatus(error.message || 'Could not open browser sign-in.', true);
