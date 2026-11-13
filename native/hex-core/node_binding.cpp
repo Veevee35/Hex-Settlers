@@ -58,11 +58,49 @@ static napi_value produce(napi_env env, napi_callback_info info) {
   return arg;
 }
 
+static napi_value trade(napi_env env, napi_callback_info info) {
+  // One actor and five resource kinds. Reuse the CPU/CUDA inventory rule.
+  constexpr size_t resources = hex_exact::RESOURCES;
+  size_t argc = 1, bytes = 0;
+  napi_value arg;
+  void* data = nullptr;
+  if (napi_get_cb_info(env, info, &argc, &arg, nullptr, nullptr) != napi_ok ||
+      argc != 1 || napi_get_buffer_info(env, arg, &data, &bytes) != napi_ok ||
+      bytes != (1 + resources * 4) * sizeof(int32_t)) {
+    napi_throw_type_error(env, nullptr, "Invalid bank trade ABI buffer");
+    return nullptr;
+  }
+  auto* words = static_cast<int32_t*>(data);
+  hex_exact::Game game;
+  game.player_count = 1;
+  game.actor = 0;
+  game.departed[0] = 0;
+  game.bank_max = words[0];
+  for (size_t i = 0; i < resources; ++i) {
+    game.bank[i] = words[1 + i];
+    game.hand[0][i] = words[1 + resources + i];
+    game.give[i] = words[1 + 2 * resources + i];
+    game.take[i] = words[1 + 3 * resources + i];
+  }
+  hex_exact::bank_trade(&game);
+  if (game.trade_ok) {
+    for (size_t i = 0; i < resources; ++i) {
+      words[1 + i] = game.bank[i];
+      words[1 + resources + i] = game.hand[0][i];
+    }
+  }
+  napi_value accepted;
+  napi_get_boolean(env, game.trade_ok != 0, &accepted);
+  return accepted;
+}
+
 NAPI_MODULE_INIT() {
   napi_value function;
   napi_create_function(env, "evaluate", NAPI_AUTO_LENGTH, run, nullptr, &function);
   napi_set_named_property(env, exports, "evaluate", function);
   napi_create_function(env, "produce", NAPI_AUTO_LENGTH, produce, nullptr, &function);
   napi_set_named_property(env, exports, "produce", function);
+  napi_create_function(env, "trade", NAPI_AUTO_LENGTH, trade, nullptr, &function);
+  napi_set_named_property(env, exports, "trade", function);
   return exports;
 }

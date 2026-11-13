@@ -1,9 +1,9 @@
 'use strict';
 
 const { resourceKindForTileType } = require('./resource-summary');
-const { evaluate, produce } = require('../native/hex-core/hex_rules.node');
-if (typeof produce !== 'function') {
-  throw new Error('Rebuild the C++ addon with native/hex-core/Build-Node-Windows.cmd to enable production');
+const { evaluate, produce, trade } = require('../native/hex-core/hex_rules_v4.node');
+if (typeof produce !== 'function' || typeof trade !== 'function') {
+  throw new Error('Rebuild the C++ addon with native/hex-core/Build-Node-Windows.cmd to enable production and bank trades');
 }
 
 const maxPlayers = 8;
@@ -23,6 +23,9 @@ const buffer = Buffer.alloc((queryCount + 1 + 48 * 5) * 4);
 const state = new Int32Array(buffer.buffer, buffer.byteOffset, buffer.length / 4);
 const ROUTE_LENGTHS = 1;
 const VICTORY_POINTS = 2;
+const ARMY_TITLE = 3;
+const KNIGHT_ARMY_TITLE = 4;
+const queryPlayer = queryCount + 1 + 48 * 2;
 
 function run(game, operation) {
   const { players, geom: { nodes, edges } } = game;
@@ -137,7 +140,50 @@ function rollProduction(game, roll, bankMax) {
   return { gains, blocked, goldPending };
 }
 
+const tradeBuffer = Buffer.alloc(21 * 4);
+const tradeState = new Int32Array(tradeBuffer.buffer, tradeBuffer.byteOffset, 21);
+
+function applyBankTrade(bank, hand, plan, bankMax) {
+  tradeState[0] = bankMax;
+  for (let i = 0; i < 5; i++) {
+    const kind = kinds[i];
+    tradeState[1 + i] = bank[kind];
+    tradeState[6 + i] = hand[kind] || 0;
+    tradeState[11 + i] = plan.give[kind] || 0;
+    tradeState[16 + i] = plan.take[kind] || 0;
+  }
+  if (!trade(tradeBuffer)) return false;
+  for (let i = 0; i < 5; i++) {
+    bank[kinds[i]] = tradeState[1 + i];
+    if (tradeState[11 + i] || tradeState[16 + i]) hand[kinds[i]] = tradeState[6 + i];
+  }
+  return true;
+}
+
+function largestArmy(game, knightPlayerId) {
+  const { players } = game;
+  if (players.length > maxPlayers) return null;
+  state[0] = players.length;
+  state[1] = 0;
+  state[2] = 0;
+  state[4] = 1;
+  state[roadTitle] = -1;
+  state[armyTitle] = players.findIndex(player => player.id === game.largestArmy?.playerId);
+  state[armyTitle + 1] = game.largestArmy?.size || 0;
+  for (let i = 0; i < players.length; i++) {
+    state[5 + maxPlayers * 5 + i] = Number(!!players[i].departed);
+    state[5 + maxPlayers * 9 + i] = players[i].army || 0;
+  }
+  if (knightPlayerId !== undefined) {
+    state[queryPlayer] = players.findIndex(player => player.id === knightPlayerId);
+  }
+  evaluate(buffer, knightPlayerId === undefined ? ARMY_TITLE : KNIGHT_ARMY_TITLE);
+  return { playerId: players[state[armyTitle]]?.id ?? null, size: state[armyTitle + 1] };
+}
+
 module.exports = {
+  largestArmy,
+  applyBankTrade,
   rollProduction,
   routeLengths: game => run(game, ROUTE_LENGTHS),
   victoryPoints: game => run(game, VICTORY_POINTS),

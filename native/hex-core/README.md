@@ -1,7 +1,7 @@
 # Local C++ self-play and CUDA validation
 
-The trainer can load the C++ scoring, route-length, and dice-production rules through Node-API.
-JavaScript still drives the match, chooses AI actions, and resolves title
+The trainer can load the C++ scoring, route lengths, dice production, bank inventory trades, and Largest Army through Node-API.
+JavaScript still drives the match, chooses AI actions, and resolves Longest Road
 ownership. CUDA refines the existing neural model using samples from completed
 matches. The same dice-production implementation also runs in the standalone CUDA
 parity runner, which covers normalized bank trades as well.
@@ -25,7 +25,7 @@ RTX 3090 Ti. CUDA-enabled PyTorch is used separately by the trainer.
 ## Run self-play
 
 In the local trainer dashboard, set **Self-play rules** to
-**C++ scoring, routes, and production**. Set the accelerator to **CUDA** to require GPU
+**C++ rules**. Set the accelerator to **CUDA** to require GPU
 learning. Auto uses the compiled addon for new runs when available.
 
 Run the isolated 100-match validation from PowerShell.
@@ -36,6 +36,6 @@ npm.cmd run test:games:100
 ```
 
 The runner writes the validation summary, complete match report, isolated
-model, and logs to `scripts/output/validation-native-production-100/`. Set
+model, and logs to `scripts/output/validation-native-rules-100/`. Set
 `TEST_GAME_WORKSPACE` to a different directory to start a fresh run. New runs
 require native production receipts from every completed match.

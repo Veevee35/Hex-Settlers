@@ -47,3 +47,26 @@ test('Full-match validation requires native rules execution in every game', () =
     startingTrainedGames: 0, finalTrainedGames: 100, mapSet: 'standard', games,
   }, 0), /Missing native execution/);
 });
+
+test('fast self-play shares frozen topology and isolates mutable candidate state', () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  const start = source.indexOf('const simulationTopologies =');
+  const end = source.indexOf('function buildGeometry(radius', start);
+  assert.ok(start >= 0 && end > start);
+  const clone = vm.runInNewContext(source.slice(start, end) + ';cloneGameForSimulation', {
+    FAST_SELF_PLAY: true,
+    deepClone: value => JSON.parse(JSON.stringify(value)),
+  });
+  const original = { geom: { nodeEdges: [[0]], nodeAdjTiles: [[0]], edgeAdjTiles: [[0]],
+    nodes: [{ building: null }], edges: [{ roadOwner: null }], tiles: [{ type: 'sea' }] } };
+  const first = clone(original), second = clone(original);
+  assert.equal(first.geom.nodeEdges, second.geom.nodeEdges);
+  assert.ok(Object.isFrozen(first.geom.nodeEdges[0]));
+  first.geom.nodes[0].building = { owner: 'p1' };
+  first.geom.edges[0].roadOwner = 'p1';
+  first.geom.tiles[0].type = 'forest';
+  assert.deepEqual(second.geom.nodes, original.geom.nodes);
+  assert.deepEqual(second.geom.edges, original.geom.edges);
+  assert.deepEqual(second.geom.tiles, original.geom.tiles);
+});

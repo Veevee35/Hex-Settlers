@@ -37,7 +37,7 @@
               <div class="field"><label for="batch">Games / checkpoint batch</label><input type="number" id="batch" min="1" max="1000" value="100"></div>
               <div class="field"><label for="concurrency">Simultaneous games per candidate</label><input type="number" id="concurrency" min="1" max="32" value="2"></div>
               <div class="field"><label for="mapSet">Scenario set</label><select id="mapSet"><option value="standard">Standard (no Test Builder)</option><option value="all">All (include Test Builder)</option></select></div>
-              <div class="field"><label for="rules">Self-play rules</label><select id="rules"><option value="auto">Auto</option><option value="cpp">C++ scoring, routes, and production</option><option value="javascript">JavaScript</option></select></div>
+              <div class="field"><label for="rules">Self-play rules</label><select id="rules"><option value="auto">Auto</option><option value="cpp">C++ rules</option><option value="javascript">JavaScript</option></select></div>
             </div>
             <div class="note">19 standard map templates · 4/6/8 AI seats. 5/7-player variants are not yet independent training curricula. Larger batches improve CUDA efficiency but take longer to checkpoint.</div>
             <div class="divider"></div>

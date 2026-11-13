@@ -2416,11 +2416,31 @@ function shuffle(arr) {
   return arr;
 }
 
+const simulationTopologies = new WeakMap();
+
 function cloneGameForSimulation(game) {
   if (!game) return null;
   // Replays, logs, chat, and statistics are historical output. Omit these large
   // histories from short-lived legality/AI probes; retain all gameplay state.
-  return deepClone({ ...game, replay: undefined, log: [], chat: [], stats: undefined });
+  const snapshot = { ...game, replay: undefined, log: [], chat: [], stats: undefined };
+  if (!FAST_SELF_PLAY || !game.geom) return deepClone(snapshot);
+
+  // Board topology is fixed once a match starts. Candidate actions mutate
+  // tiles, buildings, and routes, but only read these adjacency lists.
+  const { nodeAdjTiles, edgeAdjTiles, nodeEdges, ...mutableGeometry } = game.geom;
+  let topology = simulationTopologies.get(game.geom);
+  if (!topology || topology.source[0] !== nodeAdjTiles || topology.source[1] !== edgeAdjTiles || topology.source[2] !== nodeEdges) {
+    const source = [nodeAdjTiles, edgeAdjTiles, nodeEdges];
+    const immutable = list => list && Object.freeze(list.map(ids => ids && Object.freeze(ids.slice())));
+    topology = { source, shared: {
+      nodeAdjTiles: immutable(nodeAdjTiles), edgeAdjTiles: immutable(edgeAdjTiles), nodeEdges: immutable(nodeEdges),
+    } };
+    simulationTopologies.set(game.geom, topology);
+  }
+  snapshot.geom = mutableGeometry;
+  const clone = deepClone(snapshot);
+  if (clone) Object.assign(clone.geom, topology.shared);
+  return clone;
 }
 
 function buildGeometry(radius = 2) {
@@ -7481,11 +7501,6 @@ if (ttdFarSideBonus) {
     // Building a ship can change Longest Road / win state.
     checkWin(room, game, playerId);
 
-    recomputeLongestRoad(game);
-    computeVP(game);
-    // Ships can change Longest Road holder.
-    checkWin(room, game, playerId);
-
     if (!(exploredFog && exploredFog.award && exploredFog.award.kind === 'gold')) {
       game.message = freeRoute
         ? `${playerName(game, playerId)} built a free ship (${freeRouteResult.remaining} Road Building placement${freeRouteResult.remaining === 1 ? '' : 's'} remaining).`
@@ -7693,8 +7708,11 @@ if (ttdFarSideBonus) {
       broadcastSfx(room, 'robber_pirate');
       p.army = (p.army || 0) + 1;
       consumeDevelopmentCard(p, cardId);
-      // Largest Army
-      if (p.army >= 3) {
+      const nativeArmy = NATIVE_RULES?.largestArmy(game, playerId);
+      if (nativeArmy) {
+        game.largestArmy = nativeArmy;
+        game._nativeArmyCalls = (game._nativeArmyCalls || 0) + 1;
+      } else if (p.army >= 3) {
         if (!game.largestArmy || !game.largestArmy.playerId || p.army > (game.largestArmy.size || 0)) {
           game.largestArmy = { playerId, size: p.army };
         }
@@ -8255,21 +8273,29 @@ if (kind === 'pirate_steal') {
     const available = validateBankTradeAvailability(plan, p.resources, game.bank, RESOURCE_KINDS);
     if (!available.ok) return available;
 
-    // Apply the validated basket atomically. Each offered resource uses its own
-    // port rate, so one action can combine (for example) a 2:1 grain trade and
-    // a 4:1 wool trade without weakening either inventory check.
-    for (const resourceKind of RESOURCE_KINDS) {
-      const quantity = Number(plan.give[resourceKind] || 0);
-      if (quantity <= 0) continue;
-      p.resources[resourceKind] = (p.resources[resourceKind] || 0) - quantity;
-      bankReceive(game, resourceKind, quantity);
-    }
+    if (NATIVE_RULES) {
+      if (!NATIVE_RULES.applyBankTrade(game.bank, p.resources, plan, bankMaxForGame(game))) {
+        throw new Error('Native rules rejected an available bank trade');
+      }
+      recordResourceDelta(game, playerId, plan.take, 'trade');
+      if (!room._dryRun) game._nativeBankTradeCalls = (game._nativeBankTradeCalls || 0) + 1;
+    } else {
+      // Apply the validated basket atomically. Each offered resource uses its own
+      // port rate, so one action can combine (for example) a 2:1 grain trade and
+      // a 4:1 wool trade without weakening either inventory check.
+      for (const resourceKind of RESOURCE_KINDS) {
+        const quantity = Number(plan.give[resourceKind] || 0);
+        if (quantity <= 0) continue;
+        p.resources[resourceKind] = (p.resources[resourceKind] || 0) - quantity;
+        bankReceive(game, resourceKind, quantity);
+      }
 
-    for (const resourceKind of RESOURCE_KINDS) {
-      const quantity = Number(plan.take[resourceKind] || 0);
-      if (quantity <= 0) continue;
-      bankGive(game, resourceKind, quantity);
-      grantStats(game, playerId, p.resources, resourceKind, quantity, 'trade');
+      for (const resourceKind of RESOURCE_KINDS) {
+        const quantity = Number(plan.take[resourceKind] || 0);
+        if (quantity <= 0) continue;
+        bankGive(game, resourceKind, quantity);
+        grantStats(game, playerId, p.resources, resourceKind, quantity, 'trade');
+      }
     }
 
     const spentDelta = {};
@@ -8896,6 +8922,18 @@ function gameUsesPairedTurns(game) {
 function recomputeLargestArmy(game) {
   if (!game) return;
   if (!game.largestArmy) game.largestArmy = { playerId: null, size: 0 };
+  const native = NATIVE_RULES?.largestArmy(game);
+  if (native) {
+    const previous = game.largestArmy.playerId;
+    game.largestArmy = native;
+    game._nativeArmyCalls = (game._nativeArmyCalls || 0) + 1;
+    if (previous && native.playerId && previous !== native.playerId && playerById(game, previous)?.departed) {
+      pushLog(game, `${playerName(game, native.playerId)} surpassed the departed holder and claimed Largest Army (${native.size}).`, 'system', {
+        kind: 'largest_army', from: previous, to: native.playerId, size: native.size,
+      });
+    }
+    return;
+  }
   const departedResolution = resolveDepartedTitleChallenge({
     players: game.players,
     ownerId: game.largestArmy.playerId || null,
@@ -13348,7 +13386,9 @@ if (msg.type === 'create_tutorial_room') {
           gameId: commit.gameId, trainedGames: commit.trainedGames,
           nativeScoringCalls: game._nativeScoringCalls || 0,
           nativeRouteCalls: game._nativeRouteCalls || 0,
-          nativeProductionCalls: game._nativeProductionCalls || 0 });
+          nativeProductionCalls: game._nativeProductionCalls || 0,
+          nativeBankTradeCalls: game._nativeBankTradeCalls || 0,
+          nativeArmyCalls: game._nativeArmyCalls || 0 });
       }
       return;
     }
@@ -15438,12 +15478,12 @@ function handleAI(room) {
     const missSet = missingFor(res, BUILD_COSTS.settlement).total;
     const missDev = missingFor(res, DEV_CARD_COST).total;
 
-    const hasCitySpot = (state?.geom?.nodes || []).some(n => {
+    const hasCitySpot = canAffordCost(res, BUILD_COSTS.city) && (state?.geom?.nodes || []).some(n => {
       const b = n?.building;
       return !!(b && b.owner === pid && b.type === 'settlement');
     });
 
-    const hasSettleSpot = (() => {
+    const hasSettleSpot = canAffordCost(res, BUILD_COSTS.settlement) && (() => {
       const nodes = state?.geom?.nodes || [];
       const boardHasSeaState = (state?.geom?.tiles || []).some(t => t && t.type === 'sea');
       for (let i = 0; i < nodes.length; i++) {
@@ -15467,8 +15507,8 @@ function handleAI(room) {
     })();
 
     let immediateVpPotential = 0;
-    if (hasCitySpot && canAffordCost(res, BUILD_COSTS.city)) immediateVpPotential += 1.8;
-    if (hasSettleSpot && canAffordCost(res, BUILD_COSTS.settlement)) immediateVpPotential += 1.6;
+    if (hasCitySpot) immediateVpPotential += 1.8;
+    if (hasSettleSpot) immediateVpPotential += 1.6;
 
     const discardRisk = Math.max(0, resTotal - 7);
     const closingPressure = (vpToWin <= 3) ? (4 - vpToWin) : 0;
@@ -15512,7 +15552,6 @@ function handleAI(room) {
     if (!p) return null;
 
     const tuning = readExpertAiTuning(room);
-    computeVP(game);
     const baseValue = stateValueFor(game, pid);
     let best = null;
 
@@ -15623,7 +15662,6 @@ function handleAI(room) {
     const p = playerById(game, pid);
     if (!p) return null;
 
-    computeVP(game);
     const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid));
     const candidates = [];
     const spotsBefore = listSettlementPlacements(pid).length;
@@ -15693,7 +15731,7 @@ function handleAI(room) {
         availableSpots: spotsBefore,
         newlyAvailableSpots: Math.max(0, spotsAfter - spotsBefore),
         routeLengthBefore: routesBefore,
-        routeLengthAfter: isRoute ? computeLongestRoadForPlayer(sim, pid) : routesBefore,
+        routeLengthAfter: isRoute ? after.longestRoadLen : routesBefore,
         longestRoadLength: Number(game.longestRoad?.length || 0),
         ownsLongestRoad: game.longestRoad?.playerId === pid,
         army: Number(p.army || 0),

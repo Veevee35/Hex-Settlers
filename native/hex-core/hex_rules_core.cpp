@@ -56,10 +56,36 @@ static bool departed_challenge(const State &s, int old_owner, int benchmark,
   return true;
 }
 
+static void resolve_army_title(State& s) {
+  const int previous_army_owner = s.army_owner;
+  int army_owner = -1, army_size = 0;
+  if (!departed_challenge(s, previous_army_owner, s.army_size, 3,
+                          s.army, army_owner, army_size)) {
+    // The JS algorithm processes seats in order and preserves the previous
+    // owner on tied leader scores, but otherwise leaves the title unclaimed.
+    int best = 0, next = -1, tied = 0;
+    for (int p = 0; p < s.player_count; ++p) {
+      if (s.departed[p]) continue;
+      const int size = std::max(0, s.army[p]);
+      if (size < 3) continue;
+      if (size > best) { best = size; next = p; tied = 0; }
+      else if (size == best && best >= 3) {
+        if (previous_army_owner >= 0 && (p == previous_army_owner || next == previous_army_owner)) {
+          next = previous_army_owner; tied = 0;
+        } else tied = 1;
+      }
+    }
+    if (tied && next != previous_army_owner) next = -1;
+    army_owner = next; army_size = best;
+  }
+  s.army_owner = army_owner;
+  s.army_size = army_size;
+}
+
 int hex_cpp_step(State *ptr) { return hex_cpp_evaluate(ptr, snapshot); }
 
 int hex_cpp_evaluate(State *ptr, int operation) {
-  if (!ptr || operation < snapshot || operation > victory_points) return 1;
+  if (!ptr || operation < snapshot || operation > knight_army_title) return 1;
   State &s = *ptr;
   if (s.player_count < 1 || s.player_count > MAX_PLAYERS || s.node_count < 0 ||
       s.node_count > MAX_NODES || s.edge_count < 0 || s.edge_count > MAX_EDGES ||
@@ -74,6 +100,20 @@ int hex_cpp_evaluate(State *ptr, int operation) {
   }
   for (int n = 0; n < s.node_count; ++n)
     if (s.node_owner[n] < -1 || s.node_owner[n] >= s.player_count) return 4;
+  if (operation == knight_army_title) {
+    const int actor = s.query_player[0];
+    if (actor < 0 || actor >= s.player_count) return 5;
+    const int count = s.army[actor];
+    if (count >= 3 && (s.army_owner < 0 || count > s.army_size)) {
+      s.army_owner = actor;
+      s.army_size = count;
+    }
+    return 0;
+  }
+  if (operation == army_title) {
+    resolve_army_title(s);
+    return 0;
+  }
   if (operation == route_lengths) {
     for (int p = 0; p < s.player_count; ++p) s.longest_by_player[p] = road_length(s, p);
     return 0;
@@ -122,29 +162,7 @@ int hex_cpp_evaluate(State *ptr, int operation) {
     s.longest_owner = road_owner;
     s.longest_length = road_size;
 
-    const int previous_army_owner = s.army_owner;
-    int army_owner = -1, army_size = 0;
-    if (!departed_challenge(s, previous_army_owner, s.army_size, 3,
-                            s.army, army_owner, army_size)) {
-      // The JS algorithm processes seats in order and preserves the previous
-      // owner on tied leader scores, but otherwise leaves the title unclaimed.
-      int best = 0, next = -1, tied = 0;
-      for (int p = 0; p < s.player_count; ++p) {
-        if (s.departed[p]) continue;
-        const int size = std::max(0, s.army[p]);
-        if (size < 3) continue;
-        if (size > best) { best = size; next = p; tied = 0; }
-        else if (size == best && best >= 3) {
-          if (previous_army_owner >= 0 && (p == previous_army_owner || next == previous_army_owner)) {
-            next = previous_army_owner; tied = 0;
-          } else tied = 1;
-        }
-      }
-      if (tied && next != previous_army_owner) next = -1;
-      army_owner = next; army_size = best;
-    }
-    s.army_owner = army_owner;
-    s.army_size = army_size;
+    resolve_army_title(s);
 
   }
 

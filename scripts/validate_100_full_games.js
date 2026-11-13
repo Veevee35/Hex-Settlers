@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// Run isolated full matches with the native scoring and route rules enabled.
+// Run isolated full matches with the current native self-play backend.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -59,13 +59,15 @@ function verifyReport(report, baselineCount) {
     nativeScoringCalls: report.games.reduce((total, game) => total + game.nativeScoringCalls, 0),
     nativeRouteCalls: report.games.reduce((total, game) => total + game.nativeRouteCalls, 0),
     nativeProductionCalls: report.games.reduce((total, game) => total + (game.nativeProductionCalls || 0), 0),
+    nativeBankTradeCalls: report.games.reduce((total, game) => total + (game.nativeBankTradeCalls || 0), 0),
+    nativeArmyCalls: report.games.reduce((total, game) => total + (game.nativeArmyCalls || 0), 0),
     accelerator: report.accelerator};
 }
 
 async function main(){
   try { require.resolve('ws'); } catch (_) { throw new Error('WebSocket dependency missing. Run "npm ci" first (requires registry connectivity).'); }
   const rootModel=path.join(ROOT,'neural_ai_model.json');
-  const dir=path.resolve(process.env.TEST_GAME_WORKSPACE||path.join(ROOT,'scripts','output','validation-native-production-100'));
+  const dir=path.resolve(process.env.TEST_GAME_WORKSPACE||path.join(ROOT,'scripts','output','validation-native-rules-100'));
   const model=path.join(dir,'neural_ai_model.json');
   const snapshot=path.join(dir,'baseline-model.json');
   const report=path.join(dir,'100-games-report.json');
@@ -82,7 +84,8 @@ async function main(){
     const previous = fs.existsSync(summary) ? JSON.parse(fs.readFileSync(summary, 'utf8')) : {};
     await atomicWriteJson(summary, {
       kind: 'native-assisted-complete-matches',
-      nativeRules: ['victory-points', 'route-lengths', ...(output.nativeProduction ? ['dice-production'] : [])],
+      nativeRules: ['victory-points', 'route-lengths', ...(output.nativeProduction ? ['dice-production'] : []),
+        ...(result.nativeBankTradeCalls ? ['bank-inventory-trades'] : []), ...(result.nativeArmyCalls ? ['largest-army'] : [])],
       fullCppMigrationValidated: false,
       ...result,
       elapsedSeconds: elapsedSeconds ?? previous.elapsedSeconds ?? output.elapsedSeconds ?? null,

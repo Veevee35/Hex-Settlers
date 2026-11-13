@@ -175,10 +175,10 @@ function checkParity(original, actual, production, applyTrade) {
     assert.deepEqual(actual.goldTiles[p],JSON.parse(JSON.stringify(item?.tileIds || [])),`gold tile order mismatch ${id}`);
   }
 }
-function referenceBankTrade() {
+function referenceBankTrade(nativeRules = null) {
   const src=fs.readFileSync(path.join(ROOT,'server.js'),'utf8');
   const begin=src.indexOf('// Apply the validated basket atomically.');
-  const end=src.indexOf('const spentDelta =',begin);
+  const end=src.indexOf('\n    }',begin);
   assert.ok(begin>=0 && end>begin,'Cannot extract authoritative bank_trade mutation');
   const mutation=src.slice(begin,end);
   const bank=referenceBankFunctions();
@@ -187,12 +187,14 @@ function referenceBankTrade() {
     const p=game.players[game.actor],planDef=game.trade;
     if(p.departed) return false;
     const giveKind=KINDS[planDef.giveKind],takeKind=KINDS[planDef.takeKind];
-    const normalized=normalizeBankTradeAction({giveKind,takeKind,takeQty:planDef.tradeQty},
-      {resourceKinds:KINDS.slice(0,5),ratioFor:()=>planDef.ratio});
+    const action = game.tradeBasket || {giveKind,takeKind,takeQty:planDef.tradeQty};
+    const normalized=normalizeBankTradeAction(action,
+      {resourceKinds:KINDS.slice(0,5),ratioFor:kind=>game.tradeBasket ? (kind === 'brick' ? 2 : 4) : planDef.ratio});
     if(!normalized.ok) throw new Error(`Invalid test plan: ${normalized.error}`);
     bank.ensureBank(game);
     const available=validateBankTradeAvailability(normalized.plan,p.resources,game.bank,KINDS.slice(0,5));
     if (!available.ok)return false;
+    if (nativeRules) return nativeRules.applyBankTrade(game.bank, p.resources, normalized.plan, game.rules.baseResourcesPerType);
     const func=new Function('game','p','plan','playerId','RESOURCE_KINDS','bankReceive','bankGive','grantStats',mutation);
     func(game,p,normalized.plan,p.id,KINDS.slice(0,5),bank.bankReceive,bank.bankGive,(unusedGame,unusedId,res,kind,n)=>{res[kind]=(res[kind]||0)+n;});
     return true;
@@ -263,4 +265,19 @@ function liveProductionParity(count = 1000) {
   }
   return count;
 }
-module.exports={liveProductionParity,parity,encodeGame,createGame,referenceProduction};
+function liveBankTradeParity(count = 1000) {
+  const js = referenceBankTrade();
+  const native = referenceBankTrade(require('../../server/native-rules'));
+  const rng = new Rng(20261113);
+  for (let i = 0; i < count; i++) {
+    const expected = createGame(rng, i);
+    if (i % 2 === 0) {
+      expected.tradeBasket = { give: { brick: 2, wool: 4 }, take: { ore: 1, grain: 1 } };
+    }
+    const actual = structuredClone(expected);
+    assert.equal(native(actual), js(expected), `bank trade result ${i}`);
+    assert.deepEqual(actual, expected, `bank trade inventories ${i}`);
+  }
+  return count;
+}
+module.exports={liveBankTradeParity,liveProductionParity,parity,encodeGame,createGame,referenceProduction};

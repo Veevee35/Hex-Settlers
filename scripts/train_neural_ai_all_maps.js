@@ -431,6 +431,8 @@ async function runOneGame(port, token, item) {
       nativeScoringCalls: Number(receipt.nativeScoringCalls || 0),
       nativeRouteCalls: Number(receipt.nativeRouteCalls || 0),
       nativeProductionCalls: Number(receipt.nativeProductionCalls || 0),
+      nativeBankTradeCalls: Number(receipt.nativeBankTradeCalls || 0),
+      nativeArmyCalls: Number(receipt.nativeArmyCalls || 0),
       sessionIndex: item.sessionIndex,
       curriculumIndex: item.curriculumIndex,
       mapId: item.map.id,
