@@ -82,10 +82,34 @@ static void resolve_army_title(State& s) {
   s.army_size = army_size;
 }
 
+static void resolve_road_title(State& s) {
+  const int previous_road_owner = s.longest_owner;
+  int best_road = 0;
+  for (int p = 0; p < s.player_count; ++p)
+    if (!s.departed[p]) best_road = std::max(best_road, s.longest_by_player[p]);
+  int road_owner = -1, road_size = best_road;
+  if (!departed_challenge(s, previous_road_owner, s.longest_length, 5,
+                          s.longest_by_player, road_owner, road_size)) {
+    if (best_road >= 5) {
+      int candidates = 0;
+      for (int p = 0; p < s.player_count; ++p) {
+        if (s.departed[p] || s.longest_by_player[p] != best_road) continue;
+        ++candidates;
+        if (candidates == 1) road_owner = p;
+        if (p == previous_road_owner) road_owner = p;
+      }
+      if (candidates > 1 && !(previous_road_owner >= 0 && !s.departed[previous_road_owner] &&
+                               s.longest_by_player[previous_road_owner] == best_road)) road_owner = -1;
+    }
+  }
+  s.longest_owner = road_owner;
+  s.longest_length = road_size;
+}
+
 int hex_cpp_step(State *ptr) { return hex_cpp_evaluate(ptr, snapshot); }
 
 int hex_cpp_evaluate(State *ptr, int operation) {
-  if (!ptr || operation < snapshot || operation > knight_army_title) return 1;
+  if (!ptr || operation < snapshot || operation > road_title) return 1;
   State &s = *ptr;
   if (s.player_count < 1 || s.player_count > MAX_PLAYERS || s.node_count < 0 ||
       s.node_count > MAX_NODES || s.edge_count < 0 || s.edge_count > MAX_EDGES ||
@@ -114,8 +138,9 @@ int hex_cpp_evaluate(State *ptr, int operation) {
     resolve_army_title(s);
     return 0;
   }
-  if (operation == route_lengths) {
+  if (operation == route_lengths || operation == road_title) {
     for (int p = 0; p < s.player_count; ++p) s.longest_by_player[p] = road_length(s, p);
+    if (operation == road_title) resolve_road_title(s);
     return 0;
   }
   if (operation == snapshot) {
@@ -140,27 +165,7 @@ int hex_cpp_evaluate(State *ptr, int operation) {
       s.longest_by_player[p] = road_length(s, p);
     }
 
-    const int previous_road_owner = s.longest_owner;
-    int best_road = 0;
-    for (int p = 0; p < s.player_count; ++p)
-      if (!s.departed[p]) best_road = std::max(best_road, s.longest_by_player[p]);
-    int road_owner = -1, road_size = best_road;
-    if (!departed_challenge(s, previous_road_owner, s.longest_length, 5,
-                            s.longest_by_player, road_owner, road_size)) {
-      if (best_road >= 5) {
-        int candidates = 0;
-        for (int p = 0; p < s.player_count; ++p) {
-          if (s.departed[p] || s.longest_by_player[p] != best_road) continue;
-          ++candidates;
-          if (candidates == 1) road_owner = p;
-          if (p == previous_road_owner) road_owner = p;
-        }
-        if (candidates > 1 && !(previous_road_owner >= 0 && !s.departed[previous_road_owner] &&
-                                 s.longest_by_player[previous_road_owner] == best_road)) road_owner = -1;
-      }
-    }
-    s.longest_owner = road_owner;
-    s.longest_length = road_size;
+    resolve_road_title(s);
 
     resolve_army_title(s);
 

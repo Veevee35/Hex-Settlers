@@ -140,7 +140,7 @@ function decode(buf) {
   return {pc,nc,ec,limit,target,title,longest,vp,totals,discard,afford,win,settlement,connected,qcount};
 }
 function parity(options={}) {
-  const binding = path.join(__dirname, 'hex_rules_v4.node');
+  const binding = path.join(__dirname, 'hex_rules_v5.node');
   const live = fs.existsSync(binding) ? require('../../server/native-rules') : null;
   const count=Number(options.count || 100);
   if(!Number.isInteger(count)||count<1||count>10000)throw new Error('Count must be between 1 and 10000');
@@ -175,7 +175,7 @@ function parity(options={}) {
         const expectedKnight = knight.army >= 3 && (!old.playerId || knight.army > old.size)
           ? { playerId: knight.id, size: knight.army } : { ...old };
         assert.deepEqual(live.largestArmy(before, knight.id), expectedKnight);
-        assert.deepEqual(live.routeLengths(before), Array.from(s.players, p => p.longestRoadLen));
+        assert.deepEqual(live.longestRoad(before), { ...s.longestRoad, lengths: Array.from(s.players, p => p.longestRoadLen) });
         assert.deepEqual(live.victoryPoints(s), Array.from(s.players, p => p.vp));
       }
       const byId=id=>id==null?-1:s.players.findIndex(p=>p.id===id);

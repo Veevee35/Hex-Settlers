@@ -130,7 +130,7 @@ async function start(raw) {
         if (settings.gpuMode === 'cuda') throw new Error(`CUDA selected but unavailable: ${error.message}`);
       }
     }
-    const binding = path.join(ROOT, 'native', 'hex-core', 'hex_rules_v4.node');
+    const binding = path.join(ROOT, 'native', 'hex-core', 'hex_rules_v5.node');
     const resumeRules = resumeFolder ? listRuns().find(run => run.id === resumeFolder)?.config?.rules || 'javascript' : null;
     const native = settings.rules === 'cpp' ||
       (settings.rules === 'auto' && (resumeRules ? resumeRules === 'cpp' : fs.existsSync(binding)));

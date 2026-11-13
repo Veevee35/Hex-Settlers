@@ -7,5 +7,5 @@ if "%~2"=="" (
 set "NODE_INCLUDE=%~f1"
 set "NODE_LIB=%~f2"
 cd /d "%~dp0"
-cl /nologo /O2 /EHsc /std:c++17 /LD /I"%NODE_INCLUDE%" /Fe:hex_rules_v4.node hex_rules_core.cpp node_binding.cpp "%NODE_LIB%" /link /NOIMPLIB /NOEXP
+cl /nologo /O2 /EHsc /std:c++17 /LD /I"%NODE_INCLUDE%" /Fe:hex_rules_v5.node hex_rules_core.cpp node_binding.cpp "%NODE_LIB%" /link /NOIMPLIB /NOEXP
 exit /b %errorlevel%

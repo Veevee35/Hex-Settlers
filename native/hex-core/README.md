@@ -1,8 +1,8 @@
 # Local C++ self-play and CUDA validation
 
 The trainer can load the C++ scoring, route lengths, dice production, bank inventory trades, and Largest Army through Node-API.
-JavaScript still drives the match, chooses AI actions, and resolves Longest Road
-ownership. CUDA refines the existing neural model using samples from completed
+JavaScript still drives the match and chooses AI actions. The C++ rules
+resolve Longest Road ownership in local self-play. CUDA refines the existing neural model using samples from completed
 matches. The same dice-production implementation also runs in the standalone CUDA
 parity runner, which covers normalized bank trades as well.
 

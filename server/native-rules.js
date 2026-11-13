@@ -1,7 +1,7 @@
 'use strict';
 
 const { resourceKindForTileType } = require('./resource-summary');
-const { evaluate, produce, trade } = require('../native/hex-core/hex_rules_v4.node');
+const { evaluate, produce, trade } = require('../native/hex-core/hex_rules_v5.node');
 if (typeof produce !== 'function' || typeof trade !== 'function') {
   throw new Error('Rebuild the C++ addon with native/hex-core/Build-Node-Windows.cmd to enable production and bank trades');
 }
@@ -21,7 +21,7 @@ const vpOutput = routeOutput + maxPlayers;
 const queryCount = vpOutput + maxPlayers * 9;
 const buffer = Buffer.alloc((queryCount + 1 + 48 * 5) * 4);
 const state = new Int32Array(buffer.buffer, buffer.byteOffset, buffer.length / 4);
-const ROUTE_LENGTHS = 1;
+const ROAD_TITLE = 5;
 const VICTORY_POINTS = 2;
 const ARMY_TITLE = 3;
 const KNIGHT_ARMY_TITLE = 4;
@@ -29,7 +29,7 @@ const queryPlayer = queryCount + 1 + 48 * 2;
 
 function run(game, operation) {
   const { players, geom: { nodes, edges } } = game;
-  const routes = operation === ROUTE_LENGTHS;
+  const routes = operation === ROAD_TITLE;
   if (players.length > maxPlayers || nodes.length > maxNodes) {
     throw new RangeError('Board exceeds the native rules ABI capacity');
   }
@@ -49,6 +49,8 @@ function run(game, operation) {
   }
   let edgeCount = 0;
   if (routes) {
+    state[roadTitle + 1] = game.longestRoad?.length || 0;
+    for (let i = 0; i < players.length; i++) state[5 + maxPlayers * 5 + i] = Number(!!players[i].departed);
     for (const edge of edges) {
       const owner = edge.roadOwner || edge.shipOwner;
       if (!owner) continue;
@@ -69,8 +71,12 @@ function run(game, operation) {
     }
   }
   evaluate(buffer, operation);
-  const output = operation === VICTORY_POINTS ? vpOutput : routeOutput;
-  return players.map((_, i) => state[output + i]);
+  if (routes) return {
+    lengths: players.map((_, i) => state[routeOutput + i]),
+    playerId: players[state[roadTitle]]?.id ?? null,
+    length: state[roadTitle + 1],
+  };
+  return players.map((_, i) => state[vpOutput + i]);
 }
 
 // Layout of hex_exact::Game in hex_exact_common.h. Only matching tiles
@@ -184,6 +190,6 @@ module.exports = {
   largestArmy,
   applyBankTrade,
   rollProduction,
-  routeLengths: game => run(game, ROUTE_LENGTHS),
+  longestRoad: game => run(game, ROAD_TITLE),
   victoryPoints: game => run(game, VICTORY_POINTS),
 };

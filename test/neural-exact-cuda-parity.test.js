@@ -26,13 +26,13 @@ test('NVIDIA CUDA production and bank trades match authoritative JavaScript', t 
 });
 
 test('live C++ production preserves hands, bank, blocked losses, and gold queue', t => {
-  const addon = path.join(__dirname, '../native/hex-core/hex_rules_v4.node');
+  const addon = path.join(__dirname, '../native/hex-core/hex_rules_v5.node');
   if (!fs.existsSync(addon)) return t.skip('Build the Node-API addon first');
   assert.equal(liveProductionParity(), 1000);
 });
 
 test('live C++ bank trades preserve validated hand and bank changes', t => {
-  const addon = path.join(__dirname, '../native/hex-core/hex_rules_v4.node');
+  const addon = path.join(__dirname, '../native/hex-core/hex_rules_v5.node');
   if (!fs.existsSync(addon)) return t.skip('Build the Node-API addon first');
   assert.equal(liveBankTradeParity(), 1000);
 });

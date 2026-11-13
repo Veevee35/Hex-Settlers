@@ -31,7 +31,7 @@ struct State {
   int32_t query_settlement_ok[MAX_QUERIES], query_road_connected[MAX_QUERIES];
 };
 struct Header { uint32_t magic, version, count, bytes_per_state; };
-enum Operation : int32_t { snapshot = 0, route_lengths = 1, victory_points = 2, army_title = 3, knight_army_title = 4 };
+enum Operation : int32_t { snapshot = 0, route_lengths = 1, victory_points = 2, army_title = 3, knight_army_title = 4, road_title = 5 };
 }
 extern "C" {
 // Returns 0 on success, nonzero for invalid input. Writes outputs into state.

@@ -3492,51 +3492,66 @@ function recomputeLongestRoad(game) {
   if (!game) return;
   if (!game.longestRoad) game.longestRoad = { playerId: null, length: 0 };
 
-  const lengths = new Map();
-  let bestLen = 0;
-  const nativeLengths = NATIVE_RULES ? NATIVE_RULES.routeLengths(game) : null;
-  if (nativeLengths) game._nativeRouteCalls = (game._nativeRouteCalls || 0) + 1;
-  for (const [i, p] of (game.players || []).entries()) {
-    const len = nativeLengths ? nativeLengths[i] : computeLongestRoadForPlayer(game, p.id);
-    lengths.set(p.id, len);
-    p.longestRoadLen = len;
-    if (!p.departed && len > bestLen) bestLen = len;
-  }
-
-  const departedResolution = resolveDepartedTitleChallenge({
-    players: game.players,
-    ownerId: game.longestRoad.playerId || null,
-    benchmark: game.longestRoad.length || 0,
-    minimum: 5,
-    scoreForPlayer: (player) => lengths.get(player.id) || 0,
-  });
-  if (departedResolution) {
-    const prevOwner = game.longestRoad.playerId;
-    game.longestRoad = { playerId: departedResolution.playerId, length: departedResolution.score };
-    if (departedResolution.surpassed) {
-      pushLog(game, `${playerName(game, departedResolution.playerId)} surpassed the departed holder and claimed Longest Road (${departedResolution.score}).`, 'system', {
-        kind: 'longest_road', from: prevOwner, to: departedResolution.playerId, length: departedResolution.score,
-      });
-    }
-    return;
-  }
-
-  const eligible = bestLen >= 5;
-  const candidates = eligible
-    ? Array.from(lengths.entries()).filter(([pid, l]) => l === bestLen && !playerById(game, pid)?.departed).map(([pid]) => pid)
-    : [];
-
   const prevOwner = game.longestRoad.playerId || null;
   let nextOwner = null;
-
-  if (candidates.length === 1) {
-    nextOwner = candidates[0];
-  } else if (candidates.length > 1) {
-    // Tie: existing holder keeps if they're part of the tie, otherwise unclaimed.
-    if (prevOwner && candidates.includes(prevOwner)) nextOwner = prevOwner;
-    else nextOwner = null;
+  let bestLen = 0;
+  if (NATIVE_RULES) {
+    const route = NATIVE_RULES.longestRoad(game);
+    game._nativeRouteCalls = (game._nativeRouteCalls || 0) + 1;
+    game.players.forEach((player, i) => { player.longestRoadLen = route.lengths[i]; });
+    nextOwner = route.playerId;
+    bestLen = route.length;
+    if (prevOwner && playerById(game, prevOwner)?.departed) {
+      game.longestRoad = { playerId: nextOwner, length: bestLen };
+      if (nextOwner !== prevOwner) {
+        pushLog(game, `${playerName(game, nextOwner)} surpassed the departed holder and claimed Longest Road (${bestLen}).`, 'system', {
+          kind: 'longest_road', from: prevOwner, to: nextOwner, length: bestLen,
+        });
+      }
+      return;
+    }
   } else {
-    nextOwner = null;
+    const lengths = new Map();
+    for (const p of (game.players || [])) {
+      const len = computeLongestRoadForPlayer(game, p.id);
+      lengths.set(p.id, len);
+      p.longestRoadLen = len;
+      if (!p.departed && len > bestLen) bestLen = len;
+    }
+
+    const departedResolution = resolveDepartedTitleChallenge({
+      players: game.players,
+      ownerId: game.longestRoad.playerId || null,
+      benchmark: game.longestRoad.length || 0,
+      minimum: 5,
+      scoreForPlayer: (player) => lengths.get(player.id) || 0,
+    });
+    if (departedResolution) {
+      const prevOwner = game.longestRoad.playerId;
+      game.longestRoad = { playerId: departedResolution.playerId, length: departedResolution.score };
+      if (departedResolution.surpassed) {
+        pushLog(game, `${playerName(game, departedResolution.playerId)} surpassed the departed holder and claimed Longest Road (${departedResolution.score}).`, 'system', {
+          kind: 'longest_road', from: prevOwner, to: departedResolution.playerId, length: departedResolution.score,
+        });
+      }
+      return;
+    }
+
+    const eligible = bestLen >= 5;
+    const candidates = eligible
+      ? Array.from(lengths.entries()).filter(([pid, l]) => l === bestLen && !playerById(game, pid)?.departed).map(([pid]) => pid)
+      : [];
+
+
+    if (candidates.length === 1) {
+      nextOwner = candidates[0];
+    } else if (candidates.length > 1) {
+      // Tie: existing holder keeps if they're part of the tie, otherwise unclaimed.
+      if (prevOwner && candidates.includes(prevOwner)) nextOwner = prevOwner;
+      else nextOwner = null;
+    } else {
+      nextOwner = null;
+    }
   }
 
   // Update holder + log transitions

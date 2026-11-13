@@ -17,7 +17,21 @@ On Windows with Visual Studio, the Release directory contains
 and output binary path. The fixture formats are defined in
 `hex_rules_core.hpp` and `scripts/cuda-exact/hex_exact_common.h`.
 
-## Staging and production sequence
+## Run the Linux rules image in Docker Desktop
+
+From the repository root with Docker Desktop using Linux containers:
+
+```powershell
+docker info --format '{{.OSType}}'
+docker build --platform linux/amd64 -f native/hex-core/Dockerfile -t hex-settlers-cpp-rules:local .
+docker run --rm hex-settlers-cpp-rules:local
+```
+
+The container runs the C++ self-test by default and exits. It also contains the
+two fixture runners. It has no HTTP or WebSocket listener, so the Wrangler
+configurations must continue to point to the existing game image.
+
+## Staging and production sequence once the native server exists
 
 1. Build a Linux executable that serves the existing game protocol on port 3000.
    Preserve WebSocket messages, HTTP account and lobby endpoints, session cookies,

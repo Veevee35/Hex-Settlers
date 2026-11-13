@@ -19,6 +19,26 @@ int main() {
     return 1;
   }
 
+  state.node_count = 6;
+  state.edge_count = 5;
+  for (int node = 1; node < state.node_count; ++node) state.node_owner[node] = -1;
+  for (int edge = 0; edge < state.edge_count; ++edge) {
+    state.edge_a[edge] = edge;
+    state.edge_b[edge] = edge + 1;
+    state.edge_owner[edge] = 0;
+  }
+  if (hex_cpp_evaluate(&state, hex_rules::road_title) ||
+      state.longest_owner != 0 || state.longest_length != 5) {
+    std::fputs("Longest Road qualification failed\n", stderr);
+    return 1;
+  }
+  state.node_owner[3] = 1;
+  if (hex_cpp_evaluate(&state, hex_rules::road_title) ||
+      state.longest_owner != -1 || state.longest_length != 3) {
+    std::fputs("Longest Road interruption failed\n", stderr);
+    return 1;
+  }
+
   hex_exact::Game game{};
   game.player_count = 2;
   game.tile_count = 1;
