@@ -38,9 +38,9 @@ test('unrecognized OAuth identity opens CAPTCHA-protected signup, never silently
   assert.match(server, /owner && owner\.id !== viewer\.id/);
   assert.match(server, /const captcha = await requireCaptcha\(req, body\.captchaToken, 'register'\)/);
 });
-test('versioning and Discord compile stay in sync with V1.0.47', () => {
-  assert.equal(JSON.parse(read('package.json')).version, '1.0.47');
-  assert.equal(JSON.parse(read('build-version.json')).patch, 47);
-  assert.match(read('public/index.html'), /discord-activity\.bundle\.js\?v=release-v1\.0\.47/);
+test('version metadata and Discord bundle stay in sync', () => {
+  const build = JSON.parse(read('build-version.json'));
+  assert.equal(JSON.parse(read('package.json')).version, [build.major, build.minor, build.patch].join('.'));
+  assert.match(read('public/index.html'), /discord-activity\.bundle\.js\?v=release-v\d+\.\d+\.\d+/);
   assert.match(read('scripts/build-discord.cjs'), /discord-rpc-lite\.mjs/);
 });

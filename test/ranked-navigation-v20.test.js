@@ -34,6 +34,7 @@ test('unranked End Game actions get through the browser when paused but regular 
     WebSocket: { OPEN: 1 },
     amRoomSpectator: () => false,
     setError: (error) => errors.push(error),
+    settingsSandboxActive: false,
     send: (payload) => sent.push(payload),
   });
   vm.runInContext(section(client, '  function sendGameAction(action)', '  let hoverNodeBuild = '), scope);

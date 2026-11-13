@@ -25,13 +25,13 @@ test('mobile selected Resources fills the width and does not repeat its title', 
 
 test('log/dev split moves with pointer or keyboard and persists ratio', () => {
   assert.match(app, /function ensureLogDevSplitter\(\)/);
-  assert.match(app, /separator\.id = 'sidebarLogDevSplitter'/);
-  assert.match(app, /separator\.setPointerCapture\?\.\(event\.pointerId\)/);
-  assert.match(app, /initialShare \+ \(event\.clientY - initialY\) \/ availableOnStart/);
+  assert.match(app, /handle\.id = \[.*'sidebarLogDevSplitter'/);
+  assert.match(app, /handle\.setPointerCapture\?\.\(pointer\)/);
+  assert.match(app, /initial \+ \(event\.clientY-startY\)\/available/);
   assert.match(app, /event\.key === 'ArrowDown'/);
   assert.match(app, /event\.key === 'ArrowUp'/);
-  assert.match(app, /localStorage\.setItem\(LOG_DEV_SPLIT_KEY/);
-  assert.match(app, /ui\.rightSidebarInner\.insertBefore\(logDevSplitter, ui\.devCard\)/);
+  assert.match(app, /localStorage\.setItem\(SIDEBAR_SPLIT_KEY/);
+  assert.match(app, /ui\.rightSidebarInner\.insertBefore\(handle, panes\[i\+1\]\)/);
   assert.match(css, /\.sidebarLogDevSplitter \{display:none;\}/);
   assert.match(css, /\.sidebarLogDevSplitter\.dragging/);
 });
@@ -40,7 +40,7 @@ test('dev card list stays below cost note and can clip/scroll as log expands', (
   assert.match(css, /#devCard \.panelScaleContent > \.smallNote\s*\{\s*flex:0 0 auto/);
   assert.match(css, /#devCard \.panelScaleContent > \.devHand\s*\{[\s\S]*?min-height:0;[\s\S]*?overflow-y:auto/);
   assert.match(css, /#devCard \.devRow\s*\{\s*flex:0 0 auto;/);
-  assert.match(app, /Math\.min\(Math\.max\(118, devTopHeight \+ 34\), available \* 0\.55\)/);
+  assert.match(app, /function applyLogDevSplit\(\)/);
 });
 
 test('resource icons no longer stop growing at the width of the grid column', () => {

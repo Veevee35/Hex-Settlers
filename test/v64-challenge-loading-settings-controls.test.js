@@ -25,6 +25,7 @@ test('only the selected challenge map gets generated and cached, across Daily an
     findUserById: () => ({}), challengeScenario: () => 'classic',
     challengeRules: () => ({mapMode:'classic'}), familyForPeriod: () => 'classic', rulesHideOuterSeaBorder: () => false,
     challengeGeom(challenge){generated.push(challenge);return fakeGeom;},
+    hasDailyChallengeAttempt: () => false,
     challengeLeaderboard: () => [{name:'Winner',lowestTurns:33}],
   };
   vm.createContext(sandbox);

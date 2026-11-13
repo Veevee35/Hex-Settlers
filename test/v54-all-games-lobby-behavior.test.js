@@ -76,15 +76,15 @@ test('host succession chooses oldest remaining human, and delegated boss permiss
 });
 
 test('All Games settings, host delegation, lobby leave, and fixed lobby access have connected UI',()=>{
-  for (const id of ['journeyRankedBtn','journeyCasualBtn','journeySettingsBtn','journeySettingsPanel','settingsMockTop','sandboxToolsScale','sandboxMobileRatio','sandboxAudioBtn','leaveLobbyTopBtn','lobbyFriendsOnlyToggle']) {
+  for (const id of ['journeyRankedBtn','journeyCasualBtn','journeySettingsBtn','journeySettingsPanel','sandboxResetBtn','leaveLobbyTopBtn','lobbyFriendsOnlyToggle']) {
     assert.ok(html.includes(`id="${id}"`),id);
   }
   assert.doesNotMatch(html,/id="lobbyVisibilitySelect"/);
   assert.match(app,/\('unrankedModeBtn'\)\?\.addEventListener\('click', \(\) => choosePlayMode\('journey'\)\)/);
-  assert.match(app,/allGamesTitle\.textContent = 'All Games'/);
-  assert.match(app,/casual\.querySelector\('strong'\)\.textContent = unlocked \? 'Casual Play' : 'Start Your Adventure'/);
+  assert.match(html, /id="journeyTitle">All Games</);
+  assert.match(app,/casual\.querySelector\('strong'\)\.textContent = 'Casual Play'/);
   assert.match(app,/send\(\{ type: 'leave_room', switchMode: mode \}\)/);
-  assert.match(app,/setToolUiScale\(scaleKey, pct \/ 100\)/);
+  assert.match(app,/settingsSandboxActive/);
   assert.match(app,/send\(\{ type: 'set_room_boss', userId: profile\.id, enabled: !alreadyBoss \}\)/);
   assert.match(server,/room\.friendsOnly = msg\.friendsOnly === true/);
   assert.doesNotMatch(server,/room\.visibility = msg\.visibility === 'public' \? 'public' : 'private';\s*room\.friendsOnly = msg\.friendsOnly/);

@@ -95,7 +95,6 @@ function rollProduction(game, roll, bankMax) {
   production[0] = players.length;
   production[2] = roll;
   production[3] = bankMax;
-  production.fill(0, gainsOffset, goldTiles);
   for (let i = 0; i < 5; i++) production[4 + i] = bank[kinds[i]];
   for (let i = 0; i < players.length; i++) production[departed + i] = Number(!!players[i].departed);
 

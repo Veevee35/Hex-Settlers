@@ -64,7 +64,7 @@ test('version bump stamps page text, both asset URL revisions, service worker, a
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-version-test-'));
   t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
   for (const rel of ['build-version.json', 'package.json', 'package-lock.json',
-    'public/index.html', 'public/app.js', 'public/sw.js', 'scripts/bump-version.cjs']) {
+    'public/index.html', 'public/app.js', 'public/sw.js', 'public/beta.html', 'scripts/bump-version.cjs']) {
     fs.mkdirSync(path.join(fixture, path.dirname(rel)), { recursive: true });
     fs.copyFileSync(path.join(root, rel), path.join(fixture, rel));
   }

@@ -39,3 +39,5 @@ The runner writes the validation summary, complete match report, isolated
 model, and logs to `scripts/output/validation-native-rules-100/`. Set
 `TEST_GAME_WORKSPACE` to a different directory to start a fresh run. New runs
 require native production receipts from every completed match.
+
+For the standalone CMake build and Cloudflare rollout, see [Cloudflare cutover](../../cloudflare/CPP-CUTOVER.md).

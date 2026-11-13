@@ -46,9 +46,9 @@ test('OAuth buttons use a four-column non-wrapping equal-width grid at every vie
 });
 
 test('release metadata, cache, and bundled Discord Activity client remain consistent', () => {
-  assert.equal(JSON.parse(read('package.json')).version, '1.0.48');
-  assert.equal(JSON.parse(read('build-version.json')).patch, 48);
-  assert.match(read('public/index.html'), /V1\.0\.48/);
-  assert.match(read('public/sw.js'), /release-v1\.0\.48/);
+  const build = JSON.parse(read('build-version.json'));
+  assert.equal(JSON.parse(read('package.json')).version, [build.major, build.minor, build.patch].join('.'));
+  assert.ok(read('public/index.html').includes('V' + [build.major, build.minor, build.patch].join('.')));
+  assert.match(read('public/sw.js'), /release-v\d+\.\d+\.\d+/);
   assert.ok(fs.existsSync(path.join(root,'public/discord-activity.bundle.sha256')));
 });

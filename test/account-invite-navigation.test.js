@@ -37,6 +37,14 @@ function simulatedPortal({ invitedRoom, savedMode }) {
   );
   const persisted = new Map();
   const context = vm.createContext({
+    IS_ADMIN_PORTAL: false,
+    IS_DISCORD_ACTIVITY: false,
+    location: { href: 'https://hexsettlers.org/' },
+    setTimeout() {},
+    window: { dispatchEvent() {} },
+    Event,
+    fetch: async () => ({ ok: false }),
+    setupOAuthSignIn() {},
     pendingDirectJoinRoomCode: invitedRoom || null,
     selectedPlayMode: savedMode || '',
     authUser: null,

@@ -71,9 +71,9 @@ async function unusedPort() {
 }
 
 async function startServer(port, dataDir) {
-  const child = spawn(process.execPath, ['server.js'], {
+  const child = spawn(process.execPath, ['--require', path.join(__dirname, 'fixtures-turnstile.cjs'), 'server.js'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, NODE_ENV: 'test', HEX_BUILTIN_ADMIN_ENABLED: 'true', HEX_ADMIN_PASSWORD: 'Admin test password 4321' },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, NODE_ENV: 'test', TURNSTILE_SITE_KEY: 'integration-test-site', TURNSTILE_SECRET_KEY: 'integration-test-secret', HEX_BUILTIN_ADMIN_ENABLED: 'true', HEX_ADMIN_PASSWORD: 'Admin test password 4321' },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   let output = '';
@@ -108,7 +108,7 @@ test('change-name changes only display name, allows duplicates and persists admi
   async function post(route, body, cookie = '') {
     const headers = { 'Content-Type': 'application/json' };
     if (cookie) headers.Cookie = cookie;
-    const response = await fetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body: JSON.stringify(body) });
+    const response = await fetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body: JSON.stringify({ captchaToken: 'register@127.0.0.1', ...body }) });
     const payload = await response.json();
     return { code: response.status, payload, cookie: (response.headers.get('set-cookie') || '').split(';')[0] };
   }

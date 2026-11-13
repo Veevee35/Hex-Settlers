@@ -38,9 +38,9 @@ async function waitForHttp(port, processOutput) {
 
 async function startServer(port, dataDir, entryPoint = 'server.js', extraEnv = {}) {
   let output = '';
-  const child = spawn(process.execPath, [entryPoint], {
+  const child = spawn(process.execPath, ['--require', path.join(__dirname, 'fixtures-turnstile.cjs'), entryPoint], {
     cwd: PROJECT_ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, NODE_ENV: 'test', ...extraEnv },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, NODE_ENV: 'test', TURNSTILE_SITE_KEY: 'integration-test-site', TURNSTILE_SECRET_KEY: 'integration-test-secret', ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
   });
@@ -798,7 +798,7 @@ test('browser authentication uses an HTTP-only cookie for WebSocket sessions', {
   const response = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: `cookie_${suffix}`, password: 'cookie passphrase', displayName: 'Cookie Host' }),
+    body: JSON.stringify({ captchaToken: 'register@127.0.0.1', username: `cookie_${suffix}`, password: 'cookie passphrase', displayName: 'Cookie Host' }),
   });
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -839,7 +839,7 @@ test('players can upload, download, and select shared texture packs without gian
     const response = await fetch(`${origin}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: origin },
-      body: JSON.stringify({ username, password: 'texture sharing pass', displayName }),
+      body: JSON.stringify({ captchaToken: 'register@127.0.0.1', username, password: 'texture sharing pass', displayName }),
     });
     assert.equal(response.status, 200);
     return String(response.headers.get('set-cookie') || '').split(';')[0];
@@ -1025,7 +1025,7 @@ test('built-in Benleethom administrator can list users and securely reset anothe
     const response = await fetch(`http://127.0.0.1:${port}${route}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body || {}),
+      body: JSON.stringify({ captchaToken: 'register@127.0.0.1', ...body }),
     });
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
@@ -1057,7 +1057,7 @@ test('built-in Benleethom administrator can list users and securely reset anothe
 
   const reserved = await post('/api/auth/register', {
     username: 'BENLEETHOM',
-    password: 'not allowed',
+    password: 'not allowed as administrator',
     displayName: 'Impostor',
   });
   assert.equal(reserved.response.status, 400);
@@ -1156,7 +1156,7 @@ test('ordinary users can manage only themselves, verify recovery email, and rese
     const response = await fetch(`http://127.0.0.1:${port}${route}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body || {}),
+      body: JSON.stringify({ captchaToken: 'register@127.0.0.1', ...body }),
     });
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
@@ -1311,10 +1311,11 @@ test('v38 casual maps exclude custom maps and Unranked classic custom maps round
   host.send({ type: 'create_room', casual: true });
   const joined = await host.waitFor(m => m.type === 'joined');
   assert.equal(joined.room.casual, true);
-  assert.equal(joined.room.players.length, 4);
+  assert.equal(joined.room.players.length, 1);
   assert.equal(joined.room.players.filter(p => !p.isAI).length, 1);
   visitor.send({ type: 'join_room', code: joined.room.code, spectator: true });
-  assert.match((await visitor.waitFor(m => m.type === 'error')).error, /private|AI-only/i);
+  const spectating = await visitor.waitFor(m => m.type === 'joined');
+  assert.equal(spectating.role, 'spectator');
 
   host.send({ type: 'set_rules', rules: { mapMode: 'classic', customMap: true, randomMapAtStart: false } });
   assert.match((await host.waitFor(m => m.type === 'error')).error, /custom maps.*casual/i);
@@ -1396,7 +1397,7 @@ test('switching out of a solo Casual or Unranked lobby deletes the abandoned roo
   peer.send({ type: 'create_room', casual: true });
   const casual = await peer.waitFor(m => m.type === 'joined');
   assert.equal(casual.room.casual, true);
-  assert.ok(casual.room.players.some(p => p.isAI));
+  assert.equal(casual.room.players.filter(p => p.isAI).length, 0);
   peer.send({ type: 'leave_room', switchMode: 'unranked' });
   assert.equal((await peer.waitFor(m => (m.type === 'left_room' || m.type === 'error'))).switchMode, 'unranked');
   peer.send({ type: 'rejoin_room', code: casual.room.code });
@@ -1514,7 +1515,7 @@ test('v67 security: successful HTTP logins do not reset per-IP rate limits', { t
   const suffix = Date.now().toString(36);
   const credentials = { username: `rate_${suffix}`, password: 'long secure rate test password' };
   const post = (action) => fetch(`http://127.0.0.1:${port}/api/auth/${action}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(credentials),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...credentials, captchaToken: 'register@127.0.0.1' }),
   });
   assert.equal((await post('register')).status, 200);
   assert.equal((await post('login')).status, 200);
@@ -1527,7 +1528,7 @@ test('v68 security: admin password alone cannot create a management session and 
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-security-admin-mfa-'));
   const password = 'A secure admin test passphrase 2026!';
   const server = await startServer(port, dataDir, 'server.js', {
-    HEX_ADMIN_HOST: 'admin.hexsettlers.org', HEX_BUILTIN_ADMIN_ENABLED: 'true', HEX_ADMIN_PASSWORD: password,
+    HEX_ADMIN_HOST: 'admin.hexsettlers.org', HEX_TRUST_PROXY: '1', HEX_BUILTIN_ADMIN_ENABLED: 'true', HEX_ADMIN_PASSWORD: password,
   });
   t.after(async () => {
     await server.stop();
@@ -1536,8 +1537,8 @@ test('v68 security: admin password alone cannot create a management session and 
   const post = async (action, body = {}, cookie = '', host = 'admin.hexsettlers.org') => {
     const response = await fetch(`http://127.0.0.1:${port}/api/${action}`, {
       method: 'POST', headers: {
-        Host: host, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}),
-      }, body: JSON.stringify(body),
+        'X-Forwarded-Host': host, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}),
+      }, body: JSON.stringify({ captchaToken: 'register@127.0.0.1', ...body }),
     });
     const json = await response.json();
     return { status: response.status, json, cookies: response.headers.getSetCookie?.() || [response.headers.get('set-cookie') || ''] };

@@ -35,7 +35,7 @@ async function post(port, route, body, cookie = '') {
   const headers = { 'Content-Type': 'application/json' };
   if (cookie) headers.Cookie = cookie;
   const response = await fetch(`http://127.0.0.1:${port}${route}`, {
-    method: 'POST', headers, body: JSON.stringify(body),
+    method: 'POST', headers, body: JSON.stringify({ captchaToken: 'register@127.0.0.1', ...body }),
   });
   const data = await response.json();
   return { status: response.status, data, cookie: String(response.headers.get('set-cookie') || '').split(';')[0] };
@@ -80,10 +80,10 @@ test('admin endpoints protect, export, import, delete and triple-confirm history
     historyGame('game-seed-00000002', 'EFGH', now),
   ] }));
   let stderr = '';
-  const processHandle = spawn(process.execPath, ['server.js'], {
+  const processHandle = spawn(process.execPath, ['--require', path.join(__dirname, 'fixtures-turnstile.cjs'), 'server.js'], {
     cwd: root,
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir,
-      NODE_ENV: 'test', HEX_BUILTIN_ADMIN_ENABLED: 'true', HEX_ADMIN_PASSWORD: 'V38 secure admin pass' },
+      NODE_ENV: 'test', TURNSTILE_SITE_KEY: 'integration-test-site', TURNSTILE_SECRET_KEY: 'integration-test-secret', HEX_BUILTIN_ADMIN_ENABLED: 'true', HEX_ADMIN_PASSWORD: 'V38 secure admin pass' },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   processHandle.stderr.on('data', chunk => { stderr += chunk; });

@@ -48,7 +48,7 @@ test('v52 deployment references the new language pack with GitHub revision cache
   const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
   const stamp = fs.readFileSync(path.join(root, 'scripts/stamp-git-build.cjs'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
-  assert.match(html, /<script src="locale-expansion\.js\?v=release-v1\.0\.5"><\/script>\s*<script src="languages\.js/);
+  assert.match(html, /<script src="locale-expansion\.js\?v=release-v\d+\.\d+\.\d+"><\/script>[\s\S]*?<script src="languages\.js/);
   assert.match(stamp, /locale-expansion\\\.js\\\?v=/);
   assert.match(app, /className = 'chatRow';\s*row\.setAttribute\('data-i18n-skip'/);
 });

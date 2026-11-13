@@ -49,10 +49,6 @@ static napi_value produce(napi_env env, napi_callback_info info) {
   }
   for (int p = 0; p < game->player_count; ++p) {
     for (auto& resource : game->hand[p]) resource = 0;
-    if (game->gold_tile_count[p] != 0) {
-      napi_throw_range_error(env, nullptr, "Production gold counters must start empty");
-      return nullptr;
-    }
   }
   hex_exact::production(game);
   return arg;

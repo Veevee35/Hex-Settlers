@@ -21,5 +21,5 @@ test('beta inbox displays the sender, provider errors, manual retry and test ema
   assert.match(admin, /Last error:/);
   assert.match(admin, /Send test email to support/);
   assert.match(admin, /Retry now/);
-  assert.match(source('public/index.html'), /beta-admin\.js\?v=beta-email-diagnostics-20261110/);
+  assert.match(source('public/index.html'), /beta-admin\.js\?v=release-v\d+\.\d+\.\d+/);
 });

@@ -54,6 +54,12 @@ HEX_HD inline int clamp_int(int v, int lo, int hi) {
 // bank shortage gives partial city grants, robber blocks opportunities,
 // gold never enters hand; queue is assembled in players array order by JS.
 HEX_HD inline void production(Game *g) {
+    for (int p = 0; p < g->player_count; ++p) {
+        for (int k = 0; k < RESOURCES; ++k) g->gains[p][k] = 0;
+        for (int k = 0; k <= RESOURCE_GOLD; ++k) g->blocked[p][k] = 0;
+        g->gold_amount[p] = 0;
+        g->gold_tile_count[p] = 0;
+    }
     for (int k = 0; k < RESOURCES; ++k)
         g->bank[k] = clamp_int(g->bank[k], 0, g->bank_max);
     for (int t = 0; t < g->tile_count; ++t) {
@@ -98,7 +104,7 @@ HEX_HD inline void bank_trade(Game *g) {
     for(int k=0;k<RESOURCES;++k) {
         if(g->give[k]<=0)continue;
         g->hand[g->actor][k]-=g->give[k];
-        g->bank[k]=clamp_int(g->bank[k]+g->give[k],0,g->bank_max);
+        g->bank[k] += clamp_int(g->give[k], 0, g->bank_max - g->bank[k]);
     }
     for(int k=0;k<RESOURCES;++k) {
         if(g->take[k]<=0)continue;

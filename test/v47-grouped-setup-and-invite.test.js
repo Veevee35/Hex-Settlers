@@ -116,6 +116,8 @@ test('v47 server accepts 7 of 8 and Casual 5–6 ranges after clearing a legacy 
   await wait2(m=>m.type==='auth_ok');
   send2('create_room',{casual:true});await wait2(m=>m.type==='joined');
   send2('set_rules',{rules:{mapMode:'seafarers',seafarersScenario:'six_islands',playerCount:null}});
+  await wait2(m=>m.type==='room'&&m.room.casual===true&&m.room.rules?.seafarersScenario==='six_islands');
+  send2('fill_ai',{targetCount:6});
   const casual=await wait2(m=>m.type==='room'&&m.room.casual===true&&m.room.rules?.seafarersScenario==='six_islands'&&m.room.players.length===6);
   assert.equal(casual.room.maxPlayers,6);
   assert.equal(casual.room.players.filter(p=>p.isAI).length,5);
