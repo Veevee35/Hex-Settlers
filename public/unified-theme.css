@@ -415,3 +415,294 @@ body.uncreated-lobby #lobbyCard>.lobbyCardHeading {padding-bottom:8px;border-bot
 .authCaptchaWidget { min-height: 65px; width: 100%; max-width: 100%; overflow: visible; }
 .authCaptchaNotice { margin: 4px 0 0; font-size: .82rem; color: var(--muted, #b4bec7); }
 .authCaptchaWrap.hidden { display: none !important; }
+
+/* Use the browser's available height, including when its toolbars are open. */
+@media (min-aspect-ratio: 16/9) {
+  body {
+    --wide-top: calc(8px + var(--safe-top));
+    --wide-footer: calc(38px + var(--safe-bottom));
+    --wide-inline: clamp(10px, 1.5vw, 24px);
+  }
+  #app { min-height: 0; }
+  .portalScreen,
+  #playModeScreen.portalScreen,
+  #journeyScreen,
+  #journeyScreen.challengeWideLayout,
+  #registerOverlay {
+    padding: var(--wide-top) calc(var(--wide-inline) + var(--safe-right))
+      var(--wide-footer) calc(var(--wide-inline) + var(--safe-left));
+    grid-template-rows: minmax(0, 1fr);
+  }
+  #authLanding { padding-top: calc(46px + var(--safe-top)); }
+  .portalScreen > .portalCard,
+  #registerOverlay > .registerCard,
+  #journeyScreen.challengeWideLayout .journeyCard {
+    max-height: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 16px clamp(14px, 2vw, 28px);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  #journeyScreen.challengeWideLayout .journeyCard { align-self: stretch; }
+  .portalLanguageButton { top: var(--wide-top); }
+  .gameBootLoader { padding-block: var(--wide-top) calc(8px + var(--safe-bottom)); overflow: auto; }
+  .gameBootCard { padding-block: 12px; }
+  .gameBootLogo { width: 50px; height: 50px; margin-bottom: 6px; }
+  .gameBootCard p { margin-block: 8px; }
+  #gameBootContinue:not([hidden]) { margin-top: 10px; }
+  .portalCard .compactPortalLogo,
+  .authPortalCard .portalLogo,
+  .modePortalCard .modeLogo { width: 80px; margin: 0 auto 8px; }
+  #playModeScreen .modeLogo { width: 68px; margin-bottom: 6px; }
+  .rankedCard .compactPortalLogo { margin-top: 24px; }
+  .rankedCard .rankSummary { margin: 10px 0; padding-block: 9px; }
+  .rankedCard .portalLead { margin-block: 7px; }
+  .portalForm,
+  .portalCard .portalPrimary,
+  .portalTextBtn,
+  .journeyBottomActions,
+  .journeyTutorialReplay { margin-top: 10px; }
+  #registerOverlay .overlayBackBtn { margin-bottom: 8px; }
+
+  .journeyCard .journeyBack { position: static; margin: 0; }
+  .journeyCard .journeyLogo { width: 60px; margin: 4px auto 6px; }
+  .journeyOptions { margin: 12px 0 8px; }
+  #playModeScreen .modeChoices { margin-top: 12px; }
+  #playModeScreen .modeChoice,
+  .journeyOptions .modeChoice { min-height: 0; padding: 12px 14px; }
+  .journeyCard .journeyPanel { margin: 10px 0 6px; padding-top: 10px; }
+  .journeyActions { margin-bottom: 8px; }
+  .journeyCard .publicLobbyList { max-height: none; }
+  .journeyCard .publicLobbyItem { padding-block: 8px; }
+  .journeyCard .publicLobbyDetailMap { margin-block: 8px; }
+  .journeyCard .publicLobbyDetailFields { gap: 6px; margin-block: 8px; }
+  .journeyCard .betaSessionPanel {
+    width: auto; margin: 0; padding: 6px 10px;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px;
+  }
+  .journeyCard .betaSessionPanel h2 { margin: 0; }
+  .journeyCard .betaSessionRow { padding: 2px 0; border: 0; }
+  .journeyCard .betaSessionRow strong { min-width: 0; }
+  .journeyCard .betaJoinLink { margin: 0; }
+  .journeyPlaytests {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+    gap: 5px 12px; margin-top: 8px;
+  }
+
+  #journeyScreen.challengeWideLayout .journeyHeading {
+    min-height: 0; padding: 0; gap: 4px 16px;
+  }
+  #journeyScreen.challengeWideLayout .journeyHeading .portalLead { max-width: none; }
+  #journeyScreen.challengeWideLayout .challengeMapsPanel { margin: 8px 0 0; padding-top: 8px; }
+  .challengePeriodTabs { margin: 0 0 6px; }
+  .challengeMapTabs { padding-block: 2px 4px; gap: 6px; }
+  .challengeMapTab { min-height: 38px; padding: 6px 9px; }
+  .challengeMapOverview { gap: 8px 16px; margin: 5px 0 8px; }
+  .challengeMapNotes .smallNote { margin: 3px 0; }
+  .challengeTopPlayer { padding: 6px 10px; }
+  .challengeTopPlayerName { margin: 2px 0 4px; }
+  .challengeTopPlayerMetric { gap: 1px; }
+  .challengeMapsList { margin-top: 0; }
+  .challengeMapCard { padding: 10px 12px; }
+  .challengeMapCardHeading { padding-bottom: 7px; gap: 6px 12px; }
+  .challengeMapCardHeading button { min-height: 36px; padding-block: 6px; }
+  .challengeMapContent { margin-top: 8px; gap: 12px; }
+  .challengeMapCard h3 { margin-bottom: 6px; }
+  .challengeMapPreview {
+    width: min(100%, max(280px, calc((100dvh - 250px) * 76 / 45)));
+    margin-inline: auto;
+  }
+
+  body:not(.in-game):not(.ranked-lobby) .layout {
+    padding-block: var(--wide-top) calc(8px + var(--safe-bottom));
+  }
+  body:not(.in-game):not(.ranked-lobby) .layout > .panel { gap: 8px; padding-bottom: 10px; }
+  body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout {
+    padding: var(--wide-top) var(--wide-inline) var(--wide-footer) !important;
+  }
+  body.uncreated-lobby:not(.in-game):not(.ranked-lobby) .layout > .panel {
+    max-height: 100%; padding-block: 12px !important;
+  }
+  .uncreatedLobbyNavigation { margin-bottom: 4px; }
+  .uncreatedPortalLogo { width: 66px; margin-bottom: 5px; }
+  .uncreatedLobbyIntro p { margin-bottom: 6px; }
+  body.uncreated-lobby #lobbyCard { padding: 12px 16px; }
+  body.ranked-lobby .layout { padding-block: 5px; }
+  body.ranked-lobby .layout > .panel { overflow-y: auto; }
+  body.ranked-lobby #lobbyCard { height: auto; min-height: 100%; overflow: visible; }
+  .boardFooter { padding-block: 5px; }
+
+  .postgamePanel { height: 100dvh; }
+  .postgameTop { gap: 4px 10px; padding-block: var(--wide-top) 6px; }
+  .postgameWinnerLine { font-size: clamp(20px, 3.5dvh, 30px); }
+  .postgameTabs { padding-block: 4px; }
+  .pgTab { min-height: 36px; padding-block: 5px; }
+  .postgameBody { min-height: 0; padding-block: 8px calc(8px + var(--safe-bottom)); }
+  .historyPanel { height: calc(100dvh - var(--wide-top) - 8px - var(--safe-bottom)); }
+  .historyTop, .historyToolbar { padding-block: 6px; }
+  .rulesPageHeader { padding-block: var(--wide-top) 8px; }
+  .rulesPageHeading h1 { margin-block: 2px; }
+  .rulesPageNav { padding-block: 8px; }
+  .rulesCategoryTabs, .rulesScenarioTabs { padding-block: 4px; }
+  .rulesPageContent { padding-block: 12px calc(16px + var(--safe-bottom)); }
+  .languagePage { padding-block: var(--wide-top) calc(10px + var(--safe-bottom)); }
+  .languagePageHeader { margin-bottom: 10px; }
+  .languageChoice { min-height: 44px; }
+  .modalBox { max-height: calc(100dvh - var(--wide-top) - 8px - var(--safe-bottom)); overflow-y: auto; }
+  .legalOverlay { padding-block: var(--wide-top) calc(8px + var(--safe-bottom)); }
+  .legalDialog {
+    width: min(1100px, 100%);
+    height: calc(100dvh - var(--wide-top) - 8px - var(--safe-bottom));
+    min-height: 0;
+  }
+  .legalDialogHeader, .legalDialogFooter, .legalDocumentFrame { padding-block: 6px; }
+  .accountMenu { max-height: calc(100dvh - 80px - var(--safe-bottom)); overflow-y: auto; }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 600px) {
+  .portalScreen > .appVersion, #app .preLobbyAppFooter .appVersion,
+  #registerOverlay > .appVersion,
+  #authLanding.portalScreen > .appVersion, #playModeScreen.portalScreen > .appVersion {
+    bottom: calc(10px + var(--safe-bottom)); left: 50%; transform: translateX(-50%);
+  }
+  .portalScreen > .portalLegalLinks, #app .preLobbyAppFooter .portalLegalLinks,
+  #registerOverlay .portalLegalLinks, #playModeScreen.portalScreen > .portalLegalLinks {
+    bottom: calc(4px + var(--safe-bottom)); left: calc(10px + var(--safe-left));
+  }
+  .portalLegalLink { padding-block: 5px; }
+  .portalScreen .loginSupport, #app .preLobbyAppFooter .loginSupport, #registerOverlay .loginSupport {
+    bottom: calc(4px + var(--safe-bottom)); right: calc(10px + var(--safe-right));
+  }
+  .portalScreen .loginSupport a, #app .preLobbyAppFooter .loginSupport a, #registerOverlay .loginSupport a {
+    padding-block: 3px;
+  }
+  .portalScreen .loginSupport { z-index: 8; }
+
+  .portalLanguageButton {
+    left: calc(10px + var(--safe-left)); transform: none;
+  }
+  .portalScreen > .authPortalCard {
+    display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1fr);
+    align-items: center; gap: clamp(12px, 3vw, 36px);
+    width: min(820px, 100%);
+  }
+  .authPortalCard .portalForm { width: 100%; margin: 0; }
+  #playModeScreen .modePortalCard { max-width: none; margin: 0; }
+  #playModeScreen .modeChoices, .journeyOptions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .languagePageInner { max-width: 1100px; }
+}
+
+@media (min-aspect-ratio: 16/9) and (max-width: 599px) {
+  body { --wide-footer: calc(76px + var(--safe-bottom)); }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 760px) {
+  #journeyScreen,
+  #journeyScreen.challengeWideLayout {
+    padding-right: calc(max(var(--wide-inline), 68px) + var(--safe-right));
+  }
+  .journeyHeader {
+    display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+  }
+  .journeyHeader .journeyLogo { width: 44px; margin: 0; }
+  .journeyHeader .portalEyebrow { margin: 0; }
+  .journeyHeading { flex: 1 1 350px; }
+  .journeyHeading h1, .journeyHeading .portalLead { margin: 0; text-align: left; }
+  .challengeTabs {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .challengeTabs .challengePeriodTabs { flex: 0 0 auto; margin: 0; }
+  .challengePeriodTabs .hTab { min-width: 0; }
+  .challengeMapTabs { min-width: 0; }
+  .challengeMapTab { flex-basis: 86px; }
+  .challengeMapContent { grid-template-columns: minmax(0, .9fr) minmax(0, 1.4fr); }
+  .challengeMapCardHeading button { width: auto; }
+  .challengeMapVisualization { width: 100%; }
+  .challengeTopPlayer:has(.challengeTopPlayerStats) {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+    align-items: center; gap: 2px 8px;
+  }
+  .challengeTopPlayerStats {
+    grid-column: 2; grid-row: 1 / span 2;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr) minmax(0, .65fr);
+  }
+  .challengeTopPlayerName { grid-column: 1; margin: 0; }
+  #journeyLobbyDetailPanel:has(.publicLobbyDetailMap:not(.hidden)):not(.hidden) {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 12px;
+  }
+  #journeyLobbyDetailPanel > :is(.journeyActions, h2, .smallNote) { grid-column: 1 / -1; margin-block: 0; }
+  #journeyLobbyDetailPanel .publicLobbyDetailMap { grid-row: span 2; align-self: center; }
+  #publicLobbyDetailJoinBtn { justify-self: start; align-self: end; }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 600px) and (max-height: 520px) {
+  #journeyScreen.challengeWideLayout {
+    padding-right: calc(68px + var(--safe-right));
+  }
+  #journeyScreen.challengeWideLayout .journeyCard {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 23%);
+    align-content: start; align-items: start; gap: 6px 12px;
+    padding-block: 10px;
+  }
+  .challengeWideLayout .journeyHeader {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px;
+  }
+  .challengeWideLayout .journeyHeading { flex: 1 1 300px; }
+  .challengeWideLayout .journeyPlaytests { grid-column: 2; grid-row: 2; margin-top: 8px; }
+  .challengeWideLayout .challengeMapsPanel {
+    grid-column: 1; grid-row: 2; display: flex; flex-direction: column; min-width: 0;
+  }
+  .challengeWideLayout .challengeMapOverview { order: 1; }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 600px) and (max-width: 900px) {
+  .rulesPageLayout {
+    display: grid; grid-template-columns: minmax(140px, 24%) minmax(0, 1fr);
+  }
+  .rulesPageNav { overflow: auto; }
+  .rulesPageNavList { width: auto; flex-direction: column; }
+  .rulesPageNavLink { white-space: normal; }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 600px) and (max-width: 800px),
+       (min-aspect-ratio: 16/9) and (min-width: 600px) and (pointer: coarse) and (max-width: 1180px) {
+  .postgameTop {
+    grid-template-areas: "result result result" "navigation type-size hide";
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .postgameTop .btn { min-height: 36px; padding-block: 5px; }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 1060px) {
+  #authLanding { padding-top: var(--wide-top); }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 781px) {
+  body.ranked-lobby .rankedScenarioOptions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body.ranked-lobby .rankedScenarioMapPreview { width: min(100%, clamp(140px, 41dvh, 435px)); }
+}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 901px) and (pointer: fine),
+       (min-aspect-ratio: 16/9) and (min-width: 1181px) {
+  body.in-game .hudTopLeft { padding-block: 2px; }
+  body.in-game .hudBottomLeft { padding-block: 3px; }
+  body.in-game .rollDock { bottom: calc(var(--hud-bottom-bar-height, 44px) + 4px) !important; }
+  body.in-game .rollDock :is(#rollDockBtn, #endDockBtn) {
+    min-height: calc(38px * var(--turn-button-scale, 1)) !important;
+    padding-block: calc(6px * var(--turn-button-scale, 1)) !important;
+  }
+  body.in-game .rightHud { top: calc(var(--hud-top-bar-height, 43px) + 6px) !important; }
+  body.in-game .rightSidebarInner { gap: 6px; padding-block: 8px !important; }
+}
+
+@media (min-aspect-ratio: 16/9) and (max-height: 550px) and (max-width: 900px),
+       (min-aspect-ratio: 16/9) and (max-height: 550px) and (pointer: coarse) and (max-width: 1180px) {
+  body.in-game .hudBottomLeft .hudBtns {
+    display: flex !important; overflow-x: auto !important; scrollbar-width: thin;
+  }
+  body.in-game .hudBottomLeft .hudBtns .btn {
+    flex: 1 0 auto; width: auto; min-height: 34px !important; padding-inline: 7px !important;
+  }
+  body.in-game .mobilePanelTab { min-height: 32px; }
+}

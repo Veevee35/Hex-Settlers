@@ -71,3 +71,15 @@ body.admin-portal #adminPortalDenied.hidden{display:none}
 @media(max-width:1200px){.adminStatsMetrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){.adminStatsChartGrid,.adminStatsBreakdown{grid-template-columns:1fr}.adminStatsChartPanel svg{height:190px}}
 @media(max-width:560px){.adminStatsMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.adminStatsMetric{padding:10px}.adminStatsMetric strong{font-size:21px}.adminStatsTop{align-items:flex-start}}
+
+@media (min-aspect-ratio: 16/9) and (min-width: 600px) {
+  #adminPortalBar { min-height: 52px; padding-block: 5px; }
+  #adminPortalBar .btn { padding-block: 7px; }
+  body.admin-portal .modal { inset-block-start: 52px; padding-block: 6px; }
+  body.admin-portal #adminPortalDenied { inset-block-start: 52px; padding-block: 8px; }
+  .adminStats { gap: 8px; padding-bottom: 8px; }
+  .adminStatsMetric { min-height: 0; padding: 8px; }
+  .adminStatsMetricLabel { margin-bottom: 5px; }
+  .adminStatsChartPanel { padding: 10px; }
+  .adminStatsChartPanel svg { height: clamp(120px, 32dvh, 225px); }
+}

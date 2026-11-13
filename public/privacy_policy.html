@@ -9,6 +9,10 @@
     body { font-family: system-ui, sans-serif; margin: 1.5rem auto; max-width: 800px; padding: 0 1.5rem 2rem; line-height: 1.6; color: #dce7ef; }
     h1, h2 { color: #f5d58c; } h1 { text-align: center; } .meta { color: #adbeca; }
     a { color: #8dc9f2; } a:focus-visible { outline: 2px solid #f5d58c; }
+    @media (min-aspect-ratio: 16/9) {
+      body { margin-block: 0.5rem; max-width: 960px; padding-bottom: 1rem; }
+      h1, h2, p { margin-block: 0.55em; }
+    }
   </style>
 </head>
 <body>

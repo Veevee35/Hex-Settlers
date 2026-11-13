@@ -1,9 +1,32 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hex Settlers — Join the Playtest</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/beta.css?v=release-v1.0.55">
+<title>Hex Settlers — Join the Playtest</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/beta.css?v=wide-viewport">
 <style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;color:#e4eff6;font-family:system-ui,-apple-system,sans-serif;background:radial-gradient(ellipse at 50% 0,#1d3c4d,#09131d 62%);line-height:1.6}
 a{color:#f7cf7e}header,main,footer{width:min(920px,calc(100% - 34px));margin:auto}header{display:flex;align-items:center;gap:12px;padding:20px 0;font-weight:800}header img{height:46px;width:46px;border-radius:8px}header a{margin-left:auto}h1{font-size:clamp(32px,6vw,57px);line-height:1.06;letter-spacing:-.04em;margin:8px 0 18px}h2{color:#eed18c;font-size:22px}p{color:#b8cad8}.lead{font-size:18px;max-width:700px}.eyebrow{text-transform:uppercase;color:#f5c66b;letter-spacing:.18em;font-size:12px;font-weight:800}.hero{padding:52px 0 34px}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:25px}.cta{display:inline-block;border-radius:12px;background:#e5b75b;padding:12px 24px;color:#09131d;text-decoration:none;font-weight:900}.cta.secondary{background:#183447;color:#e8eff4;border:1px solid #56819a}.features{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0 35px}.features article,.steps{padding:20px;border:1px solid #38566b;background:#102231;border-radius:15px}.features strong{display:block;color:#f5db98;margin-bottom:5px}.features p{margin:0;font-size:14px}.steps ol{padding-left:22px}.steps li{padding:7px 0}footer{border-top:1px solid #3b576c;padding:22px 0 38px;color:#99b2c4;font-size:12px}.betaSessionPanel{width:100%;margin:25px 0}.betaSessionPanel h2{color:#eed18c}@media(max-width:680px){.features{grid-template-columns:1fr}.hero{padding:30px 0}}
+@media (min-aspect-ratio: 16/9) {
+  header, main, footer { width: min(1200px, calc(100% - 34px)); }
+  header { padding-block: 8px; }
+  header img { width: 34px; height: 34px; }
+  .hero { padding: 12px 0 6px; }
+  h1 { font-size: clamp(28px, 6dvh, 48px); margin-bottom: 8px; }
+  .hero p { margin-block: 8px; max-width: 82ch; }
+  .actions { margin-top: 12px; }
+  .cta { padding-block: 8px; }
+  .features, .betaSessionPanel { margin-block: 12px; }
+  .features article, .steps { padding: 12px; }
+  .steps h2, .steps ol { margin-block: 6px; }
+  .steps li { padding-block: 3px; }
+  footer { padding-block: 10px 16px; }
+}
+@media (min-aspect-ratio: 16/9) and (min-width: 760px) {
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .85fr); gap: 8px 20px; }
+  .hero { align-self: center; }
+  .features { grid-template-columns: 1fr; gap: 6px; margin-block: 6px; }
+  .betaSessionPanel { align-self: start; margin: 0; }
+  .betaSessionPanel.hidden + .steps { grid-column: 1 / -1; }
+  main > p { grid-column: 1 / -1; margin-block: 4px 10px; }
+}
 </style></head>
 <body><header><img src="/favicon.png" alt=""><span>HEX SETTLERS <span style="color:#f0c86d">/ BETA</span></span><a href="/">Back to game</a></header>
 <main><section class="hero"><div class="eyebrow">Organized multiplayer playtesting</div><h1>Help shape the next settlement.</h1>

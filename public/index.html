@@ -12,8 +12,8 @@
   <meta name="apple-mobile-web-app-title" content="Hex Settlers">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="styles.css?v=release-v1.0.55" />
-  <link rel="stylesheet" href="unified-theme.css?v=release-v1.0.55" />
-  <link rel="stylesheet" href="beta.css?v=release-v1.0.55">
+  <link rel="stylesheet" href="unified-theme.css?v=wide-viewport" />
+  <link rel="stylesheet" href="beta.css?v=wide-viewport">
   <link rel="stylesheet" href="/discord-activity.css">
 </head>
 <body>
@@ -32,9 +32,11 @@
     <button id="loginLanguageBtn" class="btn portalLanguageButton" type="button">🌐 <span>Language</span></button>
     <div class="portalBackdrop"></div>
     <div class="portalCard authPortalCard">
-      <img class="portalLogo" src="/favicon.png" alt="Hex Settlers">
-      <h1>Welcome to Hex Settlers</h1>
-      <p class="portalLead">Build kingdoms, cross new seas, and compete with settlers from around the world.</p>
+      <div class="authPortalIntro">
+        <img class="portalLogo" src="/favicon.png" alt="Hex Settlers">
+        <h1>Welcome to Hex Settlers</h1>
+        <p class="portalLead">Build kingdoms, cross new seas, and compete with settlers from around the world.</p>
+      </div>
       <div class="portalForm">
         <div id="adminMfaLoginForm">
         <label class="label" for="landingUsername">Username or email</label>
@@ -135,24 +137,30 @@
   <section id="journeyScreen" class="portalScreen hidden">
   <div class="portalBackdrop"></div>
   <div class="portalCard journeyCard">
-    <button type="button" id="journeyBackBtn" class="btn journeyBack">← Back to Game Types</button>
-    <img class="portalLogo journeyLogo" src="/favicon.png" alt="Hex Settlers">
-    <p class="portalEyebrow">Choose your adventure</p>
-    <div class="journeyHeading"><h1 id="journeyTitle">All Games</h1>
-    <p id="journeyLead" class="portalLead">Discover a game, gather your friends, or learn to play.</p></div>
-    <div id="betaSessions" class="betaSessionPanel hidden" aria-label="Scheduled beta playtests"></div>
-    <p class="betaJoinLink"><a href="/beta.html">Join organized beta playtests · Learn more</a></p>
+    <div class="journeyHeader">
+      <button type="button" id="journeyBackBtn" class="btn journeyBack">← Back to Game Types</button>
+      <img class="portalLogo journeyLogo" src="/favicon.png" alt="Hex Settlers">
+      <p class="portalEyebrow">Choose your adventure</p>
+      <div class="journeyHeading"><h1 id="journeyTitle">All Games</h1>
+      <p id="journeyLead" class="portalLead">Discover a game, gather your friends, or learn to play.</p></div>
+    </div>
+    <div class="journeyPlaytests">
+      <div id="betaSessions" class="betaSessionPanel hidden" aria-label="Scheduled beta playtests"></div>
+      <p class="betaJoinLink"><a href="/beta.html">Join organized beta playtests · Learn more</a></p>
+    </div>
     <div id="journeyHomeOptions" class="journeyOptions">
       <button type="button" id="journeyPublicBtn" class="modeChoice"><strong>Public Lobbies</strong><span>Discover open games or host a public lobby.</span></button>
       <button type="button" id="journeyPrivateBtn" class="modeChoice"><strong>Private Lobby</strong><span>Host an invite-only game or join with a code.</span></button>
       <button type="button" id="journeyChallengeBtn" class="modeChoice"><strong>Challenge Maps</strong><span>New maps every week. Play with friends see who can get the highest score!</span><span>5 new Scattered Tiles maps every week to compete on.</span></button>
     </div>
     <div id="journeyChallengePanel" class="hidden journeyPanel challengeMapsPanel">
-      <div id="challengePeriodTabs" class="leaderboardSubTabs challengePeriodTabs" role="tablist" aria-label="Challenge rotation">
-        <button class="hTab active" type="button" data-period="weekly">Weeklys</button>
-        <button class="hTab" type="button" data-period="daily">Dailies</button>
+      <div class="challengeTabs">
+        <div id="challengePeriodTabs" class="leaderboardSubTabs challengePeriodTabs" role="tablist" aria-label="Challenge rotation">
+          <button class="hTab active" type="button" data-period="weekly">Weeklys</button>
+          <button class="hTab" type="button" data-period="daily">Dailies</button>
+        </div>
+        <div id="challengeMapTabs" class="challengeMapTabs" role="tablist" aria-label="Challenge map player count"></div>
       </div>
-      <div id="challengeMapTabs" class="challengeMapTabs" role="tablist" aria-label="Challenge map player count"></div>
       <div class="challengeMapOverview">
         <div class="challengeMapNotes">
           <p class="smallNote" id="challengeWeekLabel">Five maps · Monday at 1:00 AM Central · Balanced Bag dice · Expert AI</p>
