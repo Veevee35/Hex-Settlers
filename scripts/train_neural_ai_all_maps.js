@@ -12,6 +12,7 @@ const WebSocket = require('ws');
 const { TRAINING_OBJECTIVE } = require('../server/neural-objective');
 const { atomicWriteJson } = require('./training-file');
 const { fallbackMap, validateCheckpoint } = require('./training-recovery');
+const { ensureCuda, refine } = require('./neural-gpu');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT, 'neural_ai_model.json'));
@@ -25,6 +26,13 @@ const VP_TO_WIN_OVERRIDE = VP_TO_WIN_RAW && Number.isFinite(VP_TO_WIN_PARSED) ? 
 const GAME_TIMEOUT_MS = Math.max(20_000, Math.floor(Number(process.env.GAME_TIMEOUT_MS || 240_000)));
 const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() === '1';
 const RESUME_TRAINING = process.env.RESUME_TRAINING === '1';
+const GPU_TRAINING = String(process.env.TRAINING_ACCELERATOR || 'cpu').toLowerCase() === 'cuda';
+const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
+function isPauseRequested() {
+  if (!CONTROL_FILE) return false;
+  try { return JSON.parse(fs.readFileSync(CONTROL_FILE, 'utf8')).pause === true; } catch (_) { return false; }
+}
+
 const IDLE_TIMEOUT_MS = Math.max(15_000, Math.floor(Number(process.env.IDLE_TIMEOUT_MS || 75_000)));
 const MAX_TRAINING_TURNS = Math.max(50, Math.floor(Number(process.env.MAX_TRAINING_TURNS || 900)));
 const MAX_ATTEMPTS_PER_MAP = Math.max(1, Math.floor(Number(process.env.MAX_ATTEMPTS_PER_MAP || 2)));
@@ -118,6 +126,7 @@ async function startTrainingServer(dataDir) {
       NODE_ENV: 'test',
       AI_FAST: '1',
       AI_TRAINING: '1',
+      NEURAL_GPU_TRAINING: GPU_TRAINING ? '1' : '0',
       HEX_BUILTIN_ADMIN_ENABLED: '0',
       // Never inherit production persistence/auth bridge settings in self-play.
       CLOUDFLARE_STATE_ENDPOINT: '',
@@ -538,6 +547,10 @@ function summarize(results) {
 
 async function main() {
   if (!fs.existsSync(MODEL_PATH)) throw new Error(`Model not found: ${MODEL_PATH}`);
+  if (GPU_TRAINING) {
+    const info = await ensureCuda();
+    console.log(`[cuda] available: ${info.device} (torch ${info.torch}); running CPU self-play + CUDA minibatch refinement`);
+  }
   const startingModel = readModel(MODEL_PATH);
   const startingHash = modelHash(MODEL_PATH);
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-neural-curriculum-'));
@@ -580,6 +593,16 @@ async function main() {
           if (Number(batchModel.trainedGames || 0) !== expectedBatchCount) {
             throw new Error(`Local server returned ${newGames.length} completed games, but saved model trainedGames=${batchModel.trainedGames}, expected ${expectedBatchCount}. This batch will not be counted.`);
           }
+          if (GPU_TRAINING) {
+            // The server MUST stop before CUDA writes weights; otherwise its
+            // pending saves could overwrite the GPU-refined model.
+            await server.stop();
+            server = null;
+            const gpu = await refine(batchModelPath, path.join(batchDir, 'neural_gpu_samples.jsonl'));
+            console.log(`[cuda] batch ${batchNo}: ${gpu.examples} examples, ${gpu.games} games, loss ${gpu.initialLoss} -> ${gpu.finalLoss}, weights ${gpu.committed ? 'updated' : 'unchanged'}`);
+            if (gpu.games !== newGames.length) throw new Error(`CUDA sample count ${gpu.games} != committed game count ${newGames.length}`);
+            batchModel = readModel(batchModelPath);
+          }
           break;
         } catch (error) {
           const diagnosis = `${error.message}${server ? `\nTraining server logs:\n${server.output().slice(-6000)}` : ''}`;
@@ -603,6 +626,11 @@ async function main() {
         mapSet: MAP_SET, curriculumOffset: CURRICULUM_OFFSET, model: latestModel, games: results,
         mapHealth,
       });
+      if (isPauseRequested()) {
+        console.log(`[train] pause requested: ${results.length}/${TOTAL_GAMES} games safely checkpointed`);
+        process.exitCode = 75;
+        return;
+      }
     }
     if (results.length !== TOTAL_GAMES) throw new Error(`Incomplete run: ${results.length}/${TOTAL_GAMES}`);
     results.sort((a, b) => a.sessionIndex - b.sessionIndex);
@@ -618,6 +646,7 @@ async function main() {
       victoryPointsToWin: VP_TO_WIN_OVERRIDE || 'scenario-defaults',
       trainingObjective: TRAINING_OBJECTIVE,
       mapSet: MAP_SET,
+      accelerator: GPU_TRAINING ? 'cuda' : 'cpu',
       mapsCovered: MAPS.map((map) => map.id),
       scenariosReplaced: results.filter(game => game.requestedMapId).map(game => ({ game: game.sessionIndex + 1, requested: game.requestedMapId, trained: game.mapId })),
       resumed: RESUME_TRAINING,

@@ -3767,6 +3767,15 @@ function trainNeuralAiFromFinishedGame(game) {
     const expectedTurns = Math.max(20, vpTarget * Math.max(2, game.players.length) * 2);
     const trace = Array.isArray(game._neuralTrainingTrace) ? game._neuralTrainingTrace : [];
     const sampleCount = Math.min(12, trace.length);
+    // GPU mode still performs online CPU updates for game-to-game decisions.
+    // The finished-game targets are also committed for *additional* batched
+    // CUDA refinement after the training server is shut down.
+    const gpuSamples = typeof process !== 'undefined' && process.env.NEURAL_GPU_TRAINING === '1' &&
+      process.env.AI_TRAINING === '1' && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1' ? [] : null;
+    const trainSample = (features, target, rate) => {
+      trainNeuralExample(prm, features, target, rate);
+      if (gpuSamples) gpuSamples.push({ features: features.slice(), target: Math.max(-0.98, Math.min(0.98, target)) });
+    };
 
     for (const gp of neuralPlayers) {
       const pid = String(gp?.id || '').trim();
@@ -3779,10 +3788,10 @@ function trainNeuralAiFromFinishedGame(game) {
         if (!Array.isArray(features)) continue;
         const remainingTurns = Math.max(0, totalTurns - Number(snapshot.turn || 0));
         const target = victoryTrainingTarget({ won, totalTurns, expectedTurns, remainingTurns, opponentProgress: features[12], lead: features[14] });
-        trainNeuralExample(prm, features, target, 0.0035);
+        trainSample(features, target, 0.0035);
       }
       const terminalFeatures = neuralFeaturesFromState(game, pid);
-      trainNeuralExample(prm, terminalFeatures, victoryTrainingTarget({ won, totalTurns, expectedTurns, opponentProgress: terminalFeatures[12], terminal: true }), 0.008);
+      trainSample(terminalFeatures, victoryTrainingTarget({ won, totalTurns, expectedTurns, opponentProgress: terminalFeatures[12], terminal: true }), 0.008);
     }
 
     NEURAL_AI_MODEL.trainedGames = Math.max(0, Number(NEURAL_AI_MODEL.trainedGames || 0)) + 1;
@@ -3807,9 +3816,18 @@ function trainNeuralAiFromFinishedGame(game) {
     // Resolve save failures into a result rather than leaving an unhandled
     // rejected promise capable of crashing the isolated training server.
     const modelWrite = Promise.resolve(saveNeuralAiModel()).then(
-      () => ({ ok: true }),
+      () => {
+        if (gpuSamples) {
+          // Keep only examples from *durably committed* games. If collection
+          // fails, the receipt fails and the runner discards the entire batch.
+          if (!gpuSamples.length) throw new Error('Finished game produced no GPU training examples');
+          fs.appendFileSync(path.join(DATA_DIR, 'neural_gpu_samples.jsonl'),
+            `${JSON.stringify({ gameId: game.id, samples: gpuSamples })}\n`, 'utf8');
+        }
+        return { ok: true };
+      },
       (error) => ({ ok: false, error: String(error && error.message || error) }),
-    );
+    ).catch((error) => ({ ok: false, error: String(error && error.message || error) }));
     // This receipt is deliberately non-enumerable: no training internals or
     // promises are included in public game snapshots or serialized room data.
     Object.defineProperty(game, '_neuralTrainingCommit', {

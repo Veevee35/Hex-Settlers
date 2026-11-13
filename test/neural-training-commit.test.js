@@ -14,7 +14,7 @@ const original = JSON.parse(fs.readFileSync(path.join(root, 'neural_ai_model.jso
 
 // Exercise the production trainer functions directly with a small, deterministic
 // terminal game. This test needs no network or live WebSocket dependency.
-function makeContext(save = () => Promise.resolve()) {
+function makeContext(save = () => Promise.resolve(), options = {}) {
   const gameFns = source.slice(source.indexOf('function neuralPlayersInGame('), source.indexOf('function checkWin('));
   assert.ok(gameFns.startsWith('function neuralPlayersInGame('));
   const model = structuredClone(original);
@@ -33,6 +33,11 @@ function makeContext(save = () => Promise.resolve()) {
     },
     victoryTrainingTarget,
     saveNeuralAiModel: save,
+    process: { env: { AI_TRAINING: '1', NODE_ENV: 'test', NEURAL_GPU_TRAINING: options.gpu ? '1' : '0' } },
+    HOST: '127.0.0.1',
+    DATA_DIR: '/test-training',
+    path,
+    fs: { appendFileSync: options.append || (() => {}) },
     createDefaultNeuralAiModel: () => structuredClone(original),
     console,
   });
@@ -91,4 +96,34 @@ test('local runner asks for the durable training receipt before crediting a win'
   assert.match(source, /await commit\.promise/);
   assert.equal(parseClientMessage(JSON.stringify({ type: 'get_training_receipt' })).ok, true);
   assert.match(source, /room\.game\.phase === 'game-over' && room\.game\.winnerId && !room\.game\._neuralTrained/);
+});
+
+
+test('CUDA examples come only from saved, finished neural games', async () => {
+  const records = [];
+  const { context } = makeContext(undefined, { gpu: true, append: (_file, data) => records.push(JSON.parse(data)) });
+  const game = finishedGame();
+  assert.equal(vm.runInContext('trainNeuralAiFromFinishedGame', context)(game), true);
+  assert.equal((await game._neuralTrainingCommit.promise).ok, true);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].gameId, game.id);
+  assert.equal(records[0].samples.length, 2);
+  assert.equal(records[0].samples[0].features.length, original.meta.inputSize);
+  assert.ok(records[0].samples.every(sample => sample.target >= -0.98 && sample.target <= 0.98));
+});
+
+test('CUDA data append failure invalidates per-game training receipt', async () => {
+  const { context } = makeContext(undefined, { gpu: true, append: () => { throw new Error('no room for CUDA samples'); } });
+  const game = finishedGame();
+  assert.equal(vm.runInContext('trainNeuralAiFromFinishedGame', context)(game), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(await game._neuralTrainingCommit.promise)), { ok:false, error:'no room for CUDA samples' });
+});
+
+test('model save failure cannot generate committed CUDA examples', async () => {
+  let appended = 0;
+  const { context } = makeContext(() => Promise.reject(new Error('save failed')), { gpu: true, append: () => { appended++; } });
+  const game = finishedGame();
+  assert.equal(vm.runInContext('trainNeuralAiFromFinishedGame', context)(game), true);
+  assert.equal((await game._neuralTrainingCommit.promise).ok, false);
+  assert.equal(appended, 0);
 });

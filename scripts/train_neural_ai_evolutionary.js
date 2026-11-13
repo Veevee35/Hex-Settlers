@@ -18,6 +18,8 @@ const SHARDS = Math.max(1, Math.min(GENERATION_GAMES, Math.floor(Number(process.
 const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 100)));
 const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
 const MAP_SET = process.env.MAP_SET || 'standard';
+const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
+const isPaused = () => { try { return !!CONTROL_FILE && JSON.parse(fs.readFileSync(CONTROL_FILE, 'utf8')).pause === true; } catch (_) { return false; } };
 const RESUME_RUN_DIR = String(process.env.RESUME_RUN_DIR || '').trim();
 const OUTPUT = path.resolve(process.env.TRAINING_OUTPUT || path.join(ROOT, 'scripts', 'output', `neural_ai_${TOTAL_GAMES}_evolutionary.json`));
 
@@ -59,6 +61,11 @@ function runCandidate(candidate, generationStart, totalProgress) {
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || '';
       for (const line of lines) {
+        if (/^\[(cuda|train)\]/.test(line)) {
+          // Forward status and CUDA optimization results to the local GUI.
+          // Avoid dumping the final JSON report, but preserve training errors.
+          process.stdout.write(`[candidate ${candidate.index + 1}] ${line}\n`);
+        }
         const match = line.match(/^\[train\]\s+(\d+)\/(\d+)/);
         if (!match) continue;
         const current = Number(match[1]);
@@ -77,7 +84,7 @@ function runCandidate(candidate, generationStart, totalProgress) {
       if (errors.length > 20000) errors = errors.slice(-20000);
     });
     child.once('error', reject);
-    child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`Candidate ${candidate.index + 1} exited ${code}:\n${errors}`)));
+    child.once('exit', (code) => code === 0 ? resolve() : reject(Object.assign(new Error(`Candidate ${candidate.index + 1} exited ${code}:\n${errors}`), { paused: code === 75 && isPaused() })));
   });
 }
 
@@ -134,6 +141,11 @@ async function main() {
 
   try {
     for (let generation = 0; generation < TOTAL_GAMES / GENERATION_GAMES; generation++) {
+      if (isPaused()) {
+        console.log(`[evolution] pause requested at generation boundary; checkpoints retained at ${tempRoot}`);
+        process.exitCode = 75;
+        return;
+      }
       const generationStart = generation * GENERATION_GAMES;
       const generationDir = path.join(tempRoot, `generation-${String(generation + 1).padStart(2, '0')}`);
       fs.mkdirSync(generationDir, { recursive: true });
@@ -172,7 +184,8 @@ async function main() {
       }
 
       const totalProgress = { value: 0, nextReport: 50 };
-      await Promise.all(candidates.map((candidate) => {
+      try {
+        await Promise.all(candidates.map((candidate) => {
         if (!fs.existsSync(candidate.reportPath)) return runCandidate(candidate, generationStart, totalProgress);
         const report = readJson(candidate.reportPath);
         if ((report.games || []).length !== candidate.games) throw new Error(`Existing candidate ${candidate.index + 1} report is incomplete`);
@@ -180,7 +193,15 @@ async function main() {
         totalProgress.value += candidate.games;
         console.log(`[evolution] reused completed candidate ${candidate.index + 1} in generation ${generation + 1}`);
         return Promise.resolve();
-      }));
+        }));
+      } catch (error) {
+        if (isPaused() && error.paused) {
+          console.log(`[evolution] paused at committed candidate batch; resume with RESUME_RUN_DIR=${tempRoot}`);
+          process.exitCode = 75;
+          return;
+        }
+        throw error;
+      }
       const evaluated = candidates.map((candidate) => {
         const report = readJson(candidate.reportPath);
         const model = upgradeNeuralModel(readJson(candidate.modelPath));

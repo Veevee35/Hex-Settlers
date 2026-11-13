@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HEX / Neural Training Control Center</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand"><span class="hex-mark">⬡</span><div><strong>HEX SETTLERS</strong><small>TRAINING CONSOLE</small></div></div>
+    <div class="nav-item chosen"><span>◈</span> Neural training</div>
+    <div class="nav-item"><span>⌁</span> Self-play engine</div>
+    <div class="nav-item"><span>▣</span> Model checkpoints</div>
+    <div class="rail-bottom"><span class="pulse"></span> LOCAL SYSTEM<br><small>No cloud connection · V1.0.55</small></div>
+  </aside>
+  <main class="main">
+    <header class="top"><div><div class="eyebrow">LOCAL TRAINING ENVIRONMENT</div><h1>Neural training <em>control center</em></h1><p>Run evolutionary self-play, refine weights on CUDA, and recover from checkpoints.</p></div><div class="top-right"><span id="status-badge" class="state neutral">IDLE</span><span class="connection">● 127.0.0.1</span></div></header>
+    <section class="metrics">
+      <div class="metric"><span>SIMULATIONS COMPLETED</span><div><strong id="completed-count">0</strong><small id="target-count">/ 20,000</small></div><div class="bar"><i id="progress-bar"></i></div></div>
+      <div class="metric"><span>GENERATION</span><div><strong id="generation-count">0</strong><small id="generation-total">/ 20</small></div><small>Winning weights shared at each selection</small></div>
+      <div class="metric"><span>TIME ELAPSED</span><div><strong id="elapsed-time">00:00:00</strong></div><small id="runtime-status">Awaiting training session</small></div>
+      <div class="metric"><span>TRAINED MODEL GAMES</span><div><strong id="trained-games">—</strong></div><small id="model-detail">Existing model is preserved</small></div>
+    </section>
+    <div class="columns">
+      <div class="left-col">
+        <section class="panel settings">
+          <div class="panel-heading"><div><div class="eyebrow">01 / CONFIGURE</div><h2>Training parameters</h2></div><span class="subtitle">EVOLUTIONARY SELF-PLAY</span></div>
+          <form id="settings-form">
+            <div class="row-input"><label for="resume">Training session <small>Start fresh or resume existing checkpoints</small></label><select id="resume"><option value="">New training run</option></select></div>
+            <div class="form-grid">
+              <div class="field"><label for="sims">Total simulations</label><input type="number" id="sims" min="1" max="10000000" step="1" value="20000"></div>
+              <div class="field"><label for="generation">Games / generation</label><input type="number" id="generation" min="1" max="1000000" step="1" value="1000"></div>
+              <div class="field"><label for="shards">Model candidates</label><input type="number" id="shards" min="1" max="64" value="4"></div>
+              <div class="field"><label for="batch">Games / checkpoint batch</label><input type="number" id="batch" min="1" max="1000" value="100"></div>
+              <div class="field"><label for="concurrency">Simultaneous games per candidate</label><input type="number" id="concurrency" min="1" max="32" value="2"></div>
+              <div class="field"><label for="mapSet">Scenario set</label><select id="mapSet"><option value="standard">Standard (no Test Builder)</option><option value="all">All (include Test Builder)</option></select></div>
+            </div>
+            <div class="note">19 standard map templates · 4/6/8 AI seats. 5/7-player variants are not yet independent training curricula. Larger batches improve CUDA efficiency but take longer to checkpoint.</div>
+            <div class="divider"></div>
+            <div class="panel-heading compact"><div><div class="eyebrow">02 / ACCELERATOR</div><h2>GPU learning</h2></div><span id="gpu-chip" class="hardware-chip">NOT CHECKED</span></div>
+            <div class="form-grid">
+              <div class="field"><label for="gpuMode">Learning backend</label><select id="gpuMode"><option value="auto">Auto (CUDA if available)</option><option value="cuda">NVIDIA CUDA (required)</option><option value="cpu">CPU only</option></select></div>
+              <div class="field"><label for="python">Python executable</label><input type="text" id="python" value="python" spellcheck="false" placeholder="python or C:\...\python.exe"></div>
+              <div class="field"><label for="epochs">CUDA epochs per batch</label><input type="number" id="epochs" min="1" max="20" value="3"></div>
+              <div class="field"><label for="miniBatch">GPU minibatch size</label><input type="number" id="miniBatch" min="16" max="8192" value="256"></div>
+            </div>
+            <div class="gpu-info" id="gpu-info">CPU simulates turns and legal moves. CUDA optionally refines the neural network from completed games between checkpoint saves. PyTorch with CUDA support is required.</div>
+            <p class="gpu-setup">Need CUDA PyTorch? <a href="https://pytorch.org/get-started/locally/" target="_blank" rel="noopener noreferrer">Official NVIDIA/PyTorch install instructions</a>. Select that Python environment above, then Detect GPU.</p>
+            <div class="actions"><button type="button" id="gpu-check" class="btn secondary">◈ Detect GPU</button><div class="stretch"></div><button type="submit" id="start-btn" class="btn primary">▶ Start training</button></div>
+          </form>
+        </section>
+      </div>
+      <div class="right-col">
+        <section class="panel execution">
+          <div class="panel-heading"><div><div class="eyebrow">03 / LIVE STATUS</div><h2>Session monitor</h2></div><span class="live-dot"></span></div>
+          <div class="run-meta"><span>Current phase</span><strong id="phase">Not running</strong></div>
+          <div class="run-meta"><span>Accelerator</span><strong id="accelerator">—</strong></div>
+          <div class="run-meta"><span>Last selected candidate</span><strong id="winner">—</strong></div>
+          <div class="run-meta"><span>Checkpoint directory</span><strong id="checkpoint">—</strong></div>
+          <div class="run-meta"><span>Last CUDA batch</span><strong id="cuda-summary">—</strong></div>
+          <div class="monitor-actions"><button class="btn warning" id="pause-btn" disabled>Ⅱ Pause after checkpoint</button><button class="btn danger" id="stop-btn" disabled>■ Emergency stop</button></div>
+          <p class="muted">Pause lets ongoing games reach a durable checkpoint. Emergency stop terminates processes and loses only the uncommitted batch. Resume using the saved run folder.</p>
+        </section>
+        <section class="panel logs">
+          <div class="panel-heading"><div><div class="eyebrow">04 / EVENT STREAM</div><h2>Training log</h2></div><button class="mini" id="clear-view">Clear view</button></div>
+          <div class="log-screen" id="log-screen" aria-label="Training events" role="log" aria-live="off"><div class="log-placeholder">Waiting for activity. Configure a run and press Start training.</div></div>
+          <div class="log-bottom"><span id="log-path">Full logs saved locally.</span><span>AUTO-REFRESH</span></div>
+        </section>
+      </div>
+    </div>
+    <footer>HEX SETTLERS / NEURAL CORE <span>Offline control interface · No training traffic leaves localhost</span></footer>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
