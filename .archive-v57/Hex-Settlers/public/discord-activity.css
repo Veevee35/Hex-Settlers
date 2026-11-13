@@ -1,0 +1,29 @@
+/* Discord iframe-only shell; keep the normal website untouched. */
+body.discord-activity { overscroll-behavior: none; }
+body.discord-activity .discordActivityStatus { position:fixed; z-index:11000; top:max(6px, env(safe-area-inset-top)); right:8px; max-width:min(360px,65vw); display:flex; align-items:center; gap:8px; border:1px solid rgba(151,162,204,.35); background:rgba(18,20,30,.91); color:#f4f6ff; border-radius:10px; box-shadow:0 4px 18px #0007; padding:6px 10px; font:600 12px/1.4 system-ui,sans-serif; pointer-events:none; }
+body.discord-activity .discordActivityStatus[data-error="true"] { color:#ffd2d2; border-color:#d66b6b; }
+body.discord-activity .discordActivitySignupHint { color:#c8d4e8; text-align:center; font-size:12px; line-height:1.5; margin:8px 0 0; }
+@media (max-width:600px) { body.discord-activity .discordActivityStatus { font-size:10px; top:max(4px, env(safe-area-inset-top)); padding:4px 7px; } }
+
+body.discord-activity .discordActivityInvite { display:inline-flex; align-items:center; justify-content:center; border:1px solid #788cd7; background:#4659a4; color:white; border-radius:6px; padding:4px 9px; cursor:pointer; pointer-events:auto; font:inherit; white-space:nowrap; }
+body.discord-activity .discordActivityInvite[hidden] { display:none; }
+body.discord-activity .discordActivityInvite:hover { background:#6176c6; }
+
+/* OAuth is approved in a normal browser; the one-time approval panel is
+   visible even if the signed-in game's splash screen is showing. */
+body .discordPairApproval { position:fixed; z-index:12050; top:16px; left:50%; transform:translateX(-50%); width:min(94vw,560px); max-height:calc(100vh - 32px); overflow-y:auto; background:#171d2c; border:1px solid #788cd7; color:#edf3ff; border-radius:14px; padding:16px 18px; box-shadow:0 14px 55px #000b; font:14px/1.5 system-ui,sans-serif; }
+.discordPairApproval h2 { font-size:19px; margin:0 0 8px; }
+.discordPairApproval p { margin:8px 0; }
+.discordPairApproval .discordPairAccount { font-weight:650; }
+.discordPairActions { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 2px; }
+.discordPairApproval .btn { width:auto; }
+.discordPairApproval .btn:disabled { opacity:.5; cursor:not-allowed; }
+.discordPairMessage { color:#cce5c1; }
+body.discord-activity .discordBrowserLogin { margin-top:8px; }
+
+body .discordPairApproval.discordPairApprovalInline { position:relative; z-index:1; top:auto; left:auto; transform:none; width:auto; max-height:none; margin:0 0 16px; padding:12px 14px; box-shadow:none; }
+
+/* Never render the Cloudflare CAPTCHA in Discord's sandboxed proxy iframe.
+   The unmodified website handles challenges in a first-party browser tab. */
+body.discord-activity #loginCaptchaWrap,
+body.discord-activity #registerCaptchaWrap { display:none !important; }

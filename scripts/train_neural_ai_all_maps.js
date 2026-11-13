@@ -26,6 +26,7 @@ const VP_TO_WIN_OVERRIDE = VP_TO_WIN_RAW && Number.isFinite(VP_TO_WIN_PARSED) ? 
 const GAME_TIMEOUT_MS = Math.max(20_000, Math.floor(Number(process.env.GAME_TIMEOUT_MS || 240_000)));
 const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() === '1';
 const RESUME_TRAINING = process.env.RESUME_TRAINING === '1';
+const NATIVE_SELF_PLAY = process.env.HEX_TRAINING_RULES === 'cpp';
 const GPU_TRAINING = String(process.env.TRAINING_ACCELERATOR || 'cpu').toLowerCase() === 'cuda';
 const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
 function isPauseRequested() {
@@ -426,6 +427,10 @@ async function runOneGame(port, token, item) {
     const opponentVp = (state.players || []).filter(player => player.id !== winner.id).map(player => Number(player.vp || 0));
     return {
       modelTrainedGames: Number(receipt.trainedGames),
+      gameId: state.id,
+      nativeScoringCalls: Number(receipt.nativeScoringCalls || 0),
+      nativeRouteCalls: Number(receipt.nativeRouteCalls || 0),
+      nativeProductionCalls: Number(receipt.nativeProductionCalls || 0),
       sessionIndex: item.sessionIndex,
       curriculumIndex: item.curriculumIndex,
       mapId: item.map.id,
@@ -547,23 +552,33 @@ function summarize(results) {
 
 async function main() {
   if (!fs.existsSync(MODEL_PATH)) throw new Error(`Model not found: ${MODEL_PATH}`);
+  if (NATIVE_SELF_PLAY) require('../server/native-rules');
   if (GPU_TRAINING) {
     const info = await ensureCuda();
-    console.log(`[cuda] available: ${info.device} (torch ${info.torch}); running CPU self-play + CUDA minibatch refinement`);
+    console.log(`[cuda] available: ${info.device} (torch ${info.torch}); running ${NATIVE_SELF_PLAY ? 'native-assisted' : 'JavaScript'} self-play + CUDA minibatch refinement`);
   }
+  const started = performance.now();
   const startingModel = readModel(MODEL_PATH);
   const startingHash = modelHash(MODEL_PATH);
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hex-neural-curriculum-'));
+  const scratch = path.resolve(process.env.TRAINING_SCRATCH || os.tmpdir());
+  fs.mkdirSync(scratch, { recursive: true });
+  const tempRoot = fs.mkdtempSync(path.join(scratch, 'hex-neural-curriculum-'));
   const items = curriculum(TOTAL_GAMES);
   const checkpointPath = `${OUTPUT_PATH}.checkpoint.json`;
   const startingTrainedGames = Number(startingModel.trainedGames || 0);
   let results = [];
   let latestModel = startingModel;
   let mapHealth = {};
+  const rules = NATIVE_SELF_PLAY ? 'cpp-assisted' : 'javascript';
+  const gpuBatches = [];
   if (RESUME_TRAINING && fs.existsSync(checkpointPath)) {
     const checkpoint = readModel(checkpointPath);
     validateCheckpoint(checkpoint, startingTrainedGames, items, new Set(MAPS.map(map => map.id)), startingHash);
+    if ((checkpoint.rules || 'javascript') !== rules) {
+      throw new Error('Use the self-play rules backend from the saved checkpoint');
+    }
     results = checkpoint.games;
+    gpuBatches.push(...(checkpoint.gpuBatches || []));
     latestModel = checkpoint.model;
     mapHealth = checkpoint.mapHealth || {};
     process.stdout.write(`[train] ${results.length}/${TOTAL_GAMES} resumed from ${checkpointPath}\n`);
@@ -576,6 +591,7 @@ async function main() {
       if (!batchItems.length) continue;
       let newGames;
       let batchModel;
+      let gpuBatch;
       // If a simulator server wedges, discard that uncommitted batch and
       // restart from the last checkpoint. Never use partially trained weights.
       for (let attempt = 0; attempt <= MAX_BATCH_RESTARTS; attempt++) {
@@ -602,6 +618,7 @@ async function main() {
             console.log(`[cuda] batch ${batchNo}: ${gpu.examples} examples, ${gpu.games} games, loss ${gpu.initialLoss} -> ${gpu.finalLoss}, weights ${gpu.committed ? 'updated' : 'unchanged'}`);
             if (gpu.games !== newGames.length) throw new Error(`CUDA sample count ${gpu.games} != committed game count ${newGames.length}`);
             batchModel = readModel(batchModelPath);
+            gpuBatch = { batch: batchNo, ...gpu };
           }
           break;
         } catch (error) {
@@ -617,6 +634,7 @@ async function main() {
         throw new Error(`Model trainedGames=${batchModel.trainedGames}; expected ${expected} after batch ${batchNo}. Every completed game must receive a persisted training receipt; inspect ${OUTPUT_PATH}.failures.log and the local training-server log.`);
       }
       results.push(...newGames);
+      if (gpuBatch) gpuBatches.push(gpuBatch);
       for (const game of newGames) completed.add(game.sessionIndex);
       latestModel = batchModel;
       // Save both completed games and their matching weights atomically. A crash
@@ -624,7 +642,7 @@ async function main() {
       await atomicWriteJson(checkpointPath, {
         startingTrainedGames, startingModelSha256: startingHash, totalGames: TOTAL_GAMES,
         mapSet: MAP_SET, curriculumOffset: CURRICULUM_OFFSET, model: latestModel, games: results,
-        mapHealth,
+        mapHealth, rules, gpuBatches,
       });
       if (isPauseRequested()) {
         console.log(`[train] pause requested: ${results.length}/${TOTAL_GAMES} games safely checkpointed`);
@@ -647,6 +665,9 @@ async function main() {
       trainingObjective: TRAINING_OBJECTIVE,
       mapSet: MAP_SET,
       accelerator: GPU_TRAINING ? 'cuda' : 'cpu',
+      rules, gpuBatches,
+      nativeProduction: NATIVE_SELF_PLAY && results.every(game => game.nativeProductionCalls > 0),
+      elapsedSeconds: (performance.now() - started) / 1000,
       mapsCovered: MAPS.map((map) => map.id),
       scenariosReplaced: results.filter(game => game.requestedMapId).map(game => ({ game: game.sessionIndex + 1, requested: game.requestedMapId, trained: game.mapId })),
       resumed: RESUME_TRAINING,

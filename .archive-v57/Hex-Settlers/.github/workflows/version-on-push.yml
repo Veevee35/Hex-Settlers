@@ -1,0 +1,28 @@
+# Disabled automatic bump: Cloudflare Builds stamps the commit SHA when deploying.
+# This can still be run manually if a numbered release is desired.
+name: Numbered release (manual only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bump build version
+        run: node scripts/bump-version.cjs --bump
+      - name: Commit numbered release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build-version.json package.json package-lock.json public/index.html public/beta.html public/app.js public/sw.js
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: numbered release [skip version bump]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

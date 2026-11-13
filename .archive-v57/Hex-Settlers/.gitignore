@@ -1,0 +1,25 @@
+node_modules/
+.pnpm-store/
+.wrangler/
+.env
+data/
+users.json
+game_history.json
+active_rooms.json
+*.tmp
+coverage/
+scripts/output/.neural-shards-*/
+scripts/output/neural_ai_*_training.log
+scripts/output/neural_*_checks.log
+scripts/output/neural_ai_smoke_*.json
+
+cloudflare/node_modules/
+cloudflare/.wrangler/
+.dev.vars*
+!/.dev.vars.example
+cloudflare/.dev.vars*
+*.log
+TEST_RESULTS_*.txt
+# Generated training outputs and test reports are not deploy sources
+scripts/output/
+TEST_RESULTS_*.txt

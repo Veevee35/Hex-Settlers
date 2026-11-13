@@ -23,3 +23,16 @@ TEST_RESULTS_*.txt
 # Generated training outputs and test reports are not deploy sources
 scripts/output/
 TEST_RESULTS_*.txt
+
+/native/hex-core/*.exe
+/native/hex-core/*.obj
+/native/hex-core/*.node
+/native/hex-core/*.exp
+/native/hex-core/*.lib
+/scripts/cuda-exact/*.exe
+/scripts/cuda-exact/*.obj
+/native/hex-core/hex_rules_runner
+/scripts/cuda-exact/hex_exact_cpu
+/scripts/cuda-exact/hex_exact_cuda
+
+/scripts/__pycache__/

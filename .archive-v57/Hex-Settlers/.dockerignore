@@ -1,0 +1,21 @@
+# Keep root node_modules: Workers Builds installs dependencies before image build.
+# Removing it causes Docker COPY to fail. Do not include the separate Wrangler
+# toolchain (cloudflare/node_modules) or local user data in the image context.
+cloudflare/node_modules
+cloudflare/large-assets
+node_modules/.cache
+.git
+*.zip
+*.log
+TEST_RESULTS*
+*.md
+.DS_Store
+.env*
+.dev.vars
+**/*.bak
+**/*.tmp
+# Runtime persistence must never be copied into the image.
+data
+users.json
+game_history.json
+active_rooms.json

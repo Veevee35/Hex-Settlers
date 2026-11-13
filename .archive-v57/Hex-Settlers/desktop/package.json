@@ -1,0 +1,48 @@
+{
+  "name": "hex-settlers-desktop",
+  "version": "1.0.5",
+  "private": true,
+  "description": "Desktop wrapper for the hosted Hex Settlers game.",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "app.hexsettlers.desktop",
+    "productName": "Hex Settlers",
+    "files": [
+      "electron-main.js",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron-main.js"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Game"
+    }
+  }
+}

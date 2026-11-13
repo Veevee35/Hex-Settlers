@@ -20,7 +20,7 @@ fs.mkdirSync(OUTPUT, { recursive: true });
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const defaults = {
   sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2,
-  mapSet: 'standard', gpuMode: 'auto', epochs: 3, miniBatch: 256, python: 'python',
+  mapSet: 'standard', rules: 'auto', gpuMode: 'auto', epochs: 3, miniBatch: 256, python: 'python',
 };
 let saved = defaults;
 try { saved = normalize({ ...defaults, ...readJson(SETTINGS) }); } catch (_) { /* first launch */ }
@@ -44,10 +44,12 @@ function normalize(raw) {
   if (sims % generation !== 0 || shards > generation) throw new Error('Total games must be divisible by generation size, and shards cannot exceed games per generation.');
   const mapSet = raw.mapSet === 'all' ? 'all' : 'standard';
   if (!['auto', 'cpu', 'cuda'].includes(raw.gpuMode)) throw new Error('Invalid GPU mode');
+  const rules = raw.rules || defaults.rules;
+  if (!['auto', 'javascript', 'cpp'].includes(rules)) throw new Error('Invalid self-play rules backend');
   const python = String(raw.python || 'python').trim();
   if (!python || python.length > 260 || /[\r\n]/.test(python)) throw new Error('Invalid Python executable path');
   return {
-    sims, generation, shards, batch, concurrency, mapSet,
+    sims, generation, shards, batch, concurrency, mapSet, rules,
     gpuMode: raw.gpuMode, epochs: number('epochs', 1, 20, defaults.epochs),
     miniBatch: number('miniBatch', 16, 8192, defaults.miniBatch), python,
   };
@@ -67,7 +69,7 @@ function listRuns() {
         completedGenerations, totalGenerations: manifest ? manifest.totalGames / manifest.generationGames : null,
         config: manifest ? {
           sims: manifest.totalGames, generation: manifest.generationGames,
-          shards: manifest.shards, mapSet: manifest.mapSet,
+          shards: manifest.shards, mapSet: manifest.mapSet, rules: manifest.rules || 'javascript',
         } : null,
       };
     }).sort((a,b) => b.updated.localeCompare(a.updated)).slice(0, 50);
@@ -91,7 +93,8 @@ function emit(job, line) {
     job.progress = Math.max(job.progress, Number(match[1]) * job.settings.generation);
     job.winner = clean.match(/selected candidate\s+(\d+)/)?.[1] || job.winner;
   }
-  if (clean.startsWith('[cuda]')) job.lastCuda = clean;
+  const cudaLine = clean.match(/^(?:\[candidate \d+\] )?(\[cuda\].*)$/);
+  if (cudaLine) job.lastCuda = cudaLine[1];
 }
 function pipe(job, stream, tag) {
   let buffer = '';
@@ -127,6 +130,14 @@ async function start(raw) {
         if (settings.gpuMode === 'cuda') throw new Error(`CUDA selected but unavailable: ${error.message}`);
       }
     }
+    const binding = path.join(ROOT, 'native', 'hex-core', 'hex_rules.node');
+    const resumeRules = resumeFolder ? listRuns().find(run => run.id === resumeFolder)?.config?.rules || 'javascript' : null;
+    const native = settings.rules === 'cpp' ||
+      (settings.rules === 'auto' && (resumeRules ? resumeRules === 'cpp' : fs.existsSync(binding)));
+    if (native) {
+      if (!fs.existsSync(binding)) throw new Error('Build the C++ addon using native/hex-core/Build-Node-Windows.cmd first');
+      require('../server/native-rules');
+    }
     saved = settings;
     fs.writeFileSync(SETTINGS, JSON.stringify(settings, null, 2));
     const id = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
@@ -143,6 +154,8 @@ async function start(raw) {
       SIMS: String(settings.sims), SELECTION_INTERVAL: String(settings.generation),
       SHARDS: String(settings.shards), BATCH_SIZE: String(settings.batch),
       CONCURRENCY: String(settings.concurrency), MAP_SET: settings.mapSet,
+      HEX_TRAINING_RULES: native ? 'cpp' : 'javascript', HEX_TRAINING_FAST: '1',
+      TRAINING_SCRATCH: OUTPUT,
       KEEP_TRAINING_TEMP: '1', TRAINING_ACCELERATOR: accelerator,
       GPU_EPOCHS: String(settings.epochs), GPU_MINIBATCH: String(settings.miniBatch),
       TRAINER_PYTHON: settings.python, TRAINING_CONTROL_FILE: job.controlFile,
@@ -155,7 +168,7 @@ async function start(raw) {
     job.child = child;
     active = job;
     last = job;
-    emit(job, `[dashboard] Started ${settings.sims.toLocaleString()} games; ${accelerator.toUpperCase()} refinement; ${settings.mapSet} maps${resumeFolder ? `; resuming ${resumeFolder}` : ''}`);
+    emit(job, `[dashboard] Started ${settings.sims.toLocaleString()} games; ${native ? 'native-assisted' : 'JavaScript'} rules; ${accelerator.toUpperCase()} refinement; ${settings.mapSet} maps${resumeFolder ? `; resuming ${resumeFolder}` : ''}`);
     if (settings.gpuMode === 'auto' && accelerator === 'cpu' && gpuStatus?.error) {
       emit(job, `[dashboard] CUDA unavailable; Auto selected CPU: ${gpuStatus.error}`);
     }

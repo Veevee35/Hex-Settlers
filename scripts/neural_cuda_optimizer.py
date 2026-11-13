@@ -75,6 +75,9 @@ def run_refinement(args, device_name="cuda:0"):
         raise ValueError("Model shape is invalid")
     examples, games = validate_samples(args.samples, inputs)
     device = torch.device(device_name)
+    if device.type == "cuda":
+        torch.cuda.init()
+        torch.cuda.reset_peak_memory_stats(device)
     x = torch.tensor([sample[0] for sample in examples], dtype=torch.float32, device=device)
     y = torch.tensor([[sample[1]] for sample in examples], dtype=torch.float32, device=device)
     w1 = torch.nn.Parameter(torch.tensor(params["w1"], dtype=torch.float32, device=device))
@@ -91,18 +94,21 @@ def run_refinement(args, device_name="cuda:0"):
     with torch.no_grad():
         initial_loss = float(loss().item())
     seed = 7731 + int(model.get("trainedGames", 0)) % 100000
-    rng = torch.Generator(device="cpu").manual_seed(seed)
+    rng = torch.Generator(device=device).manual_seed(seed)
+
     for _ in range(args.epochs):
-        indices = torch.randperm(len(examples), generator=rng).tolist()
+        indices = torch.randperm(len(examples), generator=rng, device=device)
         for begin in range(0, len(indices), args.mini_batch):
             chunk = indices[begin : begin + args.mini_batch]
             optimizer.zero_grad(set_to_none=True)
             batch_pred = torch.tanh(torch.tanh(x[chunk] @ w1.T + b1) @ w2 + b2)
             batch_loss = torch.mean((batch_pred - y[chunk]) ** 2)
-            if not bool(torch.isfinite(batch_loss).item()):
-                raise RuntimeError("CUDA training produced a non-finite loss; model not written")
             batch_loss.backward()
-            torch.nn.utils.clip_grad_norm_(variables, max_norm=1.0)
+            gradients = [variable.grad for variable in variables]
+            norm = torch.cat([gradient.reshape(-1) for gradient in gradients]).norm()
+            scale = (1.0 / (norm + 1e-6)).clamp(max=1.0)
+            for gradient in gradients:
+                gradient.mul_(scale)
             optimizer.step()
             with torch.no_grad():
                 for variable in variables:
@@ -145,6 +151,7 @@ def run_refinement(args, device_name="cuda:0"):
         "games": games, "epochs": args.epochs, "initialLoss": round(initial_loss, 7),
         "finalLoss": round(final_loss, 7), "committed": improved,
         "trainedGames": model["trainedGames"],
+        "peakAllocatedBytes": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None,
     }), flush=True)
 
 

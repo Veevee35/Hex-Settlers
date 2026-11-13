@@ -20,7 +20,9 @@
     "train:neural:smoke": "node scripts/train_neural_ai_smoke.js",
     "train:neural:distributed": "node scripts/train_neural_ai_distributed.js",
     "train:neural:evolutionary": "node scripts/train_neural_ai_evolutionary.js",
-    "test:neural": "node --test test/neural-strategy.test.js test/neural-trainer-recovery.test.js test/neural-training-commit.test.js",
+    "test:neural": "node --test test/neural-strategy.test.js test/neural-trainer-recovery.test.js test/neural-training-commit.test.js test/neural-gpu-gui.test.js",
+    "test:games:100": "node scripts/validate_100_full_games.js",
+    "test:cpp:parity": "node native/hex-core/core_parity.js --count 1000",
     "train:neural:gui": "node scripts/neural_trainer_gui.js"
   },
   "dependencies": {

@@ -10,10 +10,11 @@ const { ensureCuda } = require('../scripts/neural-gpu');
 const ROOT = path.resolve(__dirname, '..');
 
 test('dashboard validates evolutionary parameters before launching children', () => {
-  const baseline = { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, mapSet:'standard', gpuMode:'auto', epochs: 3, miniBatch: 256, python:'python' };
+  const baseline = { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, mapSet:'standard', rules:'auto', gpuMode:'auto', epochs: 3, miniBatch: 256, python:'python' };
   assert.deepEqual(normalize(baseline), baseline);
   assert.throws(() => normalize({ ...baseline, sims: 20001 }), /divisible/);
   assert.throws(() => normalize({ ...baseline, shards: 100 }), /64/);
+  assert.throws(() => normalize({ ...baseline, rules: 'wasm' }), /rules backend/);
   assert.throws(() => normalize({ ...baseline, gpuMode: 'webgl' }), /GPU mode/);
   assert.throws(() => normalize({ ...baseline, python: 'python\n--bad' }), /Python/);
 });

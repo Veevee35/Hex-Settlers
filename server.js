@@ -141,6 +141,10 @@ function trustedProxyRequest(req) {
 const APP_CONFIG = runtimeConfig(process.env);
 const PORT = APP_CONFIG.port;
 const HOST = APP_CONFIG.host;
+const LOCAL_SELF_PLAY = process.env.AI_TRAINING === '1' && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1';
+const NATIVE_RULES = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_RULES === 'cpp'
+  ? require('./server/native-rules') : null;
+const FAST_SELF_PLAY = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_FAST === '1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MIME = {
@@ -945,7 +949,7 @@ function safeUserPublic(u) {
 function validateUsername(username) {
   const u = String(username || '').trim();
   // 3-24 chars: letters/numbers/underscore/dot/hyphen
-  if (!/^[a-zA-Z0-9_.-]{3,24}$/.test(u)) return { ok: false, error: 'Username must be 3–24 chars (letters, numbers, _ . -).' };
+  if (!/^[a-zA-Z0-9_.-]{3,24}$/.test(u)) return { ok: false, error: 'Username must be 3â€“24 chars (letters, numbers, _ . -).' };
   return { ok: true, value: u };
 }
 
@@ -1311,7 +1315,7 @@ function generateCartographer4Axials() {
   return coords; // length 44
 }
 
-// Cartographer (5–6 Player): 65-hex interior of the 97-hex Seafarers 5–6 frame.
+// Cartographer (5â€“6 Player): 65-hex interior of the 97-hex Seafarers 5â€“6 frame.
 // Rows are 8,9,10,11,10,9,8 (matching the provided dot-map interior).
 function generateCartographer56Axials() {
   const coords = [];
@@ -1332,7 +1336,7 @@ function generateCartographer56Axials() {
 }
 
 function generateThroughTheDesert56Axials() {
-  // Seafarers 5–6 Player Through the Desert uses the large 97-hex frame (rows: 9,10,11,12,13,12,11,10,9).
+  // Seafarers 5â€“6 Player Through the Desert uses the large 97-hex frame (rows: 9,10,11,12,13,12,11,10,9).
   // Axials are laid out to match the provided dot-map template.
   const coords = [];
   for (let r = -4; r <= 4; r++) {
@@ -1371,7 +1375,7 @@ const TTD_START_ISLAND_KEYS = new Set([
 const TTD_FIXED_DESERT_KEYS = new Set(['1,-3','0,-2','-1,-1']);
 const TTD_PINK_KEYS = new Set(Array.from(TTD_START_ISLAND_KEYS).filter(k => !TTD_FIXED_DESERT_KEYS.has(k)));
 
-// Through the Desert (5–6 Player / large frame) key sets extracted from the provided dot-map templates.
+// Through the Desert (5â€“6 Player / large frame) key sets extracted from the provided dot-map templates.
 //
 // - START (pink): setup settlements may ONLY be placed on these tiles (purple/pink dots in the template).
 //   Players may NOT start on the red "across the desert" tiles or on the green outer islands.
@@ -1411,7 +1415,7 @@ const TTD56_RED_TILE_TO_REGION = (() => {
 
 const TTD56_RED_KEYS = new Set(Object.keys(TTD56_RED_TILE_TO_REGION));
 
-// 5 fixed desert tiles in the 5–6 Through the Desert template. Setup settlements may touch these
+// 5 fixed desert tiles in the 5â€“6 Through the Desert template. Setup settlements may touch these
 // as long as the rest of the adjacent land is the pink start region (pink/desert boundary nodes are legal).
 const TTD56_FIXED_DESERT_KEYS = new Set([
   '1,-2',
@@ -1602,7 +1606,7 @@ const HFNS_LAND_KEYS = new Set([
 ]);
 
 function generateSixIslandsAxials() {
-  // Custom 5–6 player Seafarers "Six Islands" dot-map geometry (88 tiles).
+  // Custom 5â€“6 player Seafarers "Six Islands" dot-map geometry (88 tiles).
   // Axial coordinates were derived directly from the provided dot-map layout.
   return [
     { q: -2, r: -4 },
@@ -1697,7 +1701,7 @@ function generateSixIslandsAxials() {
 }
 
 function generateFogIsland56Axials() {
-  // Custom 5–6 player Seafarers Fog Island frame (88 hexes) from the provided dot-map.
+  // Custom 5â€“6 player Seafarers Fog Island frame (88 hexes) from the provided dot-map.
   return [
     { q: -1, r: -4 },
     { q: 0, r: -4 },
@@ -1926,7 +1930,7 @@ const NEW_SHORES_56 = require('./server/maps-new-shores/heading_for_new_shores_5
 const NEW_SHORES_78 = require('./server/maps-new-shores/heading_for_new_shores_78.json');
 const NEW_SHORES_NUMBERS_56 = [2,2,3,3,3,4,4,4,4,5,5,5,5,5,6,6,6,6,6,8,8,8,8,8,9,9,9,9,9,10,10,10,10,11,11,11,12,12];
 const NEW_SHORES_NUMBERS_78 = [...Array(3).fill(2),...Array(4).fill(3),...Array(5).fill(4),...Array(6).fill(5),...Array(6).fill(6),...Array(6).fill(8),...Array(6).fill(9),...Array(5).fill(10),...Array(4).fill(11),...Array(3).fill(12)];
-// Reference inventories: 38 tokens for 5–6 and 48 for 7–8.
+// Reference inventories: 38 tokens for 5â€“6 and 48 for 7â€“8.
 function newShoresGeometry(template, numberPool) {
   const geom = buildGeometryFromAxials(template.tiles.map(t => ({q:t.q,r:t.r})));
   const byKey = new Map(template.tiles.map(t => [axialKey(t.q,t.r),t]));
@@ -3056,7 +3060,7 @@ function defaultVictoryPointsToWin(rules) {
   if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56' || scen==='through_the_desert_78' || scen==='eight_islands_78') return 14;
   if (scen === 'heading_for_new_shores' || scen === 'heading_for_new_shores_56' || scen === 'heading_for_new_shores_78' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
   if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-  // Expanded Scattered Tiles / Cartographer (5–6 and 7–8 players) use 14 VP.
+  // Expanded Scattered Tiles / Cartographer (5â€“6 and 7â€“8 players) use 14 VP.
   if (isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen) || scen.startsWith('scattered_tiles_56') || scen === 'scattered_56' || scen.startsWith('scattered_tiles_78')) return 14;
   // The original four-player Cartographer scenarios retain their 12-VP default.
   if (isCartographer4ScenarioKey(scen)) return 12;
@@ -3122,7 +3126,7 @@ function phaseDurationMs(game, phase) {
     case 'main-await-roll':
       return micro;
     case 'main-actions':
-      // In paired 5–6 turns, Player 2 gets their own separate 30s action timer.
+      // In paired 5â€“6 turns, Player 2 gets their own separate 30s action timer.
       if (isPairedTurnPlayerTwoStage(game)) return 30_000;
       return rules.playTurnMs;
     case 'production-gold':
@@ -3376,6 +3380,12 @@ function buildDevDeck(rules) {
 }
 
 function computeVP(state) {
+  if (NATIVE_RULES) {
+    const points = NATIVE_RULES.victoryPoints(state);
+    for (let i = 0; i < points.length; i++) state.players[i].vp = points[i];
+    state._nativeScoringCalls = (state._nativeScoringCalls || 0) + 1;
+    return;
+  }
   const vp = {};
   for (const p of state.players) vp[p.id] = 0;
 
@@ -3464,8 +3474,10 @@ function recomputeLongestRoad(game) {
 
   const lengths = new Map();
   let bestLen = 0;
-  for (const p of (game.players || [])) {
-    const len = computeLongestRoadForPlayer(game, p.id);
+  const nativeLengths = NATIVE_RULES ? NATIVE_RULES.routeLengths(game) : null;
+  if (nativeLengths) game._nativeRouteCalls = (game._nativeRouteCalls || 0) + 1;
+  for (const [i, p] of (game.players || []).entries()) {
+    const len = nativeLengths ? nativeLengths[i] : computeLongestRoadForPlayer(game, p.id);
     lengths.set(p.id, len);
     p.longestRoadLen = len;
     if (!p.departed && len > bestLen) bestLen = len;
@@ -4047,7 +4059,7 @@ function classic56LandCoords() {
 }
 
 function classic56AxialsWithSeaRing() {
-  // Build a compact geometry for Classic 5–6:
+  // Build a compact geometry for Classic 5â€“6:
   // land silhouette + exactly 1-ring of surrounding sea.
   // (Removes the extra 9 sea tiles that appear when using a full radius-4 hex.)
   const keySet = new Set();
@@ -4080,7 +4092,7 @@ function buildGeometryClassic56() {
 }
 
 function generateBoardClassic56WithSea(geom) {
-  // Classic 5–6 player land (30 tiles) surrounded by sea.
+  // Classic 5â€“6 player land (30 tiles) surrounded by sea.
   // Uses a compact geometry (land + 1-ring sea) when available.
   const base = geom.tiles || [];
   const allTiles = base.map(t => ({ ...t, type: 'sea', number: null, robber: false, pirate: false }));
@@ -4351,7 +4363,7 @@ function generateBoardSeafarersFourIslands(geom) {
 
 
 function generateBoardSeafarersSixIslands(geom) {
-  // 5–6 player Seafarers "Six Islands": layout fixed to SIX_ISLANDS_LAND_KEYS.
+  // 5â€“6 player Seafarers "Six Islands": layout fixed to SIX_ISLANDS_LAND_KEYS.
   // Tile types + number discs are randomized each game, with a basic 6/8 adjacency check.
   const allTiles = seafarersBaseAllSea(geom);
 
@@ -4630,9 +4642,9 @@ function generateBoardSeafarersThroughTheDesert(geom) {
 }
 
 function generateBoardSeafarersThroughTheDesert56(geom) {
-  // Seafarers 5–6 scenario: "Through the Desert".
+  // Seafarers 5â€“6 scenario: "Through the Desert".
   // Uses the same 70-hex geometry mask as the base Through-the-Desert board,
-  // but with the 5–6 component counts/layout profile from the provided reference map.
+  // but with the 5â€“6 component counts/layout profile from the provided reference map.
   const allTiles = seafarersBaseAllSea(geom);
 
   // 43 land tiles total (38 resource + 5 desert).
@@ -5037,7 +5049,7 @@ function generateBoardSeafarersFogIsland(geom) {
 
 
 function generateBoardSeafarersFogIsland56(geom) {
-  // Seafarers 5–6 scenario: "Fog Island".
+  // Seafarers 5â€“6 scenario: "Fog Island".
   // Uses the Six Islands frame with paired turns, but follows Fog Island exploration/setup rules.
   const tiles = seafarersBaseAllSea(geom);
 
@@ -5199,7 +5211,7 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
 
   // Heading for New Shores: The three outer islands have their own number-disc pool.
   // The outer islands contain 9 land tiles. They should use unique numbers from:
-  // 2,3,4,5,6,8,9,10,11,12 — but since there are 9 tiles, we include either 2 or 12 (50/50).
+  // 2,3,4,5,6,8,9,10,11,12 â€” but since there are 9 tiles, we include either 2 or 12 (50/50).
   // The remaining number discs are used for the main island.
   const mainNonDesertLandIds = nonDesertLandIds.filter(id => {
     const t = allTiles[id];
@@ -5219,7 +5231,7 @@ function generateBoardSeafarersHeadingForNewShores(geom) {
   const GOLD_COUNT = 2;
 
   // Official number disc counts (27 total; desert has none):
-  // 2×2, 3×3, 4×3, 5×3, 6×3, 8×3, 9×3, 10×3, 11×3, 12×1
+  // 2Ã—2, 3Ã—3, 4Ã—3, 5Ã—3, 6Ã—3, 8Ã—3, 9Ã—3, 10Ã—3, 11Ã—3, 12Ã—1
   const numbers = [
     2,2,
     3,3,3,
@@ -5705,7 +5717,7 @@ function finishCartographer4ManualDraft(room, game) {
   pushLog(game, 'Cartographer draft complete. Numbers, robber, pirate, and ports were randomized.', 'system');
 }
 
-// 7–8 map editor geometry is defined by the creator's axial tile coordinates,
+// 7â€“8 map editor geometry is defined by the creator's axial tile coordinates,
 // not by a preset frame. Storage remains finite to protect the game server.
 const CUSTOM_78_MAX_TILES = 1024;
 const CUSTOM_78_MAX_COORD = 100000;
@@ -5799,7 +5811,7 @@ function generateBoardSeafarers(geom, scenario = 'four_islands', opts = null) {
 function defaultPortKinds(portCount) {
   const n = Math.max(0, Math.floor(Number(portCount || 0)));
   if (n === 11) {
-    // Classic 5–6 uses 11 ports: 6 generic (3:1) and 5 resource-specific (2:1).
+    // Classic 5â€“6 uses 11 ports: 6 generic (3:1) and 5 resource-specific (2:1).
     return [
       'generic','generic','generic','generic','generic','generic',
       'brick','lumber','wool','grain','ore',
@@ -5814,7 +5826,7 @@ function defaultPortKinds(portCount) {
 
 // Classic-style ports: each port covers 2 adjacent coastal nodes (a single coastline edge).
 function generatePorts(geom, portCount = 9, opts = null) {
-  // Ports (Harbors): default 9. Some scenarios may override (e.g., classic 5–6 uses 11).
+  // Ports (Harbors): default 9. Some scenarios may override (e.g., classic 5â€“6 uses 11).
   // Shoreline includes both land/sea coastline edges and outer board edges that border land.
   const tiles = geom.tiles || [];
 
@@ -6083,7 +6095,7 @@ function generatePortsSeafarers(geom, scenario = 'four_islands') {
   const s = String(scenario || 'four_islands').toLowerCase().replace(/-/g,'_');
   const count = (isCartographer4ScenarioKey(s)) ? 11 : (isSeafarers56Scenario(s) ? 11 : 9);
 
-  // Six Islands (5–6): enforce 2 ports per island except the top-center island (1 port).
+  // Six Islands (5â€“6): enforce 2 ports per island except the top-center island (1 port).
   if (s === 'six_islands') {
     const ports = generatePortsSeafarersSixIslandsBalanced(geom, count);
     if (ports && ports.length === count) return ports;
@@ -6180,7 +6192,7 @@ function newEmptyGame(room) {
     id: crypto.randomUUID(),
     createdAt: now(),
     phase: 'lobby', // lobby | setup1-settlement | setup1-road | setup2-settlement | setup2-road | main-await-roll | main-actions | robber-move | game-over
-    message: 'Waiting in lobby…',
+    message: 'Waiting in lobbyâ€¦',
     roomCode: room.code,
     hostId: room.ranked ? null : room.hostId,
     ranked: !!room.ranked,
@@ -6461,9 +6473,9 @@ function startGame(room) {
   game.chat = room.chat || [];
 
   const explorationStatus = (game.rules?.mapMode === 'seafarers')
-    ? ` • Exploration VP: ${seafarersExplorationPointsEnabled(game.rules) ? 'on' : 'off'}`
+    ? ` â€¢ Exploration VP: ${seafarersExplorationPointsEnabled(game.rules) ? 'on' : 'off'}`
     : '';
-  pushLog(game, `Game started. Win: ${game.rules.victoryPointsToWin} VP • Discard limit: ${game.rules.discardLimit}${explorationStatus}.`, 'system');
+  pushLog(game, `Game started. Win: ${game.rules.victoryPointsToWin} VP â€¢ Discard limit: ${game.rules.discardLimit}${explorationStatus}.`, 'system');
 
   // Randomize turn order (and starting player)
   const order = room.players.map(p => p.id);
@@ -6530,7 +6542,7 @@ function startGame(room) {
       if (scen !== 'heading_for_new_shores_56') game.geom.tiles = generateBoardSeafarers(game.geom, scen, { playerCount: game.players.length });
       if (scen !== 'heading_for_new_shores_56') game.geom.ports = isTestBuilderScenarioKey(scen) ? [] : generatePortsSeafarers(game.geom, scen);
     } else if ((mm === 'classic56') || (mm === 'seafarers' && isSeafarers56Scenario(String(game?.rules?.seafarersScenario || 'four_islands').toLowerCase().replace(/-/g,'_')))) {
-      // Classic 5–6 Player: larger landmass + 11 ports.
+      // Classic 5â€“6 Player: larger landmass + 11 ports.
       game.geom = buildGeometryClassic56();
       game.geom.tiles = customMapEnabled(game.rules) ? generateBoardSeafarersTestBuilder(game.geom) : generateBoardClassic56WithSea(game.geom);
       game.geom.ports = customMapEnabled(game.rules) ? [] : generatePorts(game.geom, 11);
@@ -6670,7 +6682,7 @@ function advanceSetup(game) {
       game.currentPlayerId = order[0];
       game.phase = 'main-await-roll';
       game.message = `${playerName(game, game.currentPlayerId)}: Roll the dice.`;
-      // Initialize paired turn tracking for Classic 5–6 and Seafarers (Six Islands).
+      // Initialize paired turn tracking for Classic 5â€“6 and Seafarers (Six Islands).
       {
         const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
         const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
@@ -6703,6 +6715,22 @@ function distributeResources(game, roll) {
   // Returns a per-player gain map so the client can render a rich "production" log row.
   // Gold fields are handled as player choice prompts (one popup per player with all picks).
   ensureBank(game);
+
+  const native = NATIVE_RULES?.rollProduction(game, roll, bankMaxForGame(game));
+  if (native) {
+    for (const player of game.players) {
+      const delta = native.gains[player.id];
+      if (delta) {
+        for (const kind of RESOURCE_KINDS) if (delta[kind]) grant(player.resources, kind, delta[kind]);
+        recordResourceDelta(game, player.id, delta, 'production');
+      }
+      const losses = native.blocked[player.id];
+      if (losses) recordBlockedProduction(game, player.id, losses);
+    }
+    queueGoldProduction(game, roll, native.goldPending);
+    game._nativeProductionCalls = (game._nativeProductionCalls || 0) + 1;
+    return native.gains;
+  }
 
   const gains = {}; // { [playerId]: { brick,lumber,wool,grain,ore } }
   const goldPending = {}; // { [playerId]: { amount, tileIds:Set } }
@@ -6754,6 +6782,11 @@ function distributeResources(game, roll) {
     }
   }
 
+  queueGoldProduction(game, roll, goldPending);
+  return gains;
+}
+
+function queueGoldProduction(game, roll, goldPending) {
   const queue = [];
   for (const p of (game.players || [])) {
     const gp = goldPending[p.id];
@@ -6780,8 +6813,6 @@ function distributeResources(game, roll) {
     };
     // Message set by caller (roll_dice) to include rolled value.
   }
-
-  return gains;
 }
 
 function grantStartingResourcesForSecondSettlement(game, nodeId, ownerId) {
@@ -8276,7 +8307,7 @@ if (kind === 'pirate_steal') {
     if (game.phase !== 'main-actions') return { ok: false, error: 'You can only trade after rolling.' };
     if (!isPlayersTurn(game, playerId)) return { ok: false, error: 'Not your turn.' };
 
-    // Classic 5–6 paired player rule: Player 2 may not trade with other players.
+    // Classic 5â€“6 paired player rule: Player 2 may not trade with other players.
     {
       const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
       const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
@@ -8609,7 +8640,7 @@ if (kind === 'pirate_steal') {
     recordTurnEnd(game, playerId);
     recordNeuralAiTrainingSnapshot(game);
 
-    // Classic 5–6 paired player turn system.
+    // Classic 5â€“6 paired player turn system.
     {
       const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
       const mm = (rawMM === 'classic56' || rawMM === 'classic_5_6' || rawMM === 'classic-5-6' || rawMM === 'classic5_6' || rawMM === 'classic5-6')
@@ -8625,7 +8656,7 @@ if (kind === 'pirate_steal') {
           const p1Id = playerId;
           let p1Idx = game.turnOrder.indexOf(p1Id);
         if (p1Idx < 0) p1Idx = (game.paired && Number.isFinite(game.paired.p1Idx)) ? game.paired.p1Idx : 0;
-          // Paired Players Turn Rule (official CATAN 5–6): Catanian 2 is always the third player to the left.
+          // Paired Players Turn Rule (official CATAN 5â€“6): Catanian 2 is always the third player to the left.
         const offset = 3;
         const p2Idx = (p1Idx + offset) % n;
         const p2Id = game.turnOrder[p2Idx];
@@ -10080,7 +10111,7 @@ function sendGameResultSfx(room, game, winnerId) {
 
 function broadcastSfx(room, name, extra) {
   // Audio events are irrelevant to headless self-play and were flooding the
-  // training WebSocket during long 7–8-player games.
+  // training WebSocket during long 7â€“8-player games.
   if (process.env.AI_TRAINING === '1' && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1') return;
   // applyAction() is also used in "dry run" contexts (e.g., build-option probing)
   // where we pass a minimal { game } object that intentionally has no sockets.
@@ -12179,7 +12210,7 @@ async function handleAccountHttp(req, res, urlPath) {
   if (urlPath === '/api/account/change-name') {
     const requestedName = String(body.displayName || '').trim();
     if (!requestedName || requestedName.length > 20 || /[\x00-\x1f\x7f]/.test(requestedName)) {
-      sendHttpJson(req, res, 400, { ok: false, error: 'Player name must contain 1–20 characters and no control characters.' });
+      sendHttpJson(req, res, 400, { ok: false, error: 'Player name must contain 1â€“20 characters and no control characters.' });
       return;
     }
     // Names are not login identifiers; two distinct accounts may share a name.
@@ -12990,7 +13021,7 @@ if (msg.type === 'get_settings_preview') {
       game.turnOrder = demoPlayers.map(p => p.id);
       game.currentPlayerId = demoPlayers[1].id; // Never show this as the user's playable turn.
       game.turnNumber = 1;
-      game.message = 'Settings preview • gameplay disabled';
+      game.message = 'Settings preview â€¢ gameplay disabled';
       game.devDeck = Array.from({length:25}, (_, i) => `preview-${i}`);
       pushLog(game, 'Settings preview: Classic 4-player game board. Game actions are disabled.', 'system');
       sendJson(ws, { type:'settings_preview',
@@ -13090,7 +13121,7 @@ if (msg.type === 'create_tutorial_room') {
       const isChallenge = msg.type === 'create_challenge_room';
       const requestedSize = Number(msg.playerCount);
       if (isChallenge && (!Number.isInteger(requestedSize) || requestedSize < 4 || requestedSize > 8)) {
-        sendJson(ws, { type: 'error', error: 'Choose a challenge map for 4–8 players.' }); return;
+        sendJson(ws, { type: 'error', error: 'Choose a challenge map for 4â€“8 players.' }); return;
       }
       const challengeKind = msg.kind === 'daily' ? 'daily' : 'weekly';
       const dailyId = challengeDayId();
@@ -13314,7 +13345,10 @@ if (msg.type === 'create_tutorial_room') {
           error: `Neural weights could not be saved: ${saved.error}` });
       } else {
         sendJson(ws, { type: 'training_receipt', ok: true,
-          gameId: commit.gameId, trainedGames: commit.trainedGames });
+          gameId: commit.gameId, trainedGames: commit.trainedGames,
+          nativeScoringCalls: game._nativeScoringCalls || 0,
+          nativeRouteCalls: game._nativeRouteCalls || 0,
+          nativeProductionCalls: game._nativeProductionCalls || 0 });
       }
       return;
     }
@@ -13800,7 +13834,7 @@ if (msg.type === 'create_tutorial_room') {
       } else if (r.playerCount != null && r.playerCount !== '') {
         const requested = Number(r.playerCount);
         if (!Number.isInteger(requested) || requested < range.min || requested > range.max) {
-          sendJson(ws, { type: 'error', error: `This map supports ${range.min}–${range.max} players.` });
+          sendJson(ws, { type: 'error', error: `This map supports ${range.min}â€“${range.max} players.` });
           return;
         }
         next.playerCount = requested;
@@ -13823,7 +13857,7 @@ if (msg.type === 'create_tutorial_room') {
         next.explorationPointsEnabled = true;
       }
 
-      // Victory points to win (clamped) — scenario defaults:
+      // Victory points to win (clamped) â€” scenario defaults:
       // - Classic: 10
       // - Seafarers Four Islands: 13
       // - Seafarers Through the Desert: 14
@@ -14021,7 +14055,7 @@ if (msg.type === 'create_tutorial_room') {
             coords.some(c => !validCustom78Coord(c.q,c.r)) ||
             new Set(coords.map(c => axialKey(c.q,c.r))).size !== coords.length ||
             !Array.isArray(file.ports) || file.ports.length > 1000) {
-          sendJson(ws, {type:'error', error:'Invalid 7–8 custom map format, geometry, or map type.'}); return;
+          sendJson(ws, {type:'error', error:'Invalid 7â€“8 custom map format, geometry, or map type.'}); return;
         }
         const trial = buildCustom78Geometry(coords);
         trial.tiles = trial.tiles.map((tile,i) => {
@@ -14051,7 +14085,7 @@ if (msg.type === 'create_tutorial_room') {
         room.preview.at = now();
         scheduleActiveRoomsSave();
         broadcastPreviewState(room);
-        sendJson(ws,{type:'custom_map_loaded',message:'7–8 custom map shape and ports loaded.'});
+        sendJson(ws,{type:'custom_map_loaded',message:'7â€“8 custom map shape and ports loaded.'});
         return;
       }
       if (!file || file.format !== 'hex-settlers-custom-map' || file.version !== 1 ||
@@ -14272,9 +14306,9 @@ if (msg.type === 'create_tutorial_room') {
         return;
       }
       if (room.players.length < minPlayers || room.players.length > maxPlayers) {
-        const msgErr = isEight ? '7–8-player maps require 7 or 8 players (AI can fill empty seats).' : (mm === 'classic56')
-          ? 'Classic 5–6 requires 5 or 6 players.'
-          : (isSix ? 'Seafarers 5–6 scenarios require 5 or 6 players.' : (allowSolo ? 'Need at least 1 player.' : 'Need at least 2 players.' ));
+        const msgErr = isEight ? '7â€“8-player maps require 7 or 8 players (AI can fill empty seats).' : (mm === 'classic56')
+          ? 'Classic 5â€“6 requires 5 or 6 players.'
+          : (isSix ? 'Seafarers 5â€“6 scenarios require 5 or 6 players.' : (allowSolo ? 'Need at least 1 player.' : 'Need at least 2 players.' ));
         sendJson(ws, { type: 'error', error: msgErr });
         return;
       }
@@ -14964,7 +14998,7 @@ function handleAI(room) {
       const pips = DICE_PIPS[t.number] || 0;
       if (String(t.type || '').toLowerCase() === 'gold') {
         // Gold is flexible production, so a Gold pip is more useful than a pip
-        // locked to one resource—especially when the player's income is uneven.
+        // locked to one resourceâ€”especially when the player's income is uneven.
         const weakestIncome = Math.min(...RESOURCE_KINDS.map((kind) => myIncome[kind] || 0));
         const flexibilityBoost = Math.max(0, 5 - Math.min(5, weakestIncome / 2));
         pipScore += pips * (1.3 + flexibilityBoost * 0.06);
@@ -16177,7 +16211,8 @@ function expertAiVpGainWeightForSeat(game, pid, tuning) {
   return Number(tuning?.vpGainWeight || EXPERT_AI_TUNING_DEFAULTS.vpGainWeight);
 }
 
-const aiTickInterval = setInterval(() => {
+function tickAiRooms() {
+  let progressed = false;
   for (const room of rooms.values()) {
     // Disconnected AI games resume on reconnect; do not keep simulating and
     // growing replay state for hours when nobody is present to play or watch.
@@ -16186,6 +16221,7 @@ const aiTickInterval = setInterval(() => {
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
     const autoPaused = maybePauseDisconnectedTurn(room);
     const changed = autoPaused || handleTimeout(room) || handleAI(room);
+    progressed ||= !!changed;
     // Training-only, low-cost progress: avoid the huge full-state broadcasts while
     // allowing the trainer to distinguish a live game from an AI deadlock.
     if (AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1' && changed) {
@@ -16204,6 +16240,20 @@ const aiTickInterval = setInterval(() => {
     // Headless self-play only needs the terminal state. Avoid serializing and
     // sending every intermediate action, which otherwise dominates CPU/memory.
     if (changed && (!AI_TRAINING_MODE || room.game.phase === 'game-over')) broadcastState(room);
+  }
+  return progressed;
+}
+
+let aiTickImmediate;
+function runFastSelfPlay() {
+  aiTickImmediate = undefined;
+  if (tickAiRooms()) aiTickImmediate = setImmediate(runFastSelfPlay);
+}
+const aiTickInterval = setInterval(() => {
+  if (FAST_SELF_PLAY) {
+    if (!aiTickImmediate) runFastSelfPlay();
+  } else {
+    tickAiRooms();
   }
 }, AI_TICK_MS);
 
@@ -16268,6 +16318,7 @@ async function gracefulShutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
 
+  clearImmediate(aiTickImmediate);
   for (const interval of [aiTickInterval, endVoteRebroadcastInterval, wsHeartbeatInterval, roomCleanupInterval, gameAnalyticsInterval, betaFlushInterval, betaEmailInterval, authLimiterCleanupInterval]) {
     clearInterval(interval);
   }

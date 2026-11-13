@@ -18,6 +18,7 @@ const SHARDS = Math.max(1, Math.min(GENERATION_GAMES, Math.floor(Number(process.
 const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 100)));
 const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
 const MAP_SET = process.env.MAP_SET || 'standard';
+const RULES = process.env.HEX_TRAINING_RULES === 'cpp' ? 'cpp' : 'javascript';
 const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
 const isPaused = () => { try { return !!CONTROL_FILE && JSON.parse(fs.readFileSync(CONTROL_FILE, 'utf8')).pause === true; } catch (_) { return false; } };
 const RESUME_RUN_DIR = String(process.env.RESUME_RUN_DIR || '').trim();
@@ -127,10 +128,11 @@ async function main() {
   const startingHash = hashFile(originalModelPath);
   if (fs.existsSync(manifestPath)) {
     const manifest = readJson(manifestPath);
+    if ((manifest.rules || 'javascript') !== RULES) throw new Error('Use the self-play rules backend from the saved run');
     if (manifest.totalGames !== TOTAL_GAMES || manifest.generationGames !== GENERATION_GAMES || manifest.shards !== SHARDS || manifest.mapSet !== MAP_SET || manifest.startingHash !== startingHash)
       throw new Error('Run parameters or base model differ from saved checkpoint. Use original SIMS, SELECTION_INTERVAL, SHARDS and MAP_SET.');
   } else {
-    fs.writeFileSync(manifestPath, JSON.stringify({ totalGames: TOTAL_GAMES, generationGames: GENERATION_GAMES, shards: SHARDS, mapSet: MAP_SET, startingHash, createdAt: startedAt.toISOString() }, null, 2));
+    fs.writeFileSync(manifestPath, JSON.stringify({ totalGames: TOTAL_GAMES, generationGames: GENERATION_GAMES, shards: SHARDS, mapSet: MAP_SET, rules: RULES, startingHash, createdAt: startedAt.toISOString() }, null, 2));
   }
   const generations = [];
   const allGames = [];

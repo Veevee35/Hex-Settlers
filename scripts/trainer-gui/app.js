@@ -1,6 +1,6 @@
 'use strict';
 const el = id => document.getElementById(id);
-const fields = ['sims','generation','shards','batch','concurrency','mapSet','gpuMode','epochs','miniBatch','python'];
+const fields = ['sims','generation','shards','batch','concurrency','mapSet','rules','gpuMode','epochs','miniBatch','python'];
 let token = '';
 let initial = true;
 let lastJobId = null;
@@ -14,7 +14,7 @@ function toast(message) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => box.classList.remove('show'), 7000);
 }
 function config() {
-  return Object.fromEntries(fields.map(key => [key, ['mapSet','gpuMode','python'].includes(key) ? el(key).value : Number(el(key).value)]));
+  return Object.fromEntries(fields.map(key => [key, ['mapSet','rules','gpuMode','python'].includes(key) ? el(key).value : Number(el(key).value)]));
 }
 function setConfig(settings) { if (!settings) return; for (const key of fields) if (settings[key] !== undefined) el(key).value = settings[key]; }
 async function api(route, payload={}) {
@@ -88,7 +88,7 @@ function update(job, model) {
   el('runtime-status').textContent = state === 'running' ? 'Training in progress' : state === 'paused' ? 'Checkpoint preserved' : state === 'failed' ? 'Inspect logs for failure' : state === 'completed' ? 'Training completed' : state === 'pausing' ? 'Waiting for safe checkpoint' : 'No active training';
   el('trained-games').textContent = model ? numberFormat(model.trainedGames) : '—';
   el('model-detail').textContent = model?.lastCudaRefinement ? `Last GPU refinement: ${numberFormat(model.lastCudaRefinement.samples)} samples` : 'Current model weights';
-  el('phase').textContent = state === 'running' ? (job.lastCuda && job.logs?.at(-1)?.line.startsWith('[cuda]') ? 'CUDA weight refinement' : 'CPU self-play / evaluation') : state === 'pausing' ? 'Checkpointing / stopping' : state;
+  el('phase').textContent = state === 'running' ? (job.lastCuda && /^(?:\[candidate \d+\] )?\[cuda\]/.test(job.logs?.at(-1)?.line || '') ? 'CUDA weight refinement' : 'CPU self-play / evaluation') : state === 'pausing' ? 'Checkpointing / stopping' : state;
   el('accelerator').textContent = job?.accelerator === 'cuda' ? 'NVIDIA CUDA + CPU self-play' : job ? 'CPU self-play and training' : '—';
   el('winner').textContent = job?.winner ? `Candidate ${job.winner}` : '—';
   el('checkpoint').textContent = job?.runFolder || '—';
