@@ -6,3 +6,21 @@
 @media(max-width:1150px){.rail{width:66px;padding:22px 7px}.brand>div,.nav-item:not(.chosen),.nav-item.chosen{font-size:0}.nav-item span{font-size:22px}.rail-bottom{font-size:0;padding:15px 5px}.rail-bottom small{display:none}.main{padding:24px}.columns{grid-template-columns:1fr}.right-col{display:grid;grid-template-columns:1fr 1fr}.top h1{font-size:28px}}
 @media(max-width:820px){.metrics{grid-template-columns:1fr 1fr}.right-col{grid-template-columns:1fr}.columns{grid-template-columns:minmax(0,1fr)}.connection{display:none}}
 @media(max-width:520px){.rail{display:none}.main{padding:18px 12px}.top{display:block}.top-right{margin-top:15px}.metrics{gap:8px}.metric{padding:13px}.metric strong{font-size:23px}.panel{padding:17px}.form-grid{gap:12px}.form-grid .field{grid-column:span 2}.monitor-actions .btn{flex:1}footer{display:block}footer span{display:block;margin-top:5px}}
+.nav-item { text-decoration: none; }
+.nav-item:hover { color: var(--accent); }
+.left-col { display: flex; flex-direction: column; gap: 17px; }
+.panel { scroll-margin-top: 16px; }
+.actions { flex-wrap: wrap; }
+.advanced { margin-top: 17px; }
+.advanced summary { color: #cdd7da; cursor: pointer; font-weight: 600; font-size: 12px; }
+.advanced .form-grid { margin-top: 12px; }
+.advanced small { display: block; color: var(--muted); margin-top: 6px; }
+.priority-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.priority-control { min-width: 0; padding: 10px 12px; background: #0d151c; border: 1px solid var(--line); border-radius: 6px; }
+.priority-control label { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; font-weight: 600; font-size: 12px; }
+.priority-control output { color: var(--accent); font-variant-numeric: tabular-nums; }
+.priority-control input { width: 100%; margin: 8px 0 2px; accent-color: var(--accent); }
+.priority-control small { display: block; color: #94a6b2; font-size: 11px; }
+.weight-note, #priority-lock { margin-top: 10px; }
+@media(max-width:820px) { .right-col { display: flex; } }
+@media(max-width:520px) { .priority-grid { grid-template-columns: 1fr; } }

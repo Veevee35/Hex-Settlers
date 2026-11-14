@@ -88,6 +88,7 @@ const { resolveDepartedTitleChallenge, returnPlayerResourcesToBank } = require('
 const { consumeDevelopmentCard } = require('./server/dev-cards');
 const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = require('./server/ai-tactics');
 const { strategicNeuralBonus, tradeIsWorthAccepting } = require('./server/neural-strategy');
+const { priorityMultipliers } = require('./server/neural-priorities');
 const { FEATURE_NAMES: NEURAL_FEATURE_NAMES, FEATURE_VERSION: NEURAL_FEATURE_VERSION, TRAINING_OBJECTIVE: NEURAL_TRAINING_OBJECTIVE, opponentFeatures, upgradeNeuralModel, victoryTrainingTarget } = require('./server/neural-objective');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
@@ -145,6 +146,8 @@ const LOCAL_SELF_PLAY = process.env.AI_TRAINING === '1' && process.env.NODE_ENV 
 const NATIVE_RULES = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_RULES === 'cpp'
   ? require('./server/native-rules') : null;
 const FAST_SELF_PLAY = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_FAST === '1';
+const SELF_PLAY_PRIORITIES = LOCAL_SELF_PLAY && process.env.NEURAL_AI_PRIORITIES
+  ? priorityMultipliers(JSON.parse(process.env.NEURAL_AI_PRIORITIES)) : undefined;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MIME = {
@@ -3746,8 +3749,10 @@ function neuralActionValue(state, pid, fallback = 0) {
 }
 
 function neuralFeatureValue(feat, fallback = 0) {
-  const pred = neuralModelPredict(feat).out;
-  return pred * 1200 + Number(fallback || 0) - 400 * feat[12] ** 4 - 160 * feat[15];
+  const network = SELF_PLAY_PRIORITIES?.network ?? 1;
+  const denial = SELF_PLAY_PRIORITIES?.denial ?? 1;
+  const pred = network ? neuralModelPredict(feat).out : 0;
+  return pred * 1200 * network + Number(fallback || 0) - 400 * feat[12] ** 4 * denial - 160 * feat[15] * denial;
 }
 
 function neuralPlayersInGame(game) {
@@ -15472,7 +15477,7 @@ function handleAI(room) {
     return inc;
   };
 
-  const stateValueFor = (state, pid) => {
+  const stateValueFor = (state, pid, priorities) => {
     // Ensure VP is up-to-date for evaluation.
     computeVP(state);
     const p = playerById(state, pid);
@@ -15522,22 +15527,24 @@ function handleAI(room) {
     })();
 
     let immediateVpPotential = 0;
-    if (hasCitySpot) immediateVpPotential += 1.8;
-    if (hasSettleSpot) immediateVpPotential += 1.6;
+    if (hasCitySpot) immediateVpPotential += 1.8 * (priorities?.cities ?? 1);
+    if (hasSettleSpot) immediateVpPotential += 1.6 * (priorities?.settlements ?? 1);
 
     const discardRisk = Math.max(0, resTotal - 7);
     const closingPressure = (vpToWin <= 3) ? (4 - vpToWin) : 0;
 
     // Big emphasis on VP, then production, then hand efficiency.
-    return (vp * 1000)
-      + (incomeTotal * 18)
-      + (resTotal * 4)
-      + (devUnplayed * 12)
+    const victory = priorities?.victory ?? 1;
+    const economy = priorities?.economy ?? 1;
+    return (vp * 1000 * victory)
+      + (incomeTotal * 18 * (priorities?.production ?? 1))
+      + (resTotal * 4 * economy)
+      + (devUnplayed * 12 * (priorities?.development ?? 1))
       + (immediateVpPotential * 32)
-      + (closingPressure * 14)
-      - (Math.min(missCity, missSet) * 6)
-      - (missDev * 2)
-      - (discardRisk * 2);
+      + (closingPressure * 14 * victory)
+      - (Math.min(missCity, missSet) * 6 * economy)
+      - (missDev * 2 * economy)
+      - (discardRisk * 2 * economy);
   };
 
   const simulateAction = (pid, action) => {
@@ -15677,7 +15684,7 @@ function handleAI(room) {
     const p = playerById(game, pid);
     if (!p) return null;
 
-    const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid));
+    const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid, SELF_PLAY_PRIORITIES));
     const candidates = [];
     const spotsBefore = listSettlementPlacements(pid).length;
     const vpGap = Math.max(0, Number(game.rules?.victoryPointsToWin || 10) - Number(p.vp || 0));
@@ -15737,8 +15744,8 @@ function handleAI(room) {
       // fog is also discoverable, not only edge-adjacent fog.
       const fogRevealed = isRoute ? (game.geom.tiles || []).reduce((count, tile, index) =>
         count + (tile?.fog && !tile.revealed && sim.geom?.tiles?.[index]?.revealed ? 1 : 0), 0) : 0;
-      let score = neuralActionValue(sim, pid, stateValueFor(sim, pid));
-      score += vpGain * 300;
+      let score = neuralActionValue(sim, pid, stateValueFor(sim, pid, SELF_PLAY_PRIORITIES));
+      score += vpGain * 300 * (SELF_PLAY_PRIORITIES?.victory ?? 1);
       score += strategicNeuralBonus({
         kind: act.kind,
         siteScore: preservedSiteScore ?? ((act.kind === 'upgrade_city') ? nodeStrategicScore(pid, act.nodeId) : 0),
@@ -15754,7 +15761,7 @@ function handleAI(room) {
         ownsLargestArmy: game.largestArmy?.playerId === pid,
         vpGap,
         devDeckSize: (game.devDeck || []).length,
-      });
+      }, SELF_PLAY_PRIORITIES);
       if (act.kind === 'bank_trade') {
         // Trading is a preparatory action, never an end in itself. A neutral
         // swap can look positive to the neural feature extractor, but burns

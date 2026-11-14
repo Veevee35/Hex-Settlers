@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { atomicWriteJson } = require('./training-file');
 const { TRAINING_OBJECTIVE, upgradeNeuralModel } = require('../server/neural-objective');
+const { normalizeCandidatePriorities } = require('../server/neural-priorities');
 const { assertFiniteModel, summarizeGames } = require('./train_neural_ai_distributed');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -19,6 +20,9 @@ const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 100))
 const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
 const MAP_SET = process.env.MAP_SET || 'standard';
 const RULES = process.env.HEX_TRAINING_RULES === 'cpp' ? 'cpp' : 'javascript';
+const VICTORY_POINTS = Number(process.env.VP_TO_WIN || 0);
+const MAX_TURNS = Number(process.env.MAX_TRAINING_TURNS || 900);
+const PRIORITIES = normalizeCandidatePriorities(JSON.parse(process.env.TRAINING_CANDIDATE_PRIORITIES || '[]'), SHARDS);
 const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
 const isPaused = () => { try { return !!CONTROL_FILE && JSON.parse(fs.readFileSync(CONTROL_FILE, 'utf8')).pause === true; } catch (_) { return false; } };
 const RESUME_RUN_DIR = String(process.env.RESUME_RUN_DIR || '').trim();
@@ -47,6 +51,7 @@ function runCandidate(candidate, generationStart, totalProgress) {
         MODEL_PATH: candidate.modelPath,
         TRAINING_OUTPUT: candidate.reportPath,
         CURRICULUM_OFFSET: String(candidate.offset),
+        NEURAL_AI_PRIORITIES: JSON.stringify(PRIORITIES[candidate.index]),
         BATCH_SIZE: String(BATCH_SIZE),
         CONCURRENCY: String(CONCURRENCY),
         MAP_SET,
@@ -131,8 +136,16 @@ async function main() {
     if ((manifest.rules || 'javascript') !== RULES) throw new Error('Use the self-play rules backend from the saved run');
     if (manifest.totalGames !== TOTAL_GAMES || manifest.generationGames !== GENERATION_GAMES || manifest.shards !== SHARDS || manifest.mapSet !== MAP_SET || manifest.startingHash !== startingHash)
       throw new Error('Run parameters or base model differ from saved checkpoint. Use original SIMS, SELECTION_INTERVAL, SHARDS and MAP_SET.');
+    if ((manifest.victoryPoints ?? 0) !== VICTORY_POINTS || (manifest.maxTurns ?? 900) !== MAX_TURNS ||
+        JSON.stringify(normalizeCandidatePriorities(manifest.candidatePriorities, SHARDS)) !== JSON.stringify(PRIORITIES)) {
+      throw new Error('Use the AI priorities, victory target, and turn limit from the saved run');
+    }
   } else {
-    fs.writeFileSync(manifestPath, JSON.stringify({ totalGames: TOTAL_GAMES, generationGames: GENERATION_GAMES, shards: SHARDS, mapSet: MAP_SET, rules: RULES, startingHash, createdAt: startedAt.toISOString() }, null, 2));
+    await atomicWriteJson(manifestPath, {
+      totalGames: TOTAL_GAMES, generationGames: GENERATION_GAMES, shards: SHARDS, mapSet: MAP_SET, rules: RULES,
+      victoryPoints: VICTORY_POINTS, maxTurns: MAX_TURNS, candidatePriorities: PRIORITIES,
+      startingHash, createdAt: startedAt.toISOString(),
+    });
   }
   const generations = [];
   const allGames = [];
@@ -237,6 +250,7 @@ async function main() {
         selectedModelSha256: hashFile(selectedModelPath),
         candidates: evaluated.map((entry) => ({
           candidate: entry.candidate.index + 1,
+          priorities: PRIORITIES[entry.candidate.index],
           games: entry.candidate.games,
           score: entry.score,
           averageVictoryTurn: entry.averageTurn,
@@ -268,6 +282,8 @@ async function main() {
       propagation: 'winning weights seed every candidate in the next generation',
       trainingObjective: TRAINING_OBJECTIVE,
       mapSet: MAP_SET,
+      victoryPointsToWin: VICTORY_POINTS || 'scenario-defaults',
+      maxTurns: MAX_TURNS,
       resumedFrom: isResume ? tempRoot : null,
       scenariosReplaced: allGames.filter(game => game.requestedMapId).length,
       startingTrainedGames: Number(startingModel.trainedGames || 0),

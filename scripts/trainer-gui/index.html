@@ -11,9 +11,9 @@
 <div class="shell">
   <aside class="rail">
     <div class="brand"><span class="hex-mark">⬡</span><div><strong>HEX SETTLERS</strong><small>TRAINING CONSOLE</small></div></div>
-    <div class="nav-item chosen"><span>◈</span> Neural training</div>
-    <div class="nav-item"><span>⌁</span> Self-play engine</div>
-    <div class="nav-item"><span>▣</span> Model checkpoints</div>
+    <a class="nav-item chosen" href="#training" aria-label="Training parameters"><span aria-hidden="true">◈</span> Training parameters</a>
+    <a class="nav-item" href="#ai-priorities" aria-label="AI priorities"><span aria-hidden="true">⌁</span> AI priorities</a>
+    <a class="nav-item" href="#model-weights" aria-label="Model weights"><span aria-hidden="true">▣</span> Model weights</a>
     <div class="rail-bottom"><span class="pulse"></span> LOCAL SYSTEM<br><small>No cloud connection · V1.0.55</small></div>
   </aside>
   <main class="main">
@@ -26,10 +26,14 @@
     </section>
     <div class="columns">
       <div class="left-col">
-        <section class="panel settings">
-          <div class="panel-heading"><div><div class="eyebrow">01 / CONFIGURE</div><h2>Training parameters</h2></div><span class="subtitle">EVOLUTIONARY SELF-PLAY</span></div>
+        <section class="panel settings" id="training">
+          <div class="panel-heading"><h2>Training parameters</h2></div>
           <form id="settings-form">
             <div class="row-input"><label for="resume">Training session <small>Start fresh or resume existing checkpoints</small></label><select id="resume"><option value="">New training run</option></select></div>
+            <div class="row-input"><label for="preset">Training preset</label><select id="preset">
+              <option value="">Custom</option><option value="smoke">Quick check · 4 games</option>
+              <option value="trial">Short trial · 100 games</option><option value="standard">Full training · 20,000 games</option>
+            </select></div>
             <div class="form-grid">
               <div class="field"><label for="sims">Total simulations</label><input type="number" id="sims" min="1" max="10000000" step="1" value="20000"></div>
               <div class="field"><label for="generation">Games / generation</label><input type="number" id="generation" min="1" max="1000000" step="1" value="1000"></div>
@@ -39,9 +43,16 @@
               <div class="field"><label for="mapSet">Scenario set</label><select id="mapSet"><option value="standard">Standard (no Test Builder)</option><option value="all">All (include Test Builder)</option></select></div>
               <div class="field"><label for="rules">Self-play rules</label><select id="rules"><option value="auto">Auto</option><option value="cpp">C++ rules</option><option value="javascript">JavaScript</option></select></div>
             </div>
+            <details class="advanced">
+              <summary>Advanced self-play settings</summary>
+              <div class="form-grid">
+                <div class="field"><label for="victoryPoints">Victory-point target</label><input type="number" id="victoryPoints" min="0" max="30" value="0"><small>0 uses each scenario’s target. Overrides range from 3 to 30.</small></div>
+                <div class="field"><label for="maxTurns">Maximum turns per game</label><input type="number" id="maxTurns" min="50" max="10000" value="900"><small>The trainer retries games that exceed this limit.</small></div>
+              </div>
+            </details>
             <div class="note">19 standard map templates · 4/6/8 AI seats. 5/7-player variants are not yet independent training curricula. Larger batches improve CUDA efficiency but take longer to checkpoint.</div>
             <div class="divider"></div>
-            <div class="panel-heading compact"><div><div class="eyebrow">02 / ACCELERATOR</div><h2>GPU learning</h2></div><span id="gpu-chip" class="hardware-chip">NOT CHECKED</span></div>
+            <div class="panel-heading compact"><h2>GPU learning</h2><span id="gpu-chip" class="hardware-chip">NOT CHECKED</span></div>
             <div class="form-grid">
               <div class="field"><label for="gpuMode">Learning backend</label><select id="gpuMode"><option value="auto">Auto (CUDA if available)</option><option value="cuda">NVIDIA CUDA (required)</option><option value="cpu">CPU only</option></select></div>
               <div class="field"><label for="python">Python executable</label><input type="text" id="python" value="python" spellcheck="false" placeholder="python or C:\...\python.exe"></div>
@@ -50,13 +61,33 @@
             </div>
             <div class="gpu-info" id="gpu-info">CPU simulates turns and legal moves. CUDA optionally refines the neural network from completed games between checkpoint saves. PyTorch with CUDA support is required.</div>
             <p class="gpu-setup">Need CUDA PyTorch? <a href="https://pytorch.org/get-started/locally/" target="_blank" rel="noopener noreferrer">Official NVIDIA/PyTorch install instructions</a>. Select that Python environment above, then Detect GPU.</p>
-            <div class="actions"><button type="button" id="gpu-check" class="btn secondary">◈ Detect GPU</button><div class="stretch"></div><button type="submit" id="start-btn" class="btn primary">▶ Start training</button></div>
+            <div class="actions"><button type="button" id="gpu-check" class="btn secondary">Detect GPU</button><div class="stretch"></div><button type="button" id="save-settings" class="btn secondary">Save settings</button><button type="submit" id="start-btn" class="btn primary">▶ Start training</button></div>
           </form>
+        </section>
+        <section class="panel" id="ai-priorities" aria-labelledby="priorities-title">
+          <div class="panel-heading"><h2 id="priorities-title">AI priorities</h2></div>
+          <div class="row-input"><label for="priority-candidate">Model candidate</label><select id="priority-candidate"></select></div>
+          <p class="muted">Adjust the scoring used by every agent in this candidate’s self-play games. 100% uses the standard contribution, and 0% removes that contribution.</p>
+          <div id="priority-sliders" class="priority-grid"></div>
+          <div class="actions"><button type="button" id="reset-priorities" class="btn secondary">Reset candidate</button><button type="button" id="copy-priorities" class="btn secondary">Copy to all candidates</button></div>
+          <p class="muted" id="priority-lock" hidden>Resumed runs use the priorities saved with their checkpoint.</p>
         </section>
       </div>
       <div class="right-col">
+        <section class="panel" id="model-weights" aria-labelledby="weights-title">
+          <div class="panel-heading"><h2 id="weights-title">Model weights</h2></div>
+          <div class="row-input"><label for="weight-run">Checkpoint run</label><select id="weight-run"><option value="">Current model and import backups</option></select></div>
+          <div class="row-input"><label for="weight-snapshot">Weights to download</label><select id="weight-snapshot"></select></div>
+          <div class="actions">
+            <button type="button" id="download-weights" class="btn secondary" disabled>Download JSON</button>
+            <button type="button" id="upload-weights" class="btn secondary" disabled>Upload JSON</button>
+            <button type="button" id="refresh-weights" class="mini">Refresh snapshots</button>
+            <input type="file" id="weight-file" accept=".json,application/json" hidden>
+          </div>
+          <p class="muted weight-note">Uploading replaces the current model and keeps a downloadable backup. New runs start from the current model. Saved runs start from their own checkpoints.</p>
+        </section>
         <section class="panel execution">
-          <div class="panel-heading"><div><div class="eyebrow">03 / LIVE STATUS</div><h2>Session monitor</h2></div><span class="live-dot"></span></div>
+          <div class="panel-heading"><h2>Session monitor</h2><span class="live-dot"></span></div>
           <div class="run-meta"><span>Current phase</span><strong id="phase">Not running</strong></div>
           <div class="run-meta"><span>Accelerator</span><strong id="accelerator">—</strong></div>
           <div class="run-meta"><span>Last selected candidate</span><strong id="winner">—</strong></div>
@@ -66,7 +97,7 @@
           <p class="muted">Pause lets ongoing games reach a durable checkpoint. Emergency stop terminates processes and loses only the uncommitted batch. Resume using the saved run folder.</p>
         </section>
         <section class="panel logs">
-          <div class="panel-heading"><div><div class="eyebrow">04 / EVENT STREAM</div><h2>Training log</h2></div><button class="mini" id="clear-view">Clear view</button></div>
+          <div class="panel-heading"><h2>Training log</h2><button class="mini" id="clear-view">Clear view</button></div>
           <div class="log-screen" id="log-screen" aria-label="Training events" role="log" aria-live="off"><div class="log-placeholder">Waiting for activity. Configure a run and press Start training.</div></div>
           <div class="log-bottom"><span id="log-path">Full logs saved locally.</span><span>AUTO-REFRESH</span></div>
         </section>

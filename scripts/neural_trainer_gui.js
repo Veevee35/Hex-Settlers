@@ -10,24 +10,30 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { ensureCuda } = require('./neural-gpu');
+const { atomicWriteJson } = require('./training-file');
+const { validateImportedModel, listWeightSnapshots } = require('./trainer-models');
+const { PRIORITIES, normalizeCandidatePriorities } = require('../server/neural-priorities');
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT = path.join(__dirname, 'output');
 const UI = path.join(__dirname, 'trainer-gui');
 const SETTINGS = path.join(OUTPUT, 'neural_gui_settings.json');
 const MODEL = path.join(ROOT, 'neural_ai_model.json');
+const BACKUPS = path.join(OUTPUT, 'model-backups');
 const CSRF_TOKEN = crypto.randomBytes(24).toString('hex');
 fs.mkdirSync(OUTPUT, { recursive: true });
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const defaults = {
   sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2,
   mapSet: 'standard', rules: 'auto', gpuMode: 'auto', epochs: 3, miniBatch: 256, python: 'python',
+  victoryPoints: 0, maxTurns: 900,
 };
-let saved = defaults;
+let saved = normalize(defaults);
 try { saved = normalize({ ...defaults, ...readJson(SETTINGS) }); } catch (_) { /* first launch */ }
 let active = null;
 let last = null;
 let gpuStatus = null;
 let checking = false;
+let importing = false;
 let serverPort = 0;
 
 function normalize(raw) {
@@ -43,14 +49,19 @@ function normalize(raw) {
   const concurrency = number('concurrency', 1, 32, defaults.concurrency);
   if (sims % generation !== 0 || shards > generation) throw new Error('Total games must be divisible by generation size, and shards cannot exceed games per generation.');
   const mapSet = raw.mapSet === 'all' ? 'all' : 'standard';
-  if (!['auto', 'cpu', 'cuda'].includes(raw.gpuMode)) throw new Error('Invalid GPU mode');
+  const gpuMode = raw.gpuMode ?? defaults.gpuMode;
+  if (!['auto', 'cpu', 'cuda'].includes(gpuMode)) throw new Error('Invalid GPU mode');
   const rules = raw.rules || defaults.rules;
   if (!['auto', 'javascript', 'cpp'].includes(rules)) throw new Error('Invalid self-play rules backend');
   const python = String(raw.python || 'python').trim();
   if (!python || python.length > 260 || /[\r\n]/.test(python)) throw new Error('Invalid Python executable path');
+  const victoryPoints = number('victoryPoints', 0, 30, defaults.victoryPoints);
+  if (victoryPoints !== 0 && victoryPoints < 3) throw new Error('Victory target must be 0 (scenario default) or 3–30 points');
   return {
     sims, generation, shards, batch, concurrency, mapSet, rules,
-    gpuMode: raw.gpuMode, epochs: number('epochs', 1, 20, defaults.epochs),
+    victoryPoints, maxTurns: number('maxTurns', 50, 10000, defaults.maxTurns),
+    candidatePriorities: normalizeCandidatePriorities(raw.candidatePriorities, shards),
+    gpuMode, epochs: number('epochs', 1, 20, defaults.epochs),
     miniBatch: number('miniBatch', 16, 8192, defaults.miniBatch), python,
   };
 }
@@ -70,6 +81,9 @@ function listRuns() {
         config: manifest ? {
           sims: manifest.totalGames, generation: manifest.generationGames,
           shards: manifest.shards, mapSet: manifest.mapSet, rules: manifest.rules || 'javascript',
+          victoryPoints: manifest.victoryPoints ?? defaults.victoryPoints,
+          maxTurns: manifest.maxTurns ?? defaults.maxTurns,
+          candidatePriorities: normalizeCandidatePriorities(manifest.candidatePriorities, manifest.shards),
         } : null,
       };
     }).sort((a,b) => b.updated.localeCompare(a.updated)).slice(0, 50);
@@ -110,12 +124,16 @@ function pipe(job, stream, tag) {
 async function start(raw) {
   if (active) throw new Error('A training session is already running');
   if (checking) throw new Error('The trainer is already checking hardware');
-  const settings = normalize(raw.settings || {});
+  if (importing) throw new Error('Wait for the model import to finish');
   let resumeFolder = '';
+  let resumeConfig;
   if (raw.resumeFolder) {
     resumeFolder = String(raw.resumeFolder);
-    if (!listRuns().some(run => run.id === resumeFolder)) throw new Error('Selected checkpoint folder was not found');
+    const run = listRuns().find(run => run.id === resumeFolder);
+    if (!run) throw new Error('Selected checkpoint folder was not found');
+    resumeConfig = run.config;
   }
+  const settings = normalize({ ...raw.settings, ...resumeConfig });
   if (!fs.existsSync(MODEL)) throw new Error(`Missing model: ${MODEL}`);
   checking = true;
   let accelerator = 'cpu';
@@ -131,15 +149,17 @@ async function start(raw) {
       }
     }
     const binding = path.join(ROOT, 'native', 'hex-core', 'hex_rules_v5.node');
-    const resumeRules = resumeFolder ? listRuns().find(run => run.id === resumeFolder)?.config?.rules || 'javascript' : null;
+    const resumeRules = resumeFolder ? resumeConfig?.rules || 'javascript' : null;
     const native = settings.rules === 'cpp' ||
       (settings.rules === 'auto' && (resumeRules ? resumeRules === 'cpp' : fs.existsSync(binding)));
     if (native) {
       if (!fs.existsSync(binding)) throw new Error('Build the C++ addon using native/hex-core/Build-Node-Windows.cmd first');
       require('../server/native-rules');
     }
-    saved = settings;
-    fs.writeFileSync(SETTINGS, JSON.stringify(settings, null, 2));
+    if (!resumeFolder) {
+      fs.writeFileSync(SETTINGS, JSON.stringify(settings, null, 2));
+      saved = settings;
+    }
     const id = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     const job = {
       id, settings, accelerator, state: 'running', startedAt: Date.now(), endedAt: null,
@@ -154,6 +174,10 @@ async function start(raw) {
       SIMS: String(settings.sims), SELECTION_INTERVAL: String(settings.generation),
       SHARDS: String(settings.shards), BATCH_SIZE: String(settings.batch),
       CONCURRENCY: String(settings.concurrency), MAP_SET: settings.mapSet,
+      VP_TO_WIN: settings.victoryPoints ? String(settings.victoryPoints) : '',
+      MAX_TRAINING_TURNS: String(settings.maxTurns),
+      TRAINING_CANDIDATE_PRIORITIES: JSON.stringify(settings.candidatePriorities),
+      MODEL_PATH: MODEL,
       HEX_TRAINING_RULES: native ? 'cpp' : 'javascript', HEX_TRAINING_FAST: '1',
       TRAINING_SCRATCH: OUTPUT,
       KEEP_TRAINING_TEMP: '1', TRAINING_ACCELERATOR: accelerator,
@@ -221,6 +245,35 @@ function readModelOverview() {
       lastCudaRefinement: m.meta?.lastCudaRefinement || null };
   } catch (_) { return null; }
 }
+function weightSnapshots(runId) {
+  const run = runId && listRuns().find(entry => entry.id === runId);
+  if (runId && !run) throw new Error('Selected checkpoint folder was not found');
+  if (run) return listWeightSnapshots(path.join(OUTPUT, run.id));
+  const snapshots = [{ id: 'current', label: 'Current model', file: MODEL }];
+  if (fs.existsSync(BACKUPS)) {
+    const files = fs.readdirSync(BACKUPS).filter(name => /^before-import-\d+-[0-9a-f]{8}\.json$/.test(name)).sort().reverse();
+    for (const file of files) {
+      const date = new Date(Number(file.split('-')[2]));
+      snapshots.push({ id: file, file: path.join(BACKUPS, file), label: `Before import · ${date.toLocaleString()}` });
+    }
+  }
+  return snapshots.filter(snapshot => fs.existsSync(snapshot.file));
+}
+async function importWeights(payload) {
+  if (active || checking || importing) throw new Error('Wait until the trainer is idle to import weights');
+  const model = validateImportedModel(payload);
+  importing = true;
+  try {
+    let backup = null;
+    if (fs.existsSync(MODEL)) {
+      fs.mkdirSync(BACKUPS, { recursive: true });
+      backup = `before-import-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`;
+      fs.copyFileSync(MODEL, path.join(BACKUPS, backup), fs.constants.COPYFILE_EXCL);
+    }
+    await atomicWriteJson(MODEL, model);
+    return { ok: true, backup, trainedGames: model.trainedGames };
+  } finally { importing = false; }
+}
 function send(res, status, data) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -236,29 +289,55 @@ function staticFile(res, file, type) {
 async function handle(req, res) {
   const expectedHost = `127.0.0.1:${serverPort}`;
   if (req.headers.host !== expectedHost) return send(res, 403, { error: 'Localhost only' });
-  const pathname = new URL(req.url, `http://${expectedHost}`).pathname;
+  const { pathname, searchParams } = new URL(req.url, `http://${expectedHost}`);
   if (req.method === 'GET') {
     if (pathname === '/') return staticFile(res, 'index.html', 'text/html; charset=utf-8');
     if (pathname === '/app.js') return staticFile(res, 'app.js', 'text/javascript; charset=utf-8');
     if (pathname === '/style.css') return staticFile(res, 'style.css', 'text/css; charset=utf-8');
     if (pathname === '/api/status') return send(res, 200, {
       token: CSRF_TOKEN, current: viewJob(active || last), settings: saved,
-      runs: listRuns(), gpu: gpuStatus, checking, model: readModelOverview(),
+      runs: listRuns(), gpu: gpuStatus, checking, importing, model: readModelOverview(),
+      priorities: PRIORITIES,
     });
+    if (pathname === '/api/weights' || pathname === '/api/weights/download') {
+      const runId = searchParams.get('run');
+      let snapshots;
+      try { snapshots = weightSnapshots(runId); } catch (error) { return send(res, 404, { error: error.message }); }
+      if (pathname === '/api/weights') return send(res, 200, snapshots.map(({ id, label }) => ({ id, label })));
+      const snapshot = snapshots.find(({ id }) => id === searchParams.get('id'));
+      if (!snapshot) return send(res, 404, { error: 'Model snapshot not found' });
+      const data = readJson(snapshot.file);
+      const filename = snapshot.id === 'current' ? 'neural_ai_model.json'
+        : snapshot.id.endsWith('.json') ? snapshot.id : `${runId}-${snapshot.id}.json`;
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff', 'content-disposition': `attachment; filename="${filename}"` });
+      return res.end(JSON.stringify(snapshot.checkpoint ? data.model : data, null, 2));
+    }
     return send(res, 404, { error: 'Not found' });
   }
   if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
   if (req.headers.origin !== `http://${expectedHost}` || req.headers['x-hex-trainer-token'] !== CSRF_TOKEN) {
     return send(res, 403, { error: 'Invalid local request token or origin' });
   }
-  let content = '';
+  const maxBytes = pathname === '/api/weights/upload' ? 256 * 1024 : 32 * 1024;
+  let bytes = 0;
+  const content = [];
   for await (const part of req) {
-    content += part.toString('utf8');
-    if (content.length > 16384) return send(res, 413, { error: 'Request too large' });
+    bytes += part.length;
+    if (bytes > maxBytes) return send(res, 413, { error: 'Request too large' });
+    content.push(part);
   }
   let payload = {};
-  try { payload = content ? JSON.parse(content) : {}; } catch (_) { return send(res, 400, { error: 'Invalid JSON' }); }
+  try { payload = bytes ? JSON.parse(Buffer.concat(content).toString('utf8')) : {}; } catch (_) { return send(res, 400, { error: 'Invalid JSON' }); }
   try {
+    if (pathname === '/api/weights/upload') return send(res, 200, await importWeights(payload));
+    if (pathname === '/api/settings') {
+      if (active || checking || importing) throw new Error('Wait until the trainer is idle to save settings');
+      const settings = normalize(payload);
+      fs.writeFileSync(SETTINGS, JSON.stringify(settings, null, 2));
+      saved = settings;
+      return send(res, 200, { ok: true });
+    }
     if (pathname === '/api/start') return send(res, 200, { ok: true, job: await start(payload) });
     if (pathname === '/api/pause') return send(res, 200, { ok: true, job: await pause() });
     if (pathname === '/api/stop') return send(res, 200, { ok: true, job: await stop() });

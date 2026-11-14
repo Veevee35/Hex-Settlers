@@ -7,16 +7,38 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { normalize } = require('../scripts/neural_trainer_gui');
 const { ensureCuda } = require('../scripts/neural-gpu');
+const { validateImportedModel } = require('../scripts/trainer-models');
+const { PRIORITIES } = require('../server/neural-priorities');
 const ROOT = path.resolve(__dirname, '..');
 
 test('dashboard validates evolutionary parameters before launching children', () => {
   const baseline = { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, mapSet:'standard', rules:'auto', gpuMode:'auto', epochs: 3, miniBatch: 256, python:'python' };
-  assert.deepEqual(normalize(baseline), baseline);
+  const { candidatePriorities, victoryPoints, maxTurns, ...normalized } = normalize(baseline);
+  assert.deepEqual(normalized, baseline);
+  assert.equal(victoryPoints, 0);
+  assert.equal(maxTurns, 900);
+  assert.deepEqual(candidatePriorities, Array.from({ length: 4 },
+    () => Object.fromEntries(PRIORITIES.map(({ key }) => [key, 100]))));
+  const custom = normalize({ ...baseline, candidatePriorities: [{ cities: 0 }, { cities: 175 }] });
+  assert.deepEqual(custom.candidatePriorities.map(profile => profile.cities), [0, 175, 100, 100]);
+  assert.throws(() => normalize({ ...baseline, candidatePriorities: [{ cities: 201 }] }), /Cities priority/);
+  assert.throws(() => normalize({ ...baseline, victoryPoints: 2 }), /Victory target/);
   assert.throws(() => normalize({ ...baseline, sims: 20001 }), /divisible/);
   assert.throws(() => normalize({ ...baseline, shards: 100 }), /64/);
   assert.throws(() => normalize({ ...baseline, rules: 'wasm' }), /rules backend/);
   assert.throws(() => normalize({ ...baseline, gpuMode: 'webgl' }), /GPU mode/);
   assert.throws(() => normalize({ ...baseline, python: 'python\n--bad' }), /Python/);
+});
+
+test('model import validates tensor shape and migrates legacy weights', () => {
+  const params = { w1: Array.from({ length: 8 }, () => Array(12).fill(1)), b1: Array(8).fill(0), w2: Array(8).fill(0), b2: 0 };
+  const model = validateImportedModel({ version: 1, trainedGames: 42, params });
+  assert.equal(model.trainedGames, 42);
+  assert.deepEqual(model.params.w1[0], [...Array(12).fill(1), ...Array(5).fill(0)]);
+  assert.equal(params.w1[0].length, 12);
+  assert.equal(validateImportedModel(params).trainedGames, 0);
+  assert.throws(() => validateImportedModel({ ...params, w2: [1] }), /8-unit/);
+  assert.throws(() => validateImportedModel({ ...params, b2: '0' }), /invalid parameters/);
 });
 
 test('CUDA-check failure is explicit for an invalid Python executable', async () => {
@@ -26,7 +48,7 @@ test('CUDA-check failure is explicit for an invalid Python executable', async ()
 function get(port, route) {
   return new Promise((resolve, reject) => {
     const req=http.get({hostname:'127.0.0.1',port,path:route},res=>{
-      let data=''; res.on('data',part=>data+=part);res.on('end',()=>resolve({status:res.statusCode, body:data}));
+      let data=''; res.on('data',part=>data+=part);res.on('end',()=>resolve({status:res.statusCode, headers:res.headers, body:data}));
     });req.on('error',reject);
   });
 }
@@ -57,7 +79,16 @@ test('GUI serves locally, forbids cross-origin actions, and rejects invalid jobs
   const page=await get(port,'/'); assert.equal(page.status,200);assert.match(page.body,/Neural training/);
   const info=await get(port,'/api/status');assert.equal(info.status,200);
   const token=JSON.parse(info.body).token;
+  assert.match(page.body, /AI priorities/);
+  assert.match(page.body, /Upload JSON/);
+  const download = await get(port, '/api/weights/download?id=current');
+  assert.equal(download.status, 200);
+  assert.equal(download.headers['content-disposition'], 'attachment; filename="neural_ai_model.json"');
+  assert.ok(JSON.parse(download.body).params);
   const bad=await post(port,'/api/pause',{},token,'http://evil.example');assert.equal(bad.status,403);
+  const badWeights = await post(port, '/api/weights/upload', { params: {} }, token, `http://127.0.0.1:${port}`);
+  assert.equal(badWeights.status, 400);
+  assert.equal((await get(port, '/api/weights/download?id=current')).body, download.body);
   const invalid=await post(port,'/api/start',{settings:{sims:15,generation:10}},token,`http://127.0.0.1:${port}`);
   assert.equal(invalid.status,400);assert.match(invalid.body.error,/divisible/);
   const after=JSON.parse((await get(port,'/api/status')).body);

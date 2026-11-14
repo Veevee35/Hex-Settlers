@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { strategicNeuralBonus, riskyOpponentTrade, tradeIsWorthAccepting } = require('../server/neural-strategy');
+const { priorityMultipliers } = require('../server/neural-priorities');
 const defaultIncome = { brick: 7, lumber: 7, wool: 7, grain: 7, ore: 7 };
 const state = (vp = 8) => ({
   player: { id: 'ai', vp: 4, hasCityUpgrade: true, resources: { brick: 2, lumber: 2, wool: 1, grain: 1, ore: 2 } },
@@ -32,6 +33,16 @@ test('road title pursuit and army development investment are rewarded', () => {
     strategicNeuralBonus({ kind: 'place_road', routeLengthBefore: 1, routeLengthAfter: 2, longestRoadLength: 8 }));
   assert.ok(strategicNeuralBonus({ kind: 'buy_dev_card', vpGap: 1, army: 2, largestArmySize: 3, devDeckSize: 10 }) >
     strategicNeuralBonus({ kind: 'buy_dev_card', vpGap: 6, army: 0, largestArmySize: 4, devDeckSize: 10 }));
+});
+
+test('candidate priorities scale independently and retain the standard tactical score at 100%', () => {
+  const move = { kind: 'place_ship', fogRevealed: 1, availableSpots: 3, routeLengthBefore: 1, routeLengthAfter: 2 };
+  const base = strategicNeuralBonus(move);
+  assert.equal(strategicNeuralBonus(move, priorityMultipliers()), base);
+  assert.equal(strategicNeuralBonus(move, priorityMultipliers({ exploration: 0, routes: 200 })), base - 135 + 28);
+  const settlement = { kind: 'place_settlement', siteScore: 12 };
+  assert.equal(strategicNeuralBonus(settlement, priorityMultipliers({ settlements: 0 })), 0);
+  assert.equal(strategicNeuralBonus(settlement, priorityMultipliers({ exploration: 0 })), strategicNeuralBonus(settlement));
 });
 
 test('near-winning leader cannot be handed winning grain or ore', () => {

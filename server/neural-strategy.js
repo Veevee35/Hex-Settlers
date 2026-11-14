@@ -13,19 +13,20 @@ const enough = (resources, cost) => Object.entries(cost).every(([k, n]) => Numbe
 function strategicNeuralBonus({ kind, siteScore = 0, fogRevealed = 0, availableSpots = 0,
   newlyAvailableSpots = 0, routeLengthBefore = 0, routeLengthAfter = 0,
   longestRoadLength = 0, ownsLongestRoad = false, army = 0, largestArmySize = 0,
-  ownsLargestArmy = false, vpGap = 10, devDeckSize = 0 } = {}) {
-  if (kind === 'place_settlement') return 45 + clamp(siteScore, 0, 40) * 14;
-  if (kind === 'upgrade_city') return 35 + clamp(siteScore, 0, 40) * 9;
+  ownsLargestArmy = false, vpGap = 10, devDeckSize = 0 } = {}, priorities) {
+  if (kind === 'place_settlement') return (45 + clamp(siteScore, 0, 40) * 14) * (priorities?.settlements ?? 1);
+  if (kind === 'upgrade_city') return (35 + clamp(siteScore, 0, 40) * 9) * (priorities?.cities ?? 1);
   if (kind === 'place_road' || kind === 'place_ship') {
     const fog = Math.max(0, Number(fogRevealed) || 0);
     const scarcityBoost = availableSpots <= 0 ? 1.65 : (availableSpots <= 2 ? 1.3 : 1);
     let result = -38; // Unproductive, aimless road/ship placement costs resources.
-    if (fog) result += (135 + Math.min(3, fog - 1) * 45) * scarcityBoost;
-    if (newlyAvailableSpots > 0) result += 65 + Math.min(3, newlyAvailableSpots) * 33 * scarcityBoost;
+    if (fog) result += (135 + Math.min(3, fog - 1) * 45) * scarcityBoost * (priorities?.exploration ?? 1);
+    if (newlyAvailableSpots > 0) result += (65 + Math.min(3, newlyAvailableSpots) * 33 * scarcityBoost) * (priorities?.settlements ?? 1);
     const progress = Math.max(0, routeLengthAfter - routeLengthBefore);
     if (progress > 0 && !ownsLongestRoad) {
-      result += progress * 28;
-      if (routeLengthAfter >= 3 && routeLengthAfter >= Math.max(5, longestRoadLength) - 2) result += 85;
+      const routeWeight = priorities?.routes ?? 1;
+      result += progress * 28 * routeWeight;
+      if (routeLengthAfter >= 3 && routeLengthAfter >= Math.max(5, longestRoadLength) - 2) result += 85 * routeWeight;
     }
     return result;
   }
@@ -34,7 +35,7 @@ function strategicNeuralBonus({ kind, siteScore = 0, fogRevealed = 0, availableS
     // VP cards can close a one-point gap; Knights can earn Largest Army.
     if (vpGap <= 2) result += 100;
     if (!ownsLargestArmy && army >= Math.max(1, largestArmySize - 2)) result += 72;
-    return result;
+    return result * (priorities?.development ?? 1);
   }
   return 0;
 }
