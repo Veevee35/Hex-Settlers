@@ -2423,7 +2423,7 @@ function shuffle(arr) {
 
 const simulationTopologies = new WeakMap();
 
-function cloneGameForSimulation(game) {
+function cloneGameForSimulation(game, action) {
   if (!game) return null;
   // Replays, logs, chat, and statistics are historical output. Omit these large
   // histories from short-lived legality/AI probes; retain all gameplay state.
@@ -2450,13 +2450,30 @@ function cloneGameForSimulation(game) {
   const clone = deepClone(snapshot);
   if (clone) {
     clone._dryRun = true;
-    clone.geom = {
-      ...geom,
-      ...topology.shared,
-      tiles: geom.tiles.map(tile => ({ ...tile })),
-      edges: geom.edges.map(edge => ({ ...edge })),
-      nodes: geom.nodes.map(node => ({ ...node })),
+    clone.geom = { ...geom, ...topology.shared };
+    const copyRow = (rows, index) => {
+      const copy = rows.slice();
+      if (rows[index]) copy[index] = { ...rows[index] };
+      return copy;
     };
+    switch (action?.kind) {
+      case 'place_settlement':
+      case 'upgrade_city':
+        clone.geom.nodes = copyRow(geom.nodes, action.nodeId);
+        break;
+      case 'place_road':
+      case 'place_ship':
+        clone.geom.edges = copyRow(geom.edges, action.edgeId);
+        if (isFogIslandGame(game)) clone.geom.tiles = geom.tiles.map(tile => ({ ...tile }));
+        break;
+      case 'bank_trade':
+      case 'buy_dev_card':
+        break;
+      default:
+        clone.geom.tiles = geom.tiles.map(tile => ({ ...tile }));
+        clone.geom.edges = geom.edges.map(edge => ({ ...edge }));
+        clone.geom.nodes = geom.nodes.map(node => ({ ...node }));
+    }
   }
   return clone;
 }
@@ -3466,49 +3483,52 @@ function computeLongestRoadForPlayer(game, playerId) {
   }
   if (playerEdges.length === 0) return 0;
 
-  // Nodes that block continuation (opponent settlement/city)
-  const blocked = new Set();
-  for (const n of nodes) {
-    if (n.building && n.building.owner && n.building.owner !== playerId) blocked.add(n.id);
-  }
-
-  // Adjacency: nodeId -> [edgeId]
-  const adj = new Map();
+  // Only visit intersections touched by this player's routes.
+  const adj = [];
+  const starts = [];
+  const blocked = [];
   for (const eid of playerEdges) {
     const e = edges[eid];
-    if (!adj.has(e.a)) adj.set(e.a, []);
-    if (!adj.has(e.b)) adj.set(e.b, []);
-    adj.get(e.a).push(eid);
-    adj.get(e.b).push(eid);
+    for (const nodeId of [e.a, e.b]) {
+      if (!adj[nodeId]) {
+        adj[nodeId] = [];
+        starts.push(nodeId);
+        const owner = nodes[nodeId]?.building?.owner;
+        blocked[nodeId] = !!owner && owner !== playerId;
+      }
+      adj[nodeId].push(eid);
+    }
   }
+  const used = new Uint8Array(edges.length);
 
-  function dfs(nodeId, prevNodeId, usedEdges) {
+  function dfs(nodeId, remaining, isStart) {
     // You may end at a blocked node, but you cannot pass through it.
-    if (blocked.has(nodeId) && prevNodeId !== null) return 0;
+    if (!remaining || (blocked[nodeId] && !isStart)) return 0;
 
-    const list = adj.get(nodeId) || [];
     let best = 0;
-    for (const eid of list) {
-      if (usedEdges.has(eid)) continue;
-      usedEdges.add(eid);
+    for (const eid of adj[nodeId]) {
+      if (used[eid]) continue;
+      used[eid] = 1;
       const e = edges[eid];
       const next = (e.a === nodeId) ? e.b : e.a;
-      const len = 1 + dfs(next, nodeId, usedEdges);
+      const len = 1 + dfs(next, remaining - 1, false);
+      used[eid] = 0;
+      if (len === remaining) return len;
       if (len > best) best = len;
-      usedEdges.delete(eid);
     }
     return best;
   }
 
   let maxLen = 0;
-  for (const startNode of adj.keys()) {
-    const len = dfs(startNode, null, new Set());
+  for (const startNode of starts) {
+    const len = dfs(startNode, playerEdges.length, true);
+    if (len === playerEdges.length) return len;
     if (len > maxLen) maxLen = len;
   }
   return maxLen;
 }
 
-function recomputeLongestRoad(game) {
+function recomputeLongestRoad(game, changedRouteOwner) {
   if (!game) return;
   if (!game.longestRoad) game.longestRoad = { playerId: null, length: 0 };
 
@@ -3533,7 +3553,10 @@ function recomputeLongestRoad(game) {
   } else {
     const lengths = new Map();
     for (const p of (game.players || [])) {
-      const len = computeLongestRoadForPlayer(game, p.id);
+      // Settlement placement calls this without an owner because it can split
+      // any opponent's route. A road or ship affects only its owner's route.
+      const reuseLength = changedRouteOwner && FAST_SELF_PLAY && p.id !== changedRouteOwner && Number.isInteger(p.longestRoadLen);
+      const len = reuseLength ? p.longestRoadLen : computeLongestRoadForPlayer(game, p.id);
       lengths.set(p.id, len);
       p.longestRoadLen = len;
       if (!p.departed && len > bestLen) bestLen = len;
@@ -7413,7 +7436,7 @@ if (ttdFarSideBonus) {
       }
     }
 
-    recomputeLongestRoad(game);
+    recomputeLongestRoad(game, playerId);
     computeVP(game);
     // Building a road can win via Longest Road.
     checkWin(room, game, playerId);
@@ -7485,7 +7508,7 @@ if (ttdFarSideBonus) {
 
       game.setup.awaiting = null;
       // Ships contribute to Longest Road (trade route) too.
-      recomputeLongestRoad(game);
+      recomputeLongestRoad(game, playerId);
       computeVP(game);
       pushLog(game, `${playerName(game, playerId)} placed a setup ship.`, 'build', { kind: 'ship', setup: true });
       // If a Gold Field was discovered, pause setup until the player chooses a resource.
@@ -7533,7 +7556,7 @@ if (ttdFarSideBonus) {
     // Fog Island exploration (Option B)
     const exploredFog = maybeExploreFogFromEdge(game, playerId, edgeId);
 
-    recomputeLongestRoad(game);
+    recomputeLongestRoad(game, playerId);
     computeVP(game);
     // Building a ship can change Longest Road / win state.
     checkWin(room, game, playerId);
@@ -7620,7 +7643,7 @@ if (ttdFarSideBonus) {
 
     recordShipMove(game, playerId);
 
-    recomputeLongestRoad(game);
+    recomputeLongestRoad(game, playerId);
     computeVP(game);
     checkWin(room, game, playerId);
 
@@ -14954,7 +14977,7 @@ function handleAI(room) {
 
   const aiCan = (pid, action) => {
     try {
-      const g = cloneGameForSimulation(game);
+      const g = cloneGameForSimulation(game, action);
       const tmp = { game: g, _dryRun: true };
       const r = applyAction(tmp, pid, action);
       return !!(r && r.ok);
@@ -15568,7 +15591,7 @@ function handleAI(room) {
   };
 
   const simulateAction = (pid, action) => {
-    const clonedGame = cloneGameForSimulation(game);
+    const clonedGame = cloneGameForSimulation(game, action);
     const tmpRoom = { game: clonedGame, _dryRun: true, aiDifficulty: room.aiDifficulty };
     const r = applyAction(tmpRoom, pid, action);
     if (r && r.ok) return clonedGame;
@@ -15708,7 +15731,8 @@ function handleAI(room) {
     const candidates = [];
     const spotsBefore = listSettlementPlacements(pid).length;
     const vpGap = Math.max(0, Number(game.rules?.victoryPointsToWin || 10) - Number(p.vp || 0));
-    const routesBefore = computeLongestRoadForPlayer(game, pid);
+    const routesBefore = FAST_SELF_PLAY && Number.isInteger(p.longestRoadLen)
+      ? p.longestRoadLen : computeLongestRoadForPlayer(game, pid);
 
     if (canAfford(p.resources, BUILD_COSTS.city)) {
       for (const nodeId of listCityUpgrades(pid)

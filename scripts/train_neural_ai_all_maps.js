@@ -385,6 +385,7 @@ async function runOneGame(port, token, item, signal) {
     }
 
     stage = 'play';
+    const gameStarted = performance.now();
     peer.send({ type: 'start_game' });
     // Larger 5–8 player maps need more CPU turns than Classic, especially on desktops.
     const gameTimeout = GAME_TIMEOUT_MS * (item.map.players >= 7 ? 2 : item.map.players >= 5 ? 1.5 : 1);
@@ -418,8 +419,9 @@ async function runOneGame(port, token, item, signal) {
       if (lastTurn > MAX_TRAINING_TURNS) throw new GameLimitError(`Game exceeded ${MAX_TRAINING_TURNS} turns`);
     }
     const state = finished.state;
+    const playDurationMs = Math.round(performance.now() - gameStarted);
     const winner = (state.players || []).find((player) => player.id === state.winnerId);
-    const victoryTarget = VP_TO_WIN_OVERRIDE || item.map.victoryPoints;
+    const victoryTarget = Number(state.rules?.victoryPointsToWin || VP_TO_WIN_OVERRIDE || item.map.victoryPoints);
     if (!winner || Number(winner.vp || 0) < victoryTarget) throw new Error('Game ended without a valid victory');
     // A terminal WebSocket state proves only that a game ended. It does NOT
     // prove that neural gradient updates were persisted. Require the local
@@ -444,13 +446,16 @@ async function runOneGame(port, token, item, signal) {
       mapId: item.map.id,
       mapLabel: item.map.label,
       players: item.map.players,
-      victoryPointsToWin: VP_TO_WIN_OVERRIDE || item.map.victoryPoints,
+      victoryPointsToWin: victoryTarget,
       turnNumber: Number(state.turnNumber || 0),
       winner: String(winner?.name || winner?.id || 'unknown'),
       winnerVp: Number(winner?.vp || 0),
       highestOpponentVp: Math.max(0, ...opponentVp),
       winnerMargin: Number(winner.vp) - Math.max(0, ...opponentVp),
       goldProductionCards: goldProductionCards(state),
+      playDurationMs,
+      diceTotals: state.stats?.rolls?.byNumber,
+      standings: state.players.map(player => ({ name: player.name, vp: player.vp })),
     };
   } catch (error) {
     signal?.throwIfAborted();

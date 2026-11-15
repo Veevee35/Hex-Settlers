@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Training analytics · Hex Settlers</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/analytics.js"></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand"><span class="hex-mark">⬡</span><div><strong>HEX SETTLERS</strong><small>TRAINING CONSOLE</small></div></div>
+    <a class="nav-item" href="/" aria-label="Training dashboard"><span aria-hidden="true">◈</span> Training dashboard</a>
+    <a class="nav-item chosen" href="/analytics" aria-current="page" aria-label="Training analytics"><span aria-hidden="true">▤</span> Training analytics</a>
+  </aside>
+  <main class="main analytics">
+    <header class="top">
+      <div><h1>Training <em>analytics</em></h1><p>Review completed self-play runs, candidate selection, and individual matches.</p></div>
+      <a class="btn secondary" href="/">Back to trainer</a>
+    </header>
+    <section class="panel analytics-controls" aria-label="Training run">
+      <div class="field"><label for="run">Completed run</label><select id="run" disabled></select></div>
+      <a class="btn secondary" id="export" hidden>Download full JSON</a>
+    </section>
+    <p id="run-status" class="muted analytics-status" role="status">Loading completed runs…</p>
+    <div id="results" hidden>
+      <section class="metrics" aria-label="Run totals">
+        <div class="metric"><span>GAMES COMPLETED</span><strong id="game-count">—</strong><small id="replacements"></small></div>
+        <div class="metric"><span>AVERAGE VICTORY TURN</span><strong id="average-turns">—</strong><small id="map-count"></small></div>
+        <div class="metric"><span>AVERAGE WINNER MARGIN</span><strong id="average-margin">—</strong><small>Victory points</small></div>
+        <div class="metric"><span>GOLD PRODUCTION</span><strong id="gold">—</strong><small>Resource cards gained</small></div>
+      </section>
+      <div class="analytics-overview">
+        <section class="panel">
+          <div class="panel-heading"><h2>Scenario results</h2></div>
+          <div class="table-scroll">
+            <table aria-label="Scenario results">
+              <thead><tr><th>Scenario</th><th>Seats</th><th>Games</th><th>Avg. turns</th><th>Min–max</th><th>Avg. margin</th><th>Gold</th><th>Fallback games</th></tr></thead>
+              <tbody id="scenarios"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-heading"><h2>Generation winners</h2></div>
+          <div class="table-scroll generation-scroll">
+            <table aria-label="Generation winners">
+              <thead><tr><th>Generation</th><th>Candidate</th><th>Score</th><th>Avg. turns</th><th>Avg. margin</th></tr></thead>
+              <tbody id="selections"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+      <section class="panel">
+        <div class="panel-heading"><h2>Match explorer</h2></div>
+        <div class="analytics-filters">
+          <div class="field"><label for="generation">Generation</label><select id="generation"></select></div>
+          <div class="field"><label for="candidate">Candidate</label><select id="candidate"></select></div>
+          <div class="field"><label for="map">Scenario played</label><select id="map"></select></div>
+        </div>
+        <details class="analytics-detail">
+          <summary>Candidate and CUDA results for this generation</summary>
+          <div id="candidates"></div>
+        </details>
+        <div class="table-scroll" tabindex="0" aria-label="Match records">
+          <table aria-label="Match records">
+            <thead><tr><th>Game</th><th>Candidate</th><th>Scenario</th><th>Seats</th><th>Turns</th><th>Winner</th><th>Score</th><th>Margin</th><th>Gold</th><th>Details</th></tr></thead>
+            <tbody id="games"></tbody>
+          </table>
+        </div>
+        <div class="analytics-pager">
+          <span id="game-status" role="status"></span>
+          <button type="button" class="btn secondary" id="previous" disabled>Previous</button>
+          <button type="button" class="btn secondary" id="next" disabled>Next</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+<dialog id="match-dialog" aria-labelledby="match-title">
+  <div class="panel-heading"><h2 id="match-title">Match details</h2><form method="dialog"><button class="btn secondary">Close</button></form></div>
+  <dl id="match-fields"></dl>
+</dialog>
+</body>
+</html>

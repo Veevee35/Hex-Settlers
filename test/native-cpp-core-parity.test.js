@@ -57,6 +57,7 @@ test('fast self-play shares frozen topology and isolates mutable candidate state
   const clone = vm.runInNewContext(source.slice(start, end) + ';cloneGameForSimulation', {
     FAST_SELF_PLAY: true,
     deepClone: value => JSON.parse(JSON.stringify(value)),
+    isFogIslandGame: game => game.fog,
   });
   const original = { geom: { nodeEdges: [[0]], nodeAdjTiles: [[0]], edgeAdjTiles: [[0]],
     nodes: [{ building: null }], edges: [{ roadOwner: null }], tiles: [{ type: 'sea' }] } };
@@ -71,4 +72,12 @@ test('fast self-play shares frozen topology and isolates mutable candidate state
     assert.equal(state.geom.edges[0].roadOwner, null);
     assert.equal(state.geom.tiles[0].type, 'sea');
   }
+  const route = clone({ ...original, fog: true }, { kind: 'place_ship', edgeId: 0 });
+  route.geom.edges[0].shipOwner = 'p1';
+  route.geom.tiles[0].type = 'forest';
+  assert.equal(original.geom.edges[0].shipOwner, undefined);
+  assert.equal(original.geom.tiles[0].type, 'sea');
+  const city = clone(original, { kind: 'upgrade_city', nodeId: 0 });
+  city.geom.nodes[0].building = { owner: 'p1', type: 'city' };
+  assert.equal(original.geom.nodes[0].building, null);
 });

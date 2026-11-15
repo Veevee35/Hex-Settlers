@@ -4,16 +4,38 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-async function atomicWriteJson(file, value) {
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+
+async function atomicWrite(file, write) {
   const directory = path.dirname(path.resolve(file));
   await fs.promises.mkdir(directory, { recursive: true });
   const temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
   try {
-    await fs.promises.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await write(temporary);
     await fs.promises.rename(temporary, file);
   } catch (error) {
     await fs.promises.rm(temporary, { force: true }).catch(() => {});
     throw error;
   }
 }
-module.exports = { atomicWriteJson };
+
+function atomicWriteJson(file, value) {
+  return atomicWrite(file, temporary =>
+    fs.promises.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 }));
+}
+
+function atomicWriteGameReport(file, summary, games) {
+  function* chunks() {
+    yield `${JSON.stringify(summary).slice(0, -1)},"games":[`;
+    for (let offset = 0; offset < games.length; offset += 1000) {
+      const group = JSON.stringify(games.slice(offset, offset + 1000)).slice(1, -1);
+      yield offset ? `,${group}` : group;
+    }
+    yield ']}\n';
+  }
+  return atomicWrite(file, temporary =>
+    pipeline(Readable.from(chunks()), fs.createWriteStream(temporary, { mode: 0o600 })));
+}
+
+module.exports = { atomicWriteJson, atomicWriteGameReport };

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { atomicWriteJson } = require('./training-file');
+const { atomicWriteJson, atomicWriteGameReport } = require('./training-file');
 const { TRAINING_OBJECTIVE, upgradeNeuralModel } = require('../server/neural-objective');
 const { normalizeCandidatePriorities } = require('../server/neural-priorities');
 const { assertFiniteModel, summarizeGames } = require('./train_neural_ai_distributed');
@@ -56,6 +56,7 @@ function runCandidate(candidate, generationStart, totalProgress, activeChildren)
         CONCURRENCY: String(CONCURRENCY),
         MAP_SET,
         RESUME_TRAINING: '1',
+        KEEP_TRAINING_TEMP: process.env.KEEP_TRAINING_SCRATCH ?? process.env.KEEP_TRAINING_TEMP ?? '0',
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       windowsHide: true,
@@ -310,17 +311,16 @@ async function main() {
       averageWinnerMargin: allGames.reduce((sum, game) => sum + Number(game.winnerMargin || 0), 0) / allGames.length,
       byMap,
       generationSelections: generations,
-      games: allGames,
       startedAt: startedAt.toISOString(),
       completedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
     };
-    await atomicWriteJson(OUTPUT, report);
+    await atomicWriteGameReport(OUTPUT, report, allGames);
     succeeded = true;
-    console.log(JSON.stringify({ ...report, games: undefined, reportPath: OUTPUT }, null, 2));
+    console.log(`[evolution] report=${OUTPUT}`);
   } finally {
     if (succeeded && String(process.env.KEEP_TRAINING_TEMP || '') !== '1') fs.rmSync(tempRoot, { recursive: true, force: true });
-    else console.error(`[evolution] retained checkpoints at ${tempRoot}`);
+    else console.log(`[evolution] retained checkpoints at ${tempRoot}`);
   }
 }
 

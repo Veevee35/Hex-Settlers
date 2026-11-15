@@ -9,9 +9,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const { ensureCuda } = require('./neural-gpu');
 const { atomicWriteJson } = require('./training-file');
 const { validateImportedModel, listWeightSnapshots } = require('./trainer-models');
+const { listCompletedRuns, openTrainingRun, summarizeTrainingRun, trainingGamePage, exportTrainingRun } = require('./trainer-analytics');
 const { PRIORITIES, normalizeCandidatePriorities } = require('../server/neural-priorities');
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT = path.join(__dirname, 'output');
@@ -180,7 +183,7 @@ async function start(raw) {
       MODEL_PATH: MODEL,
       HEX_TRAINING_RULES: native ? 'cpp' : 'javascript', HEX_TRAINING_FAST: '1',
       TRAINING_SCRATCH: OUTPUT,
-      KEEP_TRAINING_TEMP: '1', TRAINING_ACCELERATOR: accelerator,
+      KEEP_TRAINING_TEMP: '1', KEEP_TRAINING_SCRATCH: '0', TRAINING_ACCELERATOR: accelerator,
       GPU_EPOCHS: String(settings.epochs), GPU_MINIBATCH: String(settings.miniBatch),
       TRAINER_PYTHON: settings.python, TRAINING_CONTROL_FILE: job.controlFile,
       RESUME_RUN_DIR: resumeFolder ? path.join(OUTPUT, resumeFolder) : '',
@@ -286,6 +289,33 @@ function staticFile(res, file, type) {
     'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'" });
   res.end(body);
 }
+async function analytics(res, pathname, params) {
+  if (pathname === '/api/analytics/runs') return send(res, 200, await listCompletedRuns(OUTPUT));
+  const run = await openTrainingRun(OUTPUT, params.get('run'));
+  if (!run) return send(res, 404, { error: 'Completed training run not found' });
+  if (pathname === '/api/analytics/summary') return send(res, 200, await summarizeTrainingRun(run));
+  if (pathname === '/api/analytics/games') {
+    const generation = Number(params.get('generation') || 1);
+    const candidate = Number(params.get('candidate') || 0);
+    const page = Number(params.get('page') || 1);
+    if (!Number.isSafeInteger(generation) || generation < 1 || generation > run.generations ||
+        !Number.isSafeInteger(candidate) || candidate < 0 || candidate > run.manifest.shards ||
+        !Number.isSafeInteger(page) || page < 1) {
+      return send(res, 400, { error: 'Invalid generation, candidate, or page' });
+    }
+    return send(res, 200, await trainingGamePage(run, { generation, candidate, map: params.get('map'), page }));
+  }
+  if (pathname === '/api/analytics/download') {
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': `attachment; filename="${run.id.slice(1)}-analytics.json"`,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    });
+    return pipeline(Readable.from(exportTrainingRun(run)), res);
+  }
+  return send(res, 404, { error: 'Not found' });
+}
 async function handle(req, res) {
   const expectedHost = `127.0.0.1:${serverPort}`;
   if (req.headers.host !== expectedHost) return send(res, 403, { error: 'Localhost only' });
@@ -293,7 +323,10 @@ async function handle(req, res) {
   if (req.method === 'GET') {
     if (pathname === '/') return staticFile(res, 'index.html', 'text/html; charset=utf-8');
     if (pathname === '/app.js') return staticFile(res, 'app.js', 'text/javascript; charset=utf-8');
+    if (pathname === '/analytics') return staticFile(res, 'analytics.html', 'text/html; charset=utf-8');
+    if (pathname === '/analytics.js') return staticFile(res, 'analytics.js', 'text/javascript; charset=utf-8');
     if (pathname === '/style.css') return staticFile(res, 'style.css', 'text/css; charset=utf-8');
+    if (pathname.startsWith('/api/analytics/')) return analytics(res, pathname, searchParams);
     if (pathname === '/api/status') return send(res, 200, {
       token: CSRF_TOKEN, current: viewJob(active || last), settings: saved,
       runs: listRuns(), gpu: gpuStatus, checking, importing, model: readModelOverview(),
@@ -362,7 +395,11 @@ function openBrowser(url) {
 }
 if (require.main === module) {
   const server = http.createServer((req, res) => {
-    handle(req, res).catch(error => send(res, 500, { error: error.message }));
+    handle(req, res).catch(error => {
+      if (res.destroyed) return;
+      if (res.headersSent) res.destroy(error);
+      else send(res, 500, { error: error.message });
+    });
   });
   server.listen(0, '127.0.0.1', () => {
     serverPort = server.address().port;

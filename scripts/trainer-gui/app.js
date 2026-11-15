@@ -177,6 +177,8 @@ function showGpu(gpu) {
 }
 function update(job, model) {
   const state = job?.state || 'idle';
+  el('analytics-link').href = state === 'completed' && job.runFolder
+    ? `/analytics?${new URLSearchParams({ run: job.runFolder })}` : '/analytics';
   el('status-badge').textContent = state.toUpperCase();
   el('status-badge').className = `state ${state}`;
   el('start-btn').textContent = submitting ? 'Working…' : el('resume').value ? '▶ Resume training' : '▶ Start training';

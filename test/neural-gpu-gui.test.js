@@ -81,6 +81,14 @@ test('GUI serves locally, forbids cross-origin actions, and rejects invalid jobs
   const token=JSON.parse(info.body).token;
   assert.match(page.body, /AI priorities/);
   assert.match(page.body, /Upload JSON/);
+  assert.match(page.body, /href="\/analytics"/);
+  const analytics = await get(port, '/analytics');
+  assert.equal(analytics.status, 200);
+  assert.match(analytics.body, /Match explorer/);
+  const completed = await get(port, '/api/analytics/runs');
+  assert.equal(completed.status, 200);
+  assert.ok(Array.isArray(JSON.parse(completed.body)));
+  assert.equal((await get(port, '/api/analytics/summary?run=..%2F..%2Fserver')).status, 404);
   const download = await get(port, '/api/weights/download?id=current');
   assert.equal(download.status, 200);
   assert.equal(download.headers['content-disposition'], 'attachment; filename="neural_ai_model.json"');

@@ -88,6 +88,8 @@ test('old V1.0.52 failed evolutionary run can reuse a completed candidate and re
     assert.equal(firstRun.status,0,`${firstRun.stderr}\n${firstRun.stdout}`);
     assert.match(firstRun.stdout,/reused completed candidate 1/);
     assert.match(firstRun.stdout,/recovered V1\.0\.52 starting model/);
+    assert.match(firstRun.stdout,/retained checkpoints at/);
+    assert.doesNotMatch(firstRun.stderr,/retained checkpoints at/);
     assert.equal(JSON.parse(fs.readFileSync(modelPath)).trainedGames,Number(baseModel.trainedGames)+2);
     assert.equal(JSON.parse(fs.readFileSync(reportPath)).completedGames,2);
     const secondRun = spawnSync(process.execPath,[path.join(root,'scripts','train_neural_ai_evolutionary.js')],{cwd:root,encoding:'utf8',timeout:12000,env});

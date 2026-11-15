@@ -14,6 +14,7 @@
     <a class="nav-item chosen" href="#training" aria-label="Training parameters"><span aria-hidden="true">◈</span> Training parameters</a>
     <a class="nav-item" href="#ai-priorities" aria-label="AI priorities"><span aria-hidden="true">⌁</span> AI priorities</a>
     <a class="nav-item" href="#model-weights" aria-label="Model weights"><span aria-hidden="true">▣</span> Model weights</a>
+    <a class="nav-item" href="/analytics" aria-label="Training analytics"><span aria-hidden="true">▤</span> Training analytics</a>
     <div class="rail-bottom"><span class="pulse"></span> LOCAL SYSTEM<br><small>No cloud connection · V1.0.55</small></div>
   </aside>
   <main class="main">
@@ -87,7 +88,7 @@
           <p class="muted weight-note">Uploading replaces the current model and keeps a downloadable backup. New runs start from the current model. Saved runs start from their own checkpoints.</p>
         </section>
         <section class="panel execution">
-          <div class="panel-heading"><h2>Session monitor</h2><span class="live-dot"></span></div>
+          <div class="panel-heading"><h2>Session monitor</h2><a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div>
           <div class="run-meta"><span>Current phase</span><strong id="phase">Not running</strong></div>
           <div class="run-meta"><span>Accelerator</span><strong id="accelerator">—</strong></div>
           <div class="run-meta"><span>Last selected candidate</span><strong id="winner">—</strong></div>
