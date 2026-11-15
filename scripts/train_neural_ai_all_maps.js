@@ -2,12 +2,10 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const http = require('node:http');
-const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { once } = require('node:events');
+const { once, setMaxListeners } = require('node:events');
 const WebSocket = require('ws');
 const { TRAINING_OBJECTIVE } = require('../server/neural-objective');
 const { atomicWriteJson } = require('./training-file');
@@ -17,8 +15,8 @@ const { ensureCuda, refine } = require('./neural-gpu');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MODEL_PATH = path.resolve(process.env.MODEL_PATH || path.join(PROJECT_ROOT, 'neural_ai_model.json'));
 const TOTAL_GAMES = Math.max(1, Math.floor(Number(process.env.SIMS || 500)));
-const BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 25)));
-const CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 3)));
+const REQUESTED_BATCH_SIZE = Math.max(1, Math.floor(Number(process.env.BATCH_SIZE || 25)));
+const REQUESTED_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CONCURRENCY || 2)));
 const CURRICULUM_OFFSET = Math.max(0, Math.floor(Number(process.env.CURRICULUM_OFFSET || 0)));
 const VP_TO_WIN_RAW = String(process.env.VP_TO_WIN || '').trim();
 const VP_TO_WIN_PARSED = Math.floor(Number(VP_TO_WIN_RAW));
@@ -28,8 +26,13 @@ const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() ===
 const RESUME_TRAINING = process.env.RESUME_TRAINING === '1';
 const NATIVE_SELF_PLAY = process.env.HEX_TRAINING_RULES === 'cpp';
 const GPU_TRAINING = String(process.env.TRAINING_ACCELERATOR || 'cpu').toLowerCase() === 'cuda';
+// A candidate's matches share one event loop and one online model.
+const CONCURRENCY = NATIVE_SELF_PLAY ? REQUESTED_CONCURRENCY : Math.min(2, REQUESTED_CONCURRENCY);
+const BATCH_SIZE = NATIVE_SELF_PLAY ? REQUESTED_BATCH_SIZE : Math.min(50, REQUESTED_BATCH_SIZE);
 const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
+let supervisorPaused = false;
 function isPauseRequested() {
+  if (supervisorPaused) return true;
   if (!CONTROL_FILE) return false;
   try { return JSON.parse(fs.readFileSync(CONTROL_FILE, 'utf8')).pause === true; } catch (_) { return false; }
 }
@@ -82,51 +85,19 @@ function modelHash(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-async function unusedPort() {
-  const server = net.createServer();
-  server.listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  const port = server.address().port;
-  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  return port;
-}
-
-async function waitForServer(port, output, child) {
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    if (child?.exitCode !== null || child?.signalCode) {
-      throw new Error(`Training server exited before readiness (exit=${child.exitCode}, signal=${child.signalCode}).\n${output()}`);
-    }
-    try {
-      await new Promise((resolve, reject) => {
-        const request = http.get(`http://127.0.0.1:${port}/`, (response) => {
-          response.resume();
-          response.statusCode === 200 ? resolve() : reject(new Error(`HTTP ${response.statusCode}`));
-        });
-        request.setTimeout(1500, () => request.destroy(new Error('Readiness probe timed out')));
-        request.once('error', reject);
-      });
-      return;
-    } catch (_) {
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    }
-  }
-  throw new Error(`Training server did not start.\n${output()}`);
-}
-
 async function startTrainingServer(dataDir) {
-  const port = await unusedPort();
   let output = '';
   const child = spawn(process.execPath, ['server.js'], {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,
-      PORT: String(port),
       HOST: '127.0.0.1',
       DATA_DIR: dataDir,
       NODE_ENV: 'test',
       AI_FAST: '1',
       AI_TRAINING: '1',
+      HEX_TRAINING_MANAGED: '1',
+      HEX_TRAINING_FAST: process.env.HEX_TRAINING_FAST ?? '1',
       NEURAL_GPU_TRAINING: GPU_TRAINING ? '1' : '0',
       HEX_BUILTIN_ADMIN_ENABLED: '0',
       // Never inherit production persistence/auth bridge settings in self-play.
@@ -142,33 +113,46 @@ async function startTrainingServer(dataDir) {
   const appendOutput = chunk => { output = (output + String(chunk)).slice(-24_000); };
   child.stdout.on('data', appendOutput);
   child.stderr.on('data', appendOutput);
-  try {
-    await waitForServer(port, () => output, child);
-  } catch (error) {
-    if (child.exitCode === null) child.kill('SIGTERM');
-    throw error;
-  }
-  return {
-    child,
-    port,
-    output: () => output,
-    async stop() {
-      if (child.exitCode !== null) return;
-      const exited = once(child, 'exit');
-      if (child.connected) child.send({ type: 'shutdown' });
-      else child.kill('SIGTERM');
-      let timer;
-      const clean = await Promise.race([
-        exited.then(() => true),
-        new Promise((resolve) => { timer = setTimeout(() => resolve(false), 8_000); }),
+  let launchError;
+  child.on('error', error => { launchError = error; appendOutput(error.message); });
+  const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+  const stop = async () => {
+    if (!child.pid || child.exitCode !== null || child.signalCode) return closed;
+    if (child.connected) child.send({ type: 'shutdown' }, () => {});
+    let timer;
+    try {
+      const exited = await Promise.race([
+        closed.then(() => true),
+        new Promise(resolve => { timer = setTimeout(() => resolve(false), 8000); }),
       ]);
-      clearTimeout(timer);
-      if (!clean && child.exitCode === null) {
-        child.kill('SIGTERM');
-        await once(child, 'exit');
+      if (!exited) {
+        child.kill('SIGKILL');
+        await closed;
       }
-    },
+    } finally { clearTimeout(timer); }
   };
+  let port;
+  let timer;
+  const ready = new Promise(resolve => {
+    child.on('message', message => {
+      if (message?.type === 'training_ready' && Number.isInteger(message.port) && message.port > 0) resolve(message.port);
+    });
+  });
+  try {
+    port = await Promise.race([
+      ready,
+      closed.then(({ code, signal }) => {
+        throw new Error(launchError?.message || `Training server exited before readiness (exit=${code}, signal=${signal})`);
+      }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Training server startup timed out')), 30_000); }),
+    ]);
+  } catch (error) {
+    await stop();
+    throw new Error(`${error.message}\n${output}`, { cause: error });
+  } finally {
+    clearTimeout(timer);
+  }
+  return { child, port, output: () => output, stop };
 }
 
 class Peer {
@@ -185,9 +169,16 @@ class Peer {
     ws.on('close', (code) => this.fail(new Error(`Training WebSocket closed (${code})`)));
   }
 
-  static async connect(port) {
+  static async connect(port, signal) {
+    signal?.throwIfAborted();
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     const peer = new Peer(ws);
+    const abort = () => {
+      peer.fail(signal.reason);
+      ws.terminate();
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    ws.once('close', () => signal?.removeEventListener('abort', abort));
     try {
       let timer;
       try {
@@ -331,25 +322,34 @@ function paintTrainingTestBuilder(peer, state, item) {
   }
 }
 
-async function runOneGame(port, token, item) {
-  const peer = await Peer.connect(port);
+class GameLimitError extends Error {}
+
+async function runOneGame(port, token, item, signal) {
+  let peer;
+  let stage = 'connect';
   try {
+    peer = await Peer.connect(port, signal);
+    stage = 'authenticate';
     peer.send({ type: 'auth_token', token });
     const auth = await peer.waitFor((message) => message.type === 'auth_ok' || message.type === 'error');
     if (auth.type !== 'auth_ok') throw new Error(auth.error || 'Token authentication failed');
 
+    stage = 'create lobby';
     peer.send({ type: 'create_room', displayName: `Neural ${item.sessionIndex + 1}` });
     const joined = await peer.waitFor((message) => message.type === 'joined' || message.type === 'error');
     if (joined.type === 'error') throw new Error(joined.error);
     const trainerId = joined.playerId;
 
+    stage = 'set spectator mode';
     peer.send({ type: 'set_spectator_mode', enabled: true });
     await peer.waitFor((message) => message.type === 'room'
       && (message.room.spectators || []).some((member) => member.id === trainerId));
 
+    stage = 'set AI difficulty';
     peer.send({ type: 'set_ai_difficulty', difficulty: 'neural_net' });
     await peer.waitFor((message) => message.type === 'room' && message.room.aiDifficulty === 'neural_net');
 
+    stage = 'set rules';
     peer.send({
       type: 'set_rules',
       rules: {
@@ -367,12 +367,14 @@ async function runOneGame(port, token, item) {
       && (item.map.mapMode !== 'seafarers' || message.room.rules?.seafarersScenario === item.map.scenario));
 
     if (item.map.customBuilder) {
+      stage = 'paint Test Builder preview';
       const preview = await peer.waitFor((message) => message.type === 'state'
         && message.state?.phase === 'lobby'
         && message.state?.previewKey === `seafarers:${item.map.scenario}`);
       paintTrainingTestBuilder(peer, preview.state, item);
     }
 
+    stage = 'fill AI seats';
     peer.send({ type: 'fill_ai', targetCount: item.map.players });
     const populated = await peer.waitFor((message) => message.type === 'room' && (message.room.players || []).length === item.map.players);
     // Some lobby settings can silently fall back to easy AI. Such games are
@@ -382,6 +384,7 @@ async function runOneGame(port, token, item) {
       throw new Error(`Trainer lobby has non-neural seats: ${seats.map(player => `${player.name}:${player.isAI ? player.aiDifficulty : 'human'}`).join(', ')}`);
     }
 
+    stage = 'play';
     peer.send({ type: 'start_game' });
     // Larger 5–8 player maps need more CPU turns than Classic, especially on desktops.
     const gameTimeout = GAME_TIMEOUT_MS * (item.map.players >= 7 ? 2 : item.map.players >= 5 ? 1.5 : 1);
@@ -394,13 +397,15 @@ async function runOneGame(port, token, item) {
     while (!finished) {
       const remaining = Math.min(hardDeadline - Date.now(), idleDeadline - Date.now());
       if (remaining <= 0) {
-        throw new Error(`Training game stalled or exceeded wall clock: map=${item.map.id} turn=${lastTurn} phase=${lastPhase} moves=${lastMoves} idleLimit=${IDLE_TIMEOUT_MS}ms hardLimit=${gameTimeout}ms`);
+        throw new GameLimitError(`Game exceeded its idle or wall-clock limit at turn=${lastTurn} phase=${lastPhase} moves=${lastMoves} idleLimit=${IDLE_TIMEOUT_MS}ms hardLimit=${gameTimeout}ms`);
       }
       let event;
       try {
         event = await peer.waitFor((message) => (message.type === 'state' && message.state?.phase === 'game-over') || message.type === 'training_progress', remaining);
       } catch (error) {
-        if (error.message.includes('Timed out')) throw new Error(`Training stalled: map=${item.map.id} turn=${lastTurn} phase=${lastPhase} moves=${lastMoves}: ${error.message}`);
+        if (error.message.includes('Timed out') && lastMoves >= 0) {
+          throw new GameLimitError(`Game exceeded its idle or wall-clock limit at turn=${lastTurn} phase=${lastPhase} moves=${lastMoves}: ${error.message}`);
+        }
         throw error;
       }
       if (event.type === 'state') { finished = event; break; }
@@ -410,7 +415,7 @@ async function runOneGame(port, token, item) {
       if (moves > lastMoves || turn !== lastTurn) idleDeadline = Date.now() + IDLE_TIMEOUT_MS;
       lastMoves = Math.max(lastMoves, moves);
       lastTurn = turn;
-      if (lastTurn > MAX_TRAINING_TURNS) throw new Error(`Training game exceeded ${MAX_TRAINING_TURNS} turns on ${item.map.id} (unproductive match)`);
+      if (lastTurn > MAX_TRAINING_TURNS) throw new GameLimitError(`Game exceeded ${MAX_TRAINING_TURNS} turns`);
     }
     const state = finished.state;
     const winner = (state.players || []).find((player) => player.id === state.winnerId);
@@ -419,6 +424,7 @@ async function runOneGame(port, token, item) {
     // A terminal WebSocket state proves only that a game ended. It does NOT
     // prove that neural gradient updates were persisted. Require the local
     // server's per-game durable-write receipt before this game earns credit.
+    stage = 'commit weights';
     peer.send({ type: 'get_training_receipt' });
     const receipt = await peer.waitFor((message) => message.type === 'training_receipt', 30_000);
     if (!receipt.ok || receipt.gameId !== state.id || !Number.isSafeInteger(Number(receipt.trainedGames))) {
@@ -446,8 +452,12 @@ async function runOneGame(port, token, item) {
       winnerMargin: Number(winner.vp) - Math.max(0, ...opponentVp),
       goldProductionCards: goldProductionCards(state),
     };
+  } catch (error) {
+    signal?.throwIfAborted();
+    error.message = `map=${item.map.id} game=${item.sessionIndex + 1} during ${stage}: ${error.message}`;
+    throw error;
   } finally {
-    peer.close();
+    peer?.close();
   }
 }
 
@@ -470,7 +480,7 @@ function logTrainingFailure(message) {
   } catch (error) { process.stderr.write(`[train] could not write failure log: ${error.message}\n`); }
 }
 
-async function runBatch(server, token, items, completedBefore, mapHealth) {
+async function runBatch(server, token, items, completedBefore, mapHealth, concurrency) {
   const queue = items.map(item => {
     const quarantined = (mapHealth[item.map.id]?.quarantineUntil || -1) > item.sessionIndex;
     const excluded = Object.keys(mapHealth).filter(id => (mapHealth[id]?.quarantineUntil || -1) > item.sessionIndex);
@@ -479,14 +489,15 @@ async function runBatch(server, token, items, completedBefore, mapHealth) {
       replacements: mapped.id === item.map.id ? 0 : 1, attemptedMapIds: [item.map.id, mapped.id] };
   });
   const results = [];
-  let failure = null;
+  const abort = new AbortController();
+  setMaxListeners(concurrency + 1, abort.signal);
   let consecutiveFailures = 0;
   const worker = async () => {
-    while (queue.length && !failure) {
+    while (queue.length && !abort.signal.aborted) {
       const item = queue.shift();
       if (!item) return;
       try {
-        const result = await runOneGame(server.port, token, item);
+        const result = await runOneGame(server.port, token, item, abort.signal);
         if (item.originalMapId !== result.mapId) result.requestedMapId = item.originalMapId;
         results.push(result);
         if (mapHealth[result.mapId]) mapHealth[result.mapId].successes = (mapHealth[result.mapId].successes || 0) + 1;
@@ -496,6 +507,7 @@ async function runBatch(server, token, items, completedBefore, mapHealth) {
           process.stdout.write(`[train] ${totalComplete}/${TOTAL_GAMES} map=${result.mapId} turn=${result.turnNumber} gold=${result.goldProductionCards}\n`);
         }
       } catch (error) {
+        if (abort.signal.aborted) return;
         const health = mapHealth[item.map.id] || (mapHealth[item.map.id] = { failures: 0, successes: 0, quarantineUntil: -1 });
         health.failures += 1;
         if (health.failures >= MAP_QUARANTINE_FAILURES && health.quarantineUntil <= item.sessionIndex) {
@@ -503,19 +515,19 @@ async function runBatch(server, token, items, completedBefore, mapHealth) {
           health.failures = 0;
           logTrainingFailure(`cooldown ${item.map.id} for ${MAP_QUARANTINE_GAMES} curriculum slots after repeated failed games`);
         }
-        consecutiveFailures += 1;
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES || server.child.exitCode !== null) {
-          failure = new Error(`Training server unhealthy after ${consecutiveFailures} consecutive match failures; restarting batch. Last error: ${error.message}`);
+        if (!(error instanceof GameLimitError)) consecutiveFailures += 1;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES || server.child.exitCode !== null || server.child.signalCode) {
+          abort.abort(new Error(`Training server unhealthy after ${consecutiveFailures} consecutive request failures. Last error: ${error.message}`));
           break;
         }
         if (item.retries + 1 >= MAX_ATTEMPTS_PER_MAP) {
           if (item.replacements >= MAX_MAP_REPLACEMENTS) {
-            failure = new Error(`Trainer could not finish ${item.originalMapId} (game ${item.sessionIndex + 1}) after ${item.replacements + 1} map choices: ${error.message}\n${server.output().slice(-3000)}`);
+            abort.abort(new Error(`Trainer could not finish ${item.originalMapId} (game ${item.sessionIndex + 1}) after ${item.replacements + 1} map choices: ${error.message}`));
             break;
           }
           const replacement = fallbackMap(MAPS, item.map, item.replacements + 1, item.attemptedMapIds);
           if (!replacement || replacement.id === item.map.id) {
-            failure = new Error(`No replacement scenario for failed ${item.map.id}: ${error.message}`);
+            abort.abort(new Error(`No replacement scenario for failed ${item.map.id}: ${error.message}`));
             break;
           }
           logTrainingFailure(`quarantined ${item.map.id} game=${item.sessionIndex + 1} after ${MAX_ATTEMPTS_PER_MAP} failed attempts; trying ${replacement.id} (${replacement.players} players): ${error.message}`);
@@ -527,8 +539,8 @@ async function runBatch(server, token, items, completedBefore, mapHealth) {
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
-  if (failure) throw failure;
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  abort.signal.throwIfAborted();
   if (results.length !== items.length) throw new Error(`Batch incomplete: ${results.length}/${items.length} games`);
   return results;
 }
@@ -561,20 +573,28 @@ async function main() {
   }
   const started = performance.now();
   const startingModel = readModel(MODEL_PATH);
-  const startingHash = modelHash(MODEL_PATH);
+  let startingHash = modelHash(MODEL_PATH);
   const scratch = path.resolve(process.env.TRAINING_SCRATCH || os.tmpdir());
   fs.mkdirSync(scratch, { recursive: true });
   const tempRoot = fs.mkdtempSync(path.join(scratch, 'hex-neural-curriculum-'));
   const items = curriculum(TOTAL_GAMES);
   const checkpointPath = `${OUTPUT_PATH}.checkpoint.json`;
-  const startingTrainedGames = Number(startingModel.trainedGames || 0);
+  let startingTrainedGames = Number(startingModel.trainedGames || 0);
   let results = [];
   let latestModel = startingModel;
   let mapHealth = {};
   const rules = NATIVE_SELF_PLAY ? 'cpp-assisted' : 'javascript';
   const gpuBatches = [];
+  console.log(`[train] ${rules}: up to ${CONCURRENCY} concurrent games per candidate (requested ${REQUESTED_CONCURRENCY}); checkpoint every ${BATCH_SIZE} games (requested ${REQUESTED_BATCH_SIZE})`);
   if (RESUME_TRAINING && fs.existsSync(checkpointPath)) {
     const checkpoint = readModel(checkpointPath);
+    // Final model publication can complete just before a crash writing the
+    // report. Accept only the exact weights from a fully committed checkpoint.
+    const committedHash = crypto.createHash('sha256').update(`${JSON.stringify(checkpoint.model, null, 2)}\n`).digest('hex');
+    if (checkpoint.games?.length === TOTAL_GAMES && checkpoint.startingModelSha256 && committedHash === startingHash) {
+      startingHash = checkpoint.startingModelSha256;
+      startingTrainedGames = Number(checkpoint.startingTrainedGames);
+    }
     validateCheckpoint(checkpoint, startingTrainedGames, items, new Set(MAPS.map(map => map.id)), startingHash);
     if ((checkpoint.rules || 'javascript') !== rules) {
       throw new Error('Use the self-play rules backend from the saved checkpoint');
@@ -591,6 +611,11 @@ async function main() {
     for (let offset = 0, batchNo = 1; offset < items.length; offset += BATCH_SIZE, batchNo++) {
       const batchItems = items.slice(offset, offset + BATCH_SIZE).filter(item => !completed.has(item.sessionIndex));
       if (!batchItems.length) continue;
+      if (isPauseRequested()) {
+        console.log(`[train] pause requested: ${results.length}/${TOTAL_GAMES} games safely checkpointed`);
+        process.exitCode = 75;
+        return;
+      }
       let newGames;
       let batchModel;
       let gpuBatch;
@@ -601,11 +626,12 @@ async function main() {
         fs.mkdirSync(batchDir, { recursive: true });
         const batchModelPath = path.join(batchDir, 'neural_ai_model.json');
         await atomicWriteJson(batchModelPath, latestModel);
+        const batchHealth = structuredClone(mapHealth);
         let server;
         try {
           server = await startTrainingServer(batchDir);
           const token = await createTrainerToken(server.port, batchNo);
-          newGames = await runBatch(server, token, batchItems, results.length, mapHealth);
+          newGames = await runBatch(server, token, batchItems, results.length, batchHealth, attempt ? 1 : CONCURRENCY);
           batchModel = readModel(batchModelPath);
           const expectedBatchCount = startingTrainedGames + results.length + newGames.length;
           if (Number(batchModel.trainedGames || 0) !== expectedBatchCount) {
@@ -622,11 +648,15 @@ async function main() {
             batchModel = readModel(batchModelPath);
             gpuBatch = { batch: batchNo, ...gpu };
           }
+          mapHealth = batchHealth;
           break;
         } catch (error) {
           const diagnosis = `${error.message}${server ? `\nTraining server logs:\n${server.output().slice(-6000)}` : ''}`;
-          if (attempt >= MAX_BATCH_RESTARTS) throw new Error(`Batch ${batchNo} failed after ${attempt + 1} isolated-server attempts; saved checkpoint remains resumable: ${diagnosis}`);
-          logTrainingFailure(`batch ${batchNo} server restart ${attempt + 1}/${MAX_BATCH_RESTARTS}: ${diagnosis}`);
+          if (attempt >= MAX_BATCH_RESTARTS) {
+            const recovery = results.length ? `${results.length} checkpointed games can be resumed` : 'no games checkpointed';
+            throw new Error(`Batch ${batchNo} failed after ${attempt + 1} isolated-server attempts (${recovery}): ${diagnosis}`);
+          }
+          logTrainingFailure(`batch ${batchNo} server restart ${attempt + 1}/${MAX_BATCH_RESTARTS} with one concurrent game: ${diagnosis}`);
         } finally {
           if (server) await server.stop();
         }
@@ -646,6 +676,7 @@ async function main() {
         mapSet: MAP_SET, curriculumOffset: CURRICULUM_OFFSET, model: latestModel, games: results,
         mapHealth, rules, gpuBatches,
       });
+      console.log(`[train] ${results.length}/${TOTAL_GAMES} checkpoint committed`);
       if (isPauseRequested()) {
         console.log(`[train] pause requested: ${results.length}/${TOTAL_GAMES} games safely checkpointed`);
         process.exitCode = 75;
@@ -674,7 +705,7 @@ async function main() {
       scenariosReplaced: results.filter(game => game.requestedMapId).map(game => ({ game: game.sessionIndex + 1, requested: game.requestedMapId, trained: game.mapId })),
       resumed: RESUME_TRAINING,
       mapHealth,
-      startingTrainedGames: Number(startingModel.trainedGames || 0),
+      startingTrainedGames,
       finalTrainedGames: Number(finalModel.trainedGames || 0),
       startingModelSha256: startingHash,
       finalModelSha256: modelHash(MODEL_PATH),
@@ -695,7 +726,17 @@ async function main() {
 }
 
 module.exports = { ALL_MAPS, MAPS, curriculum, summarize };
-if (require.main === module) main().catch((error) => {
-  console.error(error && error.stack ? error.stack : error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  if (process.connected) {
+    process.on('message', message => {
+      if (message?.type === 'pause') supervisorPaused = true;
+    });
+    process.once('disconnect', () => { supervisorPaused = true; });
+  }
+  main().catch((error) => {
+    console.error(error && error.stack ? error.stack : error);
+    process.exitCode = 1;
+  }).finally(() => {
+    if (process.connected) process.disconnect();
+  });
+}

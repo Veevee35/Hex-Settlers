@@ -66,7 +66,9 @@ test('fast self-play shares frozen topology and isolates mutable candidate state
   first.geom.nodes[0].building = { owner: 'p1' };
   first.geom.edges[0].roadOwner = 'p1';
   first.geom.tiles[0].type = 'forest';
-  assert.deepEqual(second.geom.nodes, original.geom.nodes);
-  assert.deepEqual(second.geom.edges, original.geom.edges);
-  assert.deepEqual(second.geom.tiles, original.geom.tiles);
+  for (const state of [original, second]) {
+    assert.equal(state.geom.nodes[0].building, null);
+    assert.equal(state.geom.edges[0].roadOwner, null);
+    assert.equal(state.geom.tiles[0].type, 'sea');
+  }
 });

@@ -146,6 +146,8 @@ const LOCAL_SELF_PLAY = process.env.AI_TRAINING === '1' && process.env.NODE_ENV 
 const NATIVE_RULES = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_RULES === 'cpp'
   ? require('./server/native-rules') : null;
 const FAST_SELF_PLAY = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_FAST === '1';
+const MANAGED_SELF_PLAY = LOCAL_SELF_PLAY && process.connected && process.env.HEX_TRAINING_MANAGED === '1';
+const SELF_PLAY_TURN_LIMIT = MANAGED_SELF_PLAY ? Math.max(50, Math.floor(Number(process.env.MAX_TRAINING_TURNS || 900))) : Infinity;
 const SELF_PLAY_PRIORITIES = LOCAL_SELF_PLAY && process.env.NEURAL_AI_PRIORITIES
   ? priorityMultipliers(JSON.parse(process.env.NEURAL_AI_PRIORITIES)) : undefined;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -2428,21 +2430,34 @@ function cloneGameForSimulation(game) {
   const snapshot = { ...game, replay: undefined, log: [], chat: [], stats: undefined };
   if (!FAST_SELF_PLAY || !game.geom) return deepClone(snapshot);
 
-  // Board topology is fixed once a match starts. Candidate actions mutate
-  // tiles, buildings, and routes, but only read these adjacency lists.
-  const { nodeAdjTiles, edgeAdjTiles, nodeEdges, ...mutableGeometry } = game.geom;
-  let topology = simulationTopologies.get(game.geom);
-  if (!topology || topology.source[0] !== nodeAdjTiles || topology.source[1] !== edgeAdjTiles || topology.source[2] !== nodeEdges) {
-    const source = [nodeAdjTiles, edgeAdjTiles, nodeEdges];
+  // Match actions replace buildings and mutate tile and edge fields in place.
+  // Adjacency lists and port definitions are read-only during these probes.
+  const geom = game.geom;
+  let topology = simulationTopologies.get(geom);
+  if (!topology || topology.nodeAdjTiles !== geom.nodeAdjTiles ||
+      topology.edgeAdjTiles !== geom.edgeAdjTiles || topology.nodeEdges !== geom.nodeEdges) {
     const immutable = list => list && Object.freeze(list.map(ids => ids && Object.freeze(ids.slice())));
-    topology = { source, shared: {
-      nodeAdjTiles: immutable(nodeAdjTiles), edgeAdjTiles: immutable(edgeAdjTiles), nodeEdges: immutable(nodeEdges),
-    } };
-    simulationTopologies.set(game.geom, topology);
+    topology = {
+      nodeAdjTiles: geom.nodeAdjTiles, edgeAdjTiles: geom.edgeAdjTiles, nodeEdges: geom.nodeEdges,
+      shared: {
+        nodeAdjTiles: immutable(geom.nodeAdjTiles), edgeAdjTiles: immutable(geom.edgeAdjTiles),
+        nodeEdges: immutable(geom.nodeEdges),
+      },
+    };
+    simulationTopologies.set(geom, topology);
   }
-  snapshot.geom = mutableGeometry;
+  snapshot.geom = undefined;
   const clone = deepClone(snapshot);
-  if (clone) Object.assign(clone.geom, topology.shared);
+  if (clone) {
+    clone._dryRun = true;
+    clone.geom = {
+      ...geom,
+      ...topology.shared,
+      tiles: geom.tiles.map(tile => ({ ...tile })),
+      edges: geom.edges.map(edge => ({ ...edge })),
+      nodes: geom.nodes.map(node => ({ ...node })),
+    };
+  }
   return clone;
 }
 
@@ -2852,11 +2867,11 @@ function initGameStats(game) {
 }
 
 function ensureGameStats(game) {
-  if (!game) return null;
+  if (!game || (FAST_SELF_PLAY && game._dryRun)) return null;
   if (!game.stats) return initGameStats(game);
   // Active rooms survive server restarts. Backfill resource source buckets for
   // games saved by an older build so new statistics never become silent no-ops.
-  ensureResourceStatsForPlayers(game.stats, game.players);
+  if (!LOCAL_SELF_PLAY) ensureResourceStatsForPlayers(game.stats, game.players);
   return game.stats;
 }
 
@@ -2866,7 +2881,9 @@ function recordTurnStart(game) {
   st.turnClock.currentTurn = game.turnNumber;
   st.turnClock.currentPlayerId = game.currentPlayerId;
   st.turnClock.startedAt = Date.now();
-  if (String(game.phase || '').startsWith('main-')) captureTurnUndoPoint(game);
+  // Headless matches have no undo votes. The snapshots would also be copied
+  // into every AI lookahead, including their accumulated logs and statistics.
+  if (!LOCAL_SELF_PLAY && String(game.phase || '').startsWith('main-')) captureTurnUndoPoint(game);
 }
 
 function captureTurnUndoPoint(game) {
@@ -9445,6 +9462,8 @@ function activeRoomSnapshot() {
 }
 
 function scheduleActiveRoomsSave({ throwOnError = false } = {}) {
+  // Self-play recovery uses the candidate's model and game receipts.
+  if (LOCAL_SELF_PLAY) return Promise.resolve();
   const persist = () => ACTIVE_ROOMS_WRITER.write(activeRoomSnapshot());
   if (throwOnError) {
     if (activeRoomsSaveTimer) clearTimeout(activeRoomsSaveTimer);
@@ -9463,6 +9482,7 @@ function scheduleActiveRoomsSave({ throwOnError = false } = {}) {
 }
 
 function loadActiveRooms() {
+  if (LOCAL_SELF_PLAY) return;
   try {
     if (!fs.existsSync(ACTIVE_ROOMS_PATH)) return;
     const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
@@ -15732,9 +15752,10 @@ function handleAI(room) {
       const spotsAfter = isRoute ? (() => {
         let count = 0;
         const geom = sim.geom || {};
+        const hasSea = (geom.tiles || []).some(t => t?.type === 'sea');
         for (const node of geom.nodes || []) {
           if (!node || node.building || !settlementDistanceOk(sim, node.id)) continue;
-          if ((geom.tiles || []).some(t => t?.type === 'sea') &&
+          if (hasSea &&
               !(geom.nodeAdjTiles?.[node.id] || []).some(id => geom.tiles?.[id]?.type !== 'sea')) continue;
           if ((geom.nodeEdges?.[node.id] || []).some(id => geom.edges?.[id]?.roadOwner === pid || (isSeafarers && geom.edges?.[id]?.shipOwner === pid))) count++;
         }
@@ -16271,6 +16292,16 @@ function expertAiVpGainWeightForSeat(game, pid, tuning) {
   return Number(tuning?.vpGainWeight || EXPERT_AI_TUNING_DEFAULTS.vpGainWeight);
 }
 
+function sendTrainingProgress(room, time) {
+  room._lastTrainingProgressAt = time;
+  for (const socket of room.sockets.values()) {
+    if (socket.readyState === WebSocket.OPEN) sendJson(socket, {
+      type: 'training_progress', moves: room._trainingMoves || 0,
+      turnNumber: Number(room.game.turnNumber || 0), phase: room.game.phase,
+    });
+  }
+}
+
 function tickAiRooms() {
   let progressed = false;
   for (const room of rooms.values()) {
@@ -16279,23 +16310,24 @@ function tickAiRooms() {
     if (!roomHasOpenSocket(room)) continue;
     if (!room.game) continue;
     if (room.game.phase === 'lobby' || room.game.phase === 'game-over') continue;
+    // Freeze over-limit matches before they can win and change the candidate
+    // weights while the runner is closing their connection.
+    if (room.game.turnNumber > SELF_PLAY_TURN_LIMIT) {
+      if (!room._trainingTurnLimitReported) {
+        room._trainingTurnLimitReported = true;
+        sendTrainingProgress(room, now());
+      }
+      continue;
+    }
     const autoPaused = maybePauseDisconnectedTurn(room);
     const changed = autoPaused || handleTimeout(room) || handleAI(room);
     progressed ||= !!changed;
     // Training-only, low-cost progress: avoid the huge full-state broadcasts while
     // allowing the trainer to distinguish a live game from an AI deadlock.
-    if (AI_TRAINING_MODE && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1' && changed) {
+    if (LOCAL_SELF_PLAY && changed) {
       room._trainingMoves = (room._trainingMoves || 0) + 1;
       const t = now();
-      if (t - (room._lastTrainingProgressAt || 0) >= 1000) {
-        room._lastTrainingProgressAt = t;
-        for (const socket of room.sockets.values()) {
-          if (socket.readyState === WebSocket.OPEN) sendJson(socket, {
-            type: 'training_progress', moves: room._trainingMoves,
-            turnNumber: Number(room.game.turnNumber || 0), phase: room.game.phase,
-          });
-        }
-      }
+      if (t - (room._lastTrainingProgressAt || 0) >= 1000) sendTrainingProgress(room, t);
     }
     // Headless self-play only needs the terminal state. Avoid serializing and
     // sending every intermediate action, which otherwise dominates CPU/memory.
@@ -16427,15 +16459,18 @@ process.on('SIGTERM', () => { void gracefulShutdown(0); });
 process.on('message', (message) => {
   if (message && message.type === 'shutdown') void gracefulShutdown(0);
 });
+if (LOCAL_SELF_PLAY && process.connected) process.once('disconnect', () => { void gracefulShutdown(0); });
 process.on('uncaughtException', (error) => fatalShutdown('Uncaught exception', error));
 process.on('unhandledRejection', (error) => fatalShutdown('Unhandled rejection', error));
 server.on('error', (error) => fatalShutdown('HTTP server error', error));
 wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 
 ensureBuiltInAdminAccount().then(() => {
-  server.listen(PORT, HOST, () => {
+  server.listen(MANAGED_SELF_PLAY ? 0 : PORT, HOST, () => {
     captureGameAnalytics();
-    console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${PORT} (instance ${SERVER_INSTANCE_ID})`);
+    const port = server.address().port;
+    console.log(`Hex Settlers ${SERVER_BUILD_ID} running on http://${HOST}:${port} (instance ${SERVER_INSTANCE_ID})`);
+    if (MANAGED_SELF_PLAY && process.connected) process.send({ type: 'training_ready', port }, () => {});
     buildVersionReady = registerSuccessfulBuild().catch(err => { console.error('[build] Version storage unavailable:', err.message); });
   });
 }).catch((error) => fatalShutdown('Administrator initialization failed', error));

@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -40,15 +41,25 @@ test('a full checkpoint resumes without launching a training server or duplicati
       {sessionIndex:0,curriculumIndex:0,mapId:'classic',victoryPointsToWin:10,turnNumber:40,winner:'AI1',winnerVp:10,winnerMargin:2,goldProductionCards:0},
       {sessionIndex:1,curriculumIndex:1,mapId:'classic56',victoryPointsToWin:10,turnNumber:60,winner:'AI2',winnerVp:10,winnerMargin:3,goldProductionCards:0},
     ];
-    fs.writeFileSync(`${reportPath}.checkpoint.json`, JSON.stringify({startingTrainedGames:Number(baseModel.trainedGames),model,games,totalGames:2,mapSet:'standard',curriculumOffset:0}));
-    const child = spawnSync(process.execPath,[path.join(root,'scripts','train_neural_ai_all_maps.js')],{
+    const startingModelSha256 = createHash('sha256').update(fs.readFileSync(modelPath)).digest('hex');
+    fs.writeFileSync(`${reportPath}.checkpoint.json`, JSON.stringify({startingTrainedGames:Number(baseModel.trainedGames),startingModelSha256,model,games,totalGames:2,mapSet:'standard',curriculumOffset:0}));
+    const run = () => spawnSync(process.execPath,[path.join(root,'scripts','train_neural_ai_all_maps.js')],{
       cwd:root,encoding:'utf8',timeout:12000,
       env:{...process.env,NODE_PATH:path.join(tmp,'node_modules'),SIMS:'2',BATCH_SIZE:'1',CONCURRENCY:'1',MAP_SET:'standard',RESUME_TRAINING:'1',MODEL_PATH:modelPath,TRAINING_OUTPUT:reportPath,KEEP_TRAINING_TEMP:'0'},
     });
-    assert.equal(child.status,0,`${child.stderr}\n${child.stdout}`);
-    assert.equal(JSON.parse(fs.readFileSync(reportPath)).completedGames,2);
-    assert.equal(JSON.parse(fs.readFileSync(modelPath)).trainedGames,Number(baseModel.trainedGames)+2);
-    assert.match(child.stdout,/2\/2 resumed/);
+    // The second run simulates an interruption between publishing the model and
+    // publishing the report. The checkpoint must rebuild the same report.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const child = run();
+      assert.equal(child.status,0,`${child.stderr}\n${child.stdout}`);
+      const report = JSON.parse(fs.readFileSync(reportPath));
+      assert.equal(report.completedGames,2);
+      assert.equal(report.startingModelSha256,startingModelSha256);
+      assert.equal(report.startingTrainedGames,baseModel.trainedGames);
+      assert.equal(JSON.parse(fs.readFileSync(modelPath)).trainedGames,Number(baseModel.trainedGames)+2);
+      assert.match(child.stdout,/2\/2 resumed/);
+      fs.unlinkSync(reportPath);
+    }
   } finally { fs.rmSync(tmp,{recursive:true,force:true}); }
 });
 

@@ -41,7 +41,7 @@ function performance(report) {
   return { averageTurn, averageMargin, score: averageMargin - averageTurn / 10 };
 }
 
-function runCandidate(candidate, generationStart, totalProgress) {
+function runCandidate(candidate, generationStart, totalProgress, activeChildren) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [TRAINER], {
       cwd: ROOT,
@@ -57,9 +57,10 @@ function runCandidate(candidate, generationStart, totalProgress) {
         MAP_SET,
         RESUME_TRAINING: '1',
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       windowsHide: true,
     });
+    activeChildren.add(child);
     let buffer = '';
     let errors = '';
     child.stdout.on('data', (chunk) => {
@@ -72,16 +73,13 @@ function runCandidate(candidate, generationStart, totalProgress) {
           // Avoid dumping the final JSON report, but preserve training errors.
           process.stdout.write(`[candidate ${candidate.index + 1}] ${line}\n`);
         }
-        const match = line.match(/^\[train\]\s+(\d+)\/(\d+)/);
+        const match = line.match(/^\[train\]\s+(\d+)\/\d+ (?:checkpoint committed|resumed from)/);
         if (!match) continue;
         const current = Number(match[1]);
         if (current > candidate.progress) {
           totalProgress.value += current - candidate.progress;
           candidate.progress = current;
-          if (totalProgress.value >= totalProgress.nextReport) {
-            process.stdout.write(`[evolution] ${generationStart + totalProgress.value}/${TOTAL_GAMES} completed\n`);
-            totalProgress.nextReport += 50;
-          }
+          process.stdout.write(`[evolution] ${generationStart + totalProgress.value}/${TOTAL_GAMES} completed\n`);
         }
       }
     });
@@ -89,8 +87,12 @@ function runCandidate(candidate, generationStart, totalProgress) {
       errors += String(chunk);
       if (errors.length > 20000) errors = errors.slice(-20000);
     });
-    child.once('error', reject);
-    child.once('exit', (code) => code === 0 ? resolve() : reject(Object.assign(new Error(`Candidate ${candidate.index + 1} exited ${code}:\n${errors}`), { paused: code === 75 && isPaused() })));
+    child.on('error', error => { errors += `${error.message}\n`; });
+    child.once('close', (code, signal) => {
+      activeChildren.delete(child);
+      if (code === 0 || code === 75) resolve(code);
+      else reject(new Error(`Candidate ${candidate.index + 1} exited ${signal || code}:\n${errors}`));
+    });
   });
 }
 
@@ -182,7 +184,7 @@ async function main() {
         incumbent = readJson(selectedModelPath);
         allGames.push(...generationGames);
         generations.push(record);
-        console.log(`[evolution] reused completed generation ${generation + 1}/${TOTAL_GAMES / GENERATION_GAMES}`);
+        console.log(`[evolution] ${generationStart + GENERATION_GAMES}/${TOTAL_GAMES} completed (reused completed generation ${generation + 1})`);
         continue;
       }
       const candidates = [];
@@ -198,24 +200,38 @@ async function main() {
         offset += games;
       }
 
-      const totalProgress = { value: 0, nextReport: 50 };
-      try {
-        await Promise.all(candidates.map((candidate) => {
-        if (!fs.existsSync(candidate.reportPath)) return runCandidate(candidate, generationStart, totalProgress);
+      const totalProgress = { value: 0 };
+      const pending = [];
+      for (const candidate of candidates) {
+        if (!fs.existsSync(candidate.reportPath)) {
+          pending.push(candidate);
+          continue;
+        }
         const report = readJson(candidate.reportPath);
         if ((report.games || []).length !== candidate.games) throw new Error(`Existing candidate ${candidate.index + 1} report is incomplete`);
         candidate.progress = candidate.games;
         totalProgress.value += candidate.games;
         console.log(`[evolution] reused completed candidate ${candidate.index + 1} in generation ${generation + 1}`);
-        return Promise.resolve();
-        }));
-      } catch (error) {
-        if (isPaused() && error.paused) {
-          console.log(`[evolution] paused at committed candidate batch; resume with RESUME_RUN_DIR=${tempRoot}`);
-          process.exitCode = 75;
-          return;
+      }
+      if (totalProgress.value) console.log(`[evolution] ${generationStart + totalProgress.value}/${TOTAL_GAMES} completed`);
+      const activeChildren = new Set();
+      const runs = await Promise.allSettled(pending.map(async candidate => {
+        try {
+          return await runCandidate(candidate, generationStart, totalProgress, activeChildren);
+        } catch (error) {
+          console.error(`[evolution] Candidate ${candidate.index + 1} failed; pausing other candidates at their checkpoints.`);
+          for (const child of activeChildren) {
+            if (child.connected) child.send({ type: 'pause' }, () => {});
+          }
+          throw error;
         }
-        throw error;
+      }));
+      const failure = runs.find(run => run.status === 'rejected');
+      if (failure) throw failure.reason;
+      if (runs.some(run => run.value === 75)) {
+        console.log(`[evolution] paused at committed candidate batch; resume with RESUME_RUN_DIR=${tempRoot}`);
+        process.exitCode = 75;
+        return;
       }
       const evaluated = candidates.map((candidate) => {
         const report = readJson(candidate.reportPath);

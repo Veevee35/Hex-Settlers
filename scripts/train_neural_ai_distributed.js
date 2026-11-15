@@ -128,7 +128,7 @@ function runShard(shard, progress, onProgress) {
       const lines = lineBuffer.split(/\r?\n/);
       lineBuffer = lines.pop() || '';
       for (const line of lines) {
-        const match = line.match(/^\[train\]\s+(\d+)\/(\d+)/);
+        const match = line.match(/^\[train\]\s+(\d+)\/\d+ (?:checkpoint committed|resumed from)/);
         if (!match) continue;
         progress[shard.index] = Math.max(progress[shard.index] || 0, Number(match[1]));
         onProgress();
@@ -139,8 +139,8 @@ function runShard(shard, progress, onProgress) {
       if (errors.length > 20_000) errors = errors.slice(-20_000);
     });
     child.once('error', reject);
-    child.once('exit', (code) => {
-      if (code !== 0) reject(new Error(`Training shard ${shard.index + 1} exited ${code}:\n${errors}`));
+    child.once('close', (code, signal) => {
+      if (code !== 0) reject(new Error(`Training shard ${shard.index + 1} exited ${signal || code}:\n${errors}`));
       else resolve();
     });
   });
@@ -205,7 +205,10 @@ async function main() {
     if (completedGames !== TOTAL_GAMES) throw new Error(`Merged report has ${completedGames} games; expected ${TOTAL_GAMES}`);
     if (new Set(games.map(game => game.curriculumIndex)).size !== TOTAL_GAMES) throw new Error('Duplicate curriculum games');
     // Keep the whole curriculum balanced even as new scenarios are added.
-    if (Object.values(byMap).some(summary => Math.abs(summary.games - TOTAL_GAMES / Object.keys(byMap).length) > 1)) {
+    const requestedCounts = summarizeGames(games.map(game => ({
+      ...game, mapId: game.requestedMapId || game.mapId,
+    })), mapTemplates);
+    if (Object.values(requestedCounts).some(summary => Math.abs(summary.games - TOTAL_GAMES / Object.keys(byMap).length) > 1)) {
       throw new Error('Distributed curriculum lost its balance across scenarios');
     }
     if (sha256(MODEL_PATH) !== startingHash) throw new Error('Destination model changed during training; shard models retained');
