@@ -6,6 +6,10 @@ const presets = {
   smoke: { sims: 4, generation: 4, shards: 1, batch: 2, concurrency: 1, gpuMode: 'cpu' },
   trial: { sims: 100, generation: 50, shards: 2, batch: 10, concurrency: 2, gpuMode: 'cpu' },
   standard: { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, gpuMode: 'auto' },
+  overnight: {
+    sims: 700000, generation: 2500, shards: 12, batch: 50, concurrency: 2,
+    rules: 'javascript', gpuMode: 'auto', epochs: 8, miniBatch: 256,
+  },
 };
 let token = '';
 let initial = true;
@@ -21,6 +25,8 @@ let lastJobState = null;
 let lineCount = -1;
 let lastSeenLogs = [];
 let toastTimer;
+const drawProgression = trainingProgression.chart(el('progression-chart'));
+let progressionSignature;
 const numberFormat = value => Number(value || 0).toLocaleString();
 function toast(message) {
   const box = el('toast'); box.textContent = message; box.classList.add('show');
@@ -175,10 +181,30 @@ function showGpu(gpu) {
   chip.textContent = !gpu ? 'NOT CHECKED' : gpu.ok ? 'CUDA READY' : 'CPU / UNAVAILABLE';
   el('gpu-info').textContent = gpu ? (gpu.ok ? `${gpu.device} detected · CUDA ${gpu.cudaVersion} · PyTorch ${gpu.torch}. CPU runs game rules; NVIDIA GPU refines weights after each completed batch.` : `CUDA unavailable: ${gpu.error}. Choose CPU or Auto, or install CUDA-enabled PyTorch in the Python executable shown above.`) : 'CPU simulates turns and legal moves. CUDA optionally refines the neural network from completed games between checkpoint saves. PyTorch with CUDA support is required.';
 }
-function update(job, model) {
+function showProgression(job, progression) {
+  const run = job?.runFolder || progression?.run;
+  const history = progression?.history || [];
+  const latest = history.at(-1);
+  const signature = `${job?.id}:${run}:${history.length}:${progression?.error || ''}`;
+  if (signature === progressionSignature) return;
+  progressionSignature = signature;
+  el('analytics-link').href = run ? `/analytics?${new URLSearchParams({ run })}` : '/analytics';
+  el('progression-results').hidden = !latest;
+  el('progression-status').textContent = latest
+    ? `${job ? 'Current session' : 'Most recent scored run'} · Generation ${numberFormat(latest.generation)} · ${run}`
+    : progression?.error || 'Progression appears after the first generation selects a model.';
+  if (!latest) return;
+  el('latest-score').textContent = trainingProgression.decimal(latest.selectionScore);
+  el('score-change').textContent = trainingProgression.compare(history, 'selectionScore');
+  el('turn-change').textContent = trainingProgression.compare(history, 'averageVictoryTurn');
+  el('margin-change').textContent = trainingProgression.compare(history, 'averageWinnerMargin');
+  const best = history.reduce((peak, point) => Number.isFinite(point.selectionScore) && (!peak || point.selectionScore > peak.selectionScore) ? point : peak, null);
+  el('best-score').textContent = best ? `Best ${trainingProgression.decimal(best.selectionScore)} · Gen ${best.generation}` : '';
+  drawProgression(history);
+}
+function update(job, model, progression) {
   const state = job?.state || 'idle';
-  el('analytics-link').href = state === 'completed' && job.runFolder
-    ? `/analytics?${new URLSearchParams({ run: job.runFolder })}` : '/analytics';
+  showProgression(job, progression);
   el('status-badge').textContent = state.toUpperCase();
   el('status-badge').className = `state ${state}`;
   el('start-btn').textContent = submitting ? 'Working…' : el('resume').value ? '▶ Resume training' : '▶ Start training';
@@ -192,6 +218,12 @@ function update(job, model) {
   el('generation-total').textContent = `/ ${Math.ceil(target / (job?.settings.generation || Number(el('generation').value)))}`;
   el('elapsed-time').textContent = formatElapsed(job?.startedAt, job?.endedAt);
   el('runtime-status').textContent = state === 'running' ? 'Training in progress' : state === 'paused' ? 'Checkpoint preserved' : state === 'failed' ? 'Inspect logs for failure' : state === 'completed' ? 'Training completed' : state === 'pausing' ? 'Waiting for safe checkpoint' : 'No active training';
+  const rate = state === 'running' && job.gamesPerHour;
+  el('runtime-rate').hidden = !rate || job.progress >= target;
+  if (!el('runtime-rate').hidden) {
+    const minutes = Math.ceil((target - job.progress) * 60 / rate);
+    el('runtime-rate').textContent = `${numberFormat(Math.round(rate))} games/hr · ~${Math.floor(minutes / 60)}h ${minutes % 60}m left`;
+  }
   el('trained-games').textContent = model ? numberFormat(model.trainedGames) : '—';
   el('model-detail').textContent = model?.lastCudaRefinement ? `Last GPU refinement: ${numberFormat(model.lastCudaRefinement.samples)} samples` : 'Current model weights';
   el('phase').textContent = state === 'running' ? (job.lastCuda && /^(?:\[candidate \d+\] )?\[cuda\]/.test(job.logs?.at(-1)?.line || '') ? 'CUDA weight refinement' : 'CPU self-play / evaluation') : state === 'pausing' ? 'Checkpointing / stopping' : state;
@@ -232,7 +264,7 @@ async function refresh() {
     initial = false;
     updateControls();
     showGpu(status.gpu);
-    update(status.current, status.model);
+    update(status.current, status.model, status.progression);
   } catch (err) { toast(`Connection lost: ${err.message}`); }
 }
 el('settings-form').addEventListener('submit', async event => {

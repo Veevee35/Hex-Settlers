@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HEX / Neural Training Control Center</title>
   <link rel="stylesheet" href="/style.css">
+  <script defer src="/progression.js"></script>
   <script defer src="/app.js"></script>
 </head>
 <body>
@@ -22,8 +23,27 @@
     <section class="metrics">
       <div class="metric"><span>SIMULATIONS COMPLETED</span><div><strong id="completed-count">0</strong><small id="target-count">/ 20,000</small></div><div class="bar"><i id="progress-bar"></i></div></div>
       <div class="metric"><span>GENERATION</span><div><strong id="generation-count">0</strong><small id="generation-total">/ 20</small></div><small>Winning weights shared at each selection</small></div>
-      <div class="metric"><span>TIME ELAPSED</span><div><strong id="elapsed-time">00:00:00</strong></div><small id="runtime-status">Awaiting training session</small></div>
+      <div class="metric"><span>TIME ELAPSED</span><div><strong id="elapsed-time">00:00:00</strong></div><small id="runtime-status">Awaiting training session</small><small class="runtime-rate" id="runtime-rate" hidden></small></div>
       <div class="metric"><span>TRAINED MODEL GAMES</span><div><strong id="trained-games">—</strong></div><small id="model-detail">Existing model is preserved</small></div>
+    </section>
+    <section class="panel progression-panel" aria-labelledby="progression-title">
+      <div class="panel-heading"><h2 id="progression-title">Current progression</h2><a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div>
+      <p class="muted" id="progression-status">Progression appears after the first generation selects a model.</p>
+      <div class="progression-layout" id="progression-results" hidden>
+        <div>
+          <dl class="progression-stats">
+            <div><dt>Latest selection score</dt><dd id="latest-score">—</dd></div>
+            <div><dt>Score change</dt><dd id="score-change">—</dd></div>
+            <div><dt>Victory turn change</dt><dd id="turn-change">—</dd></div>
+            <div><dt>Winner margin change</dt><dd id="margin-change">—</dd></div>
+          </dl>
+          <p class="muted">Changes use generation 1 as the baseline. The score rewards faster wins and wider margins in self-play. Playing strength against a fixed opponent is unmeasured.</p>
+        </div>
+        <div class="trend">
+          <div class="trend-header"><strong>Selection score by generation</strong><span class="muted" id="best-score"></span></div>
+          <canvas class="trend-chart" id="progression-chart" aria-hidden="true"></canvas>
+        </div>
+      </div>
     </section>
     <div class="columns">
       <div class="left-col">
@@ -34,6 +54,7 @@
             <div class="row-input"><label for="preset">Training preset</label><select id="preset">
               <option value="">Custom</option><option value="smoke">Quick check · 4 games</option>
               <option value="trial">Short trial · 100 games</option><option value="standard">Full training · 20,000 games</option>
+              <option value="overnight">Overnight · 700,000 games</option>
             </select></div>
             <div class="form-grid">
               <div class="field"><label for="sims">Total simulations</label><input type="number" id="sims" min="1" max="10000000" step="1" value="20000"></div>
@@ -88,7 +109,7 @@
           <p class="muted weight-note">Uploading replaces the current model and keeps a downloadable backup. New runs start from the current model. Saved runs start from their own checkpoints.</p>
         </section>
         <section class="panel execution">
-          <div class="panel-heading"><h2>Session monitor</h2><a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div>
+          <div class="panel-heading"><h2>Session monitor</h2></div>
           <div class="run-meta"><span>Current phase</span><strong id="phase">Not running</strong></div>
           <div class="run-meta"><span>Accelerator</span><strong id="accelerator">—</strong></div>
           <div class="run-meta"><span>Last selected candidate</span><strong id="winner">—</strong></div>

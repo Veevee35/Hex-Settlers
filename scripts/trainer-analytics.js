@@ -7,7 +7,7 @@ const readJson = async file => JSON.parse(await fs.readFile(file, 'utf8'));
 const generationName = number => `generation-${String(number).padStart(2, '0')}`;
 const candidateName = number => `candidate-${String(number).padStart(2, '0')}`;
 
-async function openTrainingRun(output, id) {
+async function openTrainingRun(output, id, { includeIncomplete = false } = {}) {
   if (!/^\.neural-evolution-[a-zA-Z0-9-]+$/.test(id || '')) return null;
   const dir = path.join(output, id);
   try {
@@ -15,23 +15,53 @@ async function openTrainingRun(output, id) {
     const manifest = await readJson(path.join(dir, 'run.json'));
     const total = manifest.totalGames / manifest.generationGames;
     if (!Number.isSafeInteger(total) || total < 1 || !Number.isInteger(manifest.shards) || manifest.shards < 1) return null;
-    const last = await fs.stat(path.join(dir, generationName(total), 'selection.json'));
-    return { dir, id, manifest, generations: total, completedAt: last.mtime.toISOString() };
+    const run = { dir, id, manifest, generations: total, completedAt: null, updatedAt: manifest.createdAt };
+    for (let generation = total; generation >= 1; generation--) {
+      try {
+        const last = await fs.stat(path.join(dir, generationName(generation), 'selection.json'));
+        run.generations = generation;
+        run.updatedAt = last.mtime.toISOString();
+        if (generation === total) run.completedAt = run.updatedAt;
+        return run;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        if (!includeIncomplete) return null;
+        if (generation === total) {
+          // Skip generations for which work has never started.
+          const entries = await fs.readdir(dir);
+          const latest = entries.reduce((highest, name) => {
+            const number = Number(/^generation-(\d+)$/.exec(name)?.[1]) || 0;
+            return number < total ? Math.max(highest, number) : highest;
+          }, 0);
+          generation = latest + 1;
+        }
+      }
+    }
+    return { ...run, generations: 0 };
   } catch (error) {
     if (error.code === 'ENOENT' || error instanceof SyntaxError) return null;
     throw error;
   }
 }
 
-async function listCompletedRuns(output) {
+async function listTrainingRuns(output) {
   const entries = await fs.readdir(output, { withFileTypes: true });
   const runs = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const run = await openTrainingRun(output, entry.name);
-    if (run) runs.push({ id: run.id, games: run.manifest.totalGames, completedAt: run.completedAt });
+    const run = await openTrainingRun(output, entry.name, { includeIncomplete: true });
+    if (run) runs.push({
+      id: run.id, games: run.manifest.totalGames, generations: run.generations,
+      totalGenerations: run.manifest.totalGames / run.manifest.generationGames,
+      completedAt: run.completedAt, updatedAt: run.updatedAt || '',
+    });
   }
-  return runs.sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+  return runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+async function listCompletedRuns(output) {
+  return (await listTrainingRuns(output)).filter(run => run.completedAt)
+    .map(({ id, games, completedAt }) => ({ id, games, completedAt }));
 }
 
 async function readSelection(run, generation) {
@@ -42,11 +72,49 @@ async function readCandidate(run, generation, candidate) {
   return readJson(path.join(run.dir, generationName(generation), candidateName(candidate), 'report.json'));
 }
 
+let progressionCache;
+function trainingProgression(run) {
+  if (progressionCache?.dir === run.dir && progressionCache.generations === run.generations) return progressionCache.result;
+  const previous = progressionCache?.dir === run.dir && progressionCache.generations < run.generations
+    ? progressionCache.result : [];
+  const result = (async () => {
+    const history = [...await previous];
+    for (let generation = history.length + 1; generation <= run.generations; generation++) {
+      const { selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin } = await readSelection(run, generation);
+      history.push({ generation, selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin });
+    }
+    return history;
+  })();
+  progressionCache = { dir: run.dir, generations: run.generations, result };
+  void result.catch(() => { if (progressionCache?.result === result) progressionCache = undefined; });
+  return result;
+}
+
+let summaryCache;
 async function summarizeTrainingRun(run) {
-  const maps = new Map();
-  const selections = [];
-  let games = 0, turns = 0, margin = 0, gold = 0, replacements = 0;
-  for (let generation = 1; generation <= run.generations; generation++) {
+  if (summaryCache?.dir !== run.dir || summaryCache.generations !== run.generations) {
+    const previous = summaryCache?.dir === run.dir && summaryCache.generations < run.generations
+      ? summaryCache.result : undefined;
+    const result = collectRunSummary(run, previous);
+    summaryCache = { dir: run.dir, generations: run.generations, result };
+    void result.catch(() => { if (summaryCache?.result === result) summaryCache = undefined; });
+  }
+  const { maps, selections, games, turns, margin, gold, replacements } = await summaryCache.result;
+  return {
+    id: run.id, manifest: run.manifest, completedAt: run.completedAt, selections,
+    games, averageTurns: games ? turns / games : null, averageMargin: games ? margin / games : null, gold, replacements,
+    maps: Array.from(maps.values(), ({ turns, margin, ...map }) => ({
+      ...map, averageTurns: turns / map.games, averageMargin: margin / map.games,
+    })).sort((a, b) => a.label.localeCompare(b.label)),
+  };
+}
+
+async function collectRunSummary(run, previous) {
+  const saved = await previous;
+  const maps = new Map(Array.from(saved?.maps || [], ([id, map]) => [id, { ...map }]));
+  const selections = [...(saved?.selections || [])];
+  let { games = 0, turns = 0, margin = 0, gold = 0, replacements = 0 } = saved || {};
+  for (let generation = selections.length + 1; generation <= run.generations; generation++) {
     selections.push(await readSelection(run, generation));
     for (let candidate = 1; candidate <= run.manifest.shards; candidate++) {
       const report = await readCandidate(run, generation, candidate);
@@ -74,13 +142,7 @@ async function summarizeTrainingRun(run) {
       }
     }
   }
-  return {
-    id: run.id, manifest: run.manifest, completedAt: run.completedAt, selections,
-    games, averageTurns: turns / Math.max(1, games), averageMargin: margin / Math.max(1, games), gold, replacements,
-    maps: Array.from(maps.values(), ({ turns, margin, ...map }) => ({
-      ...map, averageTurns: turns / map.games, averageMargin: margin / map.games,
-    })).sort((a, b) => a.label.localeCompare(b.label)),
-  };
+  return { maps, selections, games, turns, margin, gold, replacements };
 }
 
 async function trainingGamePage(run, { generation, candidate, map, page }) {
@@ -117,4 +179,7 @@ async function* exportTrainingRun(run) {
   yield ']}\n';
 }
 
-module.exports = { openTrainingRun, listCompletedRuns, summarizeTrainingRun, trainingGamePage, exportTrainingRun };
+module.exports = {
+  openTrainingRun, listTrainingRuns, listCompletedRuns, trainingProgression,
+  summarizeTrainingRun, trainingGamePage, exportTrainingRun,
+};

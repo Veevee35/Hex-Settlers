@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Training analytics · Hex Settlers</title>
   <link rel="stylesheet" href="/style.css">
+  <script defer src="/progression.js"></script>
   <script defer src="/analytics.js"></script>
 </head>
 <body>
@@ -16,25 +17,40 @@
   </aside>
   <main class="main analytics">
     <header class="top">
-      <div><h1>Training <em>analytics</em></h1><p>Review completed self-play runs, candidate selection, and individual matches.</p></div>
+      <div><h1>Training <em>analytics</em></h1><p>Compare generations, inspect scenario results, and review individual matches.</p></div>
       <a class="btn secondary" href="/">Back to trainer</a>
     </header>
     <section class="panel analytics-controls" aria-label="Training run">
-      <div class="field"><label for="run">Completed run</label><select id="run" disabled></select></div>
-      <a class="btn secondary" id="export" hidden>Download full JSON</a>
+      <div class="field"><label for="run">Training run</label><select id="run" disabled></select></div>
+      <button class="btn secondary" id="refresh-run" type="button">Refresh results</button>
+      <a class="btn secondary" id="export" hidden>Download JSON</a>
     </section>
-    <p id="run-status" class="muted analytics-status" role="status">Loading completed runs…</p>
+    <p id="run-status" class="muted analytics-status" role="status">Loading training runs…</p>
     <div id="results" hidden>
       <section class="metrics" aria-label="Run totals">
-        <div class="metric"><span>GAMES COMPLETED</span><strong id="game-count">—</strong><small id="replacements"></small></div>
+        <div class="metric"><span>GAMES IN SELECTED GENERATIONS</span><strong id="game-count">—</strong><small id="replacements"></small></div>
         <div class="metric"><span>AVERAGE VICTORY TURN</span><strong id="average-turns">—</strong><small id="map-count"></small></div>
         <div class="metric"><span>AVERAGE WINNER MARGIN</span><strong id="average-margin">—</strong><small>Victory points</small></div>
         <div class="metric"><span>GOLD PRODUCTION</span><strong id="gold">—</strong><small>Resource cards gained</small></div>
       </section>
+      <section class="panel progression-panel" aria-labelledby="trend-title">
+        <div class="panel-heading">
+          <div><h2 id="trend-title">Generation trend</h2><p class="muted">Selection score = average winner margin − average victory turn ÷ 10. Higher scores rank first in self-play.</p></div>
+          <div class="field trend-metric"><label for="chart-metric">Chart metric</label><select id="chart-metric">
+            <option value="selectionScore">Selection score</option><option value="averageVictoryTurn">Average victory turn</option><option value="averageWinnerMargin">Average winner margin</option>
+          </select></div>
+        </div>
+        <div class="trend">
+          <div class="trend-header"><strong id="trend-value"></strong><span class="muted" id="trend-change"></span></div>
+          <canvas class="trend-chart" id="analytics-chart" aria-hidden="true"></canvas>
+        </div>
+      </section>
       <div class="analytics-overview">
         <section class="panel">
-          <div class="panel-heading"><h2>Scenario results</h2></div>
-          <div class="table-scroll">
+          <div class="panel-heading"><h2>Scenario results</h2><div class="field"><label for="scenario-sort">Sort by</label><select id="scenario-sort">
+            <option value="name">Scenario name</option><option value="games">Most games</option><option value="turns">Longest games</option><option value="fallbacks">Most fallbacks</option>
+          </select></div></div>
+          <div class="table-scroll" tabindex="0" aria-label="Scenario results">
             <table aria-label="Scenario results">
               <thead><tr><th>Scenario</th><th>Seats</th><th>Games</th><th>Avg. turns</th><th>Min–max</th><th>Avg. margin</th><th>Gold</th><th>Fallback games</th></tr></thead>
               <tbody id="scenarios"></tbody>
@@ -43,7 +59,7 @@
         </section>
         <section class="panel">
           <div class="panel-heading"><h2>Generation winners</h2></div>
-          <div class="table-scroll generation-scroll">
+          <div class="table-scroll generation-scroll" tabindex="0" aria-label="Generation winners">
             <table aria-label="Generation winners">
               <thead><tr><th>Generation</th><th>Candidate</th><th>Score</th><th>Avg. turns</th><th>Avg. margin</th></tr></thead>
               <tbody id="selections"></tbody>
@@ -51,15 +67,21 @@
           </div>
         </section>
       </div>
-      <section class="panel">
-        <div class="panel-heading"><h2>Match explorer</h2></div>
+      <section class="panel" id="match-explorer" aria-labelledby="match-explorer-title">
+        <div class="panel-heading"><h2 id="match-explorer-title" tabindex="-1">Match explorer</h2></div>
         <div class="analytics-filters">
           <div class="field"><label for="generation">Generation</label><select id="generation"></select></div>
           <div class="field"><label for="candidate">Candidate</label><select id="candidate"></select></div>
           <div class="field"><label for="map">Scenario played</label><select id="map"></select></div>
         </div>
+        <div class="table-scroll candidate-results" tabindex="0" aria-label="Candidate comparison">
+          <table aria-label="Candidate comparison">
+            <thead><tr><th>Candidate</th><th>Games</th><th>Selection score</th><th>Avg. turns</th><th>Avg. margin</th></tr></thead>
+            <tbody id="candidate-results"></tbody>
+          </table>
+        </div>
         <details class="analytics-detail">
-          <summary>Candidate and CUDA results for this generation</summary>
+          <summary>Candidate settings and CUDA batches</summary>
           <div id="candidates"></div>
         </details>
         <div class="table-scroll" tabindex="0" aria-label="Match records">

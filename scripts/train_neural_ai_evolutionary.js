@@ -74,13 +74,14 @@ function runCandidate(candidate, generationStart, totalProgress, activeChildren)
           // Avoid dumping the final JSON report, but preserve training errors.
           process.stdout.write(`[candidate ${candidate.index + 1}] ${line}\n`);
         }
-        const match = line.match(/^\[train\]\s+(\d+)\/\d+ (?:checkpoint committed|resumed from)/);
+        const match = line.match(/^\[train\]\s+(\d+)\/\d+ (checkpoint committed|resumed from)/);
         if (!match) continue;
         const current = Number(match[1]);
         if (current > candidate.progress) {
           totalProgress.value += current - candidate.progress;
           candidate.progress = current;
-          process.stdout.write(`[evolution] ${generationStart + totalProgress.value}/${TOTAL_GAMES} completed\n`);
+          const recovery = match[2] === 'resumed from' ? ' (recovered checkpoint)' : '';
+          process.stdout.write(`[evolution] ${generationStart + totalProgress.value}/${TOTAL_GAMES} completed${recovery}\n`);
         }
       }
     });
@@ -214,7 +215,7 @@ async function main() {
         totalProgress.value += candidate.games;
         console.log(`[evolution] reused completed candidate ${candidate.index + 1} in generation ${generation + 1}`);
       }
-      if (totalProgress.value) console.log(`[evolution] ${generationStart + totalProgress.value}/${TOTAL_GAMES} completed`);
+      if (totalProgress.value) console.log(`[evolution] ${generationStart + totalProgress.value}/${TOTAL_GAMES} completed (recovered checkpoint)`);
       const activeChildren = new Set();
       const runs = await Promise.allSettled(pending.map(async candidate => {
         try {

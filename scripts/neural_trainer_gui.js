@@ -14,7 +14,10 @@ const { pipeline } = require('node:stream/promises');
 const { ensureCuda } = require('./neural-gpu');
 const { atomicWriteJson } = require('./training-file');
 const { validateImportedModel, listWeightSnapshots } = require('./trainer-models');
-const { listCompletedRuns, openTrainingRun, summarizeTrainingRun, trainingGamePage, exportTrainingRun } = require('./trainer-analytics');
+const {
+  listTrainingRuns, openTrainingRun, trainingProgression, summarizeTrainingRun,
+  trainingGamePage, exportTrainingRun,
+} = require('./trainer-analytics');
 const { PRIORITIES, normalizeCandidatePriorities } = require('../server/neural-priorities');
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT = path.join(__dirname, 'output');
@@ -103,7 +106,15 @@ function emit(job, line) {
   let match = clean.match(/\[evolution\]\s+(?:checkpoints|resuming)=([^\r\n]+)/);
   if (match) job.runFolder = path.basename(match[1].trim());
   match = clean.match(/\[evolution\]\s+(\d+)\/(\d+)\s+completed/);
-  if (match) job.progress = Math.max(job.progress, Number(match[1]));
+  if (match) {
+    const progress = Math.max(job.progress, Number(match[1]));
+    if (clean.includes('(reused completed generation ') || clean.endsWith('(recovered checkpoint)')) {
+      if (job.rateStart) job.rateStart.games += progress - job.progress;
+    } else {
+      job.rateStart ??= { at: Date.now(), games: progress };
+    }
+    job.progress = progress;
+  }
   match = clean.match(/\[evolution\]\s+generation\s+(\d+)\/(\d+):/);
   if (match) {
     job.generation = Number(match[1]);
@@ -233,11 +244,13 @@ async function stop() {
 }
 function viewJob(job) {
   if (!job) return null;
+  const elapsed = job.rateStart ? (job.endedAt || Date.now()) - job.rateStart.at : 0;
+  const gamesPerHour = elapsed >= 60_000 ? (job.progress - job.rateStart.games) * 3_600_000 / elapsed : 0;
   return {
     id: job.id, settings: job.settings, accelerator: job.accelerator,
     state: job.state, startedAt: job.startedAt, endedAt: job.endedAt,
     progress: job.progress, generation: job.generation, winner: job.winner,
-    lastCuda: job.lastCuda, runFolder: job.runFolder,
+    lastCuda: job.lastCuda, runFolder: job.runFolder, gamesPerHour,
     logPath: job.logPath, logs: job.logs.slice(-180),
   };
 }
@@ -290,9 +303,9 @@ function staticFile(res, file, type) {
   res.end(body);
 }
 async function analytics(res, pathname, params) {
-  if (pathname === '/api/analytics/runs') return send(res, 200, await listCompletedRuns(OUTPUT));
-  const run = await openTrainingRun(OUTPUT, params.get('run'));
-  if (!run) return send(res, 404, { error: 'Completed training run not found' });
+  if (pathname === '/api/analytics/runs') return send(res, 200, await listTrainingRuns(OUTPUT));
+  const run = await openTrainingRun(OUTPUT, params.get('run'), { includeIncomplete: true });
+  if (!run) return send(res, 404, { error: 'Training run not found' });
   if (pathname === '/api/analytics/summary') return send(res, 200, await summarizeTrainingRun(run));
   if (pathname === '/api/analytics/games') {
     const generation = Number(params.get('generation') || 1);
@@ -306,15 +319,45 @@ async function analytics(res, pathname, params) {
     return send(res, 200, await trainingGamePage(run, { generation, candidate, map: params.get('map'), page }));
   }
   if (pathname === '/api/analytics/download') {
+    if (!run.generations) return send(res, 404, { error: 'No completed generations to export' });
+    const suffix = run.completedAt ? '' : `-through-generation-${run.generations}`;
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
-      'content-disposition': `attachment; filename="${run.id.slice(1)}-analytics.json"`,
+      'content-disposition': `attachment; filename="${run.id.slice(1)}-analytics${suffix}.json"`,
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
     });
     return pipeline(Readable.from(exportTrainingRun(run)), res);
   }
   return send(res, 404, { error: 'Not found' });
+}
+
+async function trainerStatus() {
+  const current = viewJob(active || last);
+  const runs = listRuns();
+  const selected = current
+    ? runs.find(run => run.id === current.runFolder)
+    : runs.find(run => run.completedGenerations);
+  const run = selected && await openTrainingRun(OUTPUT, selected.id, { includeIncomplete: true });
+  let progression;
+  if (run) {
+    try {
+      const history = await trainingProgression(run);
+      progression = { run: run.id, history };
+      const latest = history.at(-1);
+      if (current && latest && latest.generation >= current.generation) {
+        current.generation = latest.generation;
+        current.winner = latest.selectedCandidate;
+        current.progress = Math.max(current.progress, latest.generation * run.manifest.generationGames);
+      }
+    } catch (error) {
+      progression = { run: run.id, error: `Could not read generation selections: ${error.message}` };
+    }
+  }
+  return {
+    token: CSRF_TOKEN, current, progression, settings: saved, runs,
+    gpu: gpuStatus, checking, importing, model: readModelOverview(), priorities: PRIORITIES,
+  };
 }
 async function handle(req, res) {
   const expectedHost = `127.0.0.1:${serverPort}`;
@@ -325,13 +368,10 @@ async function handle(req, res) {
     if (pathname === '/app.js') return staticFile(res, 'app.js', 'text/javascript; charset=utf-8');
     if (pathname === '/analytics') return staticFile(res, 'analytics.html', 'text/html; charset=utf-8');
     if (pathname === '/analytics.js') return staticFile(res, 'analytics.js', 'text/javascript; charset=utf-8');
+    if (pathname === '/progression.js') return staticFile(res, 'progression.js', 'text/javascript; charset=utf-8');
     if (pathname === '/style.css') return staticFile(res, 'style.css', 'text/css; charset=utf-8');
     if (pathname.startsWith('/api/analytics/')) return analytics(res, pathname, searchParams);
-    if (pathname === '/api/status') return send(res, 200, {
-      token: CSRF_TOKEN, current: viewJob(active || last), settings: saved,
-      runs: listRuns(), gpu: gpuStatus, checking, importing, model: readModelOverview(),
-      priorities: PRIORITIES,
-    });
+    if (pathname === '/api/status') return send(res, 200, await trainerStatus());
     if (pathname === '/api/weights' || pathname === '/api/weights/download') {
       const runId = searchParams.get('run');
       let snapshots;

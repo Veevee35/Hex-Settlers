@@ -8,6 +8,7 @@ let summary;
 let page = 1;
 let runRequest = 0;
 let gameRequest = 0;
+const drawTrend = trainingProgression.chart(el('analytics-chart'));
 
 async function get(endpoint, params = {}) {
   const response = await fetch(`/api/analytics/${endpoint}?${new URLSearchParams(params)}`);
@@ -17,7 +18,7 @@ async function get(endpoint, params = {}) {
 }
 
 function option(text, value) {
-  return new Option(text, value);
+  return new Option(text, String(value));
 }
 
 function row(values) {
@@ -70,16 +71,60 @@ function renderCandidates(candidates, generation) {
     const title = document.createElement('summary');
     const description = document.createElement('dl');
     title.textContent = `Candidate ${candidate.candidate}${selection.selectedCandidate === candidate.candidate ? ' · Selected' : ''}`;
-    const result = selection.candidates.find(entry => entry.candidate === candidate.candidate);
+    const result = selection.candidates?.find(entry => entry.candidate === candidate.candidate);
     detailList(description, { ...candidate, score: result?.score, priorities: result?.priorities });
     details.append(title, description);
     return details;
   }));
 }
 
+function renderScenarios() {
+  const sort = el('scenario-sort').value;
+  const maps = [...summary.maps];
+  if (sort === 'games') maps.sort((a, b) => b.games - a.games);
+  if (sort === 'turns') maps.sort((a, b) => b.averageTurns - a.averageTurns);
+  if (sort === 'fallbacks') maps.sort((a, b) => b.replacements - a.replacements);
+  el('scenarios').replaceChildren(...maps.map(map => row([
+    map.label, map.players, count(map.games), decimal(map.averageTurns), `${map.quickest}–${map.longest}`,
+    decimal(map.averageMargin), count(map.gold), count(map.replacements),
+  ])));
+}
+
+function renderTrend() {
+  const metric = el('chart-metric').value;
+  const generation = Number(el('generation').value);
+  const selection = summary.selections[generation - 1];
+  const change = trainingProgression.compare(summary.selections, metric);
+  el('trend-value').textContent = `Gen ${generation} · ${trainingProgression.metrics[metric].label} ${decimal(selection[metric])}`;
+  el('trend-change').textContent = change === '—' ? 'Generation 1 is the baseline' : `${change} from first to latest generation`;
+  drawTrend(summary.selections, metric, generation);
+}
+
+function generationLink(selection) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'mini';
+  button.textContent = `Gen ${selection.generation}`;
+  button.setAttribute('aria-label', `Explore matches in generation ${selection.generation}`);
+  button.addEventListener('click', () => {
+    el('generation').value = String(selection.generation);
+    page = 1;
+    void loadGames();
+    el('match-explorer-title').focus();
+  });
+  return button;
+}
+
 async function loadGames() {
   const request = ++gameRequest;
   const generation = Number(el('generation').value);
+  const selection = summary.selections[generation - 1];
+  renderTrend();
+  el('candidate-results').replaceChildren(...(selection.candidates || []).map(candidate => row([
+    candidate.candidate === selection.selectedCandidate ? `Candidate ${candidate.candidate} · Selected` : `Candidate ${candidate.candidate}`,
+    count(candidate.games), decimal(candidate.score), decimal(candidate.averageVictoryTurn),
+    decimal(candidate.averageWinnerMargin),
+  ])));
   el('previous').disabled = el('next').disabled = true;
   el('game-status').textContent = 'Loading matches…';
   try {
@@ -112,6 +157,11 @@ async function loadRun() {
   const request = ++runRequest;
   ++gameRequest;
   const run = el('run').value;
+  const sameRun = summary?.id === run;
+  const previousGeneration = Number(el('generation').value);
+  const followLatest = !sameRun || previousGeneration === summary.selections.length;
+  const candidate = sameRun ? el('candidate').value : '0';
+  const mapId = sameRun ? el('map').value : '';
   el('results').hidden = el('export').hidden = true;
   el('run-status').textContent = 'Loading run…';
   try {
@@ -119,58 +169,74 @@ async function loadRun() {
     if (request !== runRequest) return;
     summary = data;
     history.replaceState(null, '', `/analytics?${new URLSearchParams({ run })}`);
+    if (!data.selections.length) {
+      el('run-status').textContent = 'Waiting for the first generation to select a model. Refresh results to check for new selections.';
+      return;
+    }
     el('export').href = `/api/analytics/download?${new URLSearchParams({ run })}`;
+    el('export').textContent = data.completedAt ? 'Download full JSON' : 'Download completed generations';
     el('export').hidden = false;
-    el('run-status').textContent = `Started ${date(data.manifest.createdAt)} · Completed ${date(data.completedAt)} · ${data.manifest.rules || 'javascript'} rules`;
+    const totalGenerations = data.manifest.totalGames / data.manifest.generationGames;
+    const state = data.completedAt ? `Completed ${date(data.completedAt)}` : `${count(data.selections.length)} of ${count(totalGenerations)} generations selected`;
+    el('run-status').textContent = `Started ${date(data.manifest.createdAt)} · ${state} · ${data.manifest.rules || 'JavaScript'} rules`;
     el('game-count').textContent = count(data.games);
-    el('replacements').textContent = `${count(data.replacements)} fallback games`;
+    el('replacements').textContent = `${count(data.replacements)} fallback games · ${(100 * data.replacements / data.games).toFixed(1)}%`;
     el('average-turns').textContent = decimal(data.averageTurns);
     el('map-count').textContent = `${count(data.maps.length)} scenarios played`;
     el('average-margin').textContent = decimal(data.averageMargin);
     el('gold').textContent = count(data.gold);
-    el('scenarios').replaceChildren(...data.maps.map(map => row([
-      map.label, map.players, count(map.games), decimal(map.averageTurns), `${map.quickest}–${map.longest}`,
-      decimal(map.averageMargin), count(map.gold), count(map.replacements),
-    ])));
-    el('selections').replaceChildren(...data.selections.map(selection => row([
-      selection.generation, selection.selectedCandidate, decimal(selection.selectionScore),
+    renderScenarios();
+    el('selections').replaceChildren(...data.selections.slice().reverse().map(selection => row([
+      generationLink(selection), selection.selectedCandidate, decimal(selection.selectionScore),
       decimal(selection.averageVictoryTurn), decimal(selection.averageWinnerMargin),
     ])));
     el('generation').replaceChildren(...data.selections.map(selection => option(`Generation ${selection.generation}`, selection.generation)));
     el('candidate').replaceChildren(option('All candidates', 0),
       ...Array.from({ length: data.manifest.shards }, (_, index) => option(`Candidate ${index + 1}`, index + 1)));
     el('map').replaceChildren(option('All scenarios', ''), ...data.maps.map(map => option(map.label, map.mapId)));
+    const generation = followLatest ? data.selections.at(-1).generation : previousGeneration;
+    el('generation').value = String(generation);
+    el('candidate').value = candidate;
+    el('map').value = data.maps.some(map => map.mapId === mapId) ? mapId : '';
     el('results').hidden = false;
-    page = 1;
+    if (!sameRun || generation !== previousGeneration) page = 1;
     await loadGames();
   } catch (error) {
     if (request === runRequest) el('run-status').textContent = error.message;
   }
 }
 
-async function init() {
+async function loadRuns(selected) {
+  const refresh = el('refresh-run');
+  refresh.disabled = true;
+  el('run').disabled = true;
   try {
     const runs = await get('runs');
     if (!runs.length) {
-      el('run-status').textContent = 'Completed training runs will appear here.';
+      el('run-status').textContent = 'Training runs will appear here.';
       return;
     }
     el('run').replaceChildren(...runs.map(run => option(
-      `${count(run.games)} games · ${date(run.completedAt)} · ${run.id.split('-').at(-1)}`, run.id,
+      `${count(run.games)} games · ${run.completedAt ? date(run.completedAt) : `${run.generations}/${run.totalGenerations} generations`} · ${run.id.split('-').at(-1)}`, run.id,
     )));
-    const selected = new URLSearchParams(location.search).get('run');
     if (runs.some(run => run.id === selected)) el('run').value = selected;
     el('run').disabled = false;
     await loadRun();
   } catch (error) {
     el('run-status').textContent = error.message;
+  } finally {
+    refresh.disabled = false;
+    el('run').disabled = !el('run').options.length;
   }
 }
 
 el('run').addEventListener('change', loadRun);
+el('refresh-run').addEventListener('click', () => void loadRuns(el('run').value));
+el('chart-metric').addEventListener('change', renderTrend);
+el('scenario-sort').addEventListener('change', renderScenarios);
 for (const id of ['generation', 'candidate', 'map']) {
   el(id).addEventListener('change', () => { page = 1; void loadGames(); });
 }
 el('previous').addEventListener('click', () => { page--; void loadGames(); });
 el('next').addEventListener('click', () => { page++; void loadGames(); });
-void init();
+void loadRuns(new URLSearchParams(location.search).get('run'));

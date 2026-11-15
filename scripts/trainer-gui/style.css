@@ -27,6 +27,22 @@
 
 .btn[href], .mini[href] { display: inline-flex; align-items: center; text-decoration: none; }
 [hidden] { display: none !important; }
+.runtime-rate { display: block; margin-top: 5px; color: var(--accent) !important; }
+.progression-panel { margin-bottom: 17px; }
+.progression-panel .panel-heading { margin-bottom: 10px; flex-wrap: wrap; }
+.progression-panel .panel-heading h2 + p { margin-top: 4px; }
+.progression-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 18px; margin-top: 14px; align-items: center; }
+.progression-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 8px; }
+.progression-stats > div { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.progression-stats dt { font-size: 11px; color: #a4b6c0; }
+.progression-stats dd { margin: 2px 0 0; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.trend { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.trend-header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; padding: 2px 6px; font-size: 12px; }
+.trend-chart { display: block; width: 100%; height: 154px; }
+.analytics .trend-chart { height: 226px; }
+.trend-metric { min-width: min(100%, 185px); }
+.candidate-results { margin-bottom: 16px; }
+@media(max-width:820px) { .progression-layout { grid-template-columns: minmax(0, 1fr); } }
 .analytics { margin: 0 auto; }
 .analytics-controls, .analytics-filters { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
 .analytics-controls .field { flex: 1 1 260px; }
