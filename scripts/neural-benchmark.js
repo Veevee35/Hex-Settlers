@@ -178,11 +178,70 @@ function workerCall(child, message, timeoutMs) {
   });
 }
 
+const DEFAULT_WORKERS = Math.min(8, os.availableParallelism());
+
+function createBenchmarkWorkers(scratch, workers = DEFAULT_WORKERS, launchWorker = fork) {
+  const slots = Array.from({ length: workers }, () => ({}));
+  function close(slot, child = slot.child) {
+    if (slot.child === child) {
+      slot.child = undefined;
+      slot.configuration = undefined;
+    }
+    child?.kill();
+  }
+  async function play(index, policies, task, signal) {
+    const slot = slots[index];
+    const configuration = JSON.stringify(Object.keys(policies).sort());
+    for (let attempt = 0; attempt < 2; attempt++) {
+      signal?.throwIfAborted();
+      if (!slot.child) {
+        await fs.mkdir(scratch, { recursive: true });
+        signal?.throwIfAborted();
+        const child = slot.child = launchWorker(path.join(ROOT, 'server.js'), [], {
+          cwd: ROOT, silent: true, windowsHide: true, execArgv: [],
+          env: { ...process.env, HOST: '127.0.0.1', DATA_DIR: scratch, RAILWAY_VOLUME_MOUNT_PATH: '', NODE_ENV: 'test',
+            AI_FAST: '1', AI_TRAINING: '1', HEX_TRAINING_MANAGED: '1', HEX_BENCHMARK_WORKER: '1',
+            HEX_TRAINING_FAST: '1', HEX_TRAINING_RULES: 'javascript', NEURAL_AI_PRIORITIES: '',
+            HEX_BUILTIN_ADMIN_ENABLED: '0', CLOUDFLARE_STATE_ENDPOINT: '', HEX_UPSTREAM_SHARED_SECRET: '',
+            HEX_ADMIN_HOST: '', HEX_TRUST_PROXY: '0', HEX_EMAIL_MODE: 'none' },
+        });
+        child.on('error', () => {});
+        child.stdout.resume();
+        slot.errors = '';
+        child.stderr.on('data', chunk => { slot.errors = (slot.errors + chunk).slice(-4000); });
+      }
+      const child = slot.child;
+      const abort = () => close(slot, child);
+      signal?.addEventListener('abort', abort, { once: true });
+      try {
+        if (slot.configuration !== configuration) {
+          const ready = await workerCall(child, { type: 'configure', policies }, 15000);
+          slot.buildId = ready.buildId;
+          slot.configuration = configuration;
+        }
+        const { result } = await workerCall(child, { type: 'match', task }, 120000);
+        return { result, buildId: slot.buildId, retries: attempt };
+      } catch (error) {
+        const configured = slot.configuration === configuration;
+        close(slot, child);
+        signal?.throwIfAborted();
+        if (attempt === 0) continue;
+        if (!configured) throw new Error(`${error.message} ${slot.errors}`.trim());
+        return { result: { status: 'crashed', infrastructure: true, error: `${error.message} ${slot.errors}`.trim() },
+          buildId: slot.buildId, retries: attempt };
+      } finally {
+        signal?.removeEventListener('abort', abort);
+      }
+    }
+  }
+  return { workers, play, close: () => slots.forEach(slot => close(slot)) };
+}
+
 async function runBenchmark(options) {
   const {
     candidate, opponent, maps = REFERENCE_LOBBY, games = PROFILES.checkpoint, seed = 'comparison-v1',
-    maxTurns = 900, workers = Math.min(8, os.availableParallelism()), output = OUTPUT, replay = true,
-    onProgress = () => {}, signal, context = {},
+    maxTurns = 900, workerPool, workers = workerPool?.workers ?? DEFAULT_WORKERS, output = OUTPUT, replay = true,
+    onProgress = () => {}, signal, context = {}, prefix, interim,
   } = options;
   if (!Number.isInteger(games) || games < 1 || games > MAX_GAMES) throw new Error(`Game budget must be an integer from 1 to ${MAX_GAMES}`);
   if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 10000) throw new Error('Invalid benchmark turn limit');
@@ -205,74 +264,64 @@ async function runBenchmark(options) {
   let revision = null;
   try { revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', windowsHide: true }).trim(); } catch (_) {}
   const results = Array(schedule.length);
-  let cursor = 0;
-  let completed = 0;
-  let engineBuild;
+  if (prefix) {
+    const { report, matches } = prefix;
+    if (replay || report.config.replay || report.engineHash !== engineHash ||
+        report.candidate.id !== challenger.id || report.opponent.id !== reference.id || report.config.maxTurns !== maxTurns ||
+        matches.length > schedule.length || matches.some((game, i) => game.id !== i + 1 ||
+          game.seed !== schedule[i].seed || game.mapId !== schedule[i].map.id || game.candidateSeat !== schedule[i].candidateSeat)) {
+      throw new Error('Benchmark prefix does not match the engine, policies, and scheduled games');
+    }
+    for (let i = 0; i < matches.length; i++) results[i] = matches[i];
+  }
+  let cursor = prefix?.matches.length || 0;
+  let completed = cursor;
+  let engineBuild = prefix?.report.engineBuild;
   const started = Date.now();
-  const pool = Array.from({ length: Math.min(workers, schedule.length) }, async () => {
-    let child;
-    const close = () => { child?.kill(); child = undefined; };
-    signal?.addEventListener('abort', close, { once: true });
-    try {
-      while (cursor < schedule.length) {
+  const pool = workerPool || createBenchmarkWorkers(scratch, workers);
+  const simulate = async limit => {
+    const settled = await Promise.allSettled(Array.from({ length: Math.min(workers, limit - cursor) }, async (_, slot) => {
+      while (cursor < limit) {
         signal?.throwIfAborted();
         const index = cursor++;
         const task = schedule[index];
-        let result;
-        let startingWorker = !child;
-        try {
-          if (!child) {
-            child = fork(path.join(ROOT, 'server.js'), [], {
-              cwd: ROOT, silent: true, windowsHide: true, execArgv: [],
-              env: { ...process.env, HOST: '127.0.0.1', DATA_DIR: scratch, RAILWAY_VOLUME_MOUNT_PATH: '', NODE_ENV: 'test',
-                AI_FAST: '1', AI_TRAINING: '1', HEX_TRAINING_MANAGED: '1', HEX_BENCHMARK_WORKER: '1',
-                HEX_TRAINING_FAST: '1', HEX_TRAINING_RULES: 'javascript', NEURAL_AI_PRIORITIES: '',
-                HEX_BUILTIN_ADMIN_ENABLED: '0', CLOUDFLARE_STATE_ENDPOINT: '', HEX_UPSTREAM_SHARED_SECRET: '',
-                HEX_ADMIN_HOST: '', HEX_TRUST_PROXY: '0', HEX_EMAIL_MODE: 'none' },
-            });
-            child.on('error', () => {});
-            child.stdout.resume();
-            let errors = '';
-            child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-4000); });
-            try {
-              const ready = await workerCall(child, { type: 'configure', policies }, 15000);
-              engineBuild = ready.buildId;
-              startingWorker = false;
-            } catch (error) {
-              throw new Error(`${error.message} ${errors}`.trim());
-            }
-          }
-          ({ result } = await workerCall(child, { type: 'match', task }, 120000));
-        } catch (error) {
-          signal?.throwIfAborted();
-          if (startingWorker) throw error;
-          result = { status: 'crashed', error: error.message };
-          close();
-        }
+        const { result, buildId, retries } = await pool.play(slot, policies, task, signal);
+        engineBuild = buildId || engineBuild;
         const { replay: trace, ...summary } = result;
         if (trace) await fs.writeFile(path.join(directory, `match-${index + 1}.json.gz`), gzipSync(JSON.stringify(trace), { level: 1 }));
         results[index] = { id: index + 1, mapId: task.map.id, players: task.map.players,
-          seed: task.seed, candidateSeat: task.candidateSeat, hasReplay: !!trace, ...summary };
+          seed: task.seed, candidateSeat: task.candidateSeat, hasReplay: !!trace, ...(retries ? { retries } : {}), ...summary };
         onProgress(++completed, schedule.length);
       }
-    } finally {
-      signal?.removeEventListener('abort', close);
-      close();
+    }));
+    const failure = settled.find(row => row.status === 'rejected');
+    if (failure) throw failure.reason;
+  };
+  let stoppedEarly = false;
+  try {
+    if (interim && interim.games < games) {
+      const limit = buildSchedule({ ...config, maps: scenarios, games: interim.games }).length;
+      await simulate(limit);
+      stoppedEarly = interim.stop(results.slice(0, limit));
     }
-  });
-  const settled = await Promise.allSettled(pool);
-  const failure = settled.find(row => row.status === 'rejected');
-  if (failure) {
+    if (stoppedEarly) results.length = cursor;
+    else await simulate(schedule.length);
+    signal?.throwIfAborted();
+  } catch (error) {
     await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
-    throw failure.reason;
+    throw error;
+  } finally {
+    if (!workerPool) pool.close();
   }
-  signal?.throwIfAborted();
   const durationMs = Date.now() - started;
   const publicPolicy = ({ model, ...policy }) => ({ ...policy, trainedGames: model?.trainedGames, objective: model?.meta?.trainingObjective, metadata: model?.meta });
   const report = {
     id, config, context, revision, engineBuild, engineHash, workers, logicalCpus: os.availableParallelism(), rulesBackend: 'javascript',
     candidate: publicPolicy(challenger), opponent: publicPolicy(reference),
-    startedAt: new Date(started).toISOString(), durationMs, gamesPerSecond: results.length / Math.max(0.001, durationMs / 1000),
+    startedAt: new Date(started).toISOString(), durationMs, stoppedEarly,
+    simulatedGames: results.length - (prefix?.matches.length || 0),
+    retriedGames: results.filter(game => game.retries).length,
+    gamesPerSecond: (results.length - (prefix?.matches.length || 0)) / Math.max(0.001, durationMs / 1000),
     summary: summarize(results),
     byPlayerCount: Object.fromEntries([...grouped(results, game => game.players)].map(([count, rows]) => [count, summarize(rows, true)])),
     byScenario: Object.fromEntries([...grouped(results, game => game.mapId)].map(([map, rows]) => [map, summarize(rows)])),
@@ -380,5 +429,5 @@ if (require.main === module) {
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }
 
-module.exports = { OUTPUT, PROFILES, MAX_GAMES, SCENARIOS, REFERENCE_LOBBY, buildSchedule, summarize, runBenchmark, listBenchmarks,
+module.exports = { OUTPUT, PROFILES, MAX_GAMES, SCENARIOS, REFERENCE_LOBBY, buildSchedule, summarize, runBenchmark, createBenchmarkWorkers, listBenchmarks,
   readBenchmark, compareRuns, promotionGate, directQualification, cleanRun, engineFingerprint };

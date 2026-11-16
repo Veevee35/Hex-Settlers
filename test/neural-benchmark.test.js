@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { SCENARIOS, buildSchedule, runBenchmark, readBenchmark, compareRuns, promotionGate } = require('../scripts/neural-benchmark');
+const { EventEmitter } = require('node:events');
+const { SCENARIOS, buildSchedule, runBenchmark, createBenchmarkWorkers, readBenchmark, compareRuns, promotionGate } = require('../scripts/neural-benchmark');
 
 test('benchmark budgets round up to full seat rotations with a separate seed per scenario', () => {
   const maps = SCENARIOS.filter(map => ['classic', 'classic56_5p', 'classic78'].includes(map.id));
@@ -45,6 +46,73 @@ test('frozen engine yields identical outcomes and replay actions across worker c
     assert.ok(Number.isFinite(first.byPlayerCount[4].openSkill.ordinal));
   } finally {
     await fs.rm(output, { recursive: true, force: true });
+  }
+});
+
+test('a progressive tournament reuses complete rotations and archives a stopped interim', async () => {
+  const output = await fs.mkdtemp(path.join(os.tmpdir(), 'hex-benchmark-prefix-'));
+  const workers = createBenchmarkWorkers(path.join(output, 'engine'), 2);
+  try {
+    const model = { file: path.resolve(__dirname, '..', 'neural_ai_model.json') };
+    const settings = { candidate: model, opponent: model, maps: ['classic'], seed: 'prefix-test', output, workerPool: workers, replay: false };
+    const report = await runBenchmark({ ...settings, games: 4 });
+    const matches = await readBenchmark(report.id, 'matches', output);
+    const extended = await runBenchmark({ ...settings, games: 8, prefix: { report, matches } });
+    assert.equal(extended.simulatedGames, 4);
+    assert.equal(extended.summary.games, 8);
+    const all = await readBenchmark(extended.id, 'matches', output);
+    assert.deepEqual(all.slice(0, 4), matches);
+
+    const early = await runBenchmark({
+      ...settings, games: 12, replay: true,
+      interim: { games: 5, stop: games => games.length === 8 },
+    });
+    assert.equal(early.config.games, 12);
+    assert.equal(early.summary.games, 8);
+    assert.equal(early.stoppedEarly, true);
+    assert.ok((await readBenchmark(early.id, 8, output)).actions.length);
+  } finally {
+    workers.close();
+    await fs.rm(output, { recursive: true, force: true });
+  }
+});
+
+test('a worker exit retries the identical match without retrying an engine-reported crash', async () => {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'hex-benchmark-retry-'));
+  let launches = 0;
+  const scheduled = [];
+  const workers = createBenchmarkWorkers(scratch, 1, () => {
+    launches++;
+    const launch = launches;
+    const child = new EventEmitter();
+    child.stdout = { resume() {} };
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    child.send = message => queueMicrotask(() => {
+      if (message.type === 'configure') {
+        child.emit('message', { type: 'ready', buildId: 'test-engine' });
+        return;
+      }
+      scheduled.push(message.task);
+      if (launch === 1) child.emit('exit', 1);
+      else child.emit('message', { result: { status: scheduled.length === 2 ? 'completed' : 'crashed' } });
+    });
+    return child;
+  });
+  try {
+    const policies = { a: {}, b: {} };
+    const task = { seed: 'same-board', candidateSeat: 3 };
+    const recovered = await workers.play(0, policies, task);
+    assert.equal(recovered.result.status, 'completed');
+    assert.equal(recovered.retries, 1);
+    assert.deepEqual(scheduled, [task, task]);
+    const crash = await workers.play(0, policies, task);
+    assert.equal(crash.result.status, 'crashed');
+    assert.equal(crash.retries, 0);
+    assert.equal(launches, 2);
+  } finally {
+    workers.close();
+    await fs.rm(scratch, { recursive: true, force: true });
   }
 });
 

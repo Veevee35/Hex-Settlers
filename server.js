@@ -1265,7 +1265,9 @@ loadHistoryDb();
 // never reset an already earned signed unranked rating on later restarts.
 migrateUnrankedRatingsFromHistory();
 
-loadNeuralAiModel();
+// Benchmark workers receive all frozen policies over IPC. Avoid creating or
+// saving an unused fallback model when several workers start together.
+if (!BENCHMARK_WORKER) loadNeuralAiModel();
 
 // Repair any inflated user stats caused by older builds (stats should match *valid* history).
 rebuildUserStatsFromHistory();

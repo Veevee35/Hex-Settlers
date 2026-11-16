@@ -129,7 +129,8 @@ async function loadGames() {
     const link = document.createElement('a');
     link.className = 'mini';
     link.href = `/benchmarks?${new URLSearchParams({ id: evaluation.confirmation || evaluation.screened[0].report })}`;
-    link.textContent = evaluation.confirmation ? 'View qualification' : 'View leading screening result';
+    link.textContent = evaluation.confirmationStoppedEarly ? 'View early confirmation' :
+      evaluation.confirmation ? 'View qualification' : 'View leading screening result';
     status.replaceChildren(`${decision} ${reason} `, link);
   }
   el('candidate-results').replaceChildren(...(selection.candidates || []).map(candidate => row([

@@ -5,6 +5,7 @@ const runFields = ['sims','generation','shards','mapSet','rules','victoryPoints'
 const presets = {
   smoke: { sims: 4, generation: 4, shards: 1, batch: 2, concurrency: 1, gpuMode: 'cpu', benchmarkGames: 0 },
   trial: { sims: 100, generation: 50, shards: 2, batch: 10, concurrency: 2, gpuMode: 'cpu' },
+  focused: { sims: 10000, generation: 1000, shards: 4, batch: 50, concurrency: 2, gpuMode: 'auto', epochs: 3 },
   standard: { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, gpuMode: 'auto' },
   overnight: {
     sims: 700000, generation: 5000, shards: 12, batch: 50, concurrency: 2,

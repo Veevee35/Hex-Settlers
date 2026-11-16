@@ -150,7 +150,8 @@ async function loadResult() {
   report = current;
   const { summary, byScenario, byPlayerCount, config, context, engineBuild, engineHash, revision, candidate, opponent } = report;
   el('report').hidden = false;
-  el('history-status').textContent = `Seed ${config.seed} · ${fmt(report.durationMs / 1000)} seconds · ${engineBuild || 'Engine build unavailable'}`;
+  const stopped = report.stoppedEarly ? ` · Stopped early after ${fmt(summary.games)} of ${fmt(config.games)} planned games` : '';
+  el('history-status').textContent = `Seed ${config.seed} · ${fmt(report.durationMs / 1000)} seconds · ${engineBuild || 'Engine build unavailable'}${stopped}`;
   el('win-rate').textContent = percent(summary.winRate.estimate);
   el('win-ci').textContent = `95% interval ${interval(summary.winRate)}`;
   el('games').textContent = fmt(summary.games);
@@ -199,6 +200,8 @@ async function loadResult() {
   const technical = summary.technical;
   definitionList('technical', {
     'Games per second': fmt(report.gamesPerSecond),
+    ...(report.simulatedGames != null ? { 'New games / reused games': `${fmt(report.simulatedGames)} / ${fmt(summary.games - report.simulatedGames)}` } : {}),
+    ...(report.retriedGames ? { 'Games with a worker retry': fmt(report.retriedGames) } : {}),
     'Mean / maximum decision latency': `${fmt(technical.meanDecisionMs, 3)} / ${fmt(technical.maxDecisionMs, 3)} ms`,
     'Peak worker memory': `${fmt(technical.peakWorkerRssBytes / 1048576)} MiB`,
     'Total worker CPU': `${fmt(technical.workerCpuMs / 1000)} CPU seconds`,

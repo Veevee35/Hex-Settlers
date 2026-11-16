@@ -142,7 +142,7 @@ async function main() {
   }
   const startingModel = upgradeNeuralModel(readJson(originalModelPath));
   const startingHash = hashFile(originalModelPath);
-  let benchmark = BENCHMARK_GAMES && !isResume ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 1 } : null;
+  let benchmark = BENCHMARK_GAMES && !isResume ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 2 } : null;
   if (fs.existsSync(manifestPath)) {
     const manifest = readJson(manifestPath);
     benchmark = manifest.benchmark || null;
