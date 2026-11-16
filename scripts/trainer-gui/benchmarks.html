@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI benchmarking · Hex Settlers</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/progression.js"></script>
+  <script defer src="/benchmarks.js"></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand"><span class="hex-mark">⬡</span><div><strong>HEX SETTLERS</strong><small>TRAINING CONSOLE</small></div></div>
+    <a class="nav-item" href="/" aria-label="Training dashboard"><span aria-hidden="true">◈</span> Training dashboard</a>
+    <a class="nav-item" href="/analytics" aria-label="Training analytics"><span aria-hidden="true">▤</span> Training analytics</a>
+    <a class="nav-item chosen" href="/benchmarks" aria-current="page" aria-label="AI benchmarking"><span aria-hidden="true">◉</span> AI benchmarking</a>
+  </aside>
+  <main class="main analytics benchmark">
+    <header class="top">
+      <div><h1>AI <em>benchmarking</em></h1><p>Measure playing strength with frozen opponents, matched boards, and rotating seats.</p></div>
+      <a class="btn secondary" href="/">Back to trainer</a>
+    </header>
+    <section class="panel">
+      <div class="panel-heading"><h2>Run benchmark</h2><button class="mini" id="import" type="button">Add model JSON</button><input type="file" id="model-file" accept=".json,application/json" hidden></div>
+      <form id="benchmark-form">
+        <div class="form-grid">
+          <div class="field"><label for="candidate-run">Candidate source</label><select id="candidate-run"></select></div>
+          <div class="field"><label for="opponent-run">Opponent source</label><select id="opponent-run"></select></div>
+          <div class="field"><label for="candidate">Candidate</label><select id="candidate" required></select></div>
+          <div class="field"><label for="opponent">Opponent in every other seat</label><select id="opponent" required></select></div>
+          <div class="field"><label for="profile">Game budget</label><select id="profile">
+            <option value="quick">Quick validation · 100+</option><option value="checkpoint" selected>Checkpoint comparison · 1,000+</option><option value="release">Release qualification · 5,000+</option>
+          </select></div>
+          <div class="field"><label for="seed">Seed namespace</label><input id="seed" maxlength="160" placeholder="Use profile default"></div>
+        </div>
+        <details class="advanced">
+          <summary>Scenarios and seats</summary>
+          <p class="muted">Leave all unchecked to use the profile’s default suite. Each selected board seed plays a full seat rotation.</p>
+          <div class="benchmark-scenarios" id="scenarios"></div>
+        </details>
+        <div class="actions">
+          <button class="btn primary" type="submit" id="run" disabled>Run benchmark</button>
+          <button class="btn warning" type="button" id="cancel" hidden>Cancel benchmark</button>
+          <span id="job-status" class="muted" role="status"></span>
+        </div>
+      </form>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><h2>Benchmark history</h2><button class="mini" id="refresh" type="button">Refresh results</button></div>
+      <div class="form-grid">
+        <div class="field"><label for="result">Benchmark result</label><select id="result"></select></div>
+        <div class="field"><label for="baseline">Compare with</label><select id="baseline"></select></div>
+      </div>
+      <label class="benchmark-check"><input type="checkbox" id="screens"> Include training screens</label>
+      <p id="history-status" class="muted" role="status"></p>
+    </section>
+    <div id="report" hidden>
+      <section class="metrics" aria-label="Benchmark results">
+        <button class="metric" data-outcome="win"><span>WIN RATE</span><strong id="win-rate"></strong><small id="win-ci"></small></button>
+        <button class="metric" data-outcome=""><span>GAMES EVALUATED</span><strong id="games"></strong><small id="completions"></small></button>
+        <button class="metric" data-outcome="win"><span>MEAN TURNS TO WIN</span><strong id="turns"></strong><small id="placement"></small></button>
+        <button class="metric" data-outcome="issue"><span>REJECTED ACTIONS</span><strong id="invalid"></strong><small id="issues"></small></button>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><h2>OpenSkill history</h2><div class="field"><label for="rating-count">Player count</label><select id="rating-count"></select></div></div>
+        <p id="rating-status" class="muted"></p>
+        <canvas id="rating-chart" class="trend-chart" aria-label="OpenSkill ordinal over matching benchmark runs" role="img"></canvas>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><h2>Results by scenario and player count</h2></div>
+        <p id="comparison" class="muted"></p>
+        <div class="table-scroll" tabindex="0" aria-label="Scenario and player-count results">
+          <table>
+            <thead><tr><th>Scenario / seats</th><th>Games</th><th>Win rate</th><th>95% interval</th><th>Equal-policy rate</th><th>Mean place</th><th>Mean VP</th><th>Turns to win</th><th>Compare win rate</th><th>Paired change</th></tr></thead>
+            <tbody id="scenario-results"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><h2>Strategy and engine performance</h2></div>
+        <div class="form-grid">
+          <details class="analytics-detail" open><summary>Strategy per completed game</summary><dl id="strategy"></dl></details>
+          <details class="analytics-detail" open><summary>Simulation performance</summary><dl id="technical"></dl></details>
+        </div>
+        <details class="analytics-detail"><summary>Experiment configuration and model fingerprints</summary><pre id="config"></pre></details>
+      </section>
+      <section class="panel" id="match-explorer">
+        <div class="panel-heading"><h2>Match explorer</h2></div>
+        <div class="form-grid">
+          <div class="field"><label for="match-map">Scenario</label><select id="match-map"></select></div>
+          <div class="field"><label for="outcome">Outcome</label><select id="outcome"><option value="">All outcomes</option><option value="win">Candidate wins</option><option value="loss">Candidate losses</option><option value="issue">Incomplete or rejected action</option></select></div>
+        </div>
+        <div class="table-scroll" tabindex="0" aria-label="Benchmark matches">
+          <table>
+            <thead><tr><th>Match</th><th>Scenario</th><th>Candidate seat</th><th>Winner seat</th><th>Turns</th><th>Candidate VP</th><th>Outcome</th></tr></thead>
+            <tbody id="matches"></tbody>
+          </table>
+        </div>
+        <div class="analytics-pager"><button type="button" class="btn secondary" id="previous">Previous</button><span id="page" role="status"></span><button type="button" class="btn secondary" id="next">Next</button></div>
+      </section>
+    </div>
+  </main>
+</div>
+<dialog id="match-detail">
+  <div class="panel-heading"><h2 id="match-title">Match replay</h2><form method="dialog"><button class="mini">Close</button></form></div>
+  <p id="match-note" class="muted"></p>
+  <div id="replay" hidden>
+    <div class="actions">
+      <button id="step-back" class="mini" type="button">Previous action</button>
+      <button id="step-next" class="mini" type="button">Next action</button>
+      <button id="download" class="mini" type="button">Download match JSON</button>
+    </div>
+    <label class="benchmark-check" for="step">Action in replay <input id="step" type="range" min="1" value="1"></label>
+    <pre id="decision"></pre>
+  </div>
+  <details class="analytics-detail"><summary>Final standings and strategy</summary><pre id="standings"></pre></details>
+</dialog>
+</body>
+</html>

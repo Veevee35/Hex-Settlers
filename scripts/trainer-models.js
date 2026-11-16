@@ -33,13 +33,18 @@ function validateImportedModel(value) {
 function listWeightSnapshots(directory) {
   if (!directory || !fs.existsSync(directory)) return [];
   const snapshots = [];
+  const starting = path.join(directory, 'starting_model.json');
+  if (fs.existsSync(starting)) snapshots.push({ id: 'starting-model', label: 'Starting model', file: starting });
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     if (!entry.isDirectory() || !/^generation-\d+$/.test(entry.name)) continue;
     const generation = Number(entry.name.slice('generation-'.length));
     const dir = path.join(directory, entry.name);
     const selected = path.join(dir, 'selected_model.json');
     if (fs.existsSync(path.join(dir, 'selection.json')) && fs.existsSync(selected)) {
-      snapshots.push({ id: `${entry.name}-selected`, label: `Generation ${generation} · Selected model`, file: selected });
+      const champion = path.join(dir, 'champion_model.json');
+      const hasChampion = fs.existsSync(champion);
+      snapshots.push({ id: `${entry.name}-selected`, label: `Generation ${generation} · ${hasChampion ? 'Training candidate' : 'Selected model'}`, file: selected });
+      if (hasChampion) snapshots.push({ id: `${entry.name}-champion`, label: `Generation ${generation} · Champion`, file: champion });
     }
     for (const candidateEntry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!candidateEntry.isDirectory() || !/^candidate-\d+$/.test(candidateEntry.name)) continue;

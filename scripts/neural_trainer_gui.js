@@ -19,19 +19,24 @@ const {
   trainingGamePage, exportTrainingRun,
 } = require('./trainer-analytics');
 const { PRIORITIES, normalizeCandidatePriorities } = require('../server/neural-priorities');
+const {
+  OUTPUT: BENCHMARK_OUTPUT, PROFILES, MAX_GAMES, SCENARIOS, REFERENCE_LOBBY,
+  listBenchmarks, runBenchmark, readBenchmark, compareRuns,
+} = require('./neural-benchmark');
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT = path.join(__dirname, 'output');
 const UI = path.join(__dirname, 'trainer-gui');
 const SETTINGS = path.join(OUTPUT, 'neural_gui_settings.json');
 const MODEL = path.join(ROOT, 'neural_ai_model.json');
 const BACKUPS = path.join(OUTPUT, 'model-backups');
+const BENCHMARK_IMPORTS = path.join(BENCHMARK_OUTPUT, 'imported');
 const CSRF_TOKEN = crypto.randomBytes(24).toString('hex');
 fs.mkdirSync(OUTPUT, { recursive: true });
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const defaults = {
   sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2,
   mapSet: 'standard', rules: 'auto', gpuMode: 'auto', epochs: 3, miniBatch: 256, python: 'python',
-  victoryPoints: 0, maxTurns: 900,
+  victoryPoints: 0, maxTurns: 900, benchmarkGames: PROFILES.checkpoint,
 };
 let saved = normalize(defaults);
 try { saved = normalize({ ...defaults, ...readJson(SETTINGS) }); } catch (_) { /* first launch */ }
@@ -40,6 +45,7 @@ let last = null;
 let gpuStatus = null;
 let checking = false;
 let importing = false;
+let benchmarkJob = null;
 let serverPort = 0;
 
 function normalize(raw) {
@@ -63,9 +69,11 @@ function normalize(raw) {
   if (!python || python.length > 260 || /[\r\n]/.test(python)) throw new Error('Invalid Python executable path');
   const victoryPoints = number('victoryPoints', 0, 30, defaults.victoryPoints);
   if (victoryPoints !== 0 && victoryPoints < 3) throw new Error('Victory target must be 0 (scenario default) or 3–30 points');
+  const benchmarkGames = number('benchmarkGames', 0, MAX_GAMES, defaults.benchmarkGames);
+  if (benchmarkGames && benchmarkGames < PROFILES.checkpoint) throw new Error('Benchmark budget must be 0 or at least 1,000 games');
   return {
     sims, generation, shards, batch, concurrency, mapSet, rules,
-    victoryPoints, maxTurns: number('maxTurns', 50, 10000, defaults.maxTurns),
+    victoryPoints, benchmarkGames, maxTurns: number('maxTurns', 50, 10000, defaults.maxTurns),
     candidatePriorities: normalizeCandidatePriorities(raw.candidatePriorities, shards),
     gpuMode, epochs: number('epochs', 1, 20, defaults.epochs),
     miniBatch: number('miniBatch', 16, 8192, defaults.miniBatch), python,
@@ -89,6 +97,7 @@ function listRuns() {
           shards: manifest.shards, mapSet: manifest.mapSet, rules: manifest.rules || 'javascript',
           victoryPoints: manifest.victoryPoints ?? defaults.victoryPoints,
           maxTurns: manifest.maxTurns ?? defaults.maxTurns,
+          benchmarkGames: manifest.benchmark?.games || 0,
           candidatePriorities: normalizeCandidatePriorities(manifest.candidatePriorities, manifest.shards),
         } : null,
       };
@@ -139,6 +148,7 @@ async function start(raw) {
   if (active) throw new Error('A training session is already running');
   if (checking) throw new Error('The trainer is already checking hardware');
   if (importing) throw new Error('Wait for the model import to finish');
+  if (benchmarkJob?.state === 'running') throw new Error('Wait for the benchmark to finish or cancel it before starting training');
   let resumeFolder = '';
   let resumeConfig;
   if (raw.resumeFolder) {
@@ -190,6 +200,7 @@ async function start(raw) {
       CONCURRENCY: String(settings.concurrency), MAP_SET: settings.mapSet,
       VP_TO_WIN: settings.victoryPoints ? String(settings.victoryPoints) : '',
       MAX_TRAINING_TURNS: String(settings.maxTurns),
+      BENCHMARK_GAMES: String(settings.benchmarkGames),
       TRAINING_CANDIDATE_PRIORITIES: JSON.stringify(settings.candidatePriorities),
       MODEL_PATH: MODEL,
       HEX_TRAINING_RULES: native ? 'cpp' : 'javascript', HEX_TRAINING_FAST: '1',
@@ -290,6 +301,133 @@ async function importWeights(payload) {
     return { ok: true, backup, trainedGames: model.trainedGames };
   } finally { importing = false; }
 }
+
+function benchmarkSnapshots(run) {
+  if (run === 'registry') {
+    const directory = path.join(BENCHMARK_OUTPUT, 'models');
+    if (!fs.existsSync(directory)) return [];
+    return fs.readdirSync(directory).filter(file => /^[a-f0-9]{64}\.json$/.test(file)).map(name => {
+      const file = path.join(directory, name);
+      const data = readJson(file);
+      return { id: data.id, file, label: `${data.label || 'Model'} · ${data.id.slice(0, 8)}` };
+    }).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  }
+  const snapshots = weightSnapshots(run);
+  if (run) return snapshots;
+  if (fs.existsSync(BENCHMARK_IMPORTS)) {
+    for (const name of fs.readdirSync(BENCHMARK_IMPORTS).filter(file => /^[a-f0-9]{64}\.json$/.test(file))) {
+      const file = path.join(BENCHMARK_IMPORTS, name);
+      snapshots.push({ id: name, file, label: readJson(file).meta?.benchmarkLabel || name });
+    }
+  }
+  return snapshots;
+}
+
+function benchmarkPolicy(selection) {
+  if (['rules', 'random'].includes(selection?.id)) return selection.id;
+  const snapshot = benchmarkSnapshots(selection?.run).find(entry => entry.id === selection?.id);
+  if (!snapshot) throw new Error('The selected benchmark model was not found');
+  if (selection.run === 'registry') {
+    const data = readJson(snapshot.file);
+    return { ...(data.sourceJson ? { bytes: Buffer.from(data.sourceJson) } : { model: data.model }), label: data.label };
+  }
+  return snapshot.checkpoint
+    ? { model: readJson(snapshot.file).model, label: snapshot.label }
+    : { file: snapshot.file, label: snapshot.label };
+}
+
+async function addBenchmarkModel(payload) {
+  const model = validateImportedModel(payload.model);
+  const label = String(payload.label || 'Imported model').trim().slice(0, 120) || 'Imported model';
+  model.meta.benchmarkLabel = label;
+  const id = crypto.createHash('sha256').update(JSON.stringify(model)).digest('hex') + '.json';
+  await atomicWriteJson(path.join(BENCHMARK_IMPORTS, id), model);
+  return { id, label };
+}
+
+function startBenchmark(payload) {
+  if (benchmarkJob?.state === 'running') throw new Error('A benchmark is already running');
+  if (active || checking || importing) throw new Error('Wait for the trainer to finish or pause training first');
+  const candidate = benchmarkPolicy(payload.candidate);
+  const opponent = benchmarkPolicy(payload.opponent);
+  const games = PROFILES[payload.profile];
+  if (!Number.isInteger(games)) throw new Error('Invalid benchmark profile');
+  const maps = payload.maps?.length ? payload.maps
+    : payload.profile === 'quick' ? ['classic'] : payload.profile === 'release' ? SCENARIOS.map(map => map.id) : REFERENCE_LOBBY;
+  if (!Array.isArray(maps) || maps.some(id => !SCENARIOS.some(map => map.id === id))) throw new Error('Invalid scenario selection');
+  const seed = String(payload.seed || '').trim().slice(0, 160) ||
+    (payload.profile === 'release' ? `holdout-${crypto.randomUUID()}` : undefined);
+  const controller = new AbortController();
+  const job = benchmarkJob = { state: 'running', done: 0, total: games, controller };
+  void runBenchmark({
+    candidate, opponent, maps, games, seed, signal: controller.signal,
+    context: { profile: payload.profile, candidateSnapshot: payload.candidate, opponentSnapshot: payload.opponent },
+    onProgress: (done, total) => { Object.assign(job, { done, total }); },
+  }).then(report => Object.assign(job, { state: 'completed', report: report.id }))
+    .catch(error => Object.assign(job, { state: controller.signal.aborted ? 'cancelled' : 'failed', error: error.message }));
+  return { state: job.state, done: job.done, total: job.total };
+}
+
+let matchCache = new Map();
+async function benchmarkMatches(id) {
+  if (!matchCache.has(id)) {
+    if (matchCache.size >= 2) matchCache.delete(matchCache.keys().next().value);
+    matchCache.set(id, readBenchmark(id, 'matches'));
+  }
+  try { return await matchCache.get(id); }
+  catch (error) { matchCache.delete(id); throw error; }
+}
+
+async function benchmarkApi(res, pathname, params) {
+  if (pathname === '/api/benchmarks/status') {
+    const { controller, ...job } = benchmarkJob || {};
+    return send(res, 200, { token: CSRF_TOKEN, job, busy: !!(active || checking || importing) });
+  }
+  if (pathname === '/api/benchmarks/config') {
+    return send(res, 200, { profiles: PROFILES, scenarios: SCENARIOS, runs: listRuns().map(({ id, updated, completedGenerations }) => ({ id, updated, completedGenerations })) });
+  }
+  if (pathname === '/api/benchmarks/models') {
+    return send(res, 200, benchmarkSnapshots(params.get('run')).map(({ id, label }) => ({ id, label })));
+  }
+  if (pathname === '/api/benchmarks/history') {
+    const reports = await listBenchmarks();
+    const rows = reports.filter(report => params.get('screens') === '1' || report.context?.purpose !== 'screen');
+    return send(res, 200, rows.map(({ id, candidate, opponent, config, context, engineHash, startedAt, byPlayerCount, durationMs }) => ({
+      id, candidate, opponent, config, context, engineHash, startedAt, durationMs,
+      ratings: Object.fromEntries(Object.entries(byPlayerCount).map(([count, row]) => [count, row.openSkill])),
+    })));
+  }
+  const id = params.get('id');
+  if (pathname === '/api/benchmarks/report') return send(res, 200, await readBenchmark(id, 'report'));
+  if (pathname === '/api/benchmarks/compare') {
+    const baseline = params.get('baseline');
+    const [a, b] = await Promise.all([readBenchmark(id, 'report'), readBenchmark(baseline, 'report')]);
+    const comparable = (a.opponent.weightsSha256 || a.opponent.id) === (b.opponent.weightsSha256 || b.opponent.id) &&
+      a.engineHash === b.engineHash && a.config.maxTurns === b.config.maxTurns;
+    const matched = comparable ? compareRuns(...await Promise.all([benchmarkMatches(id), benchmarkMatches(baseline)])) : null;
+    return send(res, 200, { comparable, matched });
+  }
+  if (pathname === '/api/benchmarks/matches') {
+    const all = await benchmarkMatches(id);
+    const map = params.get('map');
+    const outcome = params.get('outcome');
+    const matches = all.filter(row => (!map || row.mapId === map) && (!outcome ||
+      (outcome === 'win' ? row.winnerSeat === row.candidateSeat : outcome === 'issue'
+        ? row.status !== 'completed' || row.invalid?.length : row.status === 'completed' && row.winnerSeat !== row.candidateSeat)));
+    const page = Math.max(1, Math.min(Math.ceil(matches.length / 30), Number(params.get('page')) || 1));
+    return send(res, 200, { page, total: matches.length, matches: matches.slice((page - 1) * 30, page * 30)
+      .map(({ standings, ...match }) => ({ ...match, standings: standings?.map(({ seat, vp, rank }) => ({ seat, vp, rank })) })) });
+  }
+  if (pathname === '/api/benchmarks/match') {
+    const matchId = Number(params.get('match'));
+    const result = (await benchmarkMatches(id))[matchId - 1];
+    if (!result) return send(res, 404, { error: 'Match not found' });
+    const replay = result.hasReplay ? await readBenchmark(id, matchId) : null;
+    return send(res, 200, { result, replay });
+  }
+  return send(res, 404, { error: 'Not found' });
+}
+
 function send(res, status, data) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -368,9 +506,12 @@ async function handle(req, res) {
     if (pathname === '/app.js') return staticFile(res, 'app.js', 'text/javascript; charset=utf-8');
     if (pathname === '/analytics') return staticFile(res, 'analytics.html', 'text/html; charset=utf-8');
     if (pathname === '/analytics.js') return staticFile(res, 'analytics.js', 'text/javascript; charset=utf-8');
+    if (pathname === '/benchmarks') return staticFile(res, 'benchmarks.html', 'text/html; charset=utf-8');
+    if (pathname === '/benchmarks.js') return staticFile(res, 'benchmarks.js', 'text/javascript; charset=utf-8');
     if (pathname === '/progression.js') return staticFile(res, 'progression.js', 'text/javascript; charset=utf-8');
     if (pathname === '/style.css') return staticFile(res, 'style.css', 'text/css; charset=utf-8');
     if (pathname.startsWith('/api/analytics/')) return analytics(res, pathname, searchParams);
+    if (pathname.startsWith('/api/benchmarks/')) return benchmarkApi(res, pathname, searchParams);
     if (pathname === '/api/status') return send(res, 200, await trainerStatus());
     if (pathname === '/api/weights' || pathname === '/api/weights/download') {
       const runId = searchParams.get('run');
@@ -392,7 +533,7 @@ async function handle(req, res) {
   if (req.headers.origin !== `http://${expectedHost}` || req.headers['x-hex-trainer-token'] !== CSRF_TOKEN) {
     return send(res, 403, { error: 'Invalid local request token or origin' });
   }
-  const maxBytes = pathname === '/api/weights/upload' ? 256 * 1024 : 32 * 1024;
+  const maxBytes = ['/api/weights/upload', '/api/benchmarks/import'].includes(pathname) ? 256 * 1024 : 32 * 1024;
   let bytes = 0;
   const content = [];
   for await (const part of req) {
@@ -403,6 +544,12 @@ async function handle(req, res) {
   let payload = {};
   try { payload = bytes ? JSON.parse(Buffer.concat(content).toString('utf8')) : {}; } catch (_) { return send(res, 400, { error: 'Invalid JSON' }); }
   try {
+    if (pathname === '/api/benchmarks/start') return send(res, 202, startBenchmark(payload));
+    if (pathname === '/api/benchmarks/stop') {
+      if (benchmarkJob?.state === 'running') benchmarkJob.controller.abort();
+      return send(res, 200, { ok: true });
+    }
+    if (pathname === '/api/benchmarks/import') return send(res, 200, await addBenchmarkModel(payload));
     if (pathname === '/api/weights/upload') return send(res, 200, await importWeights(payload));
     if (pathname === '/api/settings') {
       if (active || checking || importing) throw new Error('Wait until the trainer is idle to save settings');
@@ -452,6 +599,7 @@ if (require.main === module) {
       console.error('Training is still running. Use Pause in the dashboard to save progress.');
       return;
     }
+    benchmarkJob?.controller.abort();
     server.close();
   });
 }

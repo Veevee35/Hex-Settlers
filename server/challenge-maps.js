@@ -112,6 +112,6 @@ function generateWeeklyMap(weekId, playerCount, generate) {
   return generateChallengeMap('weekly', weekId, playerCount, generate);
 }
 
-module.exports = { TIME_ZONE, CHALLENGE_COUNTS, FAMILIES, challengeDayId, challengeWeekId,
+module.exports = { TIME_ZONE, CHALLENGE_COUNTS, FAMILIES, challengeDayId, challengeWeekId, deterministicRandom,
   challengePeriodId, challengeScenario, challengeRules, generateChallengeMap, generateWeeklyMap,
   dailyChallengeAttemptKey, hasDailyChallengeAttempt };

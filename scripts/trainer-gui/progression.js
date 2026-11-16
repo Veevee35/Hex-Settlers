@@ -5,6 +5,7 @@ const trainingProgression = (() => {
     selectionScore: { label: 'Selection score', unit: 'points' },
     averageVictoryTurn: { label: 'Average victory turn', unit: 'turns' },
     averageWinnerMargin: { label: 'Average winner margin', unit: 'VP' },
+    openSkill: { label: 'OpenSkill ordinal', unit: 'rating points' },
   };
   const decimal = value => Number.isFinite(value) ? value.toFixed(2) : '—';
   const signed = new Intl.NumberFormat(undefined, { signDisplay: 'exceptZero', maximumFractionDigits: 2 });
@@ -54,10 +55,11 @@ const trainingProgression = (() => {
         ctx.fillText(decimal(value), left - 8, line);
       }
       ctx.textAlign = 'left';
-      ctx.fillText(`Gen ${first}`, left, height - 11);
+      const xLabel = metric === 'openSkill' ? 'Run' : 'Gen';
+      ctx.fillText(`${xLabel} ${first}`, left, height - 11);
       if (last !== first) {
         ctx.textAlign = 'right';
-        ctx.fillText(`Gen ${last}`, right, height - 11);
+        ctx.fillText(`${xLabel} ${last}`, right, height - 11);
       }
       ctx.beginPath();
       points.forEach((point, index) => {

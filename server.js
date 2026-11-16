@@ -147,6 +147,7 @@ const NATIVE_RULES = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_RULES === 'cpp'
   ? require('./server/native-rules') : null;
 const FAST_SELF_PLAY = LOCAL_SELF_PLAY && process.env.HEX_TRAINING_FAST === '1';
 const MANAGED_SELF_PLAY = LOCAL_SELF_PLAY && process.connected && process.env.HEX_TRAINING_MANAGED === '1';
+const BENCHMARK_WORKER = MANAGED_SELF_PLAY && process.env.HEX_BENCHMARK_WORKER === '1';
 const SELF_PLAY_TURN_LIMIT = MANAGED_SELF_PLAY ? Math.max(50, Math.floor(Number(process.env.MAX_TRAINING_TURNS || 900))) : Infinity;
 const SELF_PLAY_PRIORITIES = LOCAL_SELF_PLAY && process.env.NEURAL_AI_PRIORITIES
   ? priorityMultipliers(JSON.parse(process.env.NEURAL_AI_PRIORITIES)) : undefined;
@@ -294,6 +295,7 @@ function simulateRatingRebuild(settings) {
 }
 
 let NEURAL_AI_MODEL = null;
+let trainingAnchorModel;
 
 function createDefaultNeuralAiModel() {
   // Tiny MLP: own progress and opponent pressure -> 8 hidden -> 1 output.
@@ -3767,8 +3769,8 @@ function neuralFeaturesFromState(state, pid) {
   ];
 }
 
-function neuralModelPredict(features) {
-  const m = NEURAL_AI_MODEL && NEURAL_AI_MODEL.params ? NEURAL_AI_MODEL : createDefaultNeuralAiModel();
+function neuralModelPredict(features, model = NEURAL_AI_MODEL) {
+  const m = model?.params ? model : createDefaultNeuralAiModel();
   const prm = m.params;
   const hidden = [];
   for (let i = 0; i < prm.w1.length; i++) {
@@ -3782,29 +3784,30 @@ function neuralModelPredict(features) {
   return { hidden, out: neuralTanh(out) };
 }
 
-function neuralActionValue(state, pid, fallback = 0) {
+function neuralActionValue(state, pid, fallback = 0, model, priorities) {
   const feat = neuralFeaturesFromState(state, pid);
   if (state.phase === 'game-over' && state.winnerId) return state.winnerId === pid ? 1e9 : -1e9;
-  return neuralFeatureValue(feat, fallback);
+  return neuralFeatureValue(feat, fallback, model, priorities);
 }
 
-function neuralFeatureValue(feat, fallback = 0) {
-  const network = SELF_PLAY_PRIORITIES?.network ?? 1;
-  const denial = SELF_PLAY_PRIORITIES?.denial ?? 1;
-  const pred = network ? neuralModelPredict(feat).out : 0;
+function neuralFeatureValue(feat, fallback = 0, model, priorities) {
+  const network = priorities?.network ?? 1;
+  const denial = priorities?.denial ?? 1;
+  const pred = network ? neuralModelPredict(feat, model).out : 0;
   return pred * 1200 * network + Number(fallback || 0) - 400 * feat[12] ** 4 * denial - 160 * feat[15] * denial;
 }
 
 function neuralPlayersInGame(game) {
   return (game?.players || []).filter((player) => {
     if (!player || !player.isAI) return false;
+    if (game._trainingLearnerId && player.id !== game._trainingLearnerId) return false;
     const difficulty = String(player.aiDifficulty || game?.aiDifficulty || '').toLowerCase().replace(/-/g, '_');
     return difficulty === 'neural_net' || difficulty === 'neural';
   });
 }
 
 function recordNeuralAiTrainingSnapshot(game) {
-  if (!game || game._dryRun || neuralPlayersInGame(game).length === 0) return;
+  if (!LOCAL_SELF_PLAY || BENCHMARK_WORKER || !game || game._dryRun || neuralPlayersInGame(game).length === 0) return;
   if (!Object.prototype.hasOwnProperty.call(game, '_neuralTrainingTrace')) {
     // Training traces are intentionally non-enumerable so they are not copied
     // into lookahead games, active-room persistence, or client broadcasts.
@@ -3961,7 +3964,9 @@ function checkWin(room, state, pid) {
       try { persistUserStatsFromGame(room, state, pid); } catch (_) {}
       if (!(room && room._dryRun)) {
         try { sendGameResultSfx(room, state, pid); } catch (_) {}
-        try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
+        if (LOCAL_SELF_PLAY) {
+          try { trainNeuralAiFromFinishedGame(state); } catch (_) {}
+        }
       }
     }
   }
@@ -6557,9 +6562,9 @@ function startGame(room) {
     : '';
   pushLog(game, `Game started. Win: ${game.rules.victoryPointsToWin} VP â€¢ Discard limit: ${game.rules.discardLimit}${explorationStatus}.`, 'system');
 
-  // Randomize turn order (and starting player)
+  // Public games randomize order. Benchmark seats are already in start order.
   const order = room.players.map(p => p.id);
-  for (let i = order.length - 1; i > 0; i--) {
+  for (let i = room._benchmark ? 0 : order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     const tmp = order[i];
     order[i] = order[j];
@@ -6572,6 +6577,9 @@ function startGame(room) {
     game.ai = { nextAt: now() + 2600 };
   }
   game.turnOrder = order;
+  if (room._trainingAnchorModel) {
+    Object.defineProperty(game, '_trainingLearnerId', { value: order[room._trainingAnchorSeat] });
+  }
   game.currentPlayerId = order[0] || null;
   game.phase = 'setup1-settlement';
   game.message = `Setup: ${playerName(game, game.currentPlayerId)} place a settlement.`;
@@ -6643,7 +6651,9 @@ function startGame(room) {
   }
 
   // Development cards
-  game.devDeck = buildDevDeck(game.rules);
+  game.devDeck = room._benchmark
+    ? room._benchmark.withRandom(room._benchmark.deck, () => buildDevDeck(game.rules))
+    : buildDevDeck(game.rules);
 
   recomputeLongestRoad(game);
   computeVP(game);
@@ -7943,7 +7953,8 @@ if (kind === 'choose_production_gold') {
   if (kind === 'roll_dice') {
     if (game.phase !== 'main-await-roll') return { ok: false, error: 'Already rolled.' };
 
-    const { d1, d2, roll } = tutorialGuide.chooseTutorialDice(game, playerId) || rollDiceWithAlgorithm(game);
+    const { d1, d2, roll } = tutorialGuide.chooseTutorialDice(game, playerId) ||
+      (room._benchmark ? rollDiceWithAlgorithm(game, room._benchmark.dice) : rollDiceWithAlgorithm(game));
     game.lastRoll = { d1, d2, roll };
     game.diceStats = game.diceStats || emptyDiceStats();
     game.diceStats[roll] = (game.diceStats[roll] || 0) + 1;
@@ -8803,7 +8814,10 @@ function applyAction(room, playerId, action) {
   // replay patches are unnecessary and expensive for thousands of games.
   const captureReplay = !!(game && !AI_TRAINING_MODE && !room._dryRun && game.phase !== 'lobby');
   if (captureReplay) ensureReplay(game);
+  const benchmark = room._benchmark;
+  const before = benchmark?.beforeAction(game, playerId, action);
   const result = applyActionCore(room, playerId, action);
+  if (benchmark) benchmark.afterAction(game, playerId, action, result, before);
   if (room?.tutorial && result?.ok) prepareTutorialStarterKit(room.game);
   if (captureReplay && result && result.ok) {
     recordReplayStep(game, { actorId: playerId, action });
@@ -13419,6 +13433,22 @@ if (msg.type === 'create_tutorial_room') {
       return;
     }
 
+    if (msg.type === 'set_training_anchor') {
+      const seat = msg.seat;
+      const anchorPath = process.env.TRAINING_ANCHOR_MODEL;
+      if (!MANAGED_SELF_PLAY || !anchorPath || pid !== room.hostId || (room.game && room.game.phase !== 'lobby') ||
+          !Number.isInteger(seat) || seat < 0 || seat >= room.players.length || room.players.some(p => !p.isAI)) {
+        return sendJson(ws, { type: 'error', error: 'The frozen opponent is only available in local all-AI training lobbies.' });
+      }
+      try {
+        room._trainingAnchorModel = trainingAnchorModel ||= upgradeNeuralModel(JSON.parse(fs.readFileSync(anchorPath, 'utf8')));
+        room._trainingAnchorSeat = seat;
+        return sendJson(ws, { type: 'training_anchor', seat });
+      } catch (error) {
+        return sendJson(ws, { type: 'error', error: `Could not load frozen opponent: ${error.message}` });
+      }
+    }
+
     if (msg.type === 'get_training_receipt') {
       // Only the local, ephemeral training server exposes training accounting.
       // Never offer model status through production game WebSockets.
@@ -14979,10 +15009,17 @@ function handleAI(room) {
     try {
       const g = cloneGameForSimulation(game, action);
       const tmp = { game: g, _dryRun: true };
-      const r = applyAction(tmp, pid, action);
+      const r = probeAction(tmp, pid, action);
       return !!(r && r.ok);
     } catch (_) { return false; }
   };
+
+  function probeAction(target, pid, action) {
+    const benchmark = room._benchmark;
+    return benchmark
+      ? benchmark.withRandom(benchmark.probe, () => applyAction(target, pid, action))
+      : applyAction(target, pid, action);
+  }
 
   const aiFastMode = String(process.env.AI_FAST || '').toLowerCase() === '1';
 
@@ -15004,6 +15041,7 @@ function handleAI(room) {
   const getAIDifficulty = (pid) => {
     const p = playerById(game, pid);
     const raw = String((p && p.aiDifficulty) || game.aiDifficulty || room.aiDifficulty || 'easy').toLowerCase();
+    if (room._benchmark && raw === 'benchmark_random') return raw;
     if (raw === 'expert' || raw === 'expert_ai' || raw === 'expert ai') return 'neural_net';
     if (raw === 'catanatron') return 'hard';
     if (raw === 'easy' || raw === 'medium' || raw === 'hard' || raw === 'test' || raw === 'neural_net') return raw;
@@ -15013,7 +15051,13 @@ function handleAI(room) {
     return 'easy';
   };
 
-  const aiBudgetFor = (diff) => (diff === 'catanatron' || diff === 'neural_net') ? ((process.env.AI_TRAINING === '1' && process.env.NODE_ENV === 'test' && HOST === '127.0.0.1') ? Math.max(2, Math.min(8, Number(process.env.TRAINING_AI_ACTION_BUDGET || 4))) : 8) : (diff === 'hard') ? 3 : (diff === 'medium') ? 2 : (diff === 'easy') ? 1 : 0;
+  const aiBudgetFor = (diff) => {
+    if (diff === 'neural_net' || diff === 'catanatron') {
+      return LOCAL_SELF_PLAY && !BENCHMARK_WORKER && !game._trainingLearnerId
+        ? Math.max(2, Math.min(8, Number(process.env.TRAINING_AI_ACTION_BUDGET || 4))) : 8;
+    }
+    return { hard: 3, medium: 2, easy: 1, benchmark_random: 3 }[diff] || 0;
+  };
 
   const DICE_PIPS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
@@ -15593,12 +15637,15 @@ function handleAI(room) {
   const simulateAction = (pid, action) => {
     const clonedGame = cloneGameForSimulation(game, action);
     const tmpRoom = { game: clonedGame, _dryRun: true, aiDifficulty: room.aiDifficulty };
-    const r = applyAction(tmpRoom, pid, action);
+    const r = probeAction(tmpRoom, pid, action);
     if (r && r.ok) return clonedGame;
     return null;
   };
 
   const thiefBaseFeatures = new Map();
+  const usesAnchor = pid => game._trainingLearnerId && game._trainingLearnerId !== pid;
+  const policyModel = pid => usesAnchor(pid) ? room._trainingAnchorModel : room._benchmark?.models[pid];
+  const policyPriorities = pid => usesAnchor(pid) ? undefined : SELF_PLAY_PRIORITIES;
   const scoreThiefMove = (pid, kind, tileId, tacticalScore) => {
     if (getAIDifficulty(pid) !== 'neural_net') return tacticalScore;
     // The candidate lists already enforce legal destinations. A thief move
@@ -15606,10 +15653,10 @@ function handleAI(room) {
     // input directly instead of cloning and applying every candidate move.
     if (!thiefBaseFeatures.has(pid)) thiefBaseFeatures.set(pid, neuralFeaturesFromState(game, pid));
     const base = thiefBaseFeatures.get(pid);
-    if (kind === 'move_pirate') return tacticalScore + neuralFeatureValue(base) / 20;
+    if (kind === 'move_pirate') return tacticalScore + neuralFeatureValue(base, 0, policyModel(pid), policyPriorities(pid)) / 20;
     const projected = { ...game, geom: { ...game.geom, tiles: game.geom.tiles.map(tile => ({ ...tile, robber: tile.id === tileId })) } };
     const features = [...base.slice(0, 12), ...opponentFeatures(projected, pid)];
-    return tacticalScore + neuralFeatureValue(features) / 20;
+    return tacticalScore + neuralFeatureValue(features, 0, policyModel(pid), policyPriorities(pid)) / 20;
   };
 
   const chooseBestActionCatanatron = (pid, preferExplore, mem) => {
@@ -15727,7 +15774,9 @@ function handleAI(room) {
     const p = playerById(game, pid);
     if (!p) return null;
 
-    const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid, SELF_PLAY_PRIORITIES));
+    const model = policyModel(pid);
+    const priorities = policyPriorities(pid);
+    const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid, priorities), model, priorities);
     const candidates = [];
     const spotsBefore = listSettlementPlacements(pid).length;
     const vpGap = Math.max(0, Number(game.rules?.victoryPointsToWin || 10) - Number(p.vp || 0));
@@ -15789,8 +15838,8 @@ function handleAI(room) {
       // fog is also discoverable, not only edge-adjacent fog.
       const fogRevealed = isRoute ? (game.geom.tiles || []).reduce((count, tile, index) =>
         count + (tile?.fog && !tile.revealed && sim.geom?.tiles?.[index]?.revealed ? 1 : 0), 0) : 0;
-      let score = neuralActionValue(sim, pid, stateValueFor(sim, pid, SELF_PLAY_PRIORITIES));
-      score += vpGain * 300 * (SELF_PLAY_PRIORITIES?.victory ?? 1);
+      let score = neuralActionValue(sim, pid, stateValueFor(sim, pid, priorities), model, priorities);
+      score += vpGain * 300 * (priorities?.victory ?? 1);
       score += strategicNeuralBonus({
         kind: act.kind,
         siteScore: preservedSiteScore ?? ((act.kind === 'upgrade_city') ? nodeStrategicScore(pid, act.nodeId) : 0),
@@ -15806,7 +15855,7 @@ function handleAI(room) {
         ownsLargestArmy: game.largestArmy?.playerId === pid,
         vpGap,
         devDeckSize: (game.devDeck || []).length,
-      }, SELF_PLAY_PRIORITIES);
+      }, priorities);
       if (act.kind === 'bank_trade') {
         // Trading is a preparatory action, never an end in itself. A neutral
         // swap can look positive to the neural feature extractor, but burns
@@ -15965,6 +16014,7 @@ function handleAI(room) {
     const ranked = nodeIds
       .map(nid => ({ nid, score: nodeStrategicScore(pid, nid, { setup: true }) }))
       .sort((a, b) => b.score - a.score);
+    if (getAIDifficulty(pid) === 'benchmark_random') shuffle(ranked);
     for (const { nid } of ranked) {
       if (!aiCan(pid, { kind: 'place_settlement', nodeId: nid })) continue;
       const r = applyAction(room, pid, { kind: 'place_settlement', nodeId: nid });
@@ -15998,6 +16048,7 @@ function handleAI(room) {
       }
     }
     scored.sort((a, b) => b.score - a.score);
+    if (getAIDifficulty(pid) === 'benchmark_random') shuffle(scored);
     for (const item of scored) {
       const r = applyAction(room, pid, item.action);
       if (r && r.ok) { delay(240, 420); return true; }
@@ -16158,6 +16209,35 @@ function handleAI(room) {
 
     const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
     const hasFreeRoutes = hasRoadBuildingPlacement(game, pid);
+
+    // Random baseline samples legal choices within the same action phases.
+    if (diff === 'benchmark_random') {
+      const choices = [{ kind: 'end_turn' }];
+      if (canAfford(p.resources, BUILD_COSTS.city)) {
+        choices.push(...listCityUpgrades(pid).map(nodeId => ({ kind: 'upgrade_city', nodeId })));
+      }
+      if (canAfford(p.resources, BUILD_COSTS.settlement)) {
+        choices.push(...listSettlementPlacements(pid).map(({ id: nodeId }) => ({ kind: 'place_settlement', nodeId })));
+      }
+      if (hasFreeRoutes || canAfford(p.resources, BUILD_COSTS.road)) {
+        choices.push(...listRoadEdges(pid).map(edgeId => ({ kind: 'place_road', edgeId })));
+      }
+      if (isSeafarers && (hasFreeRoutes || canAfford(p.resources, BUILD_COSTS.ship))) {
+        choices.push(...listShipEdges(pid).map(edgeId => ({ kind: 'place_ship', edgeId })));
+      }
+      if (canAfford(p.resources, DEV_CARD_COST) && game.devDeck.length) choices.push({ kind: 'buy_dev_card' });
+      const devAction = chooseDevPlayAction(pid, 'main-actions');
+      if (devAction) choices.push(devAction);
+      for (const action of shuffle(choices)) {
+        if (!aiCan(pid, action)) continue;
+        if (applyAction(room, pid, action)?.ok) {
+          mem.actions++;
+          delay(220, 360);
+          return true;
+        }
+      }
+      return false;
+    }
 
     // Expert/Neural: try one-step lookahead chooser first.
     if (diff === 'catanatron' || diff === 'neural_net') {
@@ -16478,18 +16558,36 @@ function fatalShutdown(kind, error) {
   });
 }
 
+function benchmarkExpansionSites(game, pid, requireAffordable) {
+  if (requireAffordable && !canAfford(playerById(game, pid)?.resources || {}, BUILD_COSTS.settlement)) return [];
+  if (countPiecesOnBoard(game, pid).settlements >= PIECE_LIMITS.settlements) return [];
+  const { tiles, nodes, nodeAdjTiles, nodeEdges, edges } = game.geom;
+  const coastal = tiles.some(tile => tile.type === 'sea');
+  const shipsAllowed = game.rules?.mapMode === 'seafarers';
+  return nodes.filter(node => node && !node.building && isNodeOnBoard(game, node.id) && settlementDistanceOk(game, node.id) &&
+    (!coastal || nodeAdjTiles[node.id].some(tile => tiles[tile]?.type !== 'sea')) &&
+    nodeEdges[node.id].some(edgeId => edges[edgeId]?.roadOwner === pid || (shipsAllowed && edges[edgeId]?.shipOwner === pid)))
+    .map(node => node.id);
+}
+
 process.on('SIGINT', () => { void gracefulShutdown(0); });
 process.on('SIGTERM', () => { void gracefulShutdown(0); });
 process.on('message', (message) => {
   if (message && message.type === 'shutdown') void gracefulShutdown(0);
 });
-if (LOCAL_SELF_PLAY && process.connected) process.once('disconnect', () => { void gracefulShutdown(0); });
+if (BENCHMARK_WORKER) {
+  const { attachBenchmarkWorker } = require('./scripts/benchmark-engine');
+  attachBenchmarkWorker({ startGame, handleAI, expansionSites: benchmarkExpansionSites,
+    rules: DEFAULT_RULES, colors: COLORS, buildId: SERVER_BUILD_ID });
+} else if (LOCAL_SELF_PLAY && process.connected) {
+  process.once('disconnect', () => { void gracefulShutdown(0); });
+}
 process.on('uncaughtException', (error) => fatalShutdown('Uncaught exception', error));
 process.on('unhandledRejection', (error) => fatalShutdown('Unhandled rejection', error));
 server.on('error', (error) => fatalShutdown('HTTP server error', error));
 wss.on('error', (error) => fatalShutdown('WebSocket server error', error));
 
-ensureBuiltInAdminAccount().then(() => {
+if (!BENCHMARK_WORKER) ensureBuiltInAdminAccount().then(() => {
   server.listen(MANAGED_SELF_PLAY ? 0 : PORT, HOST, () => {
     captureGameAnalytics();
     const port = server.address().port;

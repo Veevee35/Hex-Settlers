@@ -7,9 +7,10 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if not exist "node_modules\ws\package.json" (
+node -e "require('ws'); require('openskill')" >nul 2>nul
+if errorlevel 1 (
   echo Installing training dependencies with npm ci...
-  call npm ci
+  call npm ci --include=dev
   if errorlevel 1 (
     echo Dependency install failed. Verify internet access and try again.
     pause

@@ -19,6 +19,7 @@
     "train:neural": "node scripts/train_neural_ai_all_maps.js",
     "train:neural:smoke": "node scripts/train_neural_ai_smoke.js",
     "train:neural:distributed": "node scripts/train_neural_ai_distributed.js",
+    "benchmark:neural": "node scripts/neural-benchmark.js",
     "train:neural:evolutionary": "node scripts/train_neural_ai_evolutionary.js",
     "test:neural": "node --test test/neural-strategy.test.js test/neural-trainer-recovery.test.js test/neural-training-commit.test.js test/neural-gpu-gui.test.js",
     "test:games:100": "node scripts/validate_100_full_games.js",
@@ -32,6 +33,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "openskill": "4.1.1",
     "typescript": "^5.9.3"
   }
 }

@@ -14,6 +14,7 @@
     <div class="brand"><span class="hex-mark">⬡</span><div><strong>HEX SETTLERS</strong><small>TRAINING CONSOLE</small></div></div>
     <a class="nav-item" href="/" aria-label="Training dashboard"><span aria-hidden="true">◈</span> Training dashboard</a>
     <a class="nav-item chosen" href="/analytics" aria-current="page" aria-label="Training analytics"><span aria-hidden="true">▤</span> Training analytics</a>
+    <a class="nav-item" href="/benchmarks"><span aria-hidden="true">◉</span> AI benchmarking</a>
   </aside>
   <main class="main analytics">
     <header class="top">
@@ -35,7 +36,7 @@
       </section>
       <section class="panel progression-panel" aria-labelledby="trend-title">
         <div class="panel-heading">
-          <div><h2 id="trend-title">Generation trend</h2><p class="muted">Selection score = average winner margin − average victory turn ÷ 10. Higher scores rank first in self-play.</p></div>
+          <div><h2 id="trend-title">Self-play trend</h2><p class="muted">The self-play score combines victory margin and speed. Champion qualification appears in AI benchmarking.</p></div>
           <div class="field trend-metric"><label for="chart-metric">Chart metric</label><select id="chart-metric">
             <option value="selectionScore">Selection score</option><option value="averageVictoryTurn">Average victory turn</option><option value="averageWinnerMargin">Average winner margin</option>
           </select></div>
@@ -58,7 +59,7 @@
           </div>
         </section>
         <section class="panel">
-          <div class="panel-heading"><h2>Generation winners</h2></div>
+          <div class="panel-heading"><h2>Generation candidates</h2></div>
           <div class="table-scroll generation-scroll" tabindex="0" aria-label="Generation winners">
             <table aria-label="Generation winners">
               <thead><tr><th>Generation</th><th>Candidate</th><th>Score</th><th>Avg. turns</th><th>Avg. margin</th></tr></thead>
@@ -69,6 +70,7 @@
       </div>
       <section class="panel" id="match-explorer" aria-labelledby="match-explorer-title">
         <div class="panel-heading"><h2 id="match-explorer-title" tabindex="-1">Match explorer</h2></div>
+        <div id="benchmark-evaluation" class="note" hidden></div>
         <div class="analytics-filters">
           <div class="field"><label for="generation">Generation</label><select id="generation"></select></div>
           <div class="field"><label for="candidate">Candidate</label><select id="candidate"></select></div>

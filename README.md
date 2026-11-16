@@ -191,3 +191,20 @@ See [`V1.0.52_NEURAL_TRAINER_DESKTOP_REPAIR.md`](V1.0.52_NEURAL_TRAINER_DESKTOP_
 ## Local neural training dashboard (V1.0.55)
 
 Double-click **`Start-Neural-Trainer.cmd`** on Windows to open the local GUI for evolutionary self-play, optional CUDA batch refinement, checkpointing, live logs, and pause/resume. See [V1.0.55_LOCAL_NEURAL_TRAINER_CUDA_GUI.md](V1.0.55_LOCAL_NEURAL_TRAINER_CUDA_GUI.md).
+
+### Benchmark Expert AI checkpoints
+
+Open **AI benchmarking** in the local trainer. Choose a candidate and a reference such as the current local Expert, a previous checkpoint, Hard, or the random-action baseline. Use **Add model JSON** to register an exported production snapshot or experimental weights for evaluation. Each map seed rotates the candidate through every starting seat. The 100-game quick, 1,000-game checkpoint, and 5,000-game release budgets round up to complete rotations. Release covers standard scenarios for 4–8 players and generates a fresh seed namespace by default. Use the same reference and seed for a paired comparison between candidates.
+
+```powershell
+npm run benchmark:neural -- path/to/candidate.json neural_ai_model.json checkpoint
+npm run benchmark:neural -- path/to/candidate.json rules release
+```
+
+The tab shows win rate and a seat-block 95% confidence interval, OpenSkill by player count, scenario breakdowns, and strategy and throughput statistics. In the match explorer, you can step through saved actions and download a replay with the initial board. Reports, compressed match records, replays, and original model snapshots are stored under `scripts/output/benchmarks`. The benchmark runs the JavaScript game engine and captures worker CPU time, memory, and decision latency. It only loads frozen weights.
+
+New evolutionary runs use the competitive gate by default. Half the training curriculum places one learning seat against a frozen champion. The trainer screens candidates on matched boards at each generation boundary. It qualifies promising candidates on independent seeds and checks the leading clean candidate every fifth generation and at the end of the run. Promotion requires at least 1,000 champion games, a lead of at least two percentage points over the equal-policy result with a positive lower 99% confidence bound, and a matched check against Hard AI for scenario regressions. The gate allows up to 2% turn-limit draws and zero crashes, stalled games, or rejected moves. Close candidates can continue training while the local champion stays frozen. A confirmed competitive regression sends training back to the champion. Automatic screening retains match summaries and full action replays are saved for qualification and manual benchmarks.
+
+Production Expert weights come from the deployment’s model store. Local promotion updates the trainer’s model file, and ordinary live matches use frozen weights. Legacy saved training runs keep their original selection rule when resumed.
+
+The overnight preset uses 5,000 training games per generation, giving each candidate about 417 games before screening when running 12 candidates.

@@ -80,8 +80,9 @@ function trainingProgression(run) {
   const result = (async () => {
     const history = [...await previous];
     for (let generation = history.length + 1; generation <= run.generations; generation++) {
-      const { selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin } = await readSelection(run, generation);
-      history.push({ generation, selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin });
+      const { selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin, evaluation } = await readSelection(run, generation);
+      history.push({ generation, selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin,
+        ...(evaluation ? { qualification: { promoted: evaluation.promoted, report: evaluation.confirmation || evaluation.screened[0].report } } : {}) });
     }
     return history;
   })();

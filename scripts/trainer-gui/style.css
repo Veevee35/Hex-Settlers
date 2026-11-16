@@ -74,3 +74,12 @@ dialog::backdrop { background: #080d14bc; }
 .analytics pre, dialog pre { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; color: #b6d6d0; }
 @media(max-width:1300px) { .analytics-overview { grid-template-columns: minmax(0, 1fr); } }
 @media(max-width:520px) { .analytics .top > a { margin-top: 14px; } }
+.benchmark > .panel, .benchmark #report > .panel { margin-bottom: 17px; }
+.benchmark .metrics button { text-align: left; color: inherit; cursor: pointer; }
+.benchmark .metrics button:hover { border-color: var(--accent); }
+.benchmark .benchmark-scenarios { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 4px 12px; }
+.benchmark-check { display: flex; align-items: center; gap: 8px; margin: 9px 0; }
+.benchmark-check input { accent-color: var(--accent); }
+#match-explorer .form-grid, #replay, .benchmark #comparison, .benchmark #rating-status { margin-bottom: 12px; }
+#match-detail .analytics-detail { margin: 12px 0 0; }
+#match-detail #step { max-width: 65%; width: 350px; }

@@ -13,10 +13,13 @@ const ROOT = path.resolve(__dirname, '..');
 
 test('dashboard validates evolutionary parameters before launching children', () => {
   const baseline = { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, mapSet:'standard', rules:'auto', gpuMode:'auto', epochs: 3, miniBatch: 256, python:'python' };
-  const { candidatePriorities, victoryPoints, maxTurns, ...normalized } = normalize(baseline);
+  const { candidatePriorities, victoryPoints, maxTurns, benchmarkGames, ...normalized } = normalize(baseline);
   assert.deepEqual(normalized, baseline);
   assert.equal(victoryPoints, 0);
   assert.equal(maxTurns, 900);
+  assert.equal(benchmarkGames, 1000);
+  assert.equal(normalize({ ...baseline, benchmarkGames: 0 }).benchmarkGames, 0);
+  assert.throws(() => normalize({ ...baseline, benchmarkGames: 999 }), /benchmark budget/i);
   assert.deepEqual(candidatePriorities, Array.from({ length: 4 },
     () => Object.fromEntries(PRIORITIES.map(({ key }) => [key, 100]))));
   const custom = normalize({ ...baseline, candidatePriorities: [{ cities: 0 }, { cities: 175 }] });

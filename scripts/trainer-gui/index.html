@@ -16,18 +16,19 @@
     <a class="nav-item" href="#ai-priorities" aria-label="AI priorities"><span aria-hidden="true">⌁</span> AI priorities</a>
     <a class="nav-item" href="#model-weights" aria-label="Model weights"><span aria-hidden="true">▣</span> Model weights</a>
     <a class="nav-item" href="/analytics" aria-label="Training analytics"><span aria-hidden="true">▤</span> Training analytics</a>
+    <a class="nav-item" href="/benchmarks"><span aria-hidden="true">◉</span> AI benchmarking</a>
     <div class="rail-bottom"><span class="pulse"></span> LOCAL SYSTEM<br><small>No cloud connection · V1.0.55</small></div>
   </aside>
   <main class="main">
     <header class="top"><div><div class="eyebrow">LOCAL TRAINING ENVIRONMENT</div><h1>Neural training <em>control center</em></h1><p>Run evolutionary self-play, refine weights on CUDA, and recover from checkpoints.</p></div><div class="top-right"><span id="status-badge" class="state neutral">IDLE</span><span class="connection">● 127.0.0.1</span></div></header>
     <section class="metrics">
       <div class="metric"><span>SIMULATIONS COMPLETED</span><div><strong id="completed-count">0</strong><small id="target-count">/ 20,000</small></div><div class="bar"><i id="progress-bar"></i></div></div>
-      <div class="metric"><span>GENERATION</span><div><strong id="generation-count">0</strong><small id="generation-total">/ 20</small></div><small>Winning weights shared at each selection</small></div>
+      <div class="metric"><span>GENERATION</span><div><strong id="generation-count">0</strong><small id="generation-total">/ 20</small></div><small>Qualification controls champion promotion</small></div>
       <div class="metric"><span>TIME ELAPSED</span><div><strong id="elapsed-time">00:00:00</strong></div><small id="runtime-status">Awaiting training session</small><small class="runtime-rate" id="runtime-rate" hidden></small></div>
       <div class="metric"><span>TRAINED MODEL GAMES</span><div><strong id="trained-games">—</strong></div><small id="model-detail">Existing model is preserved</small></div>
     </section>
     <section class="panel progression-panel" aria-labelledby="progression-title">
-      <div class="panel-heading"><h2 id="progression-title">Current progression</h2><a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div>
+      <div class="panel-heading"><h2 id="progression-title">Current progression</h2><div class="progression-links"><a class="mini" id="qualification-link" href="/benchmarks" hidden>Benchmark result</a> <a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div></div>
       <p class="muted" id="progression-status">Progression appears after the first generation selects a model.</p>
       <div class="progression-layout" id="progression-results" hidden>
         <div>
@@ -37,7 +38,7 @@
             <div><dt>Victory turn change</dt><dd id="turn-change">—</dd></div>
             <div><dt>Winner margin change</dt><dd id="margin-change">—</dd></div>
           </dl>
-          <p class="muted">Changes use generation 1 as the baseline. The score rewards faster wins and wider margins in self-play. Playing strength against a fixed opponent is unmeasured.</p>
+          <p class="muted">Changes use generation 1 as the baseline. Visit AI benchmarking to measure playing strength against a fixed opponent.</p>
         </div>
         <div class="trend">
           <div class="trend-header"><strong>Selection score by generation</strong><span class="muted" id="best-score"></span></div>
@@ -70,6 +71,7 @@
               <div class="form-grid">
                 <div class="field"><label for="victoryPoints">Victory-point target</label><input type="number" id="victoryPoints" min="0" max="30" value="0"><small>0 uses each scenario’s target. Overrides range from 3 to 30.</small></div>
                 <div class="field"><label for="maxTurns">Maximum turns per game</label><input type="number" id="maxTurns" min="50" max="10000" value="900"><small>The trainer retries games that exceed this limit.</small></div>
+                <div class="field"><label for="benchmarkGames">Games per champion qualification</label><input type="number" id="benchmarkGames" min="0" max="10000" value="1000"><small>Use 1,000 or more for competitive selection. Set 0 to use legacy self-play selection.</small></div>
               </div>
             </details>
             <div class="note">19 standard map templates with 4, 6, or 8 AI seats. Each JavaScript candidate runs up to 2 games at once and saves a checkpoint after each batch of 50 games or fewer.</div>

@@ -120,6 +120,18 @@ async function loadGames() {
   const generation = Number(el('generation').value);
   const selection = summary.selections[generation - 1];
   renderTrend();
+  const evaluation = selection.evaluation;
+  const status = el('benchmark-evaluation');
+  status.hidden = !evaluation;
+  if (evaluation) {
+    const decision = evaluation.promoted ? `Champion promoted from candidate ${evaluation.promoted}.` : 'Champion retained.';
+    const reason = evaluation.reasons?.join(' ') || '';
+    const link = document.createElement('a');
+    link.className = 'mini';
+    link.href = `/benchmarks?${new URLSearchParams({ id: evaluation.confirmation || evaluation.screened[0].report })}`;
+    link.textContent = evaluation.confirmation ? 'View qualification' : 'View leading screening result';
+    status.replaceChildren(`${decision} ${reason} `, link);
+  }
   el('candidate-results').replaceChildren(...(selection.candidates || []).map(candidate => row([
     candidate.candidate === selection.selectedCandidate ? `Candidate ${candidate.candidate} · Selected` : `Candidate ${candidate.candidate}`,
     count(candidate.games), decimal(candidate.score), decimal(candidate.averageVictoryTurn),

@@ -1,13 +1,13 @@
 'use strict';
 const el = id => document.getElementById(id);
-const fields = ['sims','generation','shards','batch','concurrency','mapSet','rules','gpuMode','epochs','miniBatch','python','victoryPoints','maxTurns'];
-const runFields = ['sims','generation','shards','mapSet','rules','victoryPoints','maxTurns'];
+const fields = ['sims','generation','shards','batch','concurrency','mapSet','rules','gpuMode','epochs','miniBatch','python','victoryPoints','maxTurns','benchmarkGames'];
+const runFields = ['sims','generation','shards','mapSet','rules','victoryPoints','maxTurns','benchmarkGames'];
 const presets = {
-  smoke: { sims: 4, generation: 4, shards: 1, batch: 2, concurrency: 1, gpuMode: 'cpu' },
+  smoke: { sims: 4, generation: 4, shards: 1, batch: 2, concurrency: 1, gpuMode: 'cpu', benchmarkGames: 0 },
   trial: { sims: 100, generation: 50, shards: 2, batch: 10, concurrency: 2, gpuMode: 'cpu' },
   standard: { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, gpuMode: 'auto' },
   overnight: {
-    sims: 700000, generation: 2500, shards: 12, batch: 50, concurrency: 2,
+    sims: 700000, generation: 5000, shards: 12, batch: 50, concurrency: 2,
     rules: 'javascript', gpuMode: 'auto', epochs: 8, miniBatch: 256,
   },
 };
@@ -189,9 +189,12 @@ function showProgression(job, progression) {
   if (signature === progressionSignature) return;
   progressionSignature = signature;
   el('analytics-link').href = run ? `/analytics?${new URLSearchParams({ run })}` : '/analytics';
+  el('qualification-link').hidden = !latest?.qualification;
+  if (latest?.qualification) el('qualification-link').href = `/benchmarks?${new URLSearchParams({ id: latest.qualification.report })}`;
   el('progression-results').hidden = !latest;
+  const champion = latest?.qualification ? (latest.qualification.promoted ? ' · Champion promoted' : ' · Champion retained') : '';
   el('progression-status').textContent = latest
-    ? `${job ? 'Current session' : 'Most recent scored run'} · Generation ${numberFormat(latest.generation)} · ${run}`
+    ? `${job ? 'Current session' : 'Most recent scored run'} · Generation ${numberFormat(latest.generation)}${champion} · ${run}`
     : progression?.error || 'Progression appears after the first generation selects a model.';
   if (!latest) return;
   el('latest-score').textContent = trainingProgression.decimal(latest.selectionScore);
@@ -297,7 +300,7 @@ el('resume').addEventListener('change', () => {
 });
 el('preset').addEventListener('change', () => {
   const preset = presets[el('preset').value];
-  if (preset) setConfig({ mapSet: 'standard', victoryPoints: 0, maxTurns: 900, ...preset });
+  if (preset) setConfig({ mapSet: 'standard', victoryPoints: 0, maxTurns: 900, benchmarkGames: 1000, ...preset });
 });
 for (const key of fields) el(key).addEventListener('input', () => { el('preset').value = ''; });
 el('shards').addEventListener('input', renderPriorities);

@@ -25,6 +25,7 @@ const GAME_TIMEOUT_MS = Math.max(20_000, Math.floor(Number(process.env.GAME_TIME
 const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() === '1';
 const RESUME_TRAINING = process.env.RESUME_TRAINING === '1';
 const NATIVE_SELF_PLAY = process.env.HEX_TRAINING_RULES === 'cpp';
+const ANCHOR_MODEL = process.env.TRAINING_ANCHOR_MODEL || '';
 const GPU_TRAINING = String(process.env.TRAINING_ACCELERATOR || 'cpu').toLowerCase() === 'cuda';
 // A candidate's matches share one event loop and one online model.
 const CONCURRENCY = NATIVE_SELF_PLAY ? REQUESTED_CONCURRENCY : Math.min(2, REQUESTED_CONCURRENCY);
@@ -93,6 +94,7 @@ async function startTrainingServer(dataDir) {
       ...process.env,
       HOST: '127.0.0.1',
       DATA_DIR: dataDir,
+      RAILWAY_VOLUME_MOUNT_PATH: '',
       NODE_ENV: 'test',
       AI_FAST: '1',
       AI_TRAINING: '1',
@@ -383,6 +385,15 @@ async function runOneGame(port, token, item, signal) {
     if (seats.some(player => !player.isAI || player.aiDifficulty !== 'neural_net')) {
       throw new Error(`Trainer lobby has non-neural seats: ${seats.map(player => `${player.name}:${player.isAI ? player.aiDifficulty : 'human'}`).join(', ')}`);
     }
+    // Alternate ordinary self-play with a learner facing a frozen champion.
+    // Rotating learner seats and retaining self-play preserves data diversity.
+    const anchored = !!ANCHOR_MODEL && item.curriculumIndex % 2 === 1;
+    if (anchored) {
+      stage = 'set frozen opponent';
+      const seat = Math.floor(item.curriculumIndex / 2) % item.map.players;
+      peer.send({ type: 'set_training_anchor', seat });
+      await peer.waitFor(message => message.type === 'training_anchor' && message.seat === seat);
+    }
 
     stage = 'play';
     const gameStarted = performance.now();
@@ -446,6 +457,7 @@ async function runOneGame(port, token, item, signal) {
       mapId: item.map.id,
       mapLabel: item.map.label,
       players: item.map.players,
+      ...(anchored ? { anchored: true } : {}),
       victoryPointsToWin: victoryTarget,
       turnNumber: Number(state.turnNumber || 0),
       winner: String(winner?.name || winner?.id || 'unknown'),
@@ -579,6 +591,7 @@ async function main() {
   const started = performance.now();
   const startingModel = readModel(MODEL_PATH);
   let startingHash = modelHash(MODEL_PATH);
+  const anchorModelSha256 = ANCHOR_MODEL ? modelHash(ANCHOR_MODEL) : null;
   const scratch = path.resolve(process.env.TRAINING_SCRATCH || os.tmpdir());
   fs.mkdirSync(scratch, { recursive: true });
   const tempRoot = fs.mkdtempSync(path.join(scratch, 'hex-neural-curriculum-'));
@@ -603,6 +616,9 @@ async function main() {
     validateCheckpoint(checkpoint, startingTrainedGames, items, new Set(MAPS.map(map => map.id)), startingHash);
     if ((checkpoint.rules || 'javascript') !== rules) {
       throw new Error('Use the self-play rules backend from the saved checkpoint');
+    }
+    if ((checkpoint.anchorModelSha256 ?? null) !== anchorModelSha256) {
+      throw new Error('Use the frozen anchor model from the saved checkpoint');
     }
     results = checkpoint.games;
     gpuBatches.push(...(checkpoint.gpuBatches || []));
@@ -679,7 +695,7 @@ async function main() {
       await atomicWriteJson(checkpointPath, {
         startingTrainedGames, startingModelSha256: startingHash, totalGames: TOTAL_GAMES,
         mapSet: MAP_SET, curriculumOffset: CURRICULUM_OFFSET, model: latestModel, games: results,
-        mapHealth, rules, gpuBatches,
+        mapHealth, rules, gpuBatches, anchorModelSha256,
       });
       console.log(`[train] ${results.length}/${TOTAL_GAMES} checkpoint committed`);
       if (isPauseRequested()) {
@@ -701,6 +717,8 @@ async function main() {
       curriculumOffset: CURRICULUM_OFFSET,
       victoryPointsToWin: VP_TO_WIN_OVERRIDE || 'scenario-defaults',
       trainingObjective: TRAINING_OBJECTIVE,
+      anchorModelSha256,
+      anchoredGames: results.filter(game => game.anchored).length,
       mapSet: MAP_SET,
       accelerator: GPU_TRAINING ? 'cuda' : 'cpu',
       rules, gpuBatches,
