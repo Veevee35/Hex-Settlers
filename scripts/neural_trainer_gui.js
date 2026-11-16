@@ -16,7 +16,7 @@ const { atomicWriteJson } = require('./training-file');
 const { validateImportedModel, listWeightSnapshots } = require('./trainer-models');
 const {
   listTrainingRuns, openTrainingRun, trainingProgression, summarizeTrainingRun,
-  trainingGamePage, exportTrainingRun,
+  trainingGamePage, exportTrainingRun, styleBenchmarkProgression,
 } = require('./trainer-analytics');
 const { PRIORITIES, normalizeCandidatePriorities } = require('../server/neural-priorities');
 const {
@@ -36,7 +36,7 @@ const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const defaults = {
   sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2,
   mapSet: 'standard', rules: 'auto', gpuMode: 'auto', epochs: 3, miniBatch: 256, python: 'python',
-  victoryPoints: 0, maxTurns: 900, benchmarkGames: PROFILES.checkpoint,
+  victoryPoints: 0, maxTurns: 900, benchmarkGames: PROFILES.checkpoint, learningMode: 'actions', styleRotations: 2,
 };
 let saved = normalize(defaults);
 try { saved = normalize({ ...defaults, ...readJson(SETTINGS) }); } catch (_) { /* first launch */ }
@@ -71,9 +71,13 @@ function normalize(raw) {
   if (victoryPoints !== 0 && victoryPoints < 3) throw new Error('Victory target must be 0 (scenario default) or 3–30 points');
   const benchmarkGames = number('benchmarkGames', 0, MAX_GAMES, defaults.benchmarkGames);
   if (benchmarkGames && benchmarkGames < PROFILES.checkpoint) throw new Error('Benchmark budget must be 0 or at least 1,000 games');
+  const learningMode = raw.learningMode ?? defaults.learningMode;
+  if (!['actions', 'value'].includes(learningMode)) throw new Error('Invalid neural learning mode');
   return {
     sims, generation, shards, batch, concurrency, mapSet, rules,
     victoryPoints, benchmarkGames, maxTurns: number('maxTurns', 50, 10000, defaults.maxTurns),
+    learningMode: benchmarkGames ? learningMode : 'value',
+    styleRotations: number('styleRotations', 1, 10, defaults.styleRotations),
     candidatePriorities: normalizeCandidatePriorities(raw.candidatePriorities, shards),
     gpuMode, epochs: number('epochs', 1, 20, defaults.epochs),
     miniBatch: number('miniBatch', 16, 8192, defaults.miniBatch), python,
@@ -98,6 +102,8 @@ function listRuns() {
           victoryPoints: manifest.victoryPoints ?? defaults.victoryPoints,
           maxTurns: manifest.maxTurns ?? defaults.maxTurns,
           benchmarkGames: manifest.benchmark?.games || 0,
+          learningMode: manifest.learnActions ? 'actions' : 'value',
+          styleRotations: manifest.benchmark?.styleRotations || defaults.styleRotations,
           candidatePriorities: normalizeCandidatePriorities(manifest.candidatePriorities, manifest.shards),
         } : null,
       };
@@ -201,6 +207,8 @@ async function start(raw) {
       VP_TO_WIN: settings.victoryPoints ? String(settings.victoryPoints) : '',
       MAX_TRAINING_TURNS: String(settings.maxTurns),
       BENCHMARK_GAMES: String(settings.benchmarkGames),
+      TRAINING_ACTION_POLICY: settings.learningMode === 'actions' ? '1' : '0',
+      BENCHMARK_STYLE_ROTATIONS: String(settings.styleRotations),
       TRAINING_CANDIDATE_PRIORITIES: JSON.stringify(settings.candidatePriorities),
       MODEL_PATH: MODEL,
       HEX_TRAINING_RULES: native ? 'cpp' : 'javascript', HEX_TRAINING_FAST: '1',
@@ -269,7 +277,8 @@ function readModelOverview() {
   try {
     const m = readJson(MODEL);
     return { trainedGames: m.trainedGames, featureVersion: m.meta?.featureVersion,
-      lastCudaRefinement: m.meta?.lastCudaRefinement || null };
+      lastCudaRefinement: m.meta?.lastCudaRefinement || null,
+      policyDecisions: m.policy?.decisions };
   } catch (_) { return null; }
 }
 function weightSnapshots(runId) {
@@ -445,6 +454,12 @@ async function analytics(res, pathname, params) {
   const run = await openTrainingRun(OUTPUT, params.get('run'), { includeIncomplete: true });
   if (!run) return send(res, 404, { error: 'Training run not found' });
   if (pathname === '/api/analytics/summary') return send(res, 200, await summarizeTrainingRun(run));
+  if (pathname === '/api/analytics/styles') {
+    return send(res, 200, {
+      scenarios: SCENARIOS,
+      benchmarks: await styleBenchmarkProgression(run, id => readBenchmark(id, 'report', BENCHMARK_OUTPUT)),
+    });
+  }
   if (pathname === '/api/analytics/games') {
     const generation = Number(params.get('generation') || 1);
     const candidate = Number(params.get('candidate') || 0);

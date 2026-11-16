@@ -1,7 +1,7 @@
 'use strict';
 const el = id => document.getElementById(id);
-const fields = ['sims','generation','shards','batch','concurrency','mapSet','rules','gpuMode','epochs','miniBatch','python','victoryPoints','maxTurns','benchmarkGames'];
-const runFields = ['sims','generation','shards','mapSet','rules','victoryPoints','maxTurns','benchmarkGames'];
+const fields = ['sims','generation','shards','batch','concurrency','mapSet','rules','gpuMode','epochs','miniBatch','python','victoryPoints','maxTurns','benchmarkGames','learningMode','styleRotations'];
+const runFields = ['sims','generation','shards','mapSet','rules','victoryPoints','maxTurns','benchmarkGames','learningMode','styleRotations'];
 const presets = {
   smoke: { sims: 4, generation: 4, shards: 1, batch: 2, concurrency: 1, gpuMode: 'cpu', benchmarkGames: 0 },
   trial: { sims: 100, generation: 50, shards: 2, batch: 10, concurrency: 2, gpuMode: 'cpu' },
@@ -34,7 +34,7 @@ function toast(message) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => box.classList.remove('show'), 7000);
 }
 function config() {
-  const settings = Object.fromEntries(fields.map(key => [key, ['mapSet','rules','gpuMode','python'].includes(key) ? el(key).value : Number(el(key).value)]));
+  const settings = Object.fromEntries(fields.map(key => [key, ['mapSet','rules','gpuMode','python','learningMode'].includes(key) ? el(key).value : Number(el(key).value)]));
   settings.candidatePriorities = Array.from({ length: candidateCount() }, (_, index) => profiles[index] || {});
   return settings;
 }
@@ -190,12 +190,14 @@ function showProgression(job, progression) {
   if (signature === progressionSignature) return;
   progressionSignature = signature;
   el('analytics-link').href = run ? `/analytics?${new URLSearchParams({ run })}` : '/analytics';
+  el('styles-link').href = `${el('analytics-link').getAttribute('href')}#style-progression`;
   el('qualification-link').hidden = !latest?.qualification;
   if (latest?.qualification) el('qualification-link').href = `/benchmarks?${new URLSearchParams({ id: latest.qualification.report })}`;
   el('progression-results').hidden = !latest;
   const champion = latest?.qualification ? (latest.qualification.promoted ? ' · Champion promoted' : ' · Champion retained') : '';
+  const decisions = latest?.policyDecisions ? ` · ${numberFormat(latest.policyDecisions)} learned decisions` : '';
   el('progression-status').textContent = latest
-    ? `${job ? 'Current session' : 'Most recent scored run'} · Generation ${numberFormat(latest.generation)}${champion} · ${run}`
+    ? `${job ? 'Current session' : 'Most recent scored run'} · Generation ${numberFormat(latest.generation)}${champion}${decisions} · ${run}`
     : progression?.error || 'Progression appears after the first generation selects a model.';
   if (!latest) return;
   el('latest-score').textContent = trainingProgression.decimal(latest.selectionScore);
@@ -229,7 +231,8 @@ function update(job, model, progression) {
     el('runtime-rate').textContent = `${numberFormat(Math.round(rate))} games/hr · ~${Math.floor(minutes / 60)}h ${minutes % 60}m left`;
   }
   el('trained-games').textContent = model ? numberFormat(model.trainedGames) : '—';
-  el('model-detail').textContent = model?.lastCudaRefinement ? `Last GPU refinement: ${numberFormat(model.lastCudaRefinement.samples)} samples` : 'Current model weights';
+  el('model-detail').textContent = model?.policyDecisions ? `${numberFormat(model.policyDecisions)} learned action samples`
+    : model?.lastCudaRefinement ? `Last GPU refinement: ${numberFormat(model.lastCudaRefinement.samples)} samples` : 'Current model weights';
   el('phase').textContent = state === 'running' ? (job.lastCuda && /^(?:\[candidate \d+\] )?\[cuda\]/.test(job.logs?.at(-1)?.line || '') ? 'CUDA weight refinement' : 'CPU self-play / evaluation') : state === 'pausing' ? 'Checkpointing / stopping' : state;
   el('accelerator').textContent = job?.accelerator === 'cuda' ? 'NVIDIA CUDA + CPU self-play' : job ? 'CPU self-play and training' : '—';
   el('winner').textContent = job?.winner ? `Candidate ${job.winner}` : '—';
@@ -301,7 +304,7 @@ el('resume').addEventListener('change', () => {
 });
 el('preset').addEventListener('change', () => {
   const preset = presets[el('preset').value];
-  if (preset) setConfig({ mapSet: 'standard', victoryPoints: 0, maxTurns: 900, benchmarkGames: 1000, ...preset });
+  if (preset) setConfig({ mapSet: 'standard', victoryPoints: 0, maxTurns: 900, benchmarkGames: 1000, learningMode: preset.benchmarkGames === 0 ? 'value' : 'actions', ...preset });
 });
 for (const key of fields) el(key).addEventListener('input', () => { el('preset').value = ''; });
 el('shards').addEventListener('input', renderPriorities);

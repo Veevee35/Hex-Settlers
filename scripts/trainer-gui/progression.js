@@ -6,6 +6,11 @@ const trainingProgression = (() => {
     averageVictoryTurn: { label: 'Average victory turn', unit: 'turns' },
     averageWinnerMargin: { label: 'Average winner margin', unit: 'VP' },
     openSkill: { label: 'OpenSkill ordinal', unit: 'rating points' },
+    winRate: { label: 'Benchmark win rate', unit: '%' },
+    winsAboveEven: { label: 'Win rate above equal-policy odds', unit: 'pp' },
+    trainingGames: { label: 'Training games', unit: 'games' },
+    trainingDecisions: { label: 'Decision samples', unit: 'samples' },
+    meanPlace: { label: 'Mean finishing place', unit: 'place' },
   };
   const decimal = value => Number.isFinite(value) ? value.toFixed(2) : '—';
   const signed = new Intl.NumberFormat(undefined, { signDisplay: 'exceptZero', maximumFractionDigits: 2 });

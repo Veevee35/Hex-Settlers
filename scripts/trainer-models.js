@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { FEATURE_NAMES, upgradeNeuralModel } = require('../server/neural-objective');
+const { validatePolicy } = require('../server/neural-policy');
 const { assertFiniteModel } = require('./train_neural_ai_distributed');
 
 function validateImportedModel(value) {
@@ -25,6 +26,7 @@ function validateImportedModel(value) {
     ...(value.speedTraining && typeof value.speedTraining === 'object' && !Array.isArray(value.speedTraining)
       ? { speedTraining: value.speedTraining } : {}),
     params: { w1: w1.map(row => [...row]), b1, w2, b2 },
+    ...(value.policy !== undefined ? { policy: validatePolicy(value.policy) } : {}),
   };
   assertFiniteModel(model);
   return upgradeNeuralModel(model);

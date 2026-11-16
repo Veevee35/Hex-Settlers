@@ -7,7 +7,7 @@ const { execFileSync, fork } = require('node:child_process');
 const { createHash, randomUUID } = require('node:crypto');
 const { gzipSync, gunzipSync } = require('node:zlib');
 const { rating, rate, ordinal } = require('openskill');
-const { ALL_MAPS } = require('./train_neural_ai_all_maps');
+const { STYLE_MAPS } = require('./train_neural_ai_all_maps');
 const { validateImportedModel } = require('./trainer-models');
 const { atomicWriteJson, atomicWriteCompressedMatches } = require('./training-file');
 
@@ -16,9 +16,7 @@ const OPENSKILL_VERSION = require('../package.json').devDependencies.openskill;
 const OUTPUT = path.join(__dirname, 'output', 'benchmarks');
 const PROFILES = Object.freeze({ quick: 100, checkpoint: 1000, release: 5000 });
 const MAX_GAMES = 10000;
-const SCENARIOS = ALL_MAPS.filter(map => !map.customBuilder).flatMap(map => (
-  map.players === 4 ? [map] : [map, { ...map, id: `${map.id}_${map.players - 1}p`, players: map.players - 1 }]
-));
+const SCENARIOS = STYLE_MAPS.filter(map => !map.customBuilder);
 const REFERENCE_LOBBY = ['classic', 'four_islands', 'fog_island'];
 const readJson = async file => JSON.parse(await fs.readFile(file, 'utf8'));
 const hash = input => createHash('sha256').update(input).digest('hex');
@@ -134,7 +132,11 @@ async function registerPolicy(source, output = OUTPUT) {
   const bytes = source.bytes || (source.model ? Buffer.from(JSON.stringify(source.model)) : await fs.readFile(source.file));
   const model = validateImportedModel(JSON.parse(bytes));
   const id = hash(bytes);
-  const weightsSha256 = hash(JSON.stringify(model.params));
+  const weights = model.policy ? [model.params, model.policy.weights] : model.params;
+  if (model.policy?.styles && Object.keys(model.policy.styles).length) {
+    weights.push(Object.entries(model.policy.styles).sort(([a], [b]) => a.localeCompare(b)).map(([key, style]) => [key, style.weights]));
+  }
+  const weightsSha256 = hash(JSON.stringify(weights));
   const label = source.label || id.slice(0, 12);
   const archive = path.join(output, 'models', `${id}.json`);
   try { await fs.access(archive); }
@@ -314,7 +316,12 @@ async function runBenchmark(options) {
     if (!workerPool) pool.close();
   }
   const durationMs = Date.now() - started;
-  const publicPolicy = ({ model, ...policy }) => ({ ...policy, trainedGames: model?.trainedGames, objective: model?.meta?.trainingObjective, metadata: model?.meta });
+  const publicPolicy = ({ model, ...policy }) => ({ ...policy, trainedGames: model?.trainedGames,
+    objective: model?.meta?.policyObjective || model?.meta?.trainingObjective, metadata: model?.meta,
+    ...(model?.policy ? { actionLearning: { version: model.policy.version, decisions: model.policy.decisions,
+      games: model.policy.games, byPhase: model.policy.byPhase, byAction: model.policy.byAction,
+      styles: model.policy.styles && Object.fromEntries(Object.entries(model.policy.styles).map(([key, { games, decisions }]) =>
+        [key, { games, decisions }])) } } : {}) });
   const report = {
     id, config, context, revision, engineBuild, engineHash, workers, logicalCpus: os.availableParallelism(), rulesBackend: 'javascript',
     candidate: publicPolicy(challenger), opponent: publicPolicy(reference),

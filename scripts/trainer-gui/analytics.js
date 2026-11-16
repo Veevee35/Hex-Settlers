@@ -9,6 +9,8 @@ let page = 1;
 let runRequest = 0;
 let gameRequest = 0;
 const drawTrend = trainingProgression.chart(el('analytics-chart'));
+const drawStyleTrend = trainingProgression.chart(el('style-chart'));
+let styleData;
 
 async function get(endpoint, params = {}) {
   const response = await fetch(`/api/analytics/${endpoint}?${new URLSearchParams(params)}`);
@@ -88,6 +90,65 @@ function renderScenarios() {
     map.label, map.players, count(map.games), decimal(map.averageTurns), `${map.quickest}–${map.longest}`,
     decimal(map.averageMargin), count(map.gold), count(map.replacements),
   ])));
+}
+
+function renderStyleOptions() {
+  const count = Number(el('style-players').value);
+  const selected = el('style-scenario').value;
+  const scenarios = new Map(summary.maps.map(map => [map.mapId, { label: map.label, players: map.players }]));
+  for (const map of styleData?.scenarios || []) scenarios.set(map.id, map);
+  el('style-scenario').replaceChildren(option('All scenarios', ''),
+    ...[...scenarios.entries()].filter(([, map]) => !count || count === map.players)
+      .sort(([, a], [, b]) => a.label.localeCompare(b.label) || a.players - b.players)
+      .map(([id, map]) => option(`${map.label} · ${map.players} players`, id)));
+  if ([...el('style-scenario').options].some(item => item.value === selected)) el('style-scenario').value = selected;
+  renderStyles();
+}
+
+function renderStyles() {
+  const countFilter = el('style-players').value;
+  const map = el('style-scenario').value;
+  const metric = el('style-metric').value;
+  const group = item => map ? item?.byScenario?.[map] : countFilter ? item?.byPlayerCount?.[countFilter] : item?.all;
+  const entries = styleData?.benchmarks || [];
+  const fixed = entries.filter(entry => entry.kind === 'fixed');
+  const series = fixed.length ? fixed : entries;
+  const byGen = new Map(series.map(entry => [entry.generation, entry]));
+  const seats = Number(countFilter) || styleData?.scenarios.find(item => item.id === map)?.players ||
+    summary.maps.find(item => item.mapId === map)?.players;
+  const percent = value => Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '—';
+  const percentage = value => Number.isFinite(value) ? 100 * value : null;
+  const points = (summary.styleTraining || []).map(gen => {
+    const training = group(gen);
+    const report = byGen.get(gen.generation);
+    const benchmark = group(report);
+    const rate = benchmark?.winRate?.estimate;
+    const even = benchmark?.equalPolicyWinRate ?? (seats ? 1 / seats : null);
+    return { generation: gen.generation, report, benchmark, training, even,
+      winRate: percentage(rate), meanPlace: benchmark?.meanPlace,
+      winsAboveEven: Number.isFinite(rate) && Number.isFinite(even) ? 100 * (rate - even) : null,
+      trainingGames: training?.games, trainingDecisions: training?.decisions };
+  });
+  el('style-results').replaceChildren(...points.slice().reverse().map(point => {
+    const { generation, report, benchmark, training, even } = point;
+    const link = document.createElement('a');
+    if (benchmark) {
+      link.href = `/benchmarks?${new URLSearchParams({ id: report.id })}`;
+      link.className = 'mini';
+      link.textContent = report.early ? 'Early confirmation' : report.kind === 'fixed' ? 'Fixed reference' : 'Champion check';
+    }
+    return row([generation, count(training?.games), count(training?.decisions), benchmark ? link : '—',
+      benchmark ? `${count(benchmark.wins)} / ${count(benchmark.games)}` : '—',
+      benchmark ? `${percent(benchmark.winRate.estimate)} (${percent(benchmark.winRate.low)} to ${percent(benchmark.winRate.high)})` : '—',
+      benchmark ? percent(even) : '—', decimal(benchmark?.meanPlace)]);
+  }));
+  drawStyleTrend(points, metric);
+  const recorded = points.filter(point => point.benchmark).length;
+  const revisions = new Set(series.map(entry => entry.engineHash).filter(Boolean)).size;
+  el('style-status').textContent = !styleData ? 'Loading benchmark history…' : !recorded
+    ? 'This play style has no benchmark results in the selected run.'
+    : fixed.length ? `${count(recorded)} ${recorded === 1 ? 'generation' : 'generations'} measured against the starting model on the same seeded boards and seats.${revisions > 1 ? ` This run spans ${revisions} engine revisions.` : ''}`
+      : `${count(recorded)} archived champion checks. The champion and board seeds can vary across generations.`;
 }
 
 function renderTrend() {
@@ -181,7 +242,8 @@ async function loadRun() {
     const data = await get('summary', { run });
     if (request !== runRequest) return;
     summary = data;
-    history.replaceState(null, '', `/analytics?${new URLSearchParams({ run })}`);
+    styleData = null;
+    history.replaceState(null, '', `/analytics?${new URLSearchParams({ run })}${location.hash}`);
     if (!data.selections.length) {
       el('run-status').textContent = 'Waiting for the first generation to select a model. Refresh results to check for new selections.';
       return;
@@ -206,12 +268,22 @@ async function loadRun() {
     el('generation').replaceChildren(...data.selections.map(selection => option(`Generation ${selection.generation}`, selection.generation)));
     el('candidate').replaceChildren(option('All candidates', 0),
       ...Array.from({ length: data.manifest.shards }, (_, index) => option(`Candidate ${index + 1}`, index + 1)));
-    el('map').replaceChildren(option('All scenarios', ''), ...data.maps.map(map => option(map.label, map.mapId)));
+    el('map').replaceChildren(option('All scenarios', ''), ...data.maps.map(map =>
+      option(map.players ? `${map.label} · ${map.players} players` : map.label, map.mapId)));
     const generation = followLatest ? data.selections.at(-1).generation : previousGeneration;
     el('generation').value = String(generation);
     el('candidate').value = candidate;
     el('map').value = data.maps.some(map => map.mapId === mapId) ? mapId : '';
     el('results').hidden = false;
+    renderStyleOptions();
+    if (!sameRun && location.hash === '#style-progression') el('style-progression').scrollIntoView();
+    void get('styles', { run }).then(styles => {
+      if (request !== runRequest) return;
+      styleData = styles;
+      renderStyleOptions();
+    }).catch(error => {
+      if (request === runRequest) el('style-status').textContent = error.message;
+    });
     if (!sameRun || generation !== previousGeneration) page = 1;
     await loadGames();
   } catch (error) {
@@ -247,6 +319,9 @@ el('run').addEventListener('change', loadRun);
 el('refresh-run').addEventListener('click', () => void loadRuns(el('run').value));
 el('chart-metric').addEventListener('change', renderTrend);
 el('scenario-sort').addEventListener('change', renderScenarios);
+el('style-players').addEventListener('change', renderStyleOptions);
+el('style-scenario').addEventListener('change', renderStyles);
+el('style-metric').addEventListener('change', renderStyles);
 for (const id of ['generation', 'candidate', 'map']) {
   el(id).addEventListener('change', () => { page = 1; void loadGames(); });
 }

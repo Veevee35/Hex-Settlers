@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { atomicWriteJson, atomicWriteBytes, atomicWriteGameReport } = require('./training-file');
 const { TRAINING_OBJECTIVE, upgradeNeuralModel } = require('../server/neural-objective');
+const { POLICY_OBJECTIVE } = require('../server/neural-policy');
 const { normalizeCandidatePriorities } = require('../server/neural-priorities');
 const { assertFiniteModel, summarizeGames } = require('./train_neural_ai_distributed');
 const { benchmarkSelection, QUALIFICATION_GAMES } = require('./benchmark-selection');
@@ -25,6 +26,7 @@ const RULES = process.env.HEX_TRAINING_RULES === 'cpp' ? 'cpp' : 'javascript';
 const VICTORY_POINTS = Number(process.env.VP_TO_WIN || 0);
 const MAX_TURNS = Number(process.env.MAX_TRAINING_TURNS || 900);
 const BENCHMARK_GAMES = Number(process.env.BENCHMARK_GAMES ?? QUALIFICATION_GAMES);
+const STYLE_ROTATIONS = Number(process.env.BENCHMARK_STYLE_ROTATIONS ?? 2);
 const PRIORITIES = normalizeCandidatePriorities(JSON.parse(process.env.TRAINING_CANDIDATE_PRIORITIES || '[]'), SHARDS);
 const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
 const isPaused = () => { try { return !!CONTROL_FILE && JSON.parse(fs.readFileSync(CONTROL_FILE, 'utf8')).pause === true; } catch (_) { return false; } };
@@ -44,7 +46,7 @@ function performance(report) {
   return { averageTurn, averageMargin, score: averageMargin - averageTurn / 10 };
 }
 
-function runCandidate(candidate, generationStart, totalProgress, activeChildren, championPath) {
+function runCandidate(candidate, generationStart, totalProgress, activeChildren, championPath, learnActions, learnStyles) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [TRAINER], {
       cwd: ROOT,
@@ -59,6 +61,8 @@ function runCandidate(candidate, generationStart, totalProgress, activeChildren,
         CONCURRENCY: String(CONCURRENCY),
         MAP_SET,
         TRAINING_ANCHOR_MODEL: championPath || '',
+        TRAINING_ACTION_POLICY: learnActions ? '1' : '0',
+        TRAINING_STYLE_POLICY: learnStyles ? '1' : '0',
         RESUME_TRAINING: '1',
         KEEP_TRAINING_TEMP: process.env.KEEP_TRAINING_SCRATCH ?? process.env.KEEP_TRAINING_TEMP ?? '0',
       },
@@ -108,6 +112,9 @@ async function main() {
   if (!Number.isSafeInteger(BENCHMARK_GAMES) || (BENCHMARK_GAMES !== 0 && (BENCHMARK_GAMES < QUALIFICATION_GAMES || BENCHMARK_GAMES > MAX_GAMES))) {
     throw new Error(`BENCHMARK_GAMES must be 0 (legacy selection) or an integer from ${QUALIFICATION_GAMES} to ${MAX_GAMES}`);
   }
+  if (!Number.isSafeInteger(STYLE_ROTATIONS) || STYLE_ROTATIONS < 1 || STYLE_ROTATIONS > 10) {
+    throw new Error('BENCHMARK_STYLE_ROTATIONS must be an integer from 1 to 10');
+  }
   const startedAt = new Date();
   const isResume = !!RESUME_RUN_DIR;
   fs.mkdirSync(path.join(ROOT, 'scripts', 'output'), { recursive: true });
@@ -142,10 +149,15 @@ async function main() {
   }
   const startingModel = upgradeNeuralModel(readJson(originalModelPath));
   const startingHash = hashFile(originalModelPath);
-  let benchmark = BENCHMARK_GAMES && !isResume ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 2 } : null;
+  let benchmark = BENCHMARK_GAMES && !isResume
+    ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 2, styleRotations: STYLE_ROTATIONS } : null;
+  let learnActions = !!benchmark && process.env.TRAINING_ACTION_POLICY !== '0';
+  let learnStyles = learnActions;
   if (fs.existsSync(manifestPath)) {
     const manifest = readJson(manifestPath);
     benchmark = manifest.benchmark || null;
+    learnActions = manifest.learnActions === true;
+    learnStyles = manifest.learnStyles === true;
     if ((manifest.rules || 'javascript') !== RULES) throw new Error('Use the self-play rules backend from the saved run');
     if (manifest.totalGames !== TOTAL_GAMES || manifest.generationGames !== GENERATION_GAMES || manifest.shards !== SHARDS || manifest.mapSet !== MAP_SET || manifest.startingHash !== startingHash)
       throw new Error('Run parameters or base model differ from saved checkpoint. Use original SIMS, SELECTION_INTERVAL, SHARDS and MAP_SET.');
@@ -157,7 +169,8 @@ async function main() {
     await atomicWriteJson(manifestPath, {
       totalGames: TOTAL_GAMES, generationGames: GENERATION_GAMES, shards: SHARDS, mapSet: MAP_SET, rules: RULES,
       victoryPoints: VICTORY_POINTS, maxTurns: MAX_TURNS, candidatePriorities: PRIORITIES,
-      startingHash, benchmark, accelerator: process.env.TRAINING_ACCELERATOR || 'cpu',
+      startingHash, benchmark, learnActions, learnStyles, policyObjective: learnActions ? POLICY_OBJECTIVE : null,
+      accelerator: process.env.TRAINING_ACCELERATOR || 'cpu',
       gpuEpochs: Number(process.env.GPU_EPOCHS || 3), gpuMinibatch: Number(process.env.GPU_MINIBATCH || 256),
       childBatchSize: BATCH_SIZE, childConcurrency: CONCURRENCY, trainingObjective: TRAINING_OBJECTIVE,
       createdAt: startedAt.toISOString(),
@@ -248,7 +261,7 @@ async function main() {
       const activeChildren = new Set();
       const runs = await Promise.allSettled(pending.map(async candidate => {
         try {
-          return await runCandidate(candidate, generationStart, totalProgress, activeChildren, benchmark ? championPath : null);
+          return await runCandidate(candidate, generationStart, totalProgress, activeChildren, benchmark ? championPath : null, learnActions, learnStyles);
         } catch (error) {
           console.error(`[evolution] Candidate ${candidate.index + 1} failed; pausing other candidates at their checkpoints.`);
           for (const child of activeChildren) {
@@ -287,6 +300,7 @@ async function main() {
             runId: path.basename(tempRoot), generation: generation + 1, finalGeneration: generationStart + GENERATION_GAMES === TOTAL_GAMES,
             directory: generationDir, signal: controller.signal,
             context: { training: readJson(manifestPath) },
+            styleReference: learnStyles ? { file: originalModelPath, label: 'Starting model (style reference)' } : null,
             onProgress: (phase, done, count) => console.log(`[benchmark] generation ${generation + 1} ${phase}: ${done}/${count}`),
           });
         } catch (error) {
@@ -339,6 +353,7 @@ async function main() {
           score: entry.score,
           averageVictoryTurn: entry.averageTurn,
           averageWinnerMargin: entry.averageMargin,
+          policyDecisions: entry.report.policyDecisions || 0,
         })),
       };
       generations.push(record);
@@ -372,6 +387,10 @@ async function main() {
       selectionRule: benchmark ? 'rotating-seat competitive screening and independent champion qualification' : 'maximize averageWinnerMargin - averageVictoryTurn / 10',
       propagation: benchmark ? 'screened weights seed the next generation; only qualified models replace the champion' : 'winning weights seed every candidate in the next generation',
       benchmark,
+      learnActions,
+      learnStyles,
+      policyObjective: learnActions ? POLICY_OBJECTIVE : null,
+      policyDecisions: allGames.reduce((total, game) => total + (game.policyDecisions || 0), 0),
       trainingObjective: TRAINING_OBJECTIVE,
       mapSet: MAP_SET,
       victoryPointsToWin: VICTORY_POINTS || 'scenario-defaults',

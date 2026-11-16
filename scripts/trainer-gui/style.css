@@ -83,3 +83,4 @@ dialog::backdrop { background: #080d14bc; }
 #match-explorer .form-grid, #replay, .benchmark #comparison, .benchmark #rating-status { margin-bottom: 12px; }
 #match-detail .analytics-detail { margin: 12px 0 0; }
 #match-detail #step { max-width: 65%; width: 350px; }
+.style-table { margin-top: 12px; }

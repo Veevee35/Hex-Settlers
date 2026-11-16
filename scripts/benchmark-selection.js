@@ -2,8 +2,9 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { atomicWriteJson } = require('./training-file');
-const { PROFILES, runBenchmark, readBenchmark, createBenchmarkWorkers, promotionGate, cleanRun, directQualification, engineFingerprint } = require('./neural-benchmark');
+const { PROFILES, SCENARIOS, runBenchmark, readBenchmark, createBenchmarkWorkers, promotionGate, cleanRun, directQualification, engineFingerprint } = require('./neural-benchmark');
 
 const SELECTION_MAPS = ['classic', 'four_islands', 'fog_island', 'classic56_5p', 'classic56', 'eight_islands_78_7p', 'eight_islands_78'];
 const SCREEN_GAMES = 100;
@@ -18,8 +19,51 @@ function rankScreen(a, b) {
 
 async function benchmarkSelection({ directory, ...options }) {
   const workerPool = createBenchmarkWorkers(path.join(directory, 'benchmark-worker-data'));
-  try { return await selectCandidates({ ...options, directory, workerPool }); }
+  try {
+    const result = await selectCandidates({ ...options, directory, workerPool });
+    if (options.styleReference) {
+      const candidate = options.candidates.find(row => row.index === (result.promoted ?? result.frontier)) || options.champion;
+      result.styleTracking = await trackPlayStyles({ ...options, candidate, directory, workerPool });
+    }
+    return result;
+  }
   finally { workerPool.close(); }
+}
+
+async function trackPlayStyles({ candidate, styleReference, settings, runId, generation, directory, workerPool,
+  output, context, signal, onProgress = () => {} }) {
+  const maps = SCENARIOS.map(map => map.id);
+  const games = SCENARIOS.reduce((total, map) => total + map.players, 0) * (settings.styleRotations || 2);
+  const seed = `style-progress-v1:${settings.seed}`;
+  const fingerprint = file => fs.readFile(file).then(bytes => createHash('sha256').update(bytes).digest('hex'));
+  const [candidateId, referenceId, engineHash] = await Promise.all([
+    fingerprint(candidate.file), fingerprint(styleReference.file), engineFingerprint(),
+  ]);
+  const indexPath = path.join(directory, 'style-benchmark.json');
+  const prior = path.join(path.dirname(directory), `generation-${String(generation - 1).padStart(2, '0')}`, 'style-benchmark.json');
+  for (const file of generation > 1 ? [indexPath, prior] : [indexPath]) {
+    try {
+      const { report: id } = JSON.parse(await fs.readFile(file, 'utf8'));
+      const report = await readBenchmark(id, 'report', output);
+      if (report.engineHash === engineHash && report.candidate.id === candidateId && report.opponent.id === referenceId &&
+          report.config.seed === seed && report.config.games === games && !report.summary.outcomes?.crashed &&
+          JSON.stringify(report.config.maps) === JSON.stringify(maps)) {
+        const reused = { report: id, games: report.summary.games, reused: report.context.generation !== generation };
+        if (file !== indexPath) await atomicWriteJson(indexPath, reused);
+        return reused;
+      }
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  const report = await runBenchmark({
+    candidate, opponent: styleReference, maps, games, seed, maxTurns: 1800, replay: false, workerPool, output, signal,
+    context: { ...context, runId, generation, purpose: 'style-progression', candidate: candidate.index ?? null },
+    onProgress: (done, total) => { if (done === total || done % 100 === 0) onProgress('play styles', done, total); },
+  });
+  const record = { report: report.id, games: report.summary.games };
+  // Tracking failures are visible as incomplete games. Qualification uses
+  // independent matches, so a tracking issue cannot change promotion.
+  await atomicWriteJson(indexPath, record);
+  return record;
 }
 
 async function selectCandidates({ candidates, champion, runId, generation, finalGeneration, settings, context, directory,

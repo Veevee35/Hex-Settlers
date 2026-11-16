@@ -8,6 +8,30 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { SCENARIOS, buildSchedule, runBenchmark, createBenchmarkWorkers, readBenchmark, compareRuns, promotionGate } = require('../scripts/neural-benchmark');
 
+test('the style suite covers every seat count supported by standard lobbies', () => {
+  const population = [2, 3, 4, 5, 6, 7, 8];
+  assert.deepEqual([...new Set(SCENARIOS.map(map => map.players))].sort((a, b) => a - b), population);
+  assert.ok(population.every(count => SCENARIOS.filter(map => map.players === count).length === 7));
+  assert.equal(new Set(SCENARIOS.map(map => map.id)).size, SCENARIOS.length);
+});
+
+test('two- and three-player Cartographer drafts fill the complete board', async () => {
+  const output = await fs.mkdtemp(path.join(os.tmpdir(), 'hex-benchmark-small-draft-'));
+  try {
+    const model = { file: path.resolve(__dirname, '..', 'neural_ai_model.json') };
+    const report = await runBenchmark({ candidate: model, opponent: model, output, replay: true,
+      maps: ['cartographer_4_manual_2p', 'cartographer_4_manual_3p'], games: 5, seed: 'small-drafts' });
+    assert.equal(report.summary.invalidActions, 0);
+    for (let game = 1; game <= 5; game++) {
+      const replay = await readBenchmark(report.id, game, output);
+      assert.equal(replay.actions.filter(entry => entry.action.kind === 'cartographer_draft_place').length, 44);
+      assert.ok(replay.actions.some(entry => entry.action.kind === 'place_settlement'));
+    }
+  } finally {
+    await fs.rm(output, { recursive: true, force: true });
+  }
+});
+
 test('benchmark budgets round up to full seat rotations with a separate seed per scenario', () => {
   const maps = SCENARIOS.filter(map => ['classic', 'classic56_5p', 'classic78'].includes(map.id));
   const games = 100;

@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { TRAINING_OBJECTIVE, FEATURE_VERSION, upgradeNeuralModel } = require('../server/neural-objective');
+const { createPolicy, createStyle, validatePolicy } = require('../server/neural-policy');
 const { atomicWriteJson } = require('./training-file');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -35,6 +36,7 @@ function assertFiniteModel(model) {
     params.b2,
   ];
   if (!numbers.length || !numbers.every(Number.isFinite)) throw new Error('Merged model contains invalid parameters');
+  if (model.policy !== undefined) validatePolicy(model.policy);
 }
 
 function mergeModels(startingModel, models, gameCounts) {
@@ -46,6 +48,39 @@ function mergeModels(startingModel, models, gameCounts) {
   merged.params.b1 = startingModel.params.b1.map((_, index) => weighted((model) => model.params.b1[index]));
   merged.params.w2 = startingModel.params.w2.map((_, index) => weighted((model) => model.params.w2[index]));
   merged.params.b2 = weighted((model) => model.params.b2);
+  if (models.some(model => model.policy)) {
+    const base = startingModel.policy || createPolicy();
+    const policies = models.map(model => validatePolicy(model.policy));
+    const cumulative = key => base[key] + policies.reduce((sum, policy) => sum + Math.max(0, policy[key] - base[key]), 0);
+    const mergeCounts = key => {
+      const names = new Set(policies.flatMap(policy => Object.keys(policy[key] || {})));
+      return Object.fromEntries([...names].map(name => {
+        const before = base[key]?.[name] || 0;
+        return [name, before + policies.reduce((sum, policy) => sum + Math.max(0, (policy[key]?.[name] || 0) - before), 0)];
+      }));
+    };
+    merged.policy = {
+      ...base,
+      weights: base.weights.map((row, i) => row.map((_, j) => weighted(model => model.policy.weights[i][j]))),
+      critic: base.critic.map((_, i) => weighted(model => model.policy.critic[i])),
+      games: cumulative('games'), decisions: cumulative('decisions'),
+      byPhase: mergeCounts('byPhase'), byAction: mergeCounts('byAction'),
+    };
+    if (policies.some(policy => policy.styles)) {
+      const styleKeys = new Set(policies.flatMap(policy => Object.keys(policy.styles || {})));
+      merged.policy.styles = Object.fromEntries([...styleKeys].map(key => {
+        const before = base.styles?.[key] || createStyle();
+        const rows = policies.map(policy => policy.styles?.[key] || before);
+        const samples = rows.map(row => Math.max(0, row.decisions - before.decisions));
+        const total = samples.reduce((sum, count) => sum + count, 0);
+        return [key, {
+          weights: total ? before.weights.map((_, i) => rows.reduce((sum, row, j) => sum + row.weights[i] * samples[j], 0) / total) : before.weights,
+          decisions: before.decisions + total,
+          games: before.games + rows.reduce((sum, row) => sum + Math.max(0, row.games - before.games), 0),
+        }];
+      }));
+    }
+  }
   merged.trainedGames = Math.max(0, Number(startingModel.trainedGames || 0)) + totalWeight;
   merged.meta = {
     ...(models[0]?.meta || startingModel.meta || {}),

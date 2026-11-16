@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   listCompletedRuns, listTrainingRuns, openTrainingRun, trainingProgression, summarizeTrainingRun,
-  trainingGamePage, exportTrainingRun,
+  trainingGamePage, exportTrainingRun, styleBenchmarkProgression,
 } = require('../scripts/trainer-analytics');
 
 test('saved-run analytics include all candidates, filter before paging, and export full match records', async t => {
@@ -21,10 +21,14 @@ test('saved-run analytics include all candidates, filter before paging, and expo
   const id = '.neural-evolution-analytics';
   const generation = `${id}/generation-01`;
   const manifest = { totalGames: 120, generationGames: 120, shards: 2 };
-  const selection = { generation: 1, selectedCandidate: 2 };
+  const selection = { generation: 1, selectedCandidate: 2, evaluation: {
+    confirmation: 'other-comparison', styleTracking: { report: 'fixed-comparison' },
+  } };
   const games = Array.from({ length: 120 }, (_, curriculumIndex) => ({
     curriculumIndex,
     mapId: curriculumIndex < 110 ? 'classic' : 'eight_islands_78',
+    players: curriculumIndex < 110 ? 4 : 8,
+    policyDecisions: curriculumIndex < 110 ? 2 : 3,
     ...(curriculumIndex >= 110 ? { requestedMapId: 'classic78' } : {}),
     turnNumber: 100,
     winnerMargin: 4,
@@ -46,6 +50,16 @@ test('saved-run analytics include all candidates, filter before paging, and expo
   assert.equal(summary.gold, 5);
   assert.equal(summary.averageTurns, 100);
   assert.deepEqual(summary.selections, [selection]);
+  assert.deepEqual(summary.styleTraining[0].byPlayerCount['4'], { games: 110, decisions: 220 });
+  assert.deepEqual(summary.styleTraining[0].byScenario.eight_islands_78, { games: 10, decisions: 30 });
+  const tested = { games: 8, wins: 2, equalPolicyWinRate: 1 / 8 };
+  const series = await styleBenchmarkProgression(run, async id => {
+    assert.equal(id, 'fixed-comparison');
+    return { id, summary: tested, byPlayerCount: { 8: tested }, byScenario: { eight_islands_78: tested } };
+  });
+  assert.equal(series[0].kind, 'fixed');
+  assert.equal(series[0].byScenario.eight_islands_78.wins, 2);
+  assert.equal(series[0].byPlayerCount['8'].equalPolicyWinRate, 1 / 8);
   const secondPage = await trainingGamePage(run, { generation: 1, map: 'classic', page: 2 });
   assert.equal(secondPage.total, 110);
   assert.equal(secondPage.games.length, 50);

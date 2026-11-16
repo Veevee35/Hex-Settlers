@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { victoryTrainingTarget } = require('../server/neural-objective');
+const { trainPolicy, POLICY_OBJECTIVE } = require('../server/neural-policy');
 const { parseClientMessage } = require('../server/protocol');
 
 const root = path.resolve(__dirname, '..');
@@ -32,6 +33,8 @@ function makeContext(save = () => Promise.resolve(), options = {}) {
       return { hidden, out: Math.tanh(prm.b2 + hidden.reduce((a, h, i) => a + h * prm.w2[i], 0)) };
     },
     victoryTrainingTarget,
+    trainPolicy,
+    POLICY_OBJECTIVE,
     saveNeuralAiModel: save,
     process: { env: { AI_TRAINING: '1', NODE_ENV: 'test', NEURAL_GPU_TRAINING: options.gpu ? '1' : '0' } },
     HOST: '127.0.0.1',

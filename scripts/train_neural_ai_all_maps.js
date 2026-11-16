@@ -26,6 +26,7 @@ const KEEP_TEMP = String(process.env.KEEP_TRAINING_TEMP || '').toLowerCase() ===
 const RESUME_TRAINING = process.env.RESUME_TRAINING === '1';
 const NATIVE_SELF_PLAY = process.env.HEX_TRAINING_RULES === 'cpp';
 const ANCHOR_MODEL = process.env.TRAINING_ANCHOR_MODEL || '';
+const STYLE_CURRICULUM = process.env.TRAINING_STYLE_POLICY === '1';
 const GPU_TRAINING = String(process.env.TRAINING_ACCELERATOR || 'cpu').toLowerCase() === 'cuda';
 // A candidate's matches share one event loop and one online model.
 const CONCURRENCY = NATIVE_SELF_PLAY ? REQUESTED_CONCURRENCY : Math.min(2, REQUESTED_CONCURRENCY);
@@ -74,9 +75,21 @@ const ALL_MAPS = Object.freeze([
   { id: 'fog_island_78', label: 'Fog Island 7-8', mapMode: 'seafarers', scenario: 'fog_island_78', players: 8, victoryPoints: 14, gold: true },
   { id: 'heading_for_new_shores_78', label: 'Heading for New Shores 7-8', mapMode: 'seafarers', scenario: 'heading_for_new_shores_78', players: 8, victoryPoints: 14, gold: true },
 ]);
+const LARGE_DRAFT_MAPS = [
+  { id: 'cartographer_78', label: 'Cartographer 7-8', mapMode: 'seafarers', scenario: 'cartographer_78', players: 8, victoryPoints: 14, gold: true },
+  { id: 'scattered_tiles_78', label: 'Scattered Tiles 7-8', mapMode: 'seafarers', scenario: 'scattered_tiles_78', players: 8, victoryPoints: 14, gold: true },
+];
+
+const variants = [...ALL_MAPS, ...LARGE_DRAFT_MAPS].flatMap(map => {
+  const smaller = map.players === 4 ? [2, 3] : [map.players - 1];
+  return [map, ...smaller.map(players => ({ ...map, id: `${map.id}_${players}p`, players }))];
+});
+const byCount = [2, 3, 4, 5, 6, 7, 8].map(count => variants.filter(map => map.players === count));
+const STYLE_MAPS = Object.freeze(Array.from({ length: Math.max(...byCount.map(rows => rows.length)) },
+  (_, index) => byCount.map(rows => rows[index]).filter(Boolean)).flat());
 const MAP_SET = process.env.MAP_SET || 'all';
 if (!['all', 'standard'].includes(MAP_SET)) throw new Error(`Unknown MAP_SET: ${MAP_SET}`);
-const MAPS = Object.freeze(ALL_MAPS.filter(map => MAP_SET !== 'standard' || !map.customBuilder));
+const MAPS = Object.freeze((STYLE_CURRICULUM ? STYLE_MAPS : ALL_MAPS).filter(map => MAP_SET !== 'standard' || !map.customBuilder));
 
 function readModel(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -357,6 +370,7 @@ async function runOneGame(port, token, item, signal) {
       rules: {
         mapMode: item.map.mapMode,
         seafarersScenario: item.map.scenario,
+        ...(STYLE_CURRICULUM ? { playerCount: item.map.players } : {}),
         victoryPointsToWin: VP_TO_WIN_OVERRIDE || item.map.victoryPoints,
         setupTurnMs: 30_000,
         playTurnMs: 30_000,
@@ -387,10 +401,12 @@ async function runOneGame(port, token, item, signal) {
     }
     // Alternate ordinary self-play with a learner facing a frozen champion.
     // Rotating learner seats and retaining self-play preserves data diversity.
-    const anchored = !!ANCHOR_MODEL && item.curriculumIndex % 2 === 1;
+    const cycle = Math.floor(item.curriculumIndex / MAPS.length);
+    const anchorIndex = STYLE_CURRICULUM ? item.curriculumIndex % MAPS.length + cycle : item.curriculumIndex;
+    const anchored = !!ANCHOR_MODEL && anchorIndex % 2 === 1;
     if (anchored) {
       stage = 'set frozen opponent';
-      const seat = Math.floor(item.curriculumIndex / 2) % item.map.players;
+      const seat = Math.floor((STYLE_CURRICULUM ? cycle : item.curriculumIndex) / 2) % item.map.players;
       peer.send({ type: 'set_training_anchor', seat });
       await peer.waitFor(message => message.type === 'training_anchor' && message.seat === seat);
     }
@@ -446,6 +462,7 @@ async function runOneGame(port, token, item, signal) {
     const opponentVp = (state.players || []).filter(player => player.id !== winner.id).map(player => Number(player.vp || 0));
     return {
       modelTrainedGames: Number(receipt.trainedGames),
+      ...(receipt.policyDecisions ? { policyDecisions: Number(receipt.policyDecisions) } : {}),
       gameId: state.id,
       nativeScoringCalls: Number(receipt.nativeScoringCalls || 0),
       nativeRouteCalls: Number(receipt.nativeRouteCalls || 0),
@@ -620,6 +637,7 @@ async function main() {
     if ((checkpoint.anchorModelSha256 ?? null) !== anchorModelSha256) {
       throw new Error('Use the frozen anchor model from the saved checkpoint');
     }
+    if ((checkpoint.styleCurriculum ?? false) !== STYLE_CURRICULUM) throw new Error('Use the scenario curriculum from the saved checkpoint');
     results = checkpoint.games;
     gpuBatches.push(...(checkpoint.gpuBatches || []));
     latestModel = checkpoint.model;
@@ -695,7 +713,7 @@ async function main() {
       await atomicWriteJson(checkpointPath, {
         startingTrainedGames, startingModelSha256: startingHash, totalGames: TOTAL_GAMES,
         mapSet: MAP_SET, curriculumOffset: CURRICULUM_OFFSET, model: latestModel, games: results,
-        mapHealth, rules, gpuBatches, anchorModelSha256,
+        mapHealth, rules, gpuBatches, anchorModelSha256, styleCurriculum: STYLE_CURRICULUM,
       });
       console.log(`[train] ${results.length}/${TOTAL_GAMES} checkpoint committed`);
       if (isPauseRequested()) {
@@ -717,6 +735,8 @@ async function main() {
       curriculumOffset: CURRICULUM_OFFSET,
       victoryPointsToWin: VP_TO_WIN_OVERRIDE || 'scenario-defaults',
       trainingObjective: TRAINING_OBJECTIVE,
+      policyDecisions: results.reduce((total, game) => total + (game.policyDecisions || 0), 0),
+      styleCurriculum: STYLE_CURRICULUM,
       anchorModelSha256,
       anchoredGames: results.filter(game => game.anchored).length,
       mapSet: MAP_SET,
@@ -748,7 +768,7 @@ async function main() {
   }
 }
 
-module.exports = { ALL_MAPS, MAPS, curriculum, summarize };
+module.exports = { ALL_MAPS, STYLE_MAPS, MAPS, curriculum, summarize };
 if (require.main === module) {
   if (process.connected) {
     process.on('message', message => {

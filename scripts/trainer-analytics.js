@@ -80,8 +80,10 @@ function trainingProgression(run) {
   const result = (async () => {
     const history = [...await previous];
     for (let generation = history.length + 1; generation <= run.generations; generation++) {
-      const { selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin, evaluation } = await readSelection(run, generation);
+      const { selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin, evaluation, candidates } = await readSelection(run, generation);
+      const policyDecisions = candidates?.reduce((total, candidate) => total + (candidate.policyDecisions || 0), 0);
       history.push({ generation, selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin,
+        ...(policyDecisions ? { policyDecisions } : {}),
         ...(evaluation ? { qualification: { promoted: evaluation.promoted, report: evaluation.confirmation || evaluation.screened[0].report } } : {}) });
     }
     return history;
@@ -100,9 +102,9 @@ async function summarizeTrainingRun(run) {
     summaryCache = { dir: run.dir, generations: run.generations, result };
     void result.catch(() => { if (summaryCache?.result === result) summaryCache = undefined; });
   }
-  const { maps, selections, games, turns, margin, gold, replacements } = await summaryCache.result;
+  const { maps, selections, styleTraining, games, turns, margin, gold, replacements } = await summaryCache.result;
   return {
-    id: run.id, manifest: run.manifest, completedAt: run.completedAt, selections,
+    id: run.id, manifest: run.manifest, completedAt: run.completedAt, selections, styleTraining,
     games, averageTurns: games ? turns / games : null, averageMargin: games ? margin / games : null, gold, replacements,
     maps: Array.from(maps.values(), ({ turns, margin, ...map }) => ({
       ...map, averageTurns: turns / map.games, averageMargin: margin / map.games,
@@ -114,9 +116,16 @@ async function collectRunSummary(run, previous) {
   const saved = await previous;
   const maps = new Map(Array.from(saved?.maps || [], ([id, map]) => [id, { ...map }]));
   const selections = [...(saved?.selections || [])];
+  const styleTraining = [...(saved?.styleTraining || [])];
   let { games = 0, turns = 0, margin = 0, gold = 0, replacements = 0 } = saved || {};
+  const emptyGroup = () => ({ games: 0, decisions: 0 });
+  const addTrainingGame = (group, game) => {
+    group.games++;
+    group.decisions += game.policyDecisions || 0;
+  };
   for (let generation = selections.length + 1; generation <= run.generations; generation++) {
     selections.push(await readSelection(run, generation));
+    const style = { generation, all: emptyGroup(), byPlayerCount: {}, byScenario: {} };
     for (let candidate = 1; candidate <= run.manifest.shards; candidate++) {
       const report = await readCandidate(run, generation, candidate);
       for (const game of report.games) {
@@ -128,6 +137,9 @@ async function collectRunSummary(run, previous) {
         const map = maps.get(mapId);
         games++;
         map.games++;
+        addTrainingGame(style.all, game);
+        if (Number.isInteger(players)) addTrainingGame(style.byPlayerCount[players] ??= emptyGroup(), game);
+        addTrainingGame(style.byScenario[mapId] ??= emptyGroup(), game);
         turns += turnNumber;
         map.turns += turnNumber;
         margin += winnerMargin;
@@ -142,8 +154,43 @@ async function collectRunSummary(run, previous) {
         }
       }
     }
+    styleTraining.push(style);
   }
-  return { maps, selections, games, turns, margin, gold, replacements };
+  return { maps, selections, styleTraining, games, turns, margin, gold, replacements };
+}
+
+async function styleBenchmarkProgression(run, loadReport) {
+  const { selections } = await summarizeTrainingRun(run);
+  const ids = new Map();
+  const compact = row => row && ({
+    games: row.games, completed: row.completed, wins: row.wins, winRate: row.winRate,
+    equalPolicyWinRate: row.equalPolicyWinRate, meanPlace: row.meanPlace,
+  });
+  const read = id => {
+    if (!ids.has(id)) ids.set(id, loadReport(id).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }));
+    return ids.get(id);
+  };
+  const results = [];
+  // Use the carried checkpoint for a fixed-reference series. Older runs
+  // supply only archived champion checks, which the UI labels separately.
+  for (const { generation, selectedCandidate, evaluation } of selections) {
+    const tracked = evaluation?.styleTracking?.report;
+    const confirmation = evaluation?.confirmation;
+    if (!tracked && !confirmation) continue;
+    const report = await read(tracked || confirmation);
+    if (!report) continue;
+    results.push({
+      generation, id: report.id, kind: tracked ? 'fixed' : 'qualification', candidate: selectedCandidate,
+      opponent: report.opponent?.label, engineHash: report.engineHash, early: !!report.stoppedEarly,
+      all: compact(report.summary),
+      byPlayerCount: Object.fromEntries(Object.entries(report.byPlayerCount || {}).map(([key, row]) => [key, compact(row)])),
+      byScenario: Object.fromEntries(Object.entries(report.byScenario || {}).map(([key, row]) => [key, compact(row)])),
+    });
+  }
+  return results;
 }
 
 async function trainingGamePage(run, { generation, candidate, map, page }) {
@@ -183,4 +230,5 @@ async function* exportTrainingRun(run) {
 module.exports = {
   openTrainingRun, listTrainingRuns, listCompletedRuns, trainingProgression,
   summarizeTrainingRun, trainingGamePage, exportTrainingRun,
+  styleBenchmarkProgression,
 };

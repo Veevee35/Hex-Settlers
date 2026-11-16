@@ -46,6 +46,31 @@
           <canvas class="trend-chart" id="analytics-chart" aria-hidden="true"></canvas>
         </div>
       </section>
+      <section class="panel progression-panel" id="style-progression" aria-labelledby="style-title">
+        <div class="panel-heading">
+          <h2 id="style-title">Play style progression</h2>
+        </div>
+        <div class="analytics-filters">
+          <div class="field"><label for="style-players">Player count</label><select id="style-players">
+            <option value="">All player counts</option><option value="2">2 players</option><option value="3">3 players</option><option value="4">4 players</option><option value="5">5 players</option><option value="6">6 players</option><option value="7">7 players</option><option value="8">8 players</option>
+          </select></div>
+          <div class="field"><label for="style-scenario">Scenario</label><select id="style-scenario"></select></div>
+          <div class="field"><label for="style-metric">Chart metric</label><select id="style-metric">
+            <option value="winRate">Benchmark win rate</option><option value="winsAboveEven">Win rate above equal-policy odds</option><option value="trainingGames">Training games</option>
+            <option value="trainingDecisions">Decision samples</option><option value="meanPlace">Mean finishing place</option>
+          </select></div>
+        </div>
+        <p id="style-status" class="muted analytics-status" role="status"></p>
+        <div class="trend">
+          <canvas class="trend-chart" id="style-chart" aria-label="Play style results over generations" role="img"></canvas>
+        </div>
+        <div class="table-scroll generation-scroll style-table" tabindex="0" aria-label="Results for the selected play style">
+          <table>
+            <thead><tr><th>Generation</th><th>Training games</th><th>Decision samples</th><th>Benchmark</th><th>Wins / games</th><th>Win rate (95% interval)</th><th>Equal-policy odds</th><th>Mean place</th></tr></thead>
+            <tbody id="style-results"></tbody>
+          </table>
+        </div>
+      </section>
       <div class="analytics-overview">
         <section class="panel">
           <div class="panel-heading"><h2>Scenario results</h2><div class="field"><label for="scenario-sort">Sort by</label><select id="scenario-sort">

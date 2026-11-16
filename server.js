@@ -90,6 +90,7 @@ const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = re
 const { strategicNeuralBonus, tradeIsWorthAccepting } = require('./server/neural-strategy');
 const { priorityMultipliers } = require('./server/neural-priorities');
 const { FEATURE_NAMES: NEURAL_FEATURE_NAMES, FEATURE_VERSION: NEURAL_FEATURE_VERSION, TRAINING_OBJECTIVE: NEURAL_TRAINING_OBJECTIVE, opponentFeatures, upgradeNeuralModel, victoryTrainingTarget } = require('./server/neural-objective');
+const { POLICY_OBJECTIVE, createPolicy, selectPolicyAction, trainPolicy, validatePolicy } = require('./server/neural-policy');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
 const { normalizeBankTradeAction, validateBankTradeAvailability } = require('./server/bank-trade');
@@ -341,6 +342,7 @@ function loadNeuralAiModel() {
     const raw = fs.readFileSync(NEURAL_AI_MODEL_PATH, 'utf-8');
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || !parsed.params) throw new Error('invalid model');
+    if (parsed.policy !== undefined) validatePolicy(parsed.policy);
     NEURAL_AI_MODEL = upgradeNeuralModel(parsed);
   } catch (e) {
     console.error('[neural-ai] Failed to load model, resetting:', e && e.message ? e.message : e);
@@ -1267,7 +1269,13 @@ migrateUnrankedRatingsFromHistory();
 
 // Benchmark workers receive all frozen policies over IPC. Avoid creating or
 // saving an unused fallback model when several workers start together.
-if (!BENCHMARK_WORKER) loadNeuralAiModel();
+if (!BENCHMARK_WORKER) {
+  loadNeuralAiModel();
+  if (LOCAL_SELF_PLAY && process.env.TRAINING_ACTION_POLICY === '1') {
+    NEURAL_AI_MODEL.policy ||= createPolicy();
+    if (process.env.TRAINING_STYLE_POLICY === '1') NEURAL_AI_MODEL.policy.styles ||= {};
+  }
+}
 
 // Repair any inflated user stats caused by older builds (stats should match *valid* history).
 rebuildUserStatsFromHistory();
@@ -3900,6 +3908,11 @@ function trainNeuralAiFromFinishedGame(game) {
       featureNames: [...NEURAL_FEATURE_NAMES],
       trainingObjective: NEURAL_TRAINING_OBJECTIVE,
     };
+    const policySamples = game._policyTrace ? [...game._policyTrace.values()].flatMap(bucket => bucket.samples) : [];
+    if (NEURAL_AI_MODEL.policy) {
+      trainPolicy(NEURAL_AI_MODEL.policy, policySamples, winnerId);
+      NEURAL_AI_MODEL.meta.policyObjective = POLICY_OBJECTIVE;
+    }
     const speedStats = (NEURAL_AI_MODEL.speedTraining && typeof NEURAL_AI_MODEL.speedTraining === 'object')
       ? NEURAL_AI_MODEL.speedTraining
       : { games: 0, totalTurns: 0, bestTurns: null };
@@ -3928,7 +3941,7 @@ function trainNeuralAiFromFinishedGame(game) {
     // This receipt is deliberately non-enumerable: no training internals or
     // promises are included in public game snapshots or serialized room data.
     Object.defineProperty(game, '_neuralTrainingCommit', {
-      value: { gameId: game.id, trainedGames, promise: modelWrite },
+      value: { gameId: game.id, trainedGames, promise: modelWrite, policyDecisions: policySamples.length },
       configurable: true, enumerable: false,
     });
     return true;
@@ -5529,8 +5542,8 @@ function generateBoardSeafarersCartographer4(geom) {
 }
 
 
-function cartographer4DraftDefaultInventory() {
-  return {
+function cartographer4DraftDefaultInventory(seatIndex, playerCount) {
+  const inventory = {
     sea: 5,
     gold: 1,
     hills: 1,
@@ -5539,6 +5552,17 @@ function cartographer4DraftDefaultInventory() {
     field: 1,
     mountains: 1,
   };
+  if (playerCount !== 2 && playerCount !== 3) return inventory;
+  // Keep the four-seat tile pool and deal it in draft order so each seat
+  // has exactly as many tiles as it will place on the 44-tile board.
+  let offset = 0;
+  for (const [kind, tilesPerSeat] of Object.entries(inventory)) {
+    const total = tilesPerSeat * 4;
+    const first = (seatIndex - offset + playerCount) % playerCount;
+    inventory[kind] = Math.floor((total + playerCount - 1 - first) / playerCount);
+    offset = (offset + total) % playerCount;
+  }
+  return inventory;
 }
 
 function cartographer56NumbersPoolForPlayerCount(playerCount) {
@@ -5670,10 +5694,10 @@ function cartographer56DraftDefaultInventoryForSeatIndex(seatIndex, playerCount)
 
 function cartographerDraftDefaultInventoryForPlayer(game, playerId) {
   const scen = seafarersScenarioKey(game);
+  const order = Array.isArray(game?.turnOrder) ? game.turnOrder : (game?.players || []).map(p => p.id);
+  const seatIndex = Math.max(0, order.indexOf(playerId));
+  const playerCount = Array.isArray(game?.players) ? game.players.length : order.length;
   if (isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen)) {
-    const order = Array.isArray(game?.turnOrder) ? game.turnOrder : (game?.players || []).map(p => p.id);
-    const seatIndex = Math.max(0, order.indexOf(playerId));
-    const playerCount = Array.isArray(game?.players) ? game.players.length : order.length;
     if (isCartographer78Manual(scen)) {
       const size = scen.endsWith('_7') ? 7 : 8;
       const inventory={sea:(size===7?(seatIndex===6?6:7):(seatIndex===0?6:5))};
@@ -5682,7 +5706,23 @@ function cartographerDraftDefaultInventoryForPlayer(game, playerId) {
     }
     return cartographer56DraftDefaultInventoryForSeatIndex(seatIndex, playerCount);
   }
-  return cartographer4DraftDefaultInventory();
+  return cartographer4DraftDefaultInventory(seatIndex, playerCount);
+}
+
+function restoreSmallCartographerDraft(game) {
+  if (game?.phase !== 'cartographer-draft' || seafarersScenarioKey(game) !== 'cartographer_4_manual') return;
+  const seats = game.turnOrder;
+  const draft = game.cartographerDraft;
+  if (!draft?.inventoryByPlayer || (seats?.length !== 2 && seats?.length !== 3)) return;
+  const remaining = Object.values(draft.inventoryByPlayer);
+  const dealt = draft.placedCount + remaining.reduce((sum, inventory) => sum + Object.values(inventory).reduce((n, count) => n + count, 0), 0);
+  if (remaining.length !== seats.length || dealt !== seats.length * 11 || !seats.every(pid => draft.inventoryByPlayer[pid])) return;
+  const original = cartographer4DraftDefaultInventory();
+  for (const [seat, pid] of seats.entries()) {
+    for (const [kind, count] of Object.entries(cartographer4DraftDefaultInventory(seat, seats.length))) {
+      draft.inventoryByPlayer[pid][kind] += count - original[kind];
+    }
+  }
 }
 
 function generateBoardSeafarersCartographer4ManualDraft(geom) {
@@ -9527,7 +9567,12 @@ function loadActiveRooms() {
     const parsed = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_PATH, 'utf8'));
     for (const record of (Array.isArray(parsed && parsed.rooms) ? parsed.rooms : [])) {
       const room = restoreRoom(record, DEFAULT_RULES);
-      if (room && !roomExpiry(room, now(), false).expired) { refreshLegacyRankedBallot(room); ensureChallengeRoomInvariants(room); rooms.set(room.code, room); }
+      if (room && !roomExpiry(room, now(), false).expired) {
+        restoreSmallCartographerDraft(room.game);
+        refreshLegacyRankedBallot(room);
+        ensureChallengeRoomInvariants(room);
+        rooms.set(room.code, room);
+      }
     }
   } catch (error) {
     console.error('[rooms] Failed to load active_rooms.json:', error && error.message ? error.message : error);
@@ -9550,6 +9595,7 @@ function restoreRoomFromPersistence(code) {
     if (!record) return null;
     const restored = restoreRoom(record, DEFAULT_RULES);
     if (!restored || roomExpiry(restored, now(), false).expired) return null;
+    restoreSmallCartographerDraft(restored.game);
     refreshLegacyRankedBallot(restored);
     ensureChallengeRoomInvariants(restored);
     const existing = rooms.get(normalizedCode);
@@ -13479,6 +13525,7 @@ if (msg.type === 'create_tutorial_room') {
       } else {
         sendJson(ws, { type: 'training_receipt', ok: true,
           gameId: commit.gameId, trainedGames: commit.trainedGames,
+          policyDecisions: commit.policyDecisions,
           nativeScoringCalls: game._nativeScoringCalls || 0,
           nativeRouteCalls: game._nativeRouteCalls || 0,
           nativeProductionCalls: game._nativeProductionCalls || 0,
@@ -15465,11 +15512,11 @@ function handleAI(room) {
     return bestKind;
   };
 
-  const chooseDevPlayAction = (pid, phase) => {
+  const chooseDevPlayAction = (pid, phase, adaptive = false) => {
     const p = playerById(game, pid);
-    if (!p) return null;
+    if (!p) return adaptive ? [] : null;
     const cards = (p.devCards || []).filter(c => c && !c.played);
-    if (!cards.length) return null;
+    if (!cards.length) return adaptive ? [] : null;
 
     const playable = cards.filter((card) => {
       if (!card) return false;
@@ -15485,7 +15532,41 @@ function handleAI(room) {
       }
       return phase === 'main-actions';
     });
-    if (!playable.length) return null;
+    if (!playable.length) return adaptive ? [] : null;
+
+    if (adaptive) {
+      const result = [];
+      const seen = new Set();
+      for (const card of playable) {
+        if (seen.has(card.type)) continue;
+        seen.add(card.type);
+        const action = { kind: 'play_dev_card', cardId: card.id };
+        if (card.type === DEV_CARD_TYPES.INVENTION) {
+          for (const choices of resourcePairs()) {
+            result.push({ action: { ...action, choices }, score: 20 + resourceChoiceScore(pid, choices) * 25 });
+          }
+        } else if (card.type === DEV_CARD_TYPES.MONOPOLY) {
+          // Use observed production and total hand sizes, never the opponents' card types.
+          const rivals = game.players.filter(other => other.id !== pid && !other.departed);
+          const incomes = rivals.map(other => ({ hand: resourceCount(other.resources), income: playerResourceIncome(other.id) }));
+          for (const resourceKind of RESOURCE_KINDS) {
+            const expected = incomes.reduce((sum, other) => sum + other.hand *
+              (other.income[resourceKind] + 1) / (resourceCount(other.income) + 5), 0);
+            result.push({ action: { ...action, resourceKind }, score: expected * 32 - 45 });
+          }
+        } else if (card.type === DEV_CARD_TYPES.VICTORY_POINT) {
+          result.push({ action, score: (p.vp || 0) + 1 >= game.rules.victoryPointsToWin ? 1e9 : 500 });
+        } else if (card.type === DEV_CARD_TYPES.KNIGHT) {
+          const gap = Math.max(3, (game.largestArmy?.size || 0) + 1) - (p.army || 0);
+          const value = game.largestArmy?.playerId !== pid && gap <= 1 ? 300 : 75;
+          result.push({ action, score: gap <= 1 && value === 300 && p.vp + 2 >= game.rules.victoryPointsToWin ? 1e9 : value });
+        } else if (card.type === DEV_CARD_TYPES.ROAD_BUILDING) {
+          const edges = listRoadEdges(pid, true).length + listShipEdges(pid, true).length;
+          result.push({ action, score: edges >= 2 ? 100 : edges ? 50 : -30 });
+        }
+      }
+      return result;
+    }
 
     const difficulty = getAIDifficulty(pid);
     const scored = playable.map((card) => {
@@ -15636,8 +15717,19 @@ function handleAI(room) {
       - (discardRisk * 2 * economy);
   };
 
-  const simulateAction = (pid, action) => {
+  const simulateAction = (pid, action, hideUnseen = false) => {
     const clonedGame = cloneGameForSimulation(game, action);
+    if (hideUnseen && action.kind === 'buy_dev_card' && clonedGame.devDeck.length) {
+      clonedGame.devDeck[clonedGame.devDeck.length - 1] = DEV_CARD_TYPES.KNIGHT;
+    }
+    if (hideUnseen && ['place_road', 'place_ship', 'move_ship'].includes(action.kind) && isFogIslandGame(game)) {
+      for (const tile of clonedGame.geom.tiles) {
+        if (tile.fog && !tile.revealed) {
+          tile.hiddenType = 'sea';
+          tile.hiddenNumber = null;
+        }
+      }
+    }
     const tmpRoom = { game: clonedGame, _dryRun: true, aiDifficulty: room.aiDifficulty };
     const r = probeAction(tmpRoom, pid, action);
     if (r && r.ok) return clonedGame;
@@ -15648,6 +15740,54 @@ function handleAI(room) {
   const usesAnchor = pid => game._trainingLearnerId && game._trainingLearnerId !== pid;
   const policyModel = pid => usesAnchor(pid) ? room._trainingAnchorModel : room._benchmark?.models[pid];
   const policyPriorities = pid => usesAnchor(pid) ? undefined : SELF_PLAY_PRIORITIES;
+  const adaptivePolicy = pid => !room.tutorial && getAIDifficulty(pid) === 'neural_net'
+    ? (policyModel(pid) || NEURAL_AI_MODEL)?.policy : null;
+  const resourceCount = resources => RESOURCE_KINDS.reduce((sum, kind) => sum + (resources?.[kind] || 0), 0);
+  const resourcePairs = () => RESOURCE_KINDS.flatMap((a, i) => RESOURCE_KINDS.slice(i).map(b => [a, b]));
+
+  function resourceChoiceScore(pid, choices) {
+    const player = playerById(game, pid);
+    const after = { ...player.resources };
+    for (const resource of choices) after[resource] = (after[resource] || 0) + 1;
+    return resourcePlanScore(player.resources, after);
+  }
+
+  function resourcePlanScore(before, after) {
+    const costs = [BUILD_COSTS.city, BUILD_COSTS.settlement, DEV_CARD_COST, BUILD_COSTS.road];
+    return costs.reduce((score, cost) => {
+      const missingBefore = missingFor(before, cost).total;
+      const missingAfter = missingFor(after, cost).total;
+      return score + (missingBefore - missingAfter) * (missingAfter === 0 ? 1.7 : 0.7);
+    }, 0);
+  }
+
+  function applyPolicyOptions(pid, options, scale, legal = false) {
+    const policy = adaptivePolicy(pid);
+    if (!policy) return null;
+    const eligible = options.filter(option => Number.isFinite(option.score) && (legal || aiCan(pid, option.action)));
+    const winning = eligible.find(option => option.score >= 1e8);
+    const selected = winning || selectPolicyAction({ game, player: playerById(game, pid), policy, options: eligible, scale,
+      explore: LOCAL_SELF_PLAY && process.env.TRAINING_ACTION_POLICY === '1' && !BENCHMARK_WORKER && !usesAnchor(pid) });
+    if (!selected) return null;
+    // Record before applyAction so a winning build is present at commit time.
+    let undo;
+    if (selected.sample) {
+      if (!game._policyTrace) Object.defineProperty(game, '_policyTrace', { value: new Map() });
+      const key = `${pid}:${game.phase}`;
+      if (!game._policyTrace.has(key)) game._policyTrace.set(key, { count: 0, samples: [] });
+      const bucket = game._policyTrace.get(key);
+      bucket.count++;
+      const index = bucket.samples.length < 20 ? bucket.samples.length : Math.floor(Math.random() * bucket.count);
+      if (index < 20) {
+        const previous = bucket.samples[index];
+        bucket.samples[index] = selected.sample;
+        undo = () => { if (previous) bucket.samples[index] = previous; else bucket.samples.pop(); };
+      }
+    }
+    const result = applyAction(room, pid, selected.action);
+    if (!result?.ok) { undo?.(); return null; }
+    return selected.action;
+  }
   const scoreThiefMove = (pid, kind, tileId, tacticalScore) => {
     if (getAIDifficulty(pid) !== 'neural_net') return tacticalScore;
     // The candidate lists already enforce legal destinations. A thief move
@@ -15660,6 +15800,23 @@ function handleAI(room) {
     const features = [...base.slice(0, 12), ...opponentFeatures(projected, pid)];
     return tacticalScore + neuralFeatureValue(features, 0, policyModel(pid), policyPriorities(pid)) / 20;
   };
+
+  function applyPolicyThiefMove(pid, land, sea) {
+    if (!adaptivePolicy(pid)) return null;
+    const robber = land.map(tileId => ({ action: { kind: 'move_robber', tileId },
+      score: scoreRobberTile(game, pid, tileId, DICE_PIPS, RESOURCE_KINDS) }));
+    const pirate = sea.map(tileId => ({ action: { kind: 'move_pirate', tileId },
+      score: scorePirateTile(game, pid, tileId, RESOURCE_KINDS) }));
+    return applyPolicyOptions(pid, [...robber, ...pirate].sort((a, b) => b.score - a.score).slice(0, 14), 6);
+  }
+
+  function applyPolicySteal(pid, kind, victims) {
+    if (!adaptivePolicy(pid)) return null;
+    return applyPolicyOptions(pid, victims.map(victimId => {
+      const victim = playerById(game, victimId);
+      return { action: { kind, victimId }, score: resourceCount(victim?.resources) + 0.2 * (victim?.vp || 0) };
+    }), 3);
+  }
 
   const chooseBestActionCatanatron = (pid, preferExplore, mem) => {
     const p = playerById(game, pid);
@@ -15777,6 +15934,7 @@ function handleAI(room) {
     if (!p) return null;
 
     const model = policyModel(pid);
+    const adaptive = !!adaptivePolicy(pid);
     const priorities = policyPriorities(pid);
     const baseValue = neuralActionValue(game, pid, stateValueFor(game, pid, priorities), model, priorities);
     const candidates = [];
@@ -15815,15 +15973,43 @@ function handleAI(room) {
         }
       }
     }
+    if (adaptive) {
+      if ((mem.tradeCount || 0) < 2) {
+        for (const giveKind of RESOURCE_KINDS) {
+          const ratio = tradeRatioFor(game, pid, giveKind);
+          if ((p.resources[giveKind] || 0) < ratio) continue;
+          for (const takeKind of RESOURCE_KINDS) {
+            if (giveKind !== takeKind && (game.bank?.[takeKind] || 0) > 0 && !candidates.some(action =>
+              action.kind === 'bank_trade' && action.giveKind === giveKind && action.takeKind === takeKind)) {
+              candidates.push({ kind: 'bank_trade', giveKind, takeKind, takeQty: 1 });
+            }
+          }
+        }
+      }
+      if (isSeafarers && game.shipMoveUsed?.[pid] !== game.turnNumber) {
+        const sources = game.geom.edges.filter(edge => edge.shipOwner === pid && !edgeTouchesPirate(game, edge.id) &&
+          !shipWasPlacedThisOpportunity(game, edge.id, pid) && shipIsMovable(game, edge.id, pid)).slice(0, 3);
+        if (sources.length) {
+          const targets = listShipEdges(pid, true).slice(0, 6);
+          for (const { id: fromEdgeId } of sources) {
+            for (const toEdgeId of targets) {
+              if (shipEdgeConnectsToPlayer(game, toEdgeId, pid, fromEdgeId)) candidates.push({ kind: 'move_ship', fromEdgeId, toEdgeId });
+            }
+          }
+        }
+      }
+    }
 
     let best = null;
+    const options = adaptive ? [] : null;
+    if (adaptive && aiCan(pid, { kind: 'end_turn' })) options.push({ action: { kind: 'end_turn' }, score: baseValue });
     for (const candidate of candidates) {
       const { siteScore: preservedSiteScore, ...act } = candidate;
-      const sim = simulateAction(pid, act);
+      const sim = simulateAction(pid, act, adaptive);
       if (!sim) continue;
       const after = playerById(sim, pid);
       const vpGain = Math.max(0, Number(after?.vp || 0) - Number(p.vp || 0));
-      const isRoute = act.kind === 'place_road' || act.kind === 'place_ship';
+      const isRoute = act.kind === 'place_road' || act.kind === 'place_ship' || act.kind === 'move_ship';
       const spotsAfter = isRoute ? (() => {
         let count = 0;
         const geom = sim.geom || {};
@@ -15843,7 +16029,7 @@ function handleAI(room) {
       let score = neuralActionValue(sim, pid, stateValueFor(sim, pid, priorities), model, priorities);
       score += vpGain * 300 * (priorities?.victory ?? 1);
       score += strategicNeuralBonus({
-        kind: act.kind,
+        kind: act.kind === 'move_ship' ? 'place_ship' : act.kind,
         siteScore: preservedSiteScore ?? ((act.kind === 'upgrade_city') ? nodeStrategicScore(pid, act.nodeId) : 0),
         fogRevealed,
         availableSpots: spotsBefore,
@@ -15871,7 +16057,30 @@ function handleAI(room) {
             && canAffordCost(nextResources, DEV_CARD_COST));
         score -= enablesBuild ? 16 : 175;
       }
+      if (adaptive) options.push({ action: act, score,
+        routeGain: isRoute ? after.longestRoadLen - routesBefore : 0, expansionGain: spotsAfter - spotsBefore,
+        tradeRatio: act.kind === 'bank_trade' ? tradeRatioFor(game, pid, act.giveKind) : undefined });
       if (!best || score > best.score) best = { action: act, score };
+    }
+    if (adaptive) {
+      for (const option of chooseDevPlayAction(pid, 'main-actions', true)) {
+        if (aiCan(pid, option.action)) options.push({ ...option, score: baseValue + option.score });
+      }
+      if (!mem.proposed && !game.pendingTrade && game.players.every(player => player.isAI)) {
+        for (const give of RESOURCE_KINDS) {
+          if ((p.resources[give] || 0) < 2) continue;
+          for (const take of RESOURCE_KINDS) {
+            if (give === take) continue;
+            const before = p.resources;
+            const after = { ...before, [give]: before[give] - 2, [take]: (before[take] || 0) + 1 };
+            const benefit = resourcePlanScore(before, after);
+            if (benefit <= 0) continue;
+            const action = { kind: 'propose_trade', offer: { [give]: 2 }, request: { [take]: 1 } };
+            if (aiCan(pid, action)) options.push({ action, score: baseValue + benefit * 30 - 45 });
+          }
+        }
+      }
+      return options;
     }
     if (!best) return null;
     if (best.action.kind === 'bank_trade' && best.score <= baseValue + 35) return null;
@@ -15926,6 +16135,20 @@ function handleAI(room) {
       const p = playerById(game, pid);
       if (!p || !p.isAI) continue;
       const diff = getAIDifficulty(pid);
+      if (adaptivePolicy(pid)) {
+        const trade = game.pendingTrade;
+        const proposer = playerById(game, trade.fromId);
+        const options = [{ action: { kind: 'respond_trade', tradeId: trade.id, accept: false }, score: 0 }];
+        if (proposer && proposer.vp < game.rules.victoryPointsToWin - 1 && canAffordCost(p.resources, trade.request)) {
+          const after = { ...p.resources };
+          for (const kind of RESOURCE_KINDS) after[kind] += (trade.offer[kind] || 0) - (trade.request[kind] || 0);
+          const benefit = resourcePlanScore(p.resources, after);
+          const threat = Math.max(0, 3 - (game.rules.victoryPointsToWin - proposer.vp));
+          options.push({ action: { kind: 'respond_trade', tradeId: trade.id, accept: true },
+            score: benefit + resourceCount(trade.offer) - resourceCount(trade.request) - threat });
+        }
+        if (applyPolicyOptions(pid, options, 2)) { delay(120, 220); return true; }
+      }
       const accept = room.tutorial ? true : wouldAcceptTrade(pid, game.pendingTrade, diff);
       const r = applyAction(room, pid, { kind: 'respond_trade', tradeId: game.pendingTrade.id, accept });
       if (r && r.ok) { delay(120, 220); return true; }
@@ -15941,6 +16164,25 @@ function handleAI(room) {
       const p = playerById(game, pid);
       if (!p || !p.isAI) continue;
       const req = Math.max(0, Math.floor(Number(required[pid] || 0)));
+      if (adaptivePolicy(pid)) {
+        const options = RESOURCE_KINDS.map(focus => {
+          const after = { ...p.resources };
+          const discarded = {};
+          for (let n = 0; n < req; n++) {
+            const available = RESOURCE_KINDS.filter(kind => after[kind] > 0);
+            const next = available.reduce((best, kind) => {
+              const utility = resourcePlanScore(after, { ...after, [kind]: after[kind] - 1 }) + (kind === focus ? 0.75 : 0);
+              return !best || utility > best.utility ? { kind, utility } : best;
+            }, null);
+            if (!next) break;
+            after[next.kind]--;
+            discarded[next.kind] = (discarded[next.kind] || 0) + 1;
+          }
+          return { action: { kind: 'discard_cards', cards: discarded }, score: resourcePlanScore(p.resources, after) };
+        });
+        const unique = [...new Map(options.map(option => [RESOURCE_KINDS.map(kind => option.action.cards[kind] || 0).join(','), option])).values()];
+        if (applyPolicyOptions(pid, unique, 2)) { delay(140, 260); return true; }
+      }
       const cards = randomDiscardMap(p, req);
       const r = applyAction(room, pid, { kind: 'discard_cards', cards });
       if (r && r.ok) { delay(140, 260); return true; }
@@ -15952,6 +16194,19 @@ function handleAI(room) {
     const pid = game.special.forPlayerId;
     const p = playerById(game, pid);
     if (p && p.isAI) {
+      if (adaptivePolicy(pid)) {
+        const discovery = game.special.kind === 'discovery_gold';
+        const amount = discovery ? 1 : Math.max(1, Math.floor(Number(game.special.amount || 1)));
+        const preferred = chooseGoldResourceChoices(pid, amount);
+        const choices = [preferred, ...RESOURCE_KINDS.map(kind => Array(amount).fill(kind))];
+        if (amount === 2) choices.push(...resourcePairs());
+        const sets = [...new Map(choices.map(row => [row.slice().sort().join(','), row])).values()];
+        const options = sets.map(resources => ({
+          action: discovery ? { kind: 'choose_discovery', resourceKind: resources[0] } : { kind: 'choose_production_gold', choices: resources },
+          score: resourceChoiceScore(pid, resources),
+        }));
+        if (applyPolicyOptions(pid, options, 1.5)) { delay(140, 260); return true; }
+      }
       if (game.special.kind === 'discovery_gold') {
         const rk = chooseGoldResourceChoices(pid, 1)[0];
         const r = applyAction(room, pid, { kind: 'choose_discovery', resourceKind: rk });
@@ -15989,6 +16244,13 @@ function handleAI(room) {
       if (tt === 'unexplored' || tt === '?' || (!!t.fog && !t.revealed)) cands.push(i);
     }
     shuffle(cands);
+    if (adaptivePolicy(pid)) {
+      const options = cands.slice(0, 3).flatMap(tileId => [...new Set(pool)].map(kind => ({
+        action: { kind: 'cartographer_draft_place', tileId, tileType: kind },
+        score: kind === 'sea' || kind === 'desert' ? 0 : 1,
+      })));
+      if (applyPolicyOptions(pid, options, 2)) { delay(140, 260); return true; }
+    }
     if (cands.length) {
       const r = applyAction(room, pid, { kind: 'cartographer_draft_place', tileId: cands[0], tileType });
       if (r && r.ok) { delay(140, 260); return true; }
@@ -16016,6 +16278,10 @@ function handleAI(room) {
     const ranked = nodeIds
       .map(nid => ({ nid, score: nodeStrategicScore(pid, nid, { setup: true }) }))
       .sort((a, b) => b.score - a.score);
+    if (adaptivePolicy(pid)) {
+      const options = ranked.slice(0, 16).map(({ nid, score }) => ({ action: { kind: 'place_settlement', nodeId: nid }, score }));
+      if (applyPolicyOptions(pid, options, 3.5)) { delay(240, 420); return true; }
+    }
     if (getAIDifficulty(pid) === 'benchmark_random') shuffle(ranked);
     for (const { nid } of ranked) {
       if (!aiCan(pid, { kind: 'place_settlement', nodeId: nid })) continue;
@@ -16050,6 +16316,7 @@ function handleAI(room) {
       }
     }
     scored.sort((a, b) => b.score - a.score);
+    if (applyPolicyOptions(pid, scored, 3.5, true)) { delay(240, 420); return true; }
     if (getAIDifficulty(pid) === 'benchmark_random') shuffle(scored);
     for (const item of scored) {
       const r = applyAction(room, pid, item.action);
@@ -16060,6 +16327,10 @@ function handleAI(room) {
   }
 
   if (phase === 'main-await-roll') {
+    if (adaptivePolicy(pid)) {
+      const options = [{ action: { kind: 'roll_dice' }, score: 55 }, ...chooseDevPlayAction(pid, phase, true)];
+      if (applyPolicyOptions(pid, options, 60)) { delay(200, 340); return true; }
+    }
     const devAct = chooseDevPlayAction(pid, 'main-await-roll');
     if (devAct && aiCan(pid, devAct)) {
       const r = applyAction(room, pid, devAct);
@@ -16083,6 +16354,7 @@ function handleAI(room) {
         if (i !== curP && !pirateTileTargetsPlayer(game, i, pid)) sea.push(i);
       } else if (i !== curR && robberCanOccupyTile(game, i) && !robberTileTargetsPlayer(game, i, pid)) land.push(i);
     }
+    if (applyPolicyThiefMove(pid, land, sea)) { delay(220, 360); return true; }
     const robberTarget = bestScoredTarget(land, (id) => scoreThiefMove(pid, 'move_robber', id, scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)));
     const pirateTarget = bestScoredTarget(sea, (id) => scoreThiefMove(pid, 'move_pirate', id, scorePirateTile(game, pid, id, RESOURCE_KINDS)));
     const choices = [
@@ -16115,6 +16387,7 @@ function handleAI(room) {
       if (robberTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
+    if (applyPolicyThiefMove(pid, cands, [])) { delay(220, 360); return true; }
     const target = bestScoredTarget(cands, (id) => scoreThiefMove(pid, 'move_robber', id, scoreRobberTile(game, pid, id, DICE_PIPS, RESOURCE_KINDS)));
     if (target.id != null) {
       const r = applyAction(room, pid, { kind: 'move_robber', tileId: target.id });
@@ -16130,6 +16403,7 @@ function handleAI(room) {
   }
 
   if (phase === 'robber-steal' && game.robberSteal && Array.isArray(game.robberSteal.victims)) {
+    if (applyPolicySteal(pid, 'robber_steal', game.robberSteal.victims)) { delay(200, 340); return true; }
     const victimId = richestVictim(game, game.robberSteal.victims, RESOURCE_KINDS);
     const r = applyAction(room, pid, { kind: 'robber_steal', victimId });
     if (r && r.ok) { delay(200, 340); return true; }
@@ -16148,6 +16422,7 @@ function handleAI(room) {
       if (pirateTileTargetsPlayer(game, i, pid)) continue;
       cands.push(i);
     }
+    if (applyPolicyThiefMove(pid, [], cands)) { delay(220, 360); return true; }
     const target = bestScoredTarget(cands, (id) => scoreThiefMove(pid, 'move_pirate', id, scorePirateTile(game, pid, id, RESOURCE_KINDS)));
     if (target.id != null) {
       const r = applyAction(room, pid, { kind: 'move_pirate', tileId: target.id });
@@ -16163,6 +16438,7 @@ function handleAI(room) {
   }
 
   if (phase === 'pirate-steal' && game.pirateSteal && Array.isArray(game.pirateSteal.victims)) {
+    if (applyPolicySteal(pid, 'pirate_steal', game.pirateSteal.victims)) { delay(200, 340); return true; }
     const victimId = richestVictim(game, game.pirateSteal.victims, RESOURCE_KINDS);
     const r = applyAction(room, pid, { kind: 'pirate_steal', victimId });
     if (r && r.ok) { delay(200, 340); return true; }
@@ -16183,6 +16459,7 @@ function handleAI(room) {
       mem.actions = 0;
       mem.traded = false;
       mem.tradeCount = 0;
+      mem.proposed = false;
     }
     game.ai.mem[pid] = mem;
 
@@ -16211,6 +16488,24 @@ function handleAI(room) {
 
     const preferExplore = (diff !== 'easy') && isFogIslandGame(game);
     const hasFreeRoutes = hasRoadBuildingPlacement(game, pid);
+    if (adaptivePolicy(pid)) {
+      const trade = game.pendingTrade;
+      if (trade?.fromId === pid) {
+        const partners = game.players.filter(other => trade.responses[other.id] === 'accept' &&
+          (other.vp || 0) < game.rules.victoryPointsToWin - 1);
+        if (applyPolicyOptions(pid, partners.map(other => ({
+          action: { kind: 'finalize_trade', tradeId: trade.id, withPlayerId: other.id }, score: -(other.vp || 0),
+        })), 3)) { delay(120, 220); return true; }
+      }
+      const action = applyPolicyOptions(pid, chooseBestActionNeuralNet(pid, preferExplore, mem), 100, true);
+      if (action) {
+        if (action.kind === 'bank_trade') mem.tradeCount++;
+        if (action.kind === 'propose_trade') mem.proposed = true;
+        mem.actions++;
+        delay(220, 360);
+        return true;
+      }
+    }
 
     // Random baseline samples legal choices within the same action phases.
     if (diff === 'benchmark_random') {
@@ -16242,7 +16537,7 @@ function handleAI(room) {
     }
 
     // Expert/Neural: try one-step lookahead chooser first.
-    if (diff === 'catanatron' || diff === 'neural_net') {
+    if ((diff === 'catanatron' || diff === 'neural_net') && !adaptivePolicy(pid)) {
       if (mem.actions >= budget) {
         const r = applyAction(room, pid, { kind: 'end_turn' });
         if (r && r.ok) { delay(220, 360); return true; }
