@@ -62,3 +62,35 @@ test('a failed draw releases frame and layout caches so later updates can recove
   context.render();
   assert.doesNotThrow(() => frame());
 });
+
+test('game logs show the latest entries on recovery and preserve manual scrolling during play', () => {
+  const logRenderer = source.slice(source.indexOf('  function logIsAtBottom('), source.indexOf('  function openLogModal('));
+  const stateHandler = source.slice(source.indexOf('        // A joined packet clears'), source.indexOf('        refreshToolModals(showLatestLog);'));
+  const rows = [];
+  let position = 0;
+  const list = {
+    clientHeight: 100,
+    get scrollHeight() { return rows.length * 20; },
+    get scrollTop() { return position; },
+    set scrollTop(value) { position = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight)); },
+    set innerHTML(_) { rows.length = 0; position = 0; },
+    appendChild(row) { rows.push(row); },
+  };
+  const state = { id: 'game', phase: 'main-actions', log: Array.from({ length: 20 }, (_, i) => i + 1) };
+  const context = vm.createContext({ ui: { logList: list }, state, logPanelOpen: true, makeLogRow: entry => entry });
+  vm.runInContext(logRenderer, context);
+  const update = vm.runInContext(`prevState => { ${stateHandler} }`, context);
+
+  update(null);
+  assert.equal(list.scrollTop, 300);
+  list.scrollTop = 60;
+  state.log.push(21);
+  update(state);
+  assert.equal(list.scrollTop, 60);
+  assert.equal(rows.at(-1), 21);
+  update(null);
+  assert.equal(list.scrollTop, 320);
+  state.log.push(22);
+  update(state);
+  assert.equal(list.scrollTop, 340);
+});

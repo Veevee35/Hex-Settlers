@@ -5810,6 +5810,7 @@ function syncPostgameToState() {
   let activeMobilePanelTab = 'resources';
   const panelTabs = $('mobilePanelTabs');
   function selectGamePanelTab(name) {
+    const wasLog = activeMobilePanelTab === 'log';
     activeMobilePanelTab = ['resources', 'log', 'dev'].includes(name) ? name : 'resources';
     if (ui.rightSidebar) ui.rightSidebar.dataset.activePanel = activeMobilePanelTab;
     panelTabs?.querySelectorAll('[data-panel]').forEach(button => {
@@ -5818,7 +5819,7 @@ function syncPostgameToState() {
       button.setAttribute('aria-selected', String(selected));
       button.tabIndex = selected ? 0 : -1;
     });
-    if (activeMobilePanelTab === 'log' && state && ui.logList) renderLogList(ui.logList);
+    if (!wasLog && activeMobilePanelTab === 'log' && state) renderLogList(ui.logList, true);
   }
   panelTabs?.addEventListener('click', event => {
     const button = event.target.closest('[data-panel]');
@@ -5916,6 +5917,7 @@ function syncPostgameToState() {
     }
     syncFloatingResourcesPanel();
     if (state && state.phase !== 'lobby') {
+      if (gamePanelsExpanded) renderLogList(ui.logList, true);
       requestAnimationFrame(() => { resizeCanvas(); render(); syncTurnBarHeight(); });
     }
   }
@@ -5964,6 +5966,7 @@ function syncPostgameToState() {
     }
     const total = logDevAvailableHeight();
     if (!total) return;
+    const logWasAtBottom = ui.logList && logIsAtBottom(ui.logList);
     const shares = [sidebarCuts[0], sidebarCuts[1]-sidebarCuts[0],
       sidebarCuts[2]-sidebarCuts[1], 1-sidebarCuts[2]];
     let used = 0;
@@ -5973,6 +5976,7 @@ function syncPostgameToState() {
       panes[i].style.flex = `0 0 ${height}px`;
       panes[i].style.height = `${height}px`;
     }
+    if (logWasAtBottom) ui.logList.scrollTop = ui.logList.scrollHeight;
     sidebarSectionHandles.forEach((handle, i) => {
       handle.setAttribute('aria-valuemin', String(Math.round(100*(i ? sidebarCuts[i-1] : 0))));
       handle.setAttribute('aria-valuemax', String(Math.round(100*(i<2 ? sidebarCuts[i+1] : 1))));
@@ -8858,23 +8862,23 @@ function refreshLobbyJoinLinkUi() {
         handlePirateStealPrompt();
         handleDiscoveryGoldPrompt();
         handleProductionGoldPrompt();
-        refreshToolModals();
         if (state?.phase === 'game-over') clearRecentRoom();
         else noteRecentRoom(room);
         if (state && state.phase && state.phase !== 'lobby') ensureStructureSpritesReady();
-
-        // Keep the draggable Game Log overlay in sync while it's open.
-        try {
-          const inGame = !!(state && state.phase && state.phase !== 'lobby');
-          if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame);
-          if (ui.logList && inGame && logPanelOpen) renderLogList(ui.logList);
-        } catch (_) {}
 
         updateButtons();
         updateCartographerDraftPanel();
         // Room packets handle membership/settings changes. Gameplay actions do
         // not need to rebuild the hidden lobby and texture controls every time.
         if (!prevState || prevState.phase !== state.phase || state.phase === 'lobby') renderLobby();
+
+        // A joined packet clears the previous state, including on reconnect.
+        // Dock the panels before measuring the log's scroll range.
+        const showLatestLog = !prevState || prevState.id !== state?.id || prevState.phase === 'lobby';
+        if (state && state.phase !== 'lobby' && logPanelOpen) {
+          try { renderLogList(ui.logList, showLatestLog); } catch (_) {}
+        }
+        refreshToolModals(showLatestLog);
         render();
         refreshTutorialGuide();
         syncPostgameToState();
@@ -11068,7 +11072,7 @@ function refreshLobbyJoinLinkUi() {
 
     const inGame = !!(state && state.phase && state.phase !== 'lobby');
     if (ui.logCard) ui.logCard.classList.toggle('hidden', !inGame);
-    if (ui.logList && inGame && logPanelOpen) renderLogList(ui.logList);
+    if (inGame && logPanelOpen) renderLogList(ui.logList, true);
   }
 
   function toggleLogPanel() {
@@ -11172,15 +11176,20 @@ function refreshLobbyJoinLinkUi() {
     return row;
   }
 
-  function renderLogList(listEl) {
+  function logIsAtBottom(listEl, scrollTop = listEl.scrollTop) {
+    return scrollTop + listEl.clientHeight >= listEl.scrollHeight - 12;
+  }
+
+  function renderLogList(listEl, showLatest = false) {
     if (!listEl) return;
     const entries = (state && state.log) ? state.log : [];
-    const stickToBottom = (listEl.scrollTop + listEl.clientHeight) >= (listEl.scrollHeight - 12);
+    const scrollTop = listEl.scrollTop;
+    const stickToBottom = showLatest || logIsAtBottom(listEl, scrollTop);
 
     listEl.innerHTML = '';
     for (const e of entries) listEl.appendChild(makeLogRow(e));
 
-    if (stickToBottom) listEl.scrollTop = listEl.scrollHeight;
+    listEl.scrollTop = stickToBottom ? listEl.scrollHeight : scrollTop;
   }
 
   function openLogModal() {
@@ -11191,8 +11200,6 @@ function refreshLobbyJoinLinkUi() {
     const list = document.createElement('div');
     list.className = 'logList';
 
-    renderLogList(list);
-
     content.appendChild(list);
     openModal({
       title: 'Game Log',
@@ -11200,7 +11207,7 @@ function refreshLobbyJoinLinkUi() {
       actions: [{ label: 'Close', primary: true, onClick: closeModal }],
     });
 
-    list.scrollTop = list.scrollHeight;
+    renderLogList(list, true);
   }
 
   const LOBBY_RULES_SCENARIOS = Object.freeze({
@@ -12178,7 +12185,7 @@ function refreshLobbyJoinLinkUi() {
     });
   }
 
-  function refreshToolModals() {
+  function refreshToolModals(showLatestLog) {
     if (!activeToolModal) return;
     if (ui.modal.classList.contains('hidden')) return;
 
@@ -12187,15 +12194,7 @@ function refreshLobbyJoinLinkUi() {
       return;
     }
     if (activeToolModal === 'log') {
-      // Rebuild log body
-      const { wrap, content } = makeScalableToolWrap('log', 'Scale Game Log tab');
-      const list = document.createElement('div');
-      list.className = 'logList';
-      renderLogList(list);
-      content.appendChild(list);
-      ui.modalBody.innerHTML = '';
-      ui.modalBody.appendChild(wrap);
-      list.scrollTop = list.scrollHeight;
+      renderLogList(ui.modalBody.querySelector('.logList'), showLatestLog);
       return;
     }
     if (activeToolModal === 'rules') {
