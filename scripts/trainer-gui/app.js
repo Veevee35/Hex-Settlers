@@ -4,11 +4,11 @@ const fields = ['sims','generation','shards','batch','concurrency','mapSet','rul
 const runFields = ['sims','generation','shards','mapSet','rules','victoryPoints','maxTurns','benchmarkGames','learningMode','styleRotations'];
 const presets = {
   smoke: { sims: 4, generation: 4, shards: 1, batch: 2, concurrency: 1, gpuMode: 'cpu', benchmarkGames: 0 },
-  trial: { sims: 100, generation: 50, shards: 2, batch: 10, concurrency: 2, gpuMode: 'cpu' },
-  focused: { sims: 10000, generation: 1000, shards: 4, batch: 50, concurrency: 2, gpuMode: 'auto', epochs: 3 },
-  standard: { sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2, gpuMode: 'auto' },
+  trial: { sims: 100, generation: 50, shards: 2, batch: 10, concurrency: 2, gpuMode: 'cpu', benchmarkGames: 1000 },
+  focused: { sims: 10000, generation: 2500, shards: 4, batch: 50, concurrency: 2, gpuMode: 'auto', epochs: 3 },
+  standard: { sims: 20000, generation: 5000, shards: 4, batch: 50, concurrency: 2, gpuMode: 'auto' },
   overnight: {
-    sims: 700000, generation: 5000, shards: 12, batch: 50, concurrency: 2,
+    sims: 700000, generation: 10000, shards: 4, batch: 50, concurrency: 2,
     rules: 'javascript', gpuMode: 'auto', epochs: 8, miniBatch: 256,
   },
 };
@@ -42,9 +42,18 @@ function setConfig(settings) {
   if (!settings) return;
   for (const key of fields) if (settings[key] !== undefined) el(key).value = settings[key];
   if (settings.candidatePriorities) profiles = settings.candidatePriorities.map(profile => ({ ...profile }));
+  showCandidateBudget();
   renderPriorities();
 }
 function candidateCount() { return Math.max(1, Math.min(64, Math.trunc(Number(el('shards').value)) || 1)); }
+function showCandidateBudget() {
+  const games = Math.trunc(Number(el('generation').value));
+  const candidates = candidateCount();
+  const min = Math.floor(games / candidates);
+  const max = Math.ceil(games / candidates);
+  const range = min === max ? numberFormat(min) : `${numberFormat(min)}–${numberFormat(max)}`;
+  el('candidate-budget').textContent = min > 0 ? `${range} training games per candidate before screening` : '';
+}
 function renderPriorities() {
   const select = el('priority-candidate');
   const count = candidateCount();
@@ -191,15 +200,32 @@ function showProgression(job, progression) {
   progressionSignature = signature;
   el('analytics-link').href = run ? `/analytics?${new URLSearchParams({ run })}` : '/analytics';
   el('styles-link').href = `${el('analytics-link').getAttribute('href')}#style-progression`;
-  el('qualification-link').hidden = !latest?.qualification;
-  if (latest?.qualification) el('qualification-link').href = `/benchmarks?${new URLSearchParams({ id: latest.qualification.report })}`;
+  const confirmed = latest?.qualification && history.findLast(point => point.qualification?.direct && !point.qualification.stoppedEarly);
+  const benchmark = confirmed?.qualification || latest?.qualification;
+  el('qualification-link').hidden = !benchmark;
+  if (benchmark) {
+    el('qualification-link').href = `/benchmarks?${new URLSearchParams({ id: benchmark.report })}`;
+    el('qualification-link').textContent = confirmed ? 'Champion confirmation' : 'Latest benchmark';
+  }
   el('progression-results').hidden = !latest;
+  el('self-play-progression').hidden = !latest || !!latest.qualification;
+  el('competitive-progression').hidden = !latest?.qualification;
   const champion = latest?.qualification ? (latest.qualification.promoted ? ' · Champion promoted' : ' · Champion retained') : '';
-  const decisions = latest?.policyDecisions ? ` · ${numberFormat(latest.policyDecisions)} learned decisions` : '';
+  const decisions = latest?.policyDecisions ? ` · ${numberFormat(latest.policyDecisions)} decision samples` : '';
   el('progression-status').textContent = latest
     ? `${job ? 'Current session' : 'Most recent scored run'} · Generation ${numberFormat(latest.generation)}${champion}${decisions} · ${run}`
     : progression?.error || 'Progression appears after the first generation selects a model.';
   if (!latest) return;
+  if (latest.qualification) {
+    const result = confirmed?.qualification;
+    const formatLead = value => `${value > 0 ? '+' : ''}${(value * 100).toFixed(1)} pp`;
+    el('promotion-count').textContent = numberFormat(history.filter(point => point.qualification?.promoted).length);
+    el('confirmed-lead').textContent = result ? formatLead(result.direct.estimate) : 'Pending';
+    el('confirmed-interval').textContent = result
+      ? `${formatLead(result.direct.low)} to ${formatLead(result.direct.high)}` : '—';
+    el('confirmed-games').textContent = result ? `Gen ${confirmed.generation} · ${numberFormat(result.games)} games` : '—';
+    return;
+  }
   el('latest-score').textContent = trainingProgression.decimal(latest.selectionScore);
   el('score-change').textContent = trainingProgression.compare(history, 'selectionScore');
   el('turn-change').textContent = trainingProgression.compare(history, 'averageVictoryTurn');
@@ -304,9 +330,11 @@ el('resume').addEventListener('change', () => {
 });
 el('preset').addEventListener('change', () => {
   const preset = presets[el('preset').value];
-  if (preset) setConfig({ mapSet: 'standard', victoryPoints: 0, maxTurns: 900, benchmarkGames: 1000, learningMode: preset.benchmarkGames === 0 ? 'value' : 'actions', ...preset });
+  if (preset) setConfig({ mapSet: 'standard', victoryPoints: 0, maxTurns: 900, benchmarkGames: 5000, learningMode: preset.benchmarkGames === 0 ? 'value' : 'actions', ...preset });
 });
 for (const key of fields) el(key).addEventListener('input', () => { el('preset').value = ''; });
+el('generation').addEventListener('input', showCandidateBudget);
+el('shards').addEventListener('input', showCandidateBudget);
 el('shards').addEventListener('input', renderPriorities);
 el('priority-candidate').addEventListener('change', renderPriorities);
 el('reset-priorities').addEventListener('click', () => {

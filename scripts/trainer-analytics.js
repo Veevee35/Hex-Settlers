@@ -84,7 +84,12 @@ function trainingProgression(run) {
       const policyDecisions = candidates?.reduce((total, candidate) => total + (candidate.policyDecisions || 0), 0);
       history.push({ generation, selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin,
         ...(policyDecisions ? { policyDecisions } : {}),
-        ...(evaluation ? { qualification: { promoted: evaluation.promoted, report: evaluation.confirmation || evaluation.screened[0].report } } : {}) });
+        ...(evaluation ? { qualification: {
+          promoted: evaluation.promoted,
+          report: evaluation.confirmation || evaluation.frontierCheck?.report || evaluation.screened[0].report,
+          direct: evaluation.direct, games: evaluation.confirmationGames, stoppedEarly: evaluation.confirmationStoppedEarly,
+          frontier: evaluation.frontier,
+        } } : {}) });
     }
     return history;
   })();

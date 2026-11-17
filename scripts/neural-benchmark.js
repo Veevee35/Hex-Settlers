@@ -352,8 +352,8 @@ function compareRuns(current, baseline) {
   };
 }
 
-function directQualification(games) {
-  return clusterInterval(games, game => win(game) - 1 / game.players, -1, 1, 2.576);
+function directQualification(games, critical = 2.576) {
+  return clusterInterval(games, game => win(game) - 1 / game.players, -1, 1, critical);
 }
 
 function cleanRun(games) {

@@ -30,19 +30,29 @@
     <section class="panel progression-panel" aria-labelledby="progression-title">
       <div class="panel-heading"><h2 id="progression-title">Current progression</h2><div class="progression-links"><a class="mini" id="qualification-link" href="/benchmarks" hidden>Benchmark result</a> <a class="mini" id="styles-link" href="/analytics#style-progression">Play styles</a> <a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div></div>
       <p class="muted" id="progression-status">Progression appears after the first generation selects a model.</p>
-      <div class="progression-layout" id="progression-results" hidden>
-        <div>
+      <div id="progression-results" hidden>
+        <div id="competitive-progression" hidden>
           <dl class="progression-stats">
-            <div><dt>Latest selection score</dt><dd id="latest-score">—</dd></div>
-            <div><dt>Score change</dt><dd id="score-change">—</dd></div>
-            <div><dt>Victory turn change</dt><dd id="turn-change">—</dd></div>
-            <div><dt>Winner margin change</dt><dd id="margin-change">—</dd></div>
+            <div><dt>Champion promotions this run</dt><dd id="promotion-count">—</dd></div>
+            <div><dt>Challenger lift over equal-policy odds</dt><dd id="confirmed-lead">—</dd></div>
+            <div><dt>99% confidence interval</dt><dd id="confirmed-interval">—</dd></div>
+            <div><dt>Qualification sample</dt><dd id="confirmed-games">—</dd></div>
           </dl>
-          <p class="muted">Changes use generation 1 as the baseline. Visit AI benchmarking to measure playing strength against a fixed opponent.</p>
         </div>
-        <div class="trend">
-          <div class="trend-header"><strong>Selection score by generation</strong><span class="muted" id="best-score"></span></div>
-          <canvas class="trend-chart" id="progression-chart" aria-hidden="true"></canvas>
+        <div class="progression-layout" id="self-play-progression" hidden>
+          <div>
+            <dl class="progression-stats">
+              <div><dt>Latest selection score</dt><dd id="latest-score">—</dd></div>
+              <div><dt>Score change</dt><dd id="score-change">—</dd></div>
+              <div><dt>Victory turn change</dt><dd id="turn-change">—</dd></div>
+              <div><dt>Winner margin change</dt><dd id="margin-change">—</dd></div>
+            </dl>
+            <p class="muted">Changes use generation 1 as the baseline.</p>
+          </div>
+          <div class="trend">
+            <div class="trend-header"><strong>Selection score by generation</strong><span class="muted" id="best-score"></span></div>
+            <canvas class="trend-chart" id="progression-chart" aria-hidden="true"></canvas>
+          </div>
         </div>
       </div>
     </section>
@@ -60,9 +70,9 @@
             </select></div>
             <div class="form-grid">
               <div class="field"><label for="sims">Total simulations</label><input type="number" id="sims" min="1" max="10000000" step="1" value="20000"></div>
-              <div class="field"><label for="generation">Games / generation</label><input type="number" id="generation" min="1" max="1000000" step="1" value="1000"></div>
-              <div class="field"><label for="shards">Model candidates</label><input type="number" id="shards" min="1" max="64" value="4"></div>
-              <div class="field"><label for="batch">Games / checkpoint batch</label><input type="number" id="batch" min="1" max="1000" value="100"></div>
+              <div class="field"><label for="generation">Games / generation</label><input type="number" id="generation" min="1" max="1000000" step="1" value="5000"></div>
+              <div class="field"><label for="shards">Model candidates</label><input type="number" id="shards" min="1" max="64" value="4" aria-describedby="candidate-budget"><small id="candidate-budget">1,250 training games per candidate before screening</small></div>
+              <div class="field"><label for="batch">Games / checkpoint batch</label><input type="number" id="batch" min="1" max="1000" value="50"></div>
               <div class="field"><label for="concurrency">Simultaneous games per candidate</label><input type="number" id="concurrency" min="1" max="32" value="2"></div>
               <div class="field"><label for="mapSet">Scenario set</label><select id="mapSet"><option value="standard">Standard (no Test Builder)</option><option value="all">All (include Test Builder)</option></select></div>
               <div class="field"><label for="rules">Self-play rules</label><select id="rules"><option value="auto">Auto</option><option value="cpp">C++ rules</option><option value="javascript">JavaScript</option></select></div>
@@ -72,7 +82,7 @@
               <div class="form-grid">
                 <div class="field"><label for="victoryPoints">Victory-point target</label><input type="number" id="victoryPoints" min="0" max="30" value="0"><small>0 uses each scenario’s target. Overrides range from 3 to 30.</small></div>
                 <div class="field"><label for="maxTurns">Maximum turns per game</label><input type="number" id="maxTurns" min="50" max="10000" value="900"><small>The trainer retries games that exceed this limit.</small></div>
-                <div class="field"><label for="benchmarkGames">Games per champion qualification</label><input type="number" id="benchmarkGames" min="0" max="10000" value="1000"><small>Use 1,000 or more for competitive selection. Set 0 to use legacy self-play selection.</small></div>
+                <div class="field"><label for="benchmarkGames">Games per champion qualification</label><input type="number" id="benchmarkGames" min="0" max="10000" value="5000"><small>Use 5,000 games to measure small gains. The competitive minimum is 1,000. Set 0 for legacy self-play selection.</small></div>
                 <div class="field"><label for="learningMode">Learning method</label><select id="learningMode"><option value="actions">Learn from decisions</option><option value="value">Refine state value only</option></select><small>Decision learning explores move alternatives and requires champion qualification.</small></div>
                 <div class="field"><label for="styleRotations">Seat rotations per play style</label><input type="number" id="styleRotations" min="1" max="10" value="2"><small>Each generation tests every standard matchup against the starting model.</small></div>
               </div>
@@ -98,6 +108,7 @@
           <div id="priority-sliders" class="priority-grid"></div>
           <div class="actions"><button type="button" id="reset-priorities" class="btn secondary">Reset candidate</button><button type="button" id="copy-priorities" class="btn secondary">Copy to all candidates</button></div>
           <p class="muted" id="priority-lock" hidden>Resumed runs use the priorities saved with their checkpoint.</p>
+          <p class="muted">In new competitive runs, the largest group with matching priorities can contribute to a pooled checkpoint.</p>
         </section>
       </div>
       <div class="right-col">

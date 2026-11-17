@@ -17,7 +17,7 @@ test('dashboard validates evolutionary parameters before launching children', ()
   assert.deepEqual(normalized, baseline);
   assert.equal(victoryPoints, 0);
   assert.equal(maxTurns, 900);
-  assert.equal(benchmarkGames, 1000);
+  assert.equal(benchmarkGames, 5000);
   assert.equal(learningMode, 'actions');
   assert.equal(styleRotations, 2);
   assert.equal(normalize({ ...baseline, benchmarkGames: 0 }).learningMode, 'value');

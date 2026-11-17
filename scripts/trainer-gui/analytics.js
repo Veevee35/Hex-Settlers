@@ -185,13 +185,15 @@ async function loadGames() {
   const status = el('benchmark-evaluation');
   status.hidden = !evaluation;
   if (evaluation) {
-    const decision = evaluation.promoted ? `Champion promoted from candidate ${evaluation.promoted}.` : 'Champion retained.';
+    const promoted = evaluation.promoted === selection.pooledCandidate?.candidate
+      ? 'the pooled checkpoint' : `candidate ${evaluation.promoted}`;
+    const decision = evaluation.promoted ? `Champion promoted from ${promoted}.` : 'Champion retained.';
     const reason = evaluation.reasons?.join(' ') || '';
     const link = document.createElement('a');
     link.className = 'mini';
-    link.href = `/benchmarks?${new URLSearchParams({ id: evaluation.confirmation || evaluation.screened[0].report })}`;
+    link.href = `/benchmarks?${new URLSearchParams({ id: evaluation.confirmation || evaluation.frontierCheck?.report || evaluation.screened[0].report })}`;
     link.textContent = evaluation.confirmationStoppedEarly ? 'View early confirmation' :
-      evaluation.confirmation ? 'View qualification' : 'View leading screening result';
+      evaluation.confirmation ? 'View qualification' : evaluation.frontierCheck ? 'View checkpoint comparison' : 'View leading screening result';
     status.replaceChildren(`${decision} ${reason} `, link);
   }
   el('candidate-results').replaceChildren(...(selection.candidates || []).map(candidate => row([
@@ -199,6 +201,11 @@ async function loadGames() {
     count(candidate.games), decimal(candidate.score), decimal(candidate.averageVictoryTurn),
     decimal(candidate.averageWinnerMargin),
   ])));
+  if (selection.pooledCandidate) {
+    const { candidate, sources, games } = selection.pooledCandidate;
+    const selected = candidate === selection.selectedCandidate ? ' · Selected' : '';
+    el('candidate-results').append(row([`Pooled checkpoint (${sources.join(', ')})${selected}`, count(games), '—', '—', '—']));
+  }
   el('previous').disabled = el('next').disabled = true;
   el('game-status').textContent = 'Loading matches…';
   try {
@@ -262,7 +269,8 @@ async function loadRun() {
     el('gold').textContent = count(data.gold);
     renderScenarios();
     el('selections').replaceChildren(...data.selections.slice().reverse().map(selection => row([
-      generationLink(selection), selection.selectedCandidate, decimal(selection.selectionScore),
+      generationLink(selection), selection.selectedCandidate === selection.pooledCandidate?.candidate
+        ? 'Pooled checkpoint' : selection.selectedCandidate, decimal(selection.selectionScore),
       decimal(selection.averageVictoryTurn), decimal(selection.averageWinnerMargin),
     ])));
     el('generation').replaceChildren(...data.selections.map(selection => option(`Generation ${selection.generation}`, selection.generation)));

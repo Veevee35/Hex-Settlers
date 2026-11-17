@@ -9,9 +9,9 @@ const { atomicWriteJson, atomicWriteBytes, atomicWriteGameReport } = require('./
 const { TRAINING_OBJECTIVE, upgradeNeuralModel } = require('../server/neural-objective');
 const { POLICY_OBJECTIVE } = require('../server/neural-policy');
 const { normalizeCandidatePriorities } = require('../server/neural-priorities');
-const { assertFiniteModel, summarizeGames } = require('./train_neural_ai_distributed');
+const { assertFiniteModel, mergeModels, summarizeGames } = require('./train_neural_ai_distributed');
 const { benchmarkSelection, QUALIFICATION_GAMES } = require('./benchmark-selection');
-const { MAX_GAMES } = require('./neural-benchmark');
+const { MAX_GAMES, PROFILES } = require('./neural-benchmark');
 
 const ROOT = path.resolve(__dirname, '..');
 const TRAINER = path.join(__dirname, 'train_neural_ai_all_maps.js');
@@ -25,7 +25,7 @@ const MAP_SET = process.env.MAP_SET || 'standard';
 const RULES = process.env.HEX_TRAINING_RULES === 'cpp' ? 'cpp' : 'javascript';
 const VICTORY_POINTS = Number(process.env.VP_TO_WIN || 0);
 const MAX_TURNS = Number(process.env.MAX_TRAINING_TURNS || 900);
-const BENCHMARK_GAMES = Number(process.env.BENCHMARK_GAMES ?? QUALIFICATION_GAMES);
+const BENCHMARK_GAMES = Number(process.env.BENCHMARK_GAMES ?? PROFILES.release);
 const STYLE_ROTATIONS = Number(process.env.BENCHMARK_STYLE_ROTATIONS ?? 2);
 const PRIORITIES = normalizeCandidatePriorities(JSON.parse(process.env.TRAINING_CANDIDATE_PRIORITIES || '[]'), SHARDS);
 const CONTROL_FILE = String(process.env.TRAINING_CONTROL_FILE || '').trim();
@@ -44,6 +44,29 @@ function performance(report) {
   const averageMargin = games.reduce((sum, game) => sum + Number(game.winnerMargin || 0), 0) / count;
   // Higher is better: a full VP of margin is worth ten turns of victory speed.
   return { averageTurn, averageMargin, score: averageMargin - averageTurn / 10 };
+}
+
+async function poolCandidates(startingModel, evaluated, priorities, directory) {
+  const groups = new Map();
+  for (const entry of evaluated) {
+    const key = JSON.stringify(priorities[entry.candidate.index]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  const group = [...groups.values()].sort((a, b) => b.length - a.length ||
+    Math.min(...a.map(entry => entry.candidate.index)) - Math.min(...b.map(entry => entry.candidate.index)))[0];
+  if (!group || group.length < 2) return null;
+  group.sort((a, b) => a.candidate.index - b.candidate.index);
+  const sourceCandidates = group.map(entry => entry.candidate.index + 1);
+  const counts = group.map(entry => entry.candidate.games);
+  const model = mergeModels(startingModel, group.map(entry => entry.model), counts);
+  delete model.meta.lastCudaRefinement;
+  const modelPath = path.join(directory, 'pooled_model.json');
+  await atomicWriteJson(modelPath, model);
+  return {
+    candidate: { index: evaluated.length, modelPath, games: counts.reduce((total, count) => total + count, 0) },
+    model, sourceCandidates,
+  };
 }
 
 function runCandidate(candidate, generationStart, totalProgress, activeChildren, championPath, learnActions, learnStyles) {
@@ -150,7 +173,7 @@ async function main() {
   const startingModel = upgradeNeuralModel(readJson(originalModelPath));
   const startingHash = hashFile(originalModelPath);
   let benchmark = BENCHMARK_GAMES && !isResume
-    ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 2, styleRotations: STYLE_ROTATIONS } : null;
+    ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 3, styleRotations: STYLE_ROTATIONS } : null;
   let learnActions = !!benchmark && process.env.TRAINING_ACTION_POLICY !== '0';
   let learnStyles = learnActions;
   if (fs.existsSync(manifestPath)) {
@@ -180,6 +203,7 @@ async function main() {
   const allGames = [];
   let incumbent = startingModel;
   let incumbentBytes = fs.readFileSync(originalModelPath);
+  let incumbentPath = originalModelPath;
   let championPath = originalModelPath;
   let championHash = startingHash;
   const knownChampionHashes = new Set([startingHash]);
@@ -219,6 +243,7 @@ async function main() {
         incumbentBytes = fs.readFileSync(selectedModelPath);
         if (hashBytes(incumbentBytes) !== record.selectedModelSha256) throw new Error('Selected model checkpoint integrity failure');
         incumbent = readJson(selectedModelPath);
+        incumbentPath = selectedModelPath;
         if (benchmark) {
           if (hashFile(championModelPath) !== record.championModelSha256) throw new Error('Champion checkpoint integrity failure');
           championPath = championModelPath;
@@ -285,6 +310,8 @@ async function main() {
         return { candidate, report, model, ...performance(report) };
       }).sort((a, b) => b.score - a.score || a.averageTurn - b.averageTurn || b.averageMargin - a.averageMargin);
 
+      const pooled = benchmark?.version >= 3 ? await poolCandidates(incumbent, evaluated, PRIORITIES, generationDir) : null;
+      const challengers = pooled ? [...evaluated, pooled] : evaluated;
       let evaluation = null;
       if (benchmark) {
         const controller = new AbortController();
@@ -292,11 +319,13 @@ async function main() {
         try {
           if (isPaused()) controller.abort();
           evaluation = await benchmarkSelection({
-            candidates: evaluated.map(({ candidate }) => ({
+            candidates: challengers.map(({ candidate, sourceCandidates }) => ({
               index: candidate.index + 1, file: candidate.modelPath,
-              label: `Generation ${generation + 1} · Candidate ${candidate.index + 1}`,
+              label: `Generation ${generation + 1} · ${sourceCandidates ? 'Pooled checkpoint' : `Candidate ${candidate.index + 1}`}`,
             })).sort((a, b) => a.index - b.index),
             champion: { file: championPath, label: 'Training champion' }, settings: benchmark,
+            incumbent: hashBytes(incumbentBytes) === championHash
+              ? null : { file: incumbentPath, label: 'Previous training checkpoint' },
             runId: path.basename(tempRoot), generation: generation + 1, finalGeneration: generationStart + GENERATION_GAMES === TOTAL_GAMES,
             directory: generationDir, signal: controller.signal,
             context: { training: readJson(manifestPath) },
@@ -311,19 +340,21 @@ async function main() {
         } finally { clearInterval(timer); }
       }
       const winner = evaluation
-        ? evaluated.find(entry => entry.candidate.index + 1 === (evaluation.promoted ?? evaluation.frontier))
+        ? challengers.find(entry => entry.candidate.index + 1 === (evaluation.promoted ?? evaluation.frontier))
         : evaluated[0];
       const previousHash = hashBytes(incumbentBytes);
-      incumbent = winner?.model || upgradeNeuralModel(readJson(championPath));
+      const retainIncumbent = benchmark?.version >= 3 && !winner;
+      if (!retainIncumbent) incumbent = winner?.model || upgradeNeuralModel(readJson(championPath));
       if (!benchmark) {
         incumbent.trainedGames = Number(startingModel.trainedGames || 0) + generationStart + GENERATION_GAMES;
         incumbent.meta = { ...(incumbent.meta || {}), trainingObjective: TRAINING_OBJECTIVE };
       }
       assertFiniteModel(incumbent);
-      incumbentBytes = Buffer.from(`${JSON.stringify(incumbent, null, 2)}\n`);
+      if (!retainIncumbent) incumbentBytes = Buffer.from(`${JSON.stringify(incumbent, null, 2)}\n`);
       // Selected weights and records are durable before progressing. Reopening
       // this run does not retrain or discard already completed generations.
-      await atomicWriteJson(selectedModelPath, incumbent);
+      await atomicWriteBytes(selectedModelPath, incumbentBytes);
+      incumbentPath = selectedModelPath;
       if (benchmark) {
         const championBytes = fs.readFileSync(evaluation.promoted ? winner.candidate.modelPath : championPath);
         await atomicWriteBytes(championModelPath, championBytes);
@@ -346,6 +377,8 @@ async function main() {
         previousModelSha256: previousHash,
         selectedModelSha256: hashFile(selectedModelPath),
         ...(benchmark ? { evaluation, championModelSha256: championHash } : {}),
+        ...(pooled ? { pooledCandidate: { candidate: pooled.candidate.index + 1,
+          sources: pooled.sourceCandidates, games: pooled.candidate.games } } : {}),
         candidates: evaluated.map((entry) => ({
           candidate: entry.candidate.index + 1,
           priorities: PRIORITIES[entry.candidate.index],
@@ -361,7 +394,9 @@ async function main() {
       if (evaluation) {
         if (evaluation.promoted) await publishChampion();
         const status = evaluation.promoted ? `promoted candidate ${evaluation.promoted}` : 'retained';
-        console.log(`[evolution] generation ${generation + 1}/${TOTAL_GAMES / GENERATION_GAMES}: frontier=${evaluation.frontier ?? 'champion'}, champion=${status}`);
+        const frontier = evaluation.frontier === pooled?.candidate.index + 1 ? 'pooled' :
+          evaluation.frontier ?? (retainIncumbent ? 'retained' : 'champion');
+        console.log(`[evolution] generation ${generation + 1}/${TOTAL_GAMES / GENERATION_GAMES}: frontier=${frontier}, champion=${status}`);
       } else {
         console.log(`[evolution] generation ${generation + 1}/${TOTAL_GAMES / GENERATION_GAMES}: selected candidate ${record.selectedCandidate} score=${record.selectionScore.toFixed(4)}; propagated to all candidates`);
       }
@@ -385,7 +420,8 @@ async function main() {
       childBatchSize: BATCH_SIZE,
       childConcurrency: CONCURRENCY,
       selectionRule: benchmark ? 'rotating-seat competitive screening and independent champion qualification' : 'maximize averageWinnerMargin - averageVictoryTurn / 10',
-      propagation: benchmark ? 'screened weights seed the next generation; only qualified models replace the champion' : 'winning weights seed every candidate in the next generation',
+      propagation: benchmark?.version >= 3 ? 'independently confirmed improvements seed the next generation' :
+        benchmark ? 'screened weights seed the next generation; only qualified models replace the champion' : 'winning weights seed every candidate in the next generation',
       benchmark,
       learnActions,
       learnStyles,
@@ -419,7 +455,7 @@ async function main() {
   }
 }
 
-module.exports = { performance };
+module.exports = { performance, poolCandidates };
 if (require.main === module) main().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exitCode = 1;

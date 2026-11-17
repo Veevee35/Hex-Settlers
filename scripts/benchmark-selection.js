@@ -11,6 +11,10 @@ const SCREEN_GAMES = 100;
 const MIN_SHORTLIST = 4;
 const MAX_SHORTLIST = 8;
 const INTERIM_GAMES = 250;
+const VERIFIED_SCREEN_GAMES = 250;
+const VERIFIED_INITIAL_GAMES = 100;
+const VERIFIED_INTERIM_GAMES = 1000;
+const policyId = file => fs.readFile(file).then(bytes => createHash('sha256').update(bytes).digest('hex'));
 
 function rankScreen(a, b) {
   return Number(b.clean) - Number(a.clean) || b.wins - a.wins || a.meanPlace - b.meanPlace ||
@@ -22,7 +26,8 @@ async function benchmarkSelection({ directory, ...options }) {
   try {
     const result = await selectCandidates({ ...options, directory, workerPool });
     if (options.styleReference) {
-      const candidate = options.candidates.find(row => row.index === (result.promoted ?? result.frontier)) || options.champion;
+      const candidate = options.candidates.find(row => row.index === (result.promoted ?? result.frontier)) ||
+        (options.settings.version >= 3 && options.incumbent) || options.champion;
       result.styleTracking = await trackPlayStyles({ ...options, candidate, directory, workerPool });
     }
     return result;
@@ -35,9 +40,8 @@ async function trackPlayStyles({ candidate, styleReference, settings, runId, gen
   const maps = SCENARIOS.map(map => map.id);
   const games = SCENARIOS.reduce((total, map) => total + map.players, 0) * (settings.styleRotations || 2);
   const seed = `style-progress-v1:${settings.seed}`;
-  const fingerprint = file => fs.readFile(file).then(bytes => createHash('sha256').update(bytes).digest('hex'));
   const [candidateId, referenceId, engineHash] = await Promise.all([
-    fingerprint(candidate.file), fingerprint(styleReference.file), engineFingerprint(),
+    policyId(candidate.file), policyId(styleReference.file), engineFingerprint(),
   ]);
   const indexPath = path.join(directory, 'style-benchmark.json');
   const prior = path.join(path.dirname(directory), `generation-${String(generation - 1).padStart(2, '0')}`, 'style-benchmark.json');
@@ -66,7 +70,7 @@ async function trackPlayStyles({ candidate, styleReference, settings, runId, gen
   return record;
 }
 
-async function selectCandidates({ candidates, champion, runId, generation, finalGeneration, settings, context, directory,
+async function selectCandidates({ candidates, champion, incumbent, runId, generation, finalGeneration, settings, context, directory,
   signal, onProgress = () => {}, workerPool, output }) {
   const indexPath = path.join(directory, 'benchmark-index.json');
   let index = {};
@@ -74,6 +78,8 @@ async function selectCandidates({ candidates, champion, runId, generation, final
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   const engineHash = await engineFingerprint();
   const progressive = settings.version >= 2;
+  const verified = settings.version >= 3;
+  const screenGames = verified ? VERIFIED_SCREEN_GAMES : SCREEN_GAMES;
   const shortlistSize = Math.min(MAX_SHORTLIST, Math.max(MIN_SHORTLIST, Math.ceil(candidates.length / 2)));
   const racing = progressive && candidates.length > shortlistSize;
   const seed = `evolution-v1:${settings.seed}:${generation}`;
@@ -82,7 +88,9 @@ async function selectCandidates({ candidates, champion, runId, generation, final
     const matchSeed = `${seed}:${purpose}`;
     const saved = index[key] && await readBenchmark(index[key], 'report', output);
     const reusable = saved?.engineHash === engineHash && saved.config.seed === matchSeed &&
-      saved.config.games === games && saved.config.maxTurns === 1800;
+      saved.config.games === games && saved.config.maxTurns === 1800 &&
+      saved.candidate.id === await policyId(entry.file) &&
+      saved.opponent.id === (typeof opponent === 'string' ? opponent : await policyId(opponent.file));
     const report = reusable ? saved : await runBenchmark({
       candidate: entry, opponent, games, maps: SELECTION_MAPS, seed: matchSeed, signal, workerPool, output, prefix, interim,
       maxTurns: 1800,
@@ -110,13 +118,14 @@ async function selectCandidates({ candidates, champion, runId, generation, final
   if (racing) {
     const firstPass = [];
     for (const candidate of candidates) {
-      const prefix = await evaluateScreen(`screen-initial-${candidate.index}`, candidate, SELECTION_MAPS.length);
+      const prefix = await evaluateScreen(`screen-initial-${candidate.index}`, candidate,
+        verified ? VERIFIED_INITIAL_GAMES : SELECTION_MAPS.length);
       firstPass.push({ candidate, prefix, result: screenResult(candidate, prefix, 'initial') });
     }
     firstPass.sort((a, b) => rankScreen(a.result, b.result));
     const finalists = firstPass.filter(row => row.result.clean).slice(0, shortlistSize);
     for (const { candidate, prefix } of finalists) {
-      const full = await evaluateScreen(`screen-${candidate.index}`, candidate, SCREEN_GAMES, prefix);
+      const full = await evaluateScreen(`screen-${candidate.index}`, candidate, screenGames, prefix);
       screened.push(screenResult(candidate, full, 'full'));
     }
     screened.sort(rankScreen);
@@ -124,36 +133,53 @@ async function selectCandidates({ candidates, champion, runId, generation, final
     screened.push(...firstPass.filter(row => !advanced.has(row.candidate.index)).map(row => row.result));
   } else {
     for (const candidate of candidates) {
-      const full = await evaluateScreen(`screen-${candidate.index}`, candidate, SCREEN_GAMES);
+      const full = await evaluateScreen(`screen-${candidate.index}`, candidate, screenGames);
       screened.push(screenResult(candidate, full, 'full'));
     }
     screened.sort(progressive ? rankScreen : (a, b) =>
       Number(b.clean) - Number(a.clean) || b.estimate - a.estimate || a.meanPlace - b.meanPlace || a.candidate - b.candidate);
   }
   const best = screened[0];
-  // Carry plausible learning forward locally, while the promoted model stays
-  // frozen. A weak or broken search branches back from the champion.
-  const frontier = best.clean && best.estimate >= -0.02 ? best.candidate : null;
+  // Older runs used their screening result to choose the next training seed.
+  let frontier = !verified && best.clean && best.estimate >= -0.02 ? best.candidate : null;
   const scheduledCheckpoint = finalGeneration || generation % 5 === 0;
   if (!best.clean || (best.estimate < 0.02 && !scheduledCheckpoint)) {
-    return { frontier, promoted: null, screened, reasons: ['No clean screening candidate led the champion baseline by two percentage points.'] };
+    const reason = best.clean ? 'No screening candidate led the champion baseline by two percentage points.' :
+      'No screening candidate met the match integrity limits.';
+    return { frontier, promoted: null, screened, reasons: [reason] };
   }
   const candidate = candidates.find(entry => entry.index === best.candidate);
   const interim = progressive && !scheduledCheckpoint
-    ? { games: INTERIM_GAMES, stop: matches => cleanRun(matches) && directQualification(matches).estimate < 0.005 }
+    ? { games: verified ? VERIFIED_INTERIM_GAMES : INTERIM_GAMES,
+      stop: matches => cleanRun(matches) && directQualification(matches).estimate < 0.005 }
     : undefined;
+  let frontierCheck;
+  if (verified && incumbent) {
+    const check = await evaluate('confirm-frontier', candidate, incumbent, settings.games, 'frontier-confirmation', { interim });
+    const direct = directQualification(check.matches, 1.96);
+    frontierCheck = { report: check.report.id, direct, games: check.matches.length, stoppedEarly: check.report.stoppedEarly };
+    if (check.report.stoppedEarly || !cleanRun(check.matches) || !(direct.low > 0)) {
+      return { frontier, promoted: null, screened, frontierCheck,
+        reasons: ['Independent games did not establish an improvement over the previous checkpoint.'] };
+    }
+    frontier = candidate.index;
+  }
   const confirmation = await evaluate('confirm', candidate, champion, settings.games, 'confirmation', { interim });
   const direct = directQualification(confirmation.matches);
+  const integrity = cleanRun(confirmation.matches);
+  if (verified && !incumbent && integrity && !confirmation.report.stoppedEarly &&
+      directQualification(confirmation.matches, 1.96).low > 0) frontier = candidate.index;
   const qualifying = {
     frontier, promoted: null, screened, confirmation: confirmation.report.id, direct,
     confirmationGames: confirmation.matches.length, confirmationStoppedEarly: !!confirmation.report.stoppedEarly,
+    ...(frontierCheck ? { frontierCheck } : {}),
   };
   if (confirmation.report.stoppedEarly) {
     return { ...qualifying, reasons: ['The optional confirmation stopped after its first rotation blocks showed less than a half-point lead.'] };
   }
-  const integrity = cleanRun(confirmation.matches);
   if (!integrity || direct.high < 0) {
-    return { ...qualifying, frontier: null, reasons: ['Qualification found a competitive regression or exceeded the match integrity limits. Training returns to the champion.'] };
+    const reason = 'Qualification found a competitive regression or exceeded the match integrity limits.';
+    return { ...qualifying, frontier: null, reasons: [verified ? reason : `${reason} Training returns to the champion.`] };
   }
   if (direct.estimate < 0.02 || !(direct.low > 0)) {
     return { ...qualifying, reasons: ['The challenger missed the 99% champion threshold.'] };

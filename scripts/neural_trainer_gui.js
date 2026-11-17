@@ -34,9 +34,9 @@ const CSRF_TOKEN = crypto.randomBytes(24).toString('hex');
 fs.mkdirSync(OUTPUT, { recursive: true });
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const defaults = {
-  sims: 20000, generation: 1000, shards: 4, batch: 100, concurrency: 2,
+  sims: 20000, generation: 5000, shards: 4, batch: 50, concurrency: 2,
   mapSet: 'standard', rules: 'auto', gpuMode: 'auto', epochs: 3, miniBatch: 256, python: 'python',
-  victoryPoints: 0, maxTurns: 900, benchmarkGames: PROFILES.checkpoint, learningMode: 'actions', styleRotations: 2,
+  victoryPoints: 0, maxTurns: 900, benchmarkGames: PROFILES.release, learningMode: 'actions', styleRotations: 2,
 };
 let saved = normalize(defaults);
 try { saved = normalize({ ...defaults, ...readJson(SETTINGS) }); } catch (_) { /* first launch */ }
