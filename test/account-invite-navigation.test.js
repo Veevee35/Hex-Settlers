@@ -33,7 +33,7 @@ function element() {
 
 function simulatedPortal({ invitedRoom, savedMode }) {
   const elements = Object.fromEntries(
-    ['authLanding', 'playModeScreen', 'rankedScreen', 'app', 'accountOrb', 'accountOrbInitial', 'accountMenuName'].map((id) => [id, element()]),
+    ['authLanding', 'playModeScreen', 'journeyScreen', 'rankedScreen', 'app', 'accountOrb', 'accountOrbInitial', 'accountMenuName'].map((id) => [id, element()]),
   );
   const persisted = new Map();
   const context = vm.createContext({
@@ -52,6 +52,7 @@ function simulatedPortal({ invitedRoom, savedMode }) {
     roomNotFoundVisible: false,
     journeyView: 'home',
     room: null,
+    historyReplay: { active: false },
     recentRoomSessionForUser: () => null,
     document: { body: { classList: { toggle() {} } }, querySelectorAll() { return []; } },
     ui: { nameInput: { value: '' } },
@@ -94,6 +95,36 @@ test('without an invitation, ranked/unranked selection remains unchanged', () =>
   const choosing = simulatedPortal({ invitedRoom: null, savedMode: '' });
   vm.runInContext('setAuthState({ id: "u1", username: "tester", tutorialCompleted: true }, null)', choosing.context);
   assert.equal(choosing.elements.playModeScreen.classList.contains('hidden'), false);
+});
+
+test('a saved replay opens the board from menu screens and exiting restores the original screen', () => {
+  for (const [savedMode, screen] of [['', 'playModeScreen'], ['journey', 'journeyScreen'], ['ranked', 'rankedScreen']]) {
+    const { context, elements, persisted } = simulatedPortal({ savedMode });
+    const liveState = { id: 'live' };
+    const game = { replay: { initial: { phase: 'setup1-settlement' }, steps: [] } };
+    const frames = [];
+    Object.assign(context, {
+      state: liveState,
+      clearStructurePlacementEmphasis() {}, cancelHistoryReplayScrub() {}, setHistoryVisible() {},
+      closePostgameSnapshot() {}, refreshHistoryReplayBar() {}, updateButtons() {}, renderLobby() {}, render() {},
+      showHistoryReplayFrame(index) {
+        assert.equal(elements.app.classList.contains('hidden'), false, 'the board must be visible before rendering a frame');
+        frames.push(index);
+      },
+    });
+    vm.runInContext(sourceBetween('function startHistoryReplay(entry)', 'function clearPostgameTimers()'), context);
+    vm.runInContext('setAuthState({ id: "u1", username: "tester" }, null)', context);
+    assert.equal(elements[screen].classList.contains('hidden'), false);
+    context.startHistoryReplay(game);
+    assert.deepEqual(frames, [0]);
+    assert.equal(elements[screen].classList.contains('hidden'), true);
+    context.stopHistoryReplay();
+    assert.equal(elements[screen].classList.contains('hidden'), false);
+    assert.equal(elements.app.classList.contains('hidden'), true);
+    assert.equal(context.state, liveState);
+    assert.equal(context.selectedPlayMode, savedMode);
+    assert.equal(persisted.has('hexsettlers_play_mode'), false);
+  }
 });
 
 test('the account orb puts Player Stats and Game Log immediately above Log Out', () => {

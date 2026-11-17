@@ -1301,6 +1301,13 @@
 
   let authUser = null;
   let selectedPlayMode = (() => { try { return sessionStorage.getItem('hexsettlers_play_mode') || ''; } catch (_) { return ''; } })();
+  let historyReplay = {
+    active: false,
+    entry: null,
+    index: 0,
+    liveState: null,
+    viewPlayerId: null,
+  };
   let journeyView = 'home';
   let weeklyChallengeCatalog = null;
   let selectedChallengePlayerCount = 4;
@@ -2542,13 +2549,14 @@
     const modeScreen = $('playModeScreen');
     const rankedScreen = $('rankedScreen');
     const appRoot = $('app');
+    const replaying = historyReplay.active;
     landing?.classList.toggle('hidden', loggedIn);
-    modeScreen?.classList.toggle('hidden', !ready || !!selectedPlayMode || roomNotFoundVisible);
-    $('journeyScreen')?.classList.toggle('hidden', !ready || selectedPlayMode !== 'journey' || roomNotFoundVisible);
-    $('roomNotFoundScreen')?.classList.toggle('hidden', !ready || !roomNotFoundVisible);
+    modeScreen?.classList.toggle('hidden', !ready || replaying || !!selectedPlayMode || roomNotFoundVisible);
+    $('journeyScreen')?.classList.toggle('hidden', !ready || replaying || selectedPlayMode !== 'journey' || roomNotFoundVisible);
+    $('roomNotFoundScreen')?.classList.toggle('hidden', !ready || replaying || !roomNotFoundVisible);
     if (typeof setJourneyView === 'function') setJourneyView(journeyView);
-    rankedScreen?.classList.toggle('hidden', !ready || selectedPlayMode !== 'ranked' || roomNotFoundVisible);
-    appRoot?.classList.toggle('hidden', !ready || roomNotFoundVisible || !['unranked', 'casual'].includes(selectedPlayMode));
+    rankedScreen?.classList.toggle('hidden', !ready || replaying || selectedPlayMode !== 'ranked' || roomNotFoundVisible);
+    appRoot?.classList.toggle('hidden', !ready || (!replaying && (roomNotFoundVisible || !['unranked', 'casual'].includes(selectedPlayMode))));
     if (typeof document !== 'undefined') document.body?.classList.toggle('casual-mode', selectedPlayMode === 'casual' || !!room?.casual);
     if (typeof refreshTexturePackUi === 'function') refreshTexturePackUi();
     if ($('uncreatedLobbyIntro')) {
@@ -3155,13 +3163,6 @@ let historyState = {
   selectedIds: new Set(), savedReplays: [], exporting: null,
 };
 
-let historyReplay = {
-  active: false,
-  entry: null,
-  index: 0,
-  liveState: null,
-  viewPlayerId: null,
-};
 let historyReplayScrubFrame = null;
 let historyReplayScrubIndex = null;
 
@@ -3307,6 +3308,7 @@ function startHistoryReplay(entry) {
   historyReplay = { active: true, entry, index: 0, liveState: state, viewPlayerId: null };
   setHistoryVisible(false);
   closePostgameSnapshot();
+  updateAuthUi();
   showHistoryReplayFrame(0);
 }
 
@@ -3318,12 +3320,11 @@ function stopHistoryReplay() {
   historyReplay = { active: false, entry: null, index: 0, liveState: null, viewPlayerId: null };
   state = liveState;
   refreshHistoryReplayBar();
-  if (state) {
-    updateButtons();
-    renderLobby();
-    render();
-  }
-  try { send({ type: 'get_state' }); } catch (_) {}
+  updateAuthUi();
+  updateButtons();
+  renderLobby();
+  render();
+  if (room) send({ type: 'get_state' });
   setHistoryVisible(true);
 }
 function clearPostgameTimers() {
@@ -12606,12 +12607,12 @@ function refreshLobbyJoinLinkUi() {
   }
 
   function renderLobby() {
-    const isRankedLobby = !!(room?.ranked && currentRoomPhase() === 'lobby');
+    const isRankedLobby = !historyReplay.active && !!(room?.ranked && currentRoomPhase() === 'lobby');
     // The card is hidden while a match is in progress. Always restore it
     // before taking the no-room early return; otherwise leaving a completed
     // game shows only the "Start a new adventure" heading until a refresh
     // rebuilds the original HTML classes.
-    const gameStarted = !!(room && state && state.phase && state.phase !== 'lobby');
+    const gameStarted = historyReplay.active || !!(room && state && state.phase && state.phase !== 'lobby');
     if (ui.lobbyCard) ui.lobbyCard.classList.toggle('hidden', gameStarted);
     document.body.classList.toggle('ranked-lobby', isRankedLobby);
     document.body.classList.toggle('uncreated-lobby', !room);
@@ -15465,8 +15466,8 @@ function ensureTimerUiInterval() {
 
   function updateButtons() {
     const phaseNow = currentRoomPhase();
-    const inGame = !!state && state.phase !== 'lobby';
-    const amSpectator = inGame && amRoomSpectator();
+    const inGame = !!state && (historyReplay.active || state.phase !== 'lobby');
+    const amSpectator = inGame && (historyReplay.active || amRoomSpectator());
     if (ui.toolsCard) ui.toolsCard.classList.toggle('hidden', !inGame);
     if (ui.logBtn) ui.logBtn.textContent = gamePanelsExpanded ? 'Hide Game Panels' : 'Show Game Panels';
 
