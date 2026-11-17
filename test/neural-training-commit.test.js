@@ -35,6 +35,7 @@ function makeContext(save = () => Promise.resolve(), options = {}) {
     victoryTrainingTarget,
     trainPolicy,
     POLICY_OBJECTIVE,
+    LOCAL_SELF_PLAY: true,
     saveNeuralAiModel: save,
     process: { env: { AI_TRAINING: '1', NODE_ENV: 'test', NEURAL_GPU_TRAINING: options.gpu ? '1' : '0' } },
     HOST: '127.0.0.1',

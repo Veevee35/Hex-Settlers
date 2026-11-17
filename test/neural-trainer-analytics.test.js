@@ -29,6 +29,8 @@ test('saved-run analytics include all candidates, filter before paging, and expo
     mapId: curriculumIndex < 110 ? 'classic' : 'eight_islands_78',
     players: curriculumIndex < 110 ? 4 : 8,
     policyDecisions: curriculumIndex < 110 ? 2 : 3,
+    ...(curriculumIndex < 12 ? { anchored: true } : {}),
+    ...(curriculumIndex < 8 ? { learnerWon: curriculumIndex < 3 } : {}),
     ...(curriculumIndex >= 110 ? { requestedMapId: 'classic78' } : {}),
     turnNumber: 100,
     winnerMargin: 4,
@@ -49,6 +51,9 @@ test('saved-run analytics include all candidates, filter before paging, and expo
   assert.equal(summary.replacements, 10);
   assert.equal(summary.gold, 5);
   assert.equal(summary.averageTurns, 100);
+  assert.deepEqual(summary.work, {
+    decisionSamples: 250, anchoredGames: 12, scoredAnchorGames: 8, anchorWins: 3, anchorExpectedWins: 2,
+  });
   assert.deepEqual(summary.selections, [selection]);
   assert.deepEqual(summary.styleTraining[0].byPlayerCount['4'], { games: 110, decisions: 220 });
   assert.deepEqual(summary.styleTraining[0].byScenario.eight_islands_78, { games: 10, decisions: 30 });

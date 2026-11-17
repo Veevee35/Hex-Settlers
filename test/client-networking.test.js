@@ -21,5 +21,5 @@ test('browser sends tolerate a socket closing between the ready-state check and 
 });
 
 test('lobby room updates do not read game-only state before the preview arrives', () => {
-  assert.match(appJs, /const inGame = !!state && state\.phase !== 'lobby';[\s\S]*?if \(!inGame \|\| paused\) \{/);
+  assert.match(appJs, /const inGame = !!state && \(historyReplay\.active \|\| state\.phase !== 'lobby'\);[\s\S]*?if \(!inGame \|\| paused\) \{/);
 });

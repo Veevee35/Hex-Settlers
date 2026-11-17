@@ -43,6 +43,24 @@ test('winning explored actions become preferred and losing actions become less l
   assert.equal(validatePolicy(policy), policy);
 });
 
+test('phase balancing credits rare opening decisions without raising the total actor step', () => {
+  const sample = (phase, index) => ({
+    playerId: 'learner', phase, actionKind: phase, baseline: 0.5,
+    context: Array(33).fill(0), gradient: new Map([[0, [Number(index === 0), Number(index === 1)]]]),
+  });
+  const episode = [sample('setup1-settlement', 0), ...Array(9).fill(sample('main-actions', 1))];
+  const previous = createPolicy();
+  const balanced = createPolicy();
+  trainPolicy(previous, episode, 'learner');
+  trainPolicy(balanced, episode, 'learner', { balancePhases: true });
+  const [previousOpening, previousMain] = previous.weights[0];
+  const [opening, main] = balanced.weights[0];
+  assert.ok(opening > previousOpening);
+  assert.ok(main < previousMain);
+  assert.ok(Math.abs(opening + main - previousOpening - previousMain) < 1e-12);
+  assert.deepEqual(balanced.byPhase, previous.byPhase);
+});
+
 test('policy features ignore hidden deck order, opponent resource kinds and unrevealed terrain', () => {
   const a = position();
   const b = structuredClone(a);

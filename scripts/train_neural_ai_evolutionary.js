@@ -36,6 +36,20 @@ const OUTPUT = path.resolve(process.env.TRAINING_OUTPUT || path.join(ROOT, 'scri
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const hashBytes = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const hashFile = (file) => hashBytes(fs.readFileSync(file));
+const continuedLearningPath = path.join(ROOT, 'scripts', 'output', 'learning-checkpoints', `${hashBytes(MODEL_PATH)}.json`);
+
+function readContinuedLearning(file, { championHash, profile }) {
+  let saved;
+  try { saved = readJson(file); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  if (saved.championHash !== championHash || saved.profile !== profile) return null;
+  if (typeof saved.model !== 'string' || !/^\.neural-evolution-[a-zA-Z0-9-]+$/.test(saved.run)) {
+    throw new Error('Invalid continuing checkpoint');
+  }
+  const bytes = Buffer.from(saved.model);
+  if (hashBytes(bytes) !== saved.modelHash) throw new Error('Continuing checkpoint integrity failure');
+  return { bytes, source: { run: saved.run, modelHash: saved.modelHash } };
+}
 
 function performance(report) {
   const games = report.games || [];
@@ -69,7 +83,7 @@ async function poolCandidates(startingModel, evaluated, priorities, directory) {
   };
 }
 
-function runCandidate(candidate, generationStart, totalProgress, activeChildren, championPath, learnActions, learnStyles) {
+function runCandidate(candidate, generationStart, totalProgress, activeChildren, championPath, learnActions, learnStyles, learningLoop) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [TRAINER], {
       cwd: ROOT,
@@ -86,6 +100,7 @@ function runCandidate(candidate, generationStart, totalProgress, activeChildren,
         TRAINING_ANCHOR_MODEL: championPath || '',
         TRAINING_ACTION_POLICY: learnActions ? '1' : '0',
         TRAINING_STYLE_POLICY: learnStyles ? '1' : '0',
+        TRAINING_LEARNING_LOOP: String(learningLoop),
         RESUME_TRAINING: '1',
         KEEP_TRAINING_TEMP: process.env.KEEP_TRAINING_SCRATCH ?? process.env.KEEP_TRAINING_TEMP ?? '0',
       },
@@ -145,6 +160,7 @@ async function main() {
   if (isResume && !fs.statSync(tempRoot).isDirectory()) throw new Error(`Resume path is not a directory: ${tempRoot}`);
   const manifestPath = path.join(tempRoot, 'run.json');
   const originalModelPath = path.join(tempRoot, 'starting_model.json');
+  const learningStartPath = path.join(tempRoot, 'starting_learning_model.json');
   if (!isResume) fs.copyFileSync(MODEL_PATH, originalModelPath);
   if (isResume && !fs.existsSync(originalModelPath)) {
     // Backward-compatible recovery of the 1.0.52 generation-1 failure: candidate
@@ -173,14 +189,21 @@ async function main() {
   const startingModel = upgradeNeuralModel(readJson(originalModelPath));
   const startingHash = hashFile(originalModelPath);
   let benchmark = BENCHMARK_GAMES && !isResume
-    ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 3, styleRotations: STYLE_ROTATIONS } : null;
+    ? { games: BENCHMARK_GAMES, seed: crypto.randomUUID(), version: 4, styleRotations: STYLE_ROTATIONS } : null;
   let learnActions = !!benchmark && process.env.TRAINING_ACTION_POLICY !== '0';
   let learnStyles = learnActions;
+  let learningStart;
+  const trainingProfile = () => hashBytes(JSON.stringify({
+    loop: benchmark?.version, learnActions, learnStyles, MAP_SET, RULES, VICTORY_POINTS, MAX_TURNS,
+    priorities: [...new Set(PRIORITIES.map(priorities => JSON.stringify(priorities)))].sort(),
+  }));
   if (fs.existsSync(manifestPath)) {
     const manifest = readJson(manifestPath);
     benchmark = manifest.benchmark || null;
     learnActions = manifest.learnActions === true;
     learnStyles = manifest.learnStyles === true;
+    learningStart = manifest.learningStart;
+    if (learningStart && hashFile(learningStartPath) !== learningStart.modelHash) throw new Error('Starting learning checkpoint integrity failure');
     if ((manifest.rules || 'javascript') !== RULES) throw new Error('Use the self-play rules backend from the saved run');
     if (manifest.totalGames !== TOTAL_GAMES || manifest.generationGames !== GENERATION_GAMES || manifest.shards !== SHARDS || manifest.mapSet !== MAP_SET || manifest.startingHash !== startingHash)
       throw new Error('Run parameters or base model differ from saved checkpoint. Use original SIMS, SELECTION_INTERVAL, SHARDS and MAP_SET.');
@@ -189,10 +212,19 @@ async function main() {
       throw new Error('Use the AI priorities, victory target, and turn limit from the saved run');
     }
   } else {
+    if (benchmark?.version >= 4) {
+      const previous = readContinuedLearning(continuedLearningPath, { championHash: startingHash, profile: trainingProfile() });
+      if (previous) {
+        await atomicWriteBytes(learningStartPath, previous.bytes);
+        learningStart = previous.source;
+        console.log(`[evolution] continuing learning from ${learningStart.run}`);
+      }
+    }
     await atomicWriteJson(manifestPath, {
       totalGames: TOTAL_GAMES, generationGames: GENERATION_GAMES, shards: SHARDS, mapSet: MAP_SET, rules: RULES,
       victoryPoints: VICTORY_POINTS, maxTurns: MAX_TURNS, candidatePriorities: PRIORITIES,
       startingHash, benchmark, learnActions, learnStyles, policyObjective: learnActions ? POLICY_OBJECTIVE : null,
+      ...(learningStart ? { learningStart } : {}),
       accelerator: process.env.TRAINING_ACCELERATOR || 'cpu',
       gpuEpochs: Number(process.env.GPU_EPOCHS || 3), gpuMinibatch: Number(process.env.GPU_MINIBATCH || 256),
       childBatchSize: BATCH_SIZE, childConcurrency: CONCURRENCY, trainingObjective: TRAINING_OBJECTIVE,
@@ -201,9 +233,9 @@ async function main() {
   }
   const generations = [];
   const allGames = [];
-  let incumbent = startingModel;
-  let incumbentBytes = fs.readFileSync(originalModelPath);
-  let incumbentPath = originalModelPath;
+  let incumbentPath = learningStart ? learningStartPath : originalModelPath;
+  let incumbentBytes = fs.readFileSync(incumbentPath);
+  let incumbent = learningStart ? upgradeNeuralModel(JSON.parse(incumbentBytes)) : startingModel;
   let championPath = originalModelPath;
   let championHash = startingHash;
   const knownChampionHashes = new Set([startingHash]);
@@ -286,7 +318,8 @@ async function main() {
       const activeChildren = new Set();
       const runs = await Promise.allSettled(pending.map(async candidate => {
         try {
-          return await runCandidate(candidate, generationStart, totalProgress, activeChildren, benchmark ? championPath : null, learnActions, learnStyles);
+          return await runCandidate(candidate, generationStart, totalProgress, activeChildren, benchmark ? championPath : null,
+            learnActions, learnStyles, benchmark?.version >= 4 ? benchmark.version : 0);
         } catch (error) {
           console.error(`[evolution] Candidate ${candidate.index + 1} failed; pausing other candidates at their checkpoints.`);
           for (const child of activeChildren) {
@@ -321,6 +354,7 @@ async function main() {
           evaluation = await benchmarkSelection({
             candidates: challengers.map(({ candidate, sourceCandidates }) => ({
               index: candidate.index + 1, file: candidate.modelPath,
+              pooled: !!sourceCandidates,
               label: `Generation ${generation + 1} · ${sourceCandidates ? 'Pooled checkpoint' : `Candidate ${candidate.index + 1}`}`,
             })).sort((a, b) => a.index - b.index),
             champion: { file: championPath, label: 'Training champion' }, settings: benchmark,
@@ -328,7 +362,7 @@ async function main() {
               ? null : { file: incumbentPath, label: 'Previous training checkpoint' },
             runId: path.basename(tempRoot), generation: generation + 1, finalGeneration: generationStart + GENERATION_GAMES === TOTAL_GAMES,
             directory: generationDir, signal: controller.signal,
-            context: { training: readJson(manifestPath) },
+            context: { training: readJson(manifestPath) }, startingModelFile: originalModelPath,
             styleReference: learnStyles ? { file: originalModelPath, label: 'Starting model (style reference)' } : null,
             onProgress: (phase, done, count) => console.log(`[benchmark] generation ${generation + 1} ${phase}: ${done}/${count}`),
           });
@@ -343,14 +377,16 @@ async function main() {
         ? challengers.find(entry => entry.candidate.index + 1 === (evaluation.promoted ?? evaluation.frontier))
         : evaluated[0];
       const previousHash = hashBytes(incumbentBytes);
-      const retainIncumbent = benchmark?.version >= 3 && !winner;
+      const retainIncumbent = benchmark?.version >= 3 && !winner && !evaluation?.resetToChampion;
       if (!retainIncumbent) incumbent = winner?.model || upgradeNeuralModel(readJson(championPath));
       if (!benchmark) {
         incumbent.trainedGames = Number(startingModel.trainedGames || 0) + generationStart + GENERATION_GAMES;
         incumbent.meta = { ...(incumbent.meta || {}), trainingObjective: TRAINING_OBJECTIVE };
       }
       assertFiniteModel(incumbent);
-      if (!retainIncumbent) incumbentBytes = Buffer.from(`${JSON.stringify(incumbent, null, 2)}\n`);
+      if (!retainIncumbent) incumbentBytes = benchmark?.version >= 4
+        ? fs.readFileSync(winner?.candidate.modelPath || championPath)
+        : Buffer.from(`${JSON.stringify(incumbent, null, 2)}\n`);
       // Selected weights and records are durable before progressing. Reopening
       // this run does not retrain or discard already completed generations.
       await atomicWriteBytes(selectedModelPath, incumbentBytes);
@@ -367,6 +403,9 @@ async function main() {
 
       const generationGames = evaluated.flatMap((entry) => entry.report.games || []);
       allGames.push(...generationGames);
+      const anchorGames = generationGames.filter(game => game.anchored);
+      const scoredAnchorGames = anchorGames.filter(game => typeof game.learnerWon === 'boolean');
+      const championModel = evaluation ? readJson(championPath) : incumbent;
       const record = {
         generation: generation + 1,
         games: GENERATION_GAMES,
@@ -374,6 +413,18 @@ async function main() {
         selectionScore: winner?.score ?? null,
         averageVictoryTurn: winner?.averageTurn ?? null,
         averageWinnerMargin: winner?.averageMargin ?? null,
+        work: {
+          decisionSamples: generationGames.reduce((total, game) => total + (game.policyDecisions || 0), 0),
+          anchoredGames: anchorGames.length,
+          scoredAnchorGames: scoredAnchorGames.length,
+          anchorWins: scoredAnchorGames.filter(game => game.learnerWon).length,
+          anchorExpectedWins: scoredAnchorGames.reduce((total, game) => total + 1 / game.players, 0),
+          continuedGames: winner?.candidate.games ?? 0,
+          learningModelGames: Number(incumbent.trainedGames || 0),
+          learningModelDecisions: incumbent.policy?.decisions ?? null,
+          championModelGames: Number(championModel.trainedGames || 0),
+          championModelDecisions: championModel.policy?.decisions ?? null,
+        },
         previousModelSha256: previousHash,
         selectedModelSha256: hashFile(selectedModelPath),
         ...(benchmark ? { evaluation, championModelSha256: championHash } : {}),
@@ -420,7 +471,8 @@ async function main() {
       childBatchSize: BATCH_SIZE,
       childConcurrency: CONCURRENCY,
       selectionRule: benchmark ? 'rotating-seat competitive screening and independent champion qualification' : 'maximize averageWinnerMargin - averageVictoryTurn / 10',
-      propagation: benchmark?.version >= 3 ? 'independently confirmed improvements seed the next generation' :
+      propagation: benchmark?.version >= 4 ? 'continue pooled learning and reset confirmed regressions; promote only independently qualified challengers' :
+        benchmark?.version >= 3 ? 'independently confirmed improvements seed the next generation' :
         benchmark ? 'screened weights seed the next generation; only qualified models replace the champion' : 'winning weights seed every candidate in the next generation',
       benchmark,
       learnActions,
@@ -434,6 +486,7 @@ async function main() {
       resumedFrom: isResume ? tempRoot : null,
       scenariosReplaced: allGames.filter(game => game.requestedMapId).length,
       startingTrainedGames: Number(startingModel.trainedGames || 0),
+      ...(learningStart ? { continuedLearningFrom: learningStart.run } : {}),
       finalTrainedGames: Number((benchmark ? readJson(championPath) : incumbent).trainedGames || 0),
       frontierTrainedGames: Number(incumbent.trainedGames || 0),
       startingModelSha256: startingHash,
@@ -447,6 +500,12 @@ async function main() {
       durationMs: Date.now() - startedAt.getTime(),
     };
     await atomicWriteGameReport(OUTPUT, report, allGames);
+    if (benchmark?.version >= 4) {
+      await atomicWriteJson(continuedLearningPath, {
+        championHash, profile: trainingProfile(), modelHash: hashBytes(incumbentBytes),
+        run: path.basename(tempRoot), model: incumbentBytes.toString('utf8'),
+      });
+    }
     succeeded = true;
     console.log(`[evolution] report=${OUTPUT}`);
   } finally {
@@ -455,7 +514,7 @@ async function main() {
   }
 }
 
-module.exports = { performance, poolCandidates };
+module.exports = { performance, poolCandidates, readContinuedLearning };
 if (require.main === module) main().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exitCode = 1;

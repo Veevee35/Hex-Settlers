@@ -15,6 +15,15 @@ test('the style suite covers every seat count supported by standard lobbies', ()
   assert.equal(new Set(SCENARIOS.map(map => map.id)).size, SCENARIOS.length);
 });
 
+test('the benchmark uses live victory targets for large boards', () => {
+  const target = id => SCENARIOS.find(map => map.id === id).victoryPoints;
+  assert.equal(target('classic78'), 10);
+  assert.equal(target('classic78_7p'), 10);
+  assert.equal(target('fog_island_78'), 12);
+  assert.equal(target('cartographer_56_manual'), 14);
+  assert.equal(target('eight_islands_78'), 14);
+});
+
 test('two- and three-player Cartographer drafts fill the complete board', async () => {
   const output = await fs.mkdtemp(path.join(os.tmpdir(), 'hex-benchmark-small-draft-'));
   try {

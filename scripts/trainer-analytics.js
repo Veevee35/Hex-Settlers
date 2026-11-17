@@ -80,15 +80,17 @@ function trainingProgression(run) {
   const result = (async () => {
     const history = [...await previous];
     for (let generation = history.length + 1; generation <= run.generations; generation++) {
-      const { selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin, evaluation, candidates } = await readSelection(run, generation);
+      const { selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin, evaluation, candidates, work } = await readSelection(run, generation);
       const policyDecisions = candidates?.reduce((total, candidate) => total + (candidate.policyDecisions || 0), 0);
       history.push({ generation, selectedCandidate, selectionScore, averageVictoryTurn, averageWinnerMargin,
         ...(policyDecisions ? { policyDecisions } : {}),
+        ...(work ? { work } : {}),
         ...(evaluation ? { qualification: {
           promoted: evaluation.promoted,
           report: evaluation.confirmation || evaluation.frontierCheck?.report || evaluation.screened[0].report,
           direct: evaluation.direct, games: evaluation.confirmationGames, stoppedEarly: evaluation.confirmationStoppedEarly,
           frontier: evaluation.frontier,
+          resetToChampion: evaluation.resetToChampion,
         } } : {}) });
     }
     return history;
@@ -107,10 +109,10 @@ async function summarizeTrainingRun(run) {
     summaryCache = { dir: run.dir, generations: run.generations, result };
     void result.catch(() => { if (summaryCache?.result === result) summaryCache = undefined; });
   }
-  const { maps, selections, styleTraining, games, turns, margin, gold, replacements } = await summaryCache.result;
+  const { maps, selections, styleTraining, games, turns, margin, gold, replacements, work } = await summaryCache.result;
   return {
     id: run.id, manifest: run.manifest, completedAt: run.completedAt, selections, styleTraining,
-    games, averageTurns: games ? turns / games : null, averageMargin: games ? margin / games : null, gold, replacements,
+    games, averageTurns: games ? turns / games : null, averageMargin: games ? margin / games : null, gold, replacements, work,
     maps: Array.from(maps.values(), ({ turns, margin, ...map }) => ({
       ...map, averageTurns: turns / map.games, averageMargin: margin / map.games,
     })).sort((a, b) => a.label.localeCompare(b.label)),
@@ -122,6 +124,7 @@ async function collectRunSummary(run, previous) {
   const maps = new Map(Array.from(saved?.maps || [], ([id, map]) => [id, { ...map }]));
   const selections = [...(saved?.selections || [])];
   const styleTraining = [...(saved?.styleTraining || [])];
+  const work = { decisionSamples: 0, anchoredGames: 0, scoredAnchorGames: 0, anchorWins: 0, anchorExpectedWins: 0, ...saved?.work };
   let { games = 0, turns = 0, margin = 0, gold = 0, replacements = 0 } = saved || {};
   const emptyGroup = () => ({ games: 0, decisions: 0 });
   const addTrainingGame = (group, game) => {
@@ -141,6 +144,15 @@ async function collectRunSummary(run, previous) {
         });
         const map = maps.get(mapId);
         games++;
+        work.decisionSamples += game.policyDecisions || 0;
+        if (game.anchored) {
+          work.anchoredGames++;
+          if (typeof game.learnerWon === 'boolean') {
+            work.scoredAnchorGames++;
+            work.anchorWins += Number(game.learnerWon);
+            work.anchorExpectedWins += 1 / players;
+          }
+        }
         map.games++;
         addTrainingGame(style.all, game);
         if (Number.isInteger(players)) addTrainingGame(style.byPlayerCount[players] ??= emptyGroup(), game);
@@ -161,7 +173,7 @@ async function collectRunSummary(run, previous) {
     }
     styleTraining.push(style);
   }
-  return { maps, selections, styleTraining, games, turns, margin, gold, replacements };
+  return { maps, selections, styleTraining, games, turns, margin, gold, replacements, work };
 }
 
 async function styleBenchmarkProgression(run, loadReport) {

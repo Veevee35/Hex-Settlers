@@ -181,16 +181,29 @@ function selectPolicyAction({ game, player, policy, options, scale, explore, ran
     phase: game.phase, actionKind: KINDS[chosen.index], playerId: player.id, styles: keys } };
 }
 
-function trainPolicy(policy, samples, winnerId) {
+function phaseCreditWeights(samples) {
+  const counts = new Map();
+  const keys = samples.map(sample => `${sample.playerId}:${sample.phase}`);
+  for (const key of keys) counts.set(key, (counts.get(key) || 0) + 1);
+  const weights = keys.map(key => 1 / Math.sqrt(counts.get(key)));
+  const average = sum(weights) / weights.length;
+  const capped = weights.map(weight => Math.min(weight / average, 2));
+  const normalizer = capped.length / sum(capped);
+  return capped.map(weight => weight * normalizer);
+}
+
+function trainPolicy(policy, samples, winnerId, { balancePhases = false } = {}) {
   if (!samples.length) return;
   policy.byAction ||= {};
   const rate = 0.055 / Math.sqrt(samples.length);
+  const credit = balancePhases ? phaseCreditWeights(samples) : null;
   const playedStyles = new Set();
-  for (const sample of samples) {
+  for (const [sampleIndex, sample] of samples.entries()) {
     const advantage = Number(winnerId === sample.playerId) - sample.baseline;
+    const actorStep = rate * advantage * (credit?.[sampleIndex] ?? 1);
     for (const [index, gradient] of sample.gradient) {
       const row = policy.weights[index];
-      for (let i = 0; i < row.length; i++) row[i] = clamp(row[i] + rate * advantage * gradient[i], 3);
+      for (let i = 0; i < row.length; i++) row[i] = clamp(row[i] + actorStep * gradient[i], 3);
     }
     for (let i = 0; i < policy.critic.length; i++) {
       policy.critic[i] = clamp(policy.critic[i] + rate * advantage * sample.context[i], 6);
@@ -202,7 +215,7 @@ function trainPolicy(policy, samples, winnerId) {
       }
       for (const [i, key] of sample.styles.entries()) {
         const style = policy.styles[key] ??= createStyle();
-        const step = rate * advantage * STYLE_BLEND[i];
+        const step = actorStep * STYLE_BLEND[i];
         for (const [kind, row] of sample.gradient) style.weights[kind] = clamp(style.weights[kind] + step * row[0], 2);
         for (let j = 0; j < DETAIL_SIZE; j++) {
           const offset = KINDS.length + j;

@@ -21,6 +21,29 @@
       <div><h1>Training <em>analytics</em></h1><p>Compare generations, inspect scenario results, and review individual matches.</p></div>
       <a class="btn secondary" href="/">Back to trainer</a>
     </header>
+    <section class="panel progression-panel" id="champion-progress" aria-labelledby="strength-title">
+      <div class="panel-heading"><div><h2 id="strength-title">Champion strength over time</h2><p class="muted">Champions play the same boards and starting seats against a pinned model. Each series uses one game-engine build.</p></div><a class="mini" href="/api/analytics/strength" download="champion-strength.json">Download measurements</a></div>
+      <p id="strength-status" class="muted analytics-status" role="status">Loading champion measurements…</p>
+      <div id="strength-results" hidden>
+        <div class="analytics-filters">
+          <div class="field"><label for="strength-suite">Benchmark series</label><select id="strength-suite"></select></div>
+          <div class="field"><label for="strength-players">Player count</label><select id="strength-players"><option value="">All player counts</option></select></div>
+          <div class="field"><label for="strength-map">Scenario</label><select id="strength-map"></select></div>
+          <div class="field"><label for="strength-metric">Chart metric</label><select id="strength-metric">
+            <option value="winsAboveEven">Win-rate lift</option><option value="meanPlace">Mean finishing place</option>
+            <option value="meanVp">Mean victory points</option><option value="vpPerProducedCard">VP per produced card</option>
+            <option value="settlements">Settlements built</option><option value="development">Development cards bought</option>
+          </select></div>
+        </div>
+        <div class="trend"><canvas class="trend-chart" id="strength-chart" role="img" aria-label="Champion benchmark history"></canvas></div>
+        <div class="table-scroll generation-scroll" tabindex="0" aria-label="Champion benchmark history">
+          <table>
+            <thead><tr><th>Checkpoint</th><th>Training games in model</th><th>Wins / games</th><th>Draws</th><th>Win-rate lift (95% interval)</th><th>Mean place</th><th id="strength-extra-column">Metric</th><th>Benchmark</th></tr></thead>
+            <tbody id="strength-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
     <section class="panel analytics-controls" aria-label="Training run">
       <div class="field"><label for="run">Training run</label><select id="run" disabled></select></div>
       <button class="btn secondary" id="refresh-run" type="button">Refresh results</button>
@@ -29,15 +52,17 @@
     <p id="run-status" class="muted analytics-status" role="status">Loading training runs…</p>
     <div id="results" hidden>
       <section class="metrics" aria-label="Run totals">
-        <div class="metric"><span>GAMES IN SELECTED GENERATIONS</span><strong id="game-count">—</strong><small id="replacements"></small></div>
-        <div class="metric"><span>AVERAGE VICTORY TURN</span><strong id="average-turns">—</strong><small id="map-count"></small></div>
-        <div class="metric"><span>AVERAGE WINNER MARGIN</span><strong id="average-margin">—</strong><small>Victory points</small></div>
-        <div class="metric"><span>GOLD PRODUCTION</span><strong id="gold">—</strong><small>Resource cards gained</small></div>
+        <div class="metric"><span>TRAINING GAMES</span><strong id="game-count">—</strong><small id="replacements"></small></div>
+        <div class="metric"><span>DECISION SAMPLES</span><strong id="run-decisions">—</strong><small id="map-count"></small></div>
+        <div class="metric"><span>GAMES AGAINST THE CHAMPION</span><strong id="run-anchored">—</strong><small id="run-anchor-lift"></small></div>
+        <div class="metric"><span>CHAMPION PROMOTIONS</span><strong id="run-promotions">—</strong><small id="run-learning"></small></div>
       </section>
       <section class="panel progression-panel" aria-labelledby="trend-title">
         <div class="panel-heading">
-          <div><h2 id="trend-title">Self-play trend</h2><p class="muted">The self-play score combines victory margin and speed. Champion qualification appears in AI benchmarking.</p></div>
+          <div><h2 id="trend-title">Training activity by generation</h2><p class="muted">Compare simulations completed, games carried forward, and performance against the changing training champion.</p></div>
           <div class="field trend-metric"><label for="chart-metric">Chart metric</label><select id="chart-metric">
+            <option value="trainingGames">Training games</option><option value="continuedGames">Games carried forward</option>
+            <option value="trainingDecisions">Decision samples</option><option value="anchorLift">Win-rate lift in champion practice</option>
             <option value="selectionScore">Selection score</option><option value="averageVictoryTurn">Average victory turn</option><option value="averageWinnerMargin">Average winner margin</option>
           </select></div>
         </div>
@@ -87,7 +112,7 @@
           <div class="panel-heading"><h2>Generation candidates</h2></div>
           <div class="table-scroll generation-scroll" tabindex="0" aria-label="Generation winners">
             <table aria-label="Generation winners">
-              <thead><tr><th>Generation</th><th>Candidate</th><th>Score</th><th>Avg. turns</th><th>Avg. margin</th></tr></thead>
+              <thead><tr><th>Generation</th><th>Training checkpoint</th><th>Games carried forward</th><th>Screen lift</th><th>Independent champion lift</th><th>Decision</th></tr></thead>
               <tbody id="selections"></tbody>
             </table>
           </div>

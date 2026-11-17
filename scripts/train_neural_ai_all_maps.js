@@ -8,8 +8,9 @@ const { spawn } = require('node:child_process');
 const { once, setMaxListeners } = require('node:events');
 const WebSocket = require('ws');
 const { TRAINING_OBJECTIVE } = require('../server/neural-objective');
+const { defaultVictoryPointsToWin } = require('../server/victory-target');
 const { atomicWriteJson } = require('./training-file');
-const { fallbackMap, validateCheckpoint } = require('./training-recovery');
+const { fallbackMap, trainingAnchorSeat, validateCheckpoint } = require('./training-recovery');
 const { ensureCuda, refine } = require('./neural-gpu');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -27,6 +28,7 @@ const RESUME_TRAINING = process.env.RESUME_TRAINING === '1';
 const NATIVE_SELF_PLAY = process.env.HEX_TRAINING_RULES === 'cpp';
 const ANCHOR_MODEL = process.env.TRAINING_ANCHOR_MODEL || '';
 const STYLE_CURRICULUM = process.env.TRAINING_STYLE_POLICY === '1';
+const LEARNING_LOOP = Number(process.env.TRAINING_LEARNING_LOOP || 0);
 const GPU_TRAINING = String(process.env.TRAINING_ACCELERATOR || 'cpu').toLowerCase() === 'cuda';
 // A candidate's matches share one event loop and one online model.
 const CONCURRENCY = NATIVE_SELF_PLAY ? REQUESTED_CONCURRENCY : Math.min(2, REQUESTED_CONCURRENCY);
@@ -89,7 +91,12 @@ const STYLE_MAPS = Object.freeze(Array.from({ length: Math.max(...byCount.map(ro
   (_, index) => byCount.map(rows => rows[index]).filter(Boolean)).flat());
 const MAP_SET = process.env.MAP_SET || 'all';
 if (!['all', 'standard'].includes(MAP_SET)) throw new Error(`Unknown MAP_SET: ${MAP_SET}`);
-const MAPS = Object.freeze((STYLE_CURRICULUM ? STYLE_MAPS : ALL_MAPS).filter(map => MAP_SET !== 'standard' || !map.customBuilder));
+const withLiveVictoryTarget = map => ({
+  ...map, victoryPoints: defaultVictoryPointsToWin({ mapMode: map.mapMode, seafarersScenario: map.scenario }),
+});
+const MAPS = Object.freeze((STYLE_CURRICULUM ? STYLE_MAPS : ALL_MAPS)
+  .filter(map => MAP_SET !== 'standard' || !map.customBuilder)
+  .map(map => LEARNING_LOOP >= 4 ? withLiveVictoryTarget(map) : map));
 
 function readModel(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -399,14 +406,9 @@ async function runOneGame(port, token, item, signal) {
     if (seats.some(player => !player.isAI || player.aiDifficulty !== 'neural_net')) {
       throw new Error(`Trainer lobby has non-neural seats: ${seats.map(player => `${player.name}:${player.isAI ? player.aiDifficulty : 'human'}`).join(', ')}`);
     }
-    // Alternate ordinary self-play with a learner facing a frozen champion.
-    // Rotating learner seats and retaining self-play preserves data diversity.
-    const cycle = Math.floor(item.curriculumIndex / MAPS.length);
-    const anchorIndex = STYLE_CURRICULUM ? item.curriculumIndex % MAPS.length + cycle : item.curriculumIndex;
-    const anchored = !!ANCHOR_MODEL && anchorIndex % 2 === 1;
-    if (anchored) {
+    const seat = ANCHOR_MODEL ? trainingAnchorSeat(item.curriculumIndex, MAPS.length, item.map.players, LEARNING_LOOP, STYLE_CURRICULUM) : null;
+    if (seat !== null) {
       stage = 'set frozen opponent';
-      const seat = Math.floor((STYLE_CURRICULUM ? cycle : item.curriculumIndex) / 2) % item.map.players;
       peer.send({ type: 'set_training_anchor', seat });
       await peer.waitFor(message => message.type === 'training_anchor' && message.seat === seat);
     }
@@ -474,7 +476,7 @@ async function runOneGame(port, token, item, signal) {
       mapId: item.map.id,
       mapLabel: item.map.label,
       players: item.map.players,
-      ...(anchored ? { anchored: true } : {}),
+      ...(seat !== null ? { anchored: true, learnerSeat: seat, learnerWon: receipt.learnerWon } : {}),
       victoryPointsToWin: victoryTarget,
       turnNumber: Number(state.turnNumber || 0),
       winner: String(winner?.name || winner?.id || 'unknown'),
@@ -638,6 +640,7 @@ async function main() {
       throw new Error('Use the frozen anchor model from the saved checkpoint');
     }
     if ((checkpoint.styleCurriculum ?? false) !== STYLE_CURRICULUM) throw new Error('Use the scenario curriculum from the saved checkpoint');
+    if ((checkpoint.learningLoop ?? 0) !== LEARNING_LOOP) throw new Error('Use the learning loop from the saved checkpoint');
     results = checkpoint.games;
     gpuBatches.push(...(checkpoint.gpuBatches || []));
     latestModel = checkpoint.model;
@@ -713,7 +716,7 @@ async function main() {
       await atomicWriteJson(checkpointPath, {
         startingTrainedGames, startingModelSha256: startingHash, totalGames: TOTAL_GAMES,
         mapSet: MAP_SET, curriculumOffset: CURRICULUM_OFFSET, model: latestModel, games: results,
-        mapHealth, rules, gpuBatches, anchorModelSha256, styleCurriculum: STYLE_CURRICULUM,
+        mapHealth, rules, gpuBatches, anchorModelSha256, styleCurriculum: STYLE_CURRICULUM, learningLoop: LEARNING_LOOP,
       });
       console.log(`[train] ${results.length}/${TOTAL_GAMES} checkpoint committed`);
       if (isPauseRequested()) {
@@ -737,6 +740,7 @@ async function main() {
       trainingObjective: TRAINING_OBJECTIVE,
       policyDecisions: results.reduce((total, game) => total + (game.policyDecisions || 0), 0),
       styleCurriculum: STYLE_CURRICULUM,
+      learningLoop: LEARNING_LOOP,
       anchorModelSha256,
       anchoredGames: results.filter(game => game.anchored).length,
       mapSet: MAP_SET,
@@ -768,7 +772,7 @@ async function main() {
   }
 }
 
-module.exports = { ALL_MAPS, STYLE_MAPS, MAPS, curriculum, summarize };
+module.exports = { ALL_MAPS, STYLE_MAPS, MAPS, withLiveVictoryTarget, curriculum, summarize };
 if (require.main === module) {
   if (process.connected) {
     process.on('message', message => {

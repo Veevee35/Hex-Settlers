@@ -224,6 +224,13 @@ function showProgression(job, progression) {
     el('confirmed-interval').textContent = result
       ? `${formatLead(result.direct.low)} to ${formatLead(result.direct.high)}` : '—';
     el('confirmed-games').textContent = result ? `Gen ${confirmed.generation} · ${numberFormat(result.games)} games` : '—';
+    el('loop-learning').hidden = el('loop-anchored').hidden = !latest.work;
+    if (latest.work) {
+      const { resetToChampion } = latest.qualification;
+      el('loop-learning-state').textContent = resetToChampion && !latest.qualification.promoted ? 'Reset to champion' :
+        latest.work.continuedGames ? `+${numberFormat(latest.work.continuedGames)} games carried forward` : 'Checkpoint retained';
+      el('loop-anchored-count').textContent = numberFormat(latest.work.anchoredGames);
+    }
     return;
   }
   el('latest-score').textContent = trainingProgression.decimal(latest.selectionScore);

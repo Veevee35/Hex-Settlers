@@ -28,7 +28,7 @@
       <div class="metric"><span>TRAINED MODEL GAMES</span><div><strong id="trained-games">—</strong></div><small id="model-detail">Existing model is preserved</small></div>
     </section>
     <section class="panel progression-panel" aria-labelledby="progression-title">
-      <div class="panel-heading"><h2 id="progression-title">Current progression</h2><div class="progression-links"><a class="mini" id="qualification-link" href="/benchmarks" hidden>Benchmark result</a> <a class="mini" id="styles-link" href="/analytics#style-progression">Play styles</a> <a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div></div>
+      <div class="panel-heading"><h2 id="progression-title">Current progression</h2><div class="progression-links"><a class="mini" id="qualification-link" href="/benchmarks" hidden>Benchmark result</a> <a class="mini" href="/analytics#champion-progress">Champion strength</a> <a class="mini" id="styles-link" href="/analytics#style-progression">Play styles</a> <a class="mini" id="analytics-link" href="/analytics">Training analytics</a></div></div>
       <p class="muted" id="progression-status">Progression appears after the first generation selects a model.</p>
       <div id="progression-results" hidden>
         <div id="competitive-progression" hidden>
@@ -37,6 +37,8 @@
             <div><dt>Challenger lift over equal-policy odds</dt><dd id="confirmed-lead">—</dd></div>
             <div><dt>99% confidence interval</dt><dd id="confirmed-interval">—</dd></div>
             <div><dt>Qualification sample</dt><dd id="confirmed-games">—</dd></div>
+            <div id="loop-learning" hidden><dt>Learning checkpoint</dt><dd id="loop-learning-state">—</dd></div>
+            <div id="loop-anchored" hidden><dt>Games against champion this generation</dt><dd id="loop-anchored-count">—</dd></div>
           </dl>
         </div>
         <div class="progression-layout" id="self-play-progression" hidden>

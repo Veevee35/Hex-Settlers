@@ -7,7 +7,7 @@ const { execFileSync, fork } = require('node:child_process');
 const { createHash, randomUUID } = require('node:crypto');
 const { gzipSync, gunzipSync } = require('node:zlib');
 const { rating, rate, ordinal } = require('openskill');
-const { STYLE_MAPS } = require('./train_neural_ai_all_maps');
+const { STYLE_MAPS, withLiveVictoryTarget } = require('./train_neural_ai_all_maps');
 const { validateImportedModel } = require('./trainer-models');
 const { atomicWriteJson, atomicWriteCompressedMatches } = require('./training-file');
 
@@ -16,7 +16,8 @@ const OPENSKILL_VERSION = require('../package.json').devDependencies.openskill;
 const OUTPUT = path.join(__dirname, 'output', 'benchmarks');
 const PROFILES = Object.freeze({ quick: 100, checkpoint: 1000, release: 5000 });
 const MAX_GAMES = 10000;
-const SCENARIOS = STYLE_MAPS.filter(map => !map.customBuilder);
+const LEGACY_SCENARIOS = STYLE_MAPS.filter(map => !map.customBuilder);
+const SCENARIOS = LEGACY_SCENARIOS.map(withLiveVictoryTarget);
 const REFERENCE_LOBBY = ['classic', 'four_islands', 'fog_island'];
 const readJson = async file => JSON.parse(await fs.readFile(file, 'utf8'));
 const hash = input => createHash('sha256').update(input).digest('hex');
@@ -243,19 +244,19 @@ async function runBenchmark(options) {
   const {
     candidate, opponent, maps = REFERENCE_LOBBY, games = PROFILES.checkpoint, seed = 'comparison-v1',
     maxTurns = 900, workerPool, workers = workerPool?.workers ?? DEFAULT_WORKERS, output = OUTPUT, replay = true,
-    onProgress = () => {}, signal, context = {}, prefix, interim,
+    onProgress = () => {}, signal, context = {}, prefix, interim, legacyVictoryTargets = false,
   } = options;
   if (!Number.isInteger(games) || games < 1 || games > MAX_GAMES) throw new Error(`Game budget must be an integer from 1 to ${MAX_GAMES}`);
   if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 10000) throw new Error('Invalid benchmark turn limit');
   if (!Number.isInteger(workers) || workers < 1 || workers > 32) throw new Error('Worker count must be an integer from 1 to 32');
   if (!Array.isArray(maps) || !maps.length || new Set(maps).size !== maps.length) throw new Error('Choose unique benchmark scenarios');
   const scenarios = maps.map(id => {
-    const map = SCENARIOS.find(entry => entry.id === id);
+    const map = (legacyVictoryTargets ? LEGACY_SCENARIOS : SCENARIOS).find(entry => entry.id === id);
     if (!map) throw new Error(`Unknown benchmark scenario ${id}`);
     return map;
   });
   const [challenger, reference] = await Promise.all([registerPolicy(candidate, output), registerPolicy(opponent, output)]);
-  const config = { games, maps, seed, maxTurns, replay };
+  const config = { games, maps, seed, maxTurns, replay, ...(legacyVictoryTargets ? { legacyVictoryTargets: true } : {}) };
   const policies = Object.fromEntries([challenger, reference].map(policy => [policy.id, policy]));
   const schedule = buildSchedule({ ...config, maps: scenarios, candidate: challenger.id, opponent: reference.id });
   const id = randomUUID();

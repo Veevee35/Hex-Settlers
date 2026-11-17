@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 'use strict';
+
+const { listChampionProgress } = require('./champion-progress');
 /**
  * Local-only neural training dashboard. No Electron build, cloud account, or
  * production API is involved: it simply supervises the existing trainer.
@@ -450,6 +452,12 @@ function staticFile(res, file, type) {
   res.end(body);
 }
 async function analytics(res, pathname, params) {
+  if (pathname === '/api/analytics/strength') {
+    return send(res, 200, {
+      checkpoints: await listChampionProgress(BENCHMARK_OUTPUT),
+      scenarios: SCENARIOS.map(({ id, label, players }) => ({ id, label, players })),
+    });
+  }
   if (pathname === '/api/analytics/runs') return send(res, 200, await listTrainingRuns(OUTPUT));
   const run = await openTrainingRun(OUTPUT, params.get('run'), { includeIncomplete: true });
   if (!run) return send(res, 404, { error: 'Training run not found' });

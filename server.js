@@ -90,6 +90,7 @@ const { bestScoredTarget, richestVictim, scorePirateTile, scoreRobberTile } = re
 const { strategicNeuralBonus, tradeIsWorthAccepting } = require('./server/neural-strategy');
 const { priorityMultipliers } = require('./server/neural-priorities');
 const { FEATURE_NAMES: NEURAL_FEATURE_NAMES, FEATURE_VERSION: NEURAL_FEATURE_VERSION, TRAINING_OBJECTIVE: NEURAL_TRAINING_OBJECTIVE, opponentFeatures, upgradeNeuralModel, victoryTrainingTarget } = require('./server/neural-objective');
+const { defaultVictoryPointsToWin } = require('./server/victory-target');
 const { POLICY_OBJECTIVE, createPolicy, selectPolicyAction, trainPolicy, validatePolicy } = require('./server/neural-policy');
 const { ensureReplay, recordReplayStep } = require('./server/replay');
 const { extendPlayerTurn } = require('./server/trade-time');
@@ -3121,21 +3122,6 @@ function filterStatsForViewer(stats, viewerId) {
 }
 
 // -------------------- Timers & Rules --------------------
-function defaultVictoryPointsToWin(rules) {
-  const mm = String(rules?.mapMode || 'classic').toLowerCase();
-  if (mm !== 'seafarers') return 10;
-  const scen = String(rules?.seafarersScenario || 'four_islands').toLowerCase();
-  if (scen === 'fog_island' || scen === 'fog-island' || scen === 'fog' || scen === 'fog_island_56' || scen === 'fog_island_78') return 12;
-  if (scen === 'through_the_desert' || scen === 'through-the-desert' || scen === 'desert' || scen === 'throughdesert' || scen === 'through_the_desert_56' || scen==='through_the_desert_78' || scen==='eight_islands_78') return 14;
-  if (scen === 'heading_for_new_shores' || scen === 'heading_for_new_shores_56' || scen === 'heading_for_new_shores_78' || scen === 'heading-for-new-shores' || scen === 'new_shores' || scen === 'newshores' || scen === 'heading') return 14;
-  if (scen === 'six_islands' || scen === 'six-islands' || scen === 'sixislands' || scen === 'six') return 14;
-  // Expanded Scattered Tiles / Cartographer (5â€“6 and 7â€“8 players) use 14 VP.
-  if (isCartographer56ScenarioKey(scen) || isCartographer78Manual(scen) || scen.startsWith('scattered_tiles_56') || scen === 'scattered_56' || scen.startsWith('scattered_tiles_78')) return 14;
-  // The original four-player Cartographer scenarios retain their 12-VP default.
-  if (isCartographer4ScenarioKey(scen)) return 12;
-  return 13; // four islands
-}
-
 function isPairedTurnPlayerTwoStage(game) {
   if (!game) return false;
   const rawMM = String(game?.rules?.mapMode || 'classic').toLowerCase();
@@ -3910,7 +3896,9 @@ function trainNeuralAiFromFinishedGame(game) {
     };
     const policySamples = game._policyTrace ? [...game._policyTrace.values()].flatMap(bucket => bucket.samples) : [];
     if (NEURAL_AI_MODEL.policy) {
-      trainPolicy(NEURAL_AI_MODEL.policy, policySamples, winnerId);
+      trainPolicy(NEURAL_AI_MODEL.policy, policySamples, winnerId, {
+        balancePhases: LOCAL_SELF_PLAY && process.env.TRAINING_LEARNING_LOOP === '4',
+      });
       NEURAL_AI_MODEL.meta.policyObjective = POLICY_OBJECTIVE;
     }
     const speedStats = (NEURAL_AI_MODEL.speedTraining && typeof NEURAL_AI_MODEL.speedTraining === 'object')
@@ -13526,6 +13514,7 @@ if (msg.type === 'create_tutorial_room') {
         sendJson(ws, { type: 'training_receipt', ok: true,
           gameId: commit.gameId, trainedGames: commit.trainedGames,
           policyDecisions: commit.policyDecisions,
+          ...(game._trainingLearnerId ? { learnerWon: game.winnerId === game._trainingLearnerId } : {}),
           nativeScoringCalls: game._nativeScoringCalls || 0,
           nativeRouteCalls: game._nativeRouteCalls || 0,
           nativeProductionCalls: game._nativeProductionCalls || 0,

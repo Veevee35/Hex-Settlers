@@ -10,7 +10,13 @@ let runRequest = 0;
 let gameRequest = 0;
 const drawTrend = trainingProgression.chart(el('analytics-chart'));
 const drawStyleTrend = trainingProgression.chart(el('style-chart'));
+const drawStrengthTrend = trainingProgression.chart(el('strength-chart'));
 let styleData;
+let strengthData;
+const pointsFormatter = new Intl.NumberFormat(undefined, {
+  signDisplay: 'exceptZero', minimumFractionDigits: 1, maximumFractionDigits: 1,
+});
+const pointsLabel = value => Number.isFinite(value) ? `${pointsFormatter.format(value * 100)} pp` : '—';
 
 async function get(endpoint, params = {}) {
   const response = await fetch(`/api/analytics/${endpoint}?${new URLSearchParams(params)}`);
@@ -32,6 +38,92 @@ function row(values) {
     tr.append(td);
   }
   return tr;
+}
+
+function benchmarkLink(id, label = 'View benchmark') {
+  const link = document.createElement('a');
+  link.className = 'mini';
+  link.href = `/benchmarks?${new URLSearchParams({ id })}`;
+  link.textContent = label;
+  return link;
+}
+
+function renderStrength() {
+  const suite = el('strength-suite').value;
+  const metric = el('strength-metric').value;
+  const players = el('strength-players').value;
+  const map = el('strength-map').value;
+  el('strength-extra-column').textContent = metric === 'winsAboveEven' ? 'Mean victory points' : trainingProgression.metrics[metric].label;
+  const checkpoints = strengthData.checkpoints.filter(entry => entry.suiteId === suite);
+  const series = [];
+  const rows = checkpoints.map((entry, index) => {
+    const result = map ? entry.byScenario[map] : players ? entry.byPlayerCount[players] : entry.all;
+    const interval = result?.winRate;
+    const lift = interval?.estimate - result?.equalPolicyWinRate;
+    if (entry.clean && result) {
+      series.push({ generation: index + 1, ...result, winsAboveEven: 100 * lift,
+        ...(metric === 'winsAboveEven' ? { low: 100 * (interval.low - result.equalPolicyWinRate), high: 100 * (interval.high - result.equalPolicyWinRate) } : {}),
+      });
+    }
+    const range = Number.isFinite(lift)
+      ? `${pointsLabel(lift)} (${pointsLabel(interval.low - result.equalPolicyWinRate)} to ${pointsLabel(interval.high - result.equalPolicyWinRate)})` : '—';
+    return row([
+      `#${index + 1} · ${date(entry.at)} · ${entry.model.slice(0, 8)}`, count(entry.trainedGames),
+      result ? `${count(result.wins)} / ${count(result.games)}` : '—', count(result?.draws), range, decimal(result?.meanPlace),
+      decimal(metric === 'winsAboveEven' ? result?.meanVp : result?.[metric]),
+      benchmarkLink(entry.report, entry.clean ? 'View benchmark' : 'View match issues'),
+    ]);
+  });
+  el('strength-rows').replaceChildren(...rows.reverse());
+  const skipped = checkpoints.length - series.length;
+  const measured = `${count(checkpoints.length)} measured checkpoint${checkpoints.length === 1 ? '' : 's'}`;
+  el('strength-status').textContent = `${measured} · ${count(checkpoints[0].all.games)} games per suite · Baseline ${checkpoints[0].baseline.slice(0, 12)}. Vertical bars show the 95% interval around lift over equal-policy odds.${skipped ? ` ${skipped} excluded by the match integrity limits.` : ''}`;
+  drawStrengthTrend(series, metric, undefined, { xLabel: 'Checkpoint', reference: metric === 'winsAboveEven' ? 0 : undefined });
+}
+
+function updateStrengthMaps() {
+  const playerCount = el('strength-players').value;
+  const selected = el('strength-map').value;
+  const maps = strengthData.scenarios.filter(scenario => !playerCount || scenario.players === Number(playerCount))
+    .sort((a, b) => a.players - b.players || a.label.localeCompare(b.label));
+  el('strength-map').replaceChildren(option('All scenarios', ''), ...maps.map(scenario =>
+    option(`${scenario.label} · ${scenario.players} players`, scenario.id)));
+  if (maps.some(scenario => scenario.id === selected)) el('strength-map').value = selected;
+  renderStrength();
+}
+
+async function loadStrength() {
+  try {
+    strengthData = await get('strength');
+    const { checkpoints, scenarios } = strengthData;
+    if (!checkpoints.length) {
+      el('strength-status').textContent = 'The first champion measurement appears after a generation completes in a new competitive run.';
+      el('strength-results').hidden = true;
+      return;
+    }
+    const suite = el('strength-suite').value;
+    const players = el('strength-players').value;
+    const suites = new Map(checkpoints.map(entry => [entry.suiteId, entry]));
+    el('strength-suite').replaceChildren(...Array.from(suites.values()).sort((a, b) => b.at.localeCompare(a.at)).map(entry =>
+      option(`${date(entry.at)} · Engine ${entry.engineHash.slice(0, 8)}`, entry.suiteId)));
+    if (suites.has(suite)) el('strength-suite').value = suite;
+    const counts = [...new Set(scenarios.map(scenario => scenario.players))].sort((a, b) => a - b);
+    el('strength-players').replaceChildren(option('All player counts', ''), ...counts.map(n => option(`${n} players`, n)));
+    el('strength-players').value = players;
+    el('strength-results').hidden = false;
+    updateStrengthMaps();
+    if (location.hash === '#champion-progress') el('champion-progress').scrollIntoView();
+  } catch (error) {
+    el('strength-status').textContent = error.message;
+  }
+}
+
+function generationDecision(selection) {
+  const evaluation = selection.evaluation;
+  if (!evaluation) return 'Self-play selection';
+  if (evaluation.promoted) return 'Champion promoted';
+  if (evaluation.resetToChampion) return 'Reset to champion';
+  return evaluation.frontier ? 'Training continued' : 'Checkpoint retained';
 }
 
 function detailList(list, data) {
@@ -154,11 +246,19 @@ function renderStyles() {
 function renderTrend() {
   const metric = el('chart-metric').value;
   const generation = Number(el('generation').value);
-  const selection = summary.selections[generation - 1];
-  const change = trainingProgression.compare(summary.selections, metric);
-  el('trend-value').textContent = `Gen ${generation} · ${trainingProgression.metrics[metric].label} ${decimal(selection[metric])}`;
-  el('trend-change').textContent = change === '—' ? 'Generation 1 is the baseline' : `${change} from first to latest generation`;
-  drawTrend(summary.selections, metric, generation);
+  const history = summary.selections.map(selection => {
+    const work = selection.work;
+    return {
+      ...selection, trainingGames: selection.games, continuedGames: work?.continuedGames,
+      trainingDecisions: work?.decisionSamples ?? selection.candidates?.reduce((sum, candidate) => sum + (candidate.policyDecisions || 0), 0),
+      anchorLift: work?.scoredAnchorGames ? 100 * (work.anchorWins - work.anchorExpectedWins) / work.scoredAnchorGames : null,
+    };
+  });
+  const change = trainingProgression.compare(history, metric);
+  const value = history[generation - 1]?.[metric];
+  el('trend-value').textContent = `Gen ${generation} · ${trainingProgression.metrics[metric].label} ${decimal(value)}`;
+  el('trend-change').textContent = change === '—' ? '' : `${change} from first to latest generation`;
+  drawTrend(history, metric, generation, { reference: metric === 'anchorLift' ? 0 : undefined });
 }
 
 function generationLink(selection) {
@@ -187,7 +287,7 @@ async function loadGames() {
   if (evaluation) {
     const promoted = evaluation.promoted === selection.pooledCandidate?.candidate
       ? 'the pooled checkpoint' : `candidate ${evaluation.promoted}`;
-    const decision = evaluation.promoted ? `Champion promoted from ${promoted}.` : 'Champion retained.';
+    const decision = evaluation.promoted ? `Champion promoted from ${promoted}.` : `${generationDecision(selection)}.`;
     const reason = evaluation.reasons?.join(' ') || '';
     const link = document.createElement('a');
     link.className = 'mini';
@@ -195,6 +295,9 @@ async function loadGames() {
     link.textContent = evaluation.confirmationStoppedEarly ? 'View early confirmation' :
       evaluation.confirmation ? 'View qualification' : evaluation.frontierCheck ? 'View checkpoint comparison' : 'View leading screening result';
     status.replaceChildren(`${decision} ${reason} `, link);
+    if (evaluation.frontierSafety) status.append(' ', benchmarkLink(evaluation.frontierSafety.report, 'View regression check'));
+    if (evaluation.championProgress?.report) status.append(' ', benchmarkLink(evaluation.championProgress.report, 'View champion measurement'));
+    if (evaluation.championProgress?.error) status.append(' ', 'Champion measurement could not complete.');
   }
   el('candidate-results').replaceChildren(...(selection.candidates || []).map(candidate => row([
     candidate.candidate === selection.selectedCandidate ? `Candidate ${candidate.candidate} · Selected` : `Candidate ${candidate.candidate}`,
@@ -260,18 +363,26 @@ async function loadRun() {
     el('export').hidden = false;
     const totalGenerations = data.manifest.totalGames / data.manifest.generationGames;
     const state = data.completedAt ? `Completed ${date(data.completedAt)}` : `${count(data.selections.length)} of ${count(totalGenerations)} generations selected`;
-    el('run-status').textContent = `Started ${date(data.manifest.createdAt)} · ${state} · ${data.manifest.rules || 'JavaScript'} rules`;
+    const source = data.manifest.learningStart?.run;
+    el('run-status').textContent = `Started ${date(data.manifest.createdAt)} · ${state} · ${data.manifest.rules || 'JavaScript'} rules${source ? ` · Learning continued from ${source}` : ''}`;
     el('game-count').textContent = count(data.games);
     el('replacements').textContent = `${count(data.replacements)} fallback games · ${(100 * data.replacements / data.games).toFixed(1)}%`;
-    el('average-turns').textContent = decimal(data.averageTurns);
     el('map-count').textContent = `${count(data.maps.length)} scenarios played`;
-    el('average-margin').textContent = decimal(data.averageMargin);
-    el('gold').textContent = count(data.gold);
+    const { work } = data;
+    el('run-decisions').textContent = count(work.decisionSamples);
+    el('run-anchored').textContent = count(work.anchoredGames);
+    el('run-anchor-lift').textContent = work.scoredAnchorGames
+      ? `${pointsLabel((work.anchorWins - work.anchorExpectedWins) / work.scoredAnchorGames)} vs even odds in training` : '';
+    el('run-promotions').textContent = count(data.selections.filter(selection => selection.evaluation?.promoted).length);
+    const learning = data.selections.at(-1).work;
+    el('run-learning').textContent = learning ? `${count(learning.learningModelGames)} games in learning checkpoint` : '';
     renderScenarios();
     el('selections').replaceChildren(...data.selections.slice().reverse().map(selection => row([
       generationLink(selection), selection.selectedCandidate === selection.pooledCandidate?.candidate
-        ? 'Pooled checkpoint' : selection.selectedCandidate, decimal(selection.selectionScore),
-      decimal(selection.averageVictoryTurn), decimal(selection.averageWinnerMargin),
+        ? 'Pooled checkpoint' : selection.selectedCandidate ? `Candidate ${selection.selectedCandidate}` : '—',
+      count(selection.work?.continuedGames), pointsLabel(selection.evaluation?.screened?.[0]?.estimate),
+      selection.evaluation?.confirmationStoppedEarly ? 'Stopped early' : pointsLabel(selection.evaluation?.direct?.estimate),
+      generationDecision(selection),
     ])));
     el('generation').replaceChildren(...data.selections.map(selection => option(`Generation ${selection.generation}`, selection.generation)));
     el('candidate').replaceChildren(option('All candidates', 0),
@@ -324,7 +435,12 @@ async function loadRuns(selected) {
 }
 
 el('run').addEventListener('change', loadRun);
-el('refresh-run').addEventListener('click', () => void loadRuns(el('run').value));
+el('refresh-run').addEventListener('click', () => {
+  void loadRuns(el('run').value);
+  void loadStrength();
+});
+el('strength-players').addEventListener('change', updateStrengthMaps);
+for (const id of ['strength-suite', 'strength-map', 'strength-metric']) el(id).addEventListener('change', renderStrength);
 el('chart-metric').addEventListener('change', renderTrend);
 el('scenario-sort').addEventListener('change', renderScenarios);
 el('style-players').addEventListener('change', renderStyleOptions);
@@ -336,3 +452,4 @@ for (const id of ['generation', 'candidate', 'map']) {
 el('previous').addEventListener('click', () => { page--; void loadGames(); });
 el('next').addEventListener('click', () => { page++; void loadGames(); });
 void loadRuns(new URLSearchParams(location.search).get('run'));
+void loadStrength();

@@ -11,6 +11,17 @@ function fallbackMap(maps, requested, round, attempted = []) {
   // Rotate so persistent trouble on a scenario does not always hit one replacement.
   return pool[(round - 1) % pool.length];
 }
+function trainingAnchorSeat(curriculumIndex, mapCount, players, learningLoop, styleCurriculum) {
+  const cycle = Math.floor(curriculumIndex / mapCount);
+  const position = curriculumIndex % mapCount;
+  if (learningLoop >= 4) {
+    const rotation = cycle + position;
+    return rotation % 4 === 0 ? null : (rotation - Math.floor(rotation / 4) - 1) % players;
+  }
+  const anchorIndex = styleCurriculum ? position + cycle : curriculumIndex;
+  return anchorIndex % 2 === 0 ? null : Math.floor((styleCurriculum ? cycle : curriculumIndex) / 2) % players;
+}
+
 function validateCheckpoint(checkpoint, startingTrainedGames, items, mapIds, startingHash = null) {
   if (!checkpoint || !Array.isArray(checkpoint.games) || !checkpoint.model) throw new Error('Invalid training checkpoint');
   if (Number(checkpoint.startingTrainedGames) !== startingTrainedGames) throw new Error('Checkpoint uses a different base model');
@@ -28,4 +39,4 @@ function validateCheckpoint(checkpoint, startingTrainedGames, items, mapIds, sta
   if (startingHash && checkpoint.startingModelSha256 && checkpoint.startingModelSha256 !== startingHash) throw new Error('Checkpoint initial model hash mismatch');
   return seen;
 }
-module.exports = { fallbackMap, validateCheckpoint };
+module.exports = { fallbackMap, trainingAnchorSeat, validateCheckpoint };
